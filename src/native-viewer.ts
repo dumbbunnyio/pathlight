@@ -70,9 +70,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const breadcrumbRow = row();
   breadcrumbRow.add(breadcrumb); breadcrumbRow.add(crumbHint);
   topBar.add(heading); topBar.add(breadcrumbRow);
-  const searchInput = new InputRenderable(renderer, { width: "100%", visible: false, maxLength: 256,
-    placeholder: "Search nodes in this view", backgroundColor: palette.panel, textColor: palette.text });
-  topBar.insertBefore(searchInput, breadcrumbRow);
+  const searchInput = new InputRenderable(renderer, { flexGrow: 1, maxLength: 256,
+    placeholder: "Search nodes in this view", backgroundColor: palette.panel, textColor: palette.text, focusedBackgroundColor: palette.panel });
+  const searchPrompt = new TextRenderable(renderer, { selectable: false, content: " / ", fg: palette.incoming, wrapMode: "none", flexShrink: 0 });
+  const searchRow = new BoxRenderable(renderer, { height: 1, width: "100%", flexShrink: 0, flexDirection: "row", visible: false, backgroundColor: palette.panel });
+  searchRow.add(searchPrompt); searchRow.add(searchInput);
+  topBar.insertBefore(searchRow, breadcrumbRow);
   const body = new SplitPaneRenderable(renderer, { flexGrow: 1, flexBasis: 0, minHeight: 1, direction: "horizontal",
     gutterOptions: { color: palette.border } });
   const viewport = new BoxRenderable(renderer, { minHeight: 1, overflow: "hidden" });
@@ -214,7 +217,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const badgeContent = () => {
     if (!binding && !following) return "";
     const busy = events.some(isActive);
-    return new StyledText([pill(`${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} LIVE ${liveLabel()}`, busy ? palette.outgoing : binding ? palette.incoming : palette.keycap)]);
+    const label = `${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} LIVE ${liveLabel()}`;
+    // Filled only while the agent is actually working, so it draws the eye exactly when something is happening.
+    return new StyledText([busy ? pill(label, palette.outgoing) : fg(binding ? palette.incoming : palette.muted)(` ${label} `)]);
   };
   let activityError = "";
   const layout = () => {
@@ -308,9 +313,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const header = [nl, ...section("ACTIVITY", palette.muted, activityTotal), nl];
     const note = (text: string, tone: string = palette.muted) => new StyledText([...header, fg(tone)(text)]);
     if (activityError) return note(activityError, palette.failure);
-    if (!binding && !following) return note("Not bound to an agent session");
-    if (!config) return note(`No activity mappings for ${view.project}`);
-    if (!binding) return note("Waiting for an agent session to record activity");
+    const advice = (lines: string[]) => new StyledText([...header, ...lines.flatMap((line, index) => [fg(index === 0 ? palette.muted : palette.border)(line), ...(index < lines.length - 1 ? [nl] : [])])]);
+    if (!binding && !following) return advice(["Not watching an agent session.", "Open this with /c4view in Claude Code,", "or: c4view show VIEW --follow"]);
+    if (!config) return advice([`No activity mappings for ${view.project}.`, "Run c4view init to map files", "to the components in this model."]);
+    if (!binding) return advice(["Waiting for an agent session", "to record its first tool call."]);
     const now = Date.now();
     const rows = activityRows(events, config, now, 64);
     const mapped = rows.filter(row => row.elements.length);
@@ -450,8 +456,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const update = () => {
     layout();
     headingText.content = headingContent(); badgeText.content = badgeContent();
-    crumbHint.content = new StyledText(hintChunks([["t", "ask"], ["c", "session"], ["?", "help"]], 26));
-    breadcrumb.content = search ? `Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length} · Enter keep · Esc cancel`
+    crumbHint.content = new StyledText(hintChunks([["t", "ask"], ["c", "session"], ["?", "help"]], 36));
+    breadcrumb.content = search ? new StyledText([fg(palette.incoming)(bold(`Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length}`)), fg(palette.muted)(" · Enter keep · Esc cancel")])
       : `${view.project} / ${diagram.id}  ·  ${diagram.nodes.length} nodes  ·  ${diagram.edges.length} relationships  ·  Back: ${history.length}`;
     searchShield.visible = !!search;
     searchShield.height = Math.max(1, renderer.height - 5);
@@ -530,9 +536,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     const paths = selectedPaths();
     inspectorTitle.content = new StyledText([fg(palette.text)(bold(selected?.title ?? "No selection"))]);
-    const facts = [selected?.kind, selected?.technology, `${paths.length} file${paths.length === 1 ? "" : "s"}`, selected?.navigateTo ? `o opens ${selected.navigateTo}` : undefined].filter(Boolean).join(" · ");
+    const facts = [selected?.technology, `${paths.length} file${paths.length === 1 ? "" : "s"}`, selected?.navigateTo ? `o opens ${selected.navigateTo}` : undefined].filter(Boolean).join(" · ");
+    const hue = hues[String(selected?.color ?? "")] ?? palette.muted;
+    const kindChip = selected?.kind ? [bg(mix(palette.panel, hue, 0.22))(fg(hue)(bold(` ${selected.kind} `))), fg(palette.muted)("  ")] : [];
     const description = describe(selected);
-    inspectorId.content = new StyledText([fg(palette.muted)(`${selected?.id ?? ""}\n`), fg(palette.border)(facts),
+    inspectorId.content = new StyledText([...kindChip, fg(palette.muted)(`${selected?.id ?? ""}\n`), fg(palette.muted)(facts),
       ...(description ? [nl, nl, fg(palette.text)(description)] : [])]);
     const name = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const incoming = diagram.edges.filter(edge => edge.target === selected?.id);
@@ -557,7 +565,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const touched = byPath.get(path);
         row.content = new StyledText([fg(palette.outgoing)(`${fileMode && fileCursor === start + index ? "›" : " "} `), fg(palette.muted)(path.slice(0, slash)),
           fg(touched ? operationColor(touched.operation) : palette.text)(touched ? bold(path.slice(slash)) : path.slice(slash))]);
-      } else row.content = new StyledText([fg(palette.muted)(fileError || "No direct file mappings")]);
+      } else row.content = new StyledText([fg(palette.muted)(fileError || (config ? "No direct file mappings" : "Map files in c4view.activity.json"))]);
       row.bg = fileMode && fileCursor === start + index ? "#294052" : palette.panel;
       // First click highlights a row; clicking the highlighted row again opens it.
       row.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!path || help.visible || summary.visible || search) return;
@@ -575,7 +583,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const navigation: Hint[] = [[selectKeys(), "select"], [vimTraverses ? "←↑↓→" : "h j k l", "pan"], ["+ -", "zoom"], ["/", "search"], ["f", "fit"], ["e", "files"], ["i", "inspector"]];
     shortcuts.content = new StyledText(search ? [fg(palette.muted)(" Type a name or ID   "), ...hintChunks([["↑↓", "matches"], ["Enter", "keep"], ["Esc", "restore"]], renderer.width - 22)]
       : fileMode ? [fg(palette.outgoing)(bold(` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`)), fg(palette.muted)("   Type to filter   "), ...hintChunks([["Enter", "open"], ["Ctrl+R", "refresh"], ["Esc", "back"]], renderer.width - 40)]
-      : ticker ?? hintChunks(navigation, renderer.width));
+      : ticker ?? (!inspector.visible && selected && describe(selected)
+        ? [fg(palette.text)(bold(` ${selected.title}`)), fg(palette.muted)(`  ${describe(selected)}`.slice(0, Math.max(0, renderer.width - selected.title.length - 4)))]
+        : hintChunks(navigation, renderer.width)));
     notice.visible = !!message;
     if (message) { const style = noticeStyle(message); notice.content = new StyledText([fg(style.color)(` ${style.glyph} `), fg(palette.text)(message)]); }
     dirty = true; renderer.requestRender();
@@ -680,7 +690,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const finishSearch = (cancel: boolean) => {
     if (!search) return;
     if (cancel) restore(search.before);
-    search = undefined; searchInput.blur(); searchInput.visible = false; heading.visible = true;
+    search = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true;
     message = ""; update();
   };
   // Ask about a node: type a question, with the component's context, into the agent's own tmux pane.
@@ -718,7 +728,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
   };
   let clickedFile = -1;
-  const endFiles = () => { clickedFile = -1; fileMode = false; searchInput.blur(); searchInput.visible = false; heading.visible = true; };
+  const endFiles = () => { clickedFile = -1; fileMode = false; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
   const openFile = (path: string) => {
     editorActive = true;
     searchInput.blur();
@@ -733,8 +743,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   const beginFiles = () => {
     fileMode = true; fileCursor = 0; fileQuery = ""; inspectorPreference = "open"; message = fileError;
-    searchInput.placeholder = "Filter mapped files"; searchInput.value = "";
-    searchInput.visible = true; heading.visible = false; searchInput.focus();
+    searchInput.placeholder = "Filter mapped files"; searchInput.value = ""; searchPrompt.content = " files › "; searchPrompt.fg = palette.outgoing;
+    searchRow.visible = true; heading.visible = false; searchInput.focus();
   };
   searchInput.on("input", (value: string) => {
     if (fileMode) { fileQuery = value; fileCursor = 0; message = ""; update(); return; }
@@ -788,8 +798,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!fileMode && key.sequence === "/") {
       key.preventDefault(); animating = false;
       search = { before: visit(), matches: [], index: 0 };
-      searchInput.placeholder = "Search nodes in this view";
-      heading.visible = false; searchInput.visible = true; searchInput.value = ""; searchInput.focus(); update(); return;
+      searchInput.placeholder = "Search nodes in this view"; searchPrompt.content = " / "; searchPrompt.fg = palette.incoming;
+      heading.visible = false; searchRow.visible = true; searchInput.value = ""; searchInput.focus(); update(); return;
     }
     if (!fileMode && key.name === "b") {
       key.preventDefault();

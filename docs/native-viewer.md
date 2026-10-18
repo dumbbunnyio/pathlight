@@ -103,6 +103,12 @@ tmux capture-pane -e -p -t %PANE | python3 scripts/ansi2png.py out.png
 The inspector shows the selected element's `kind`, `technology` and its LikeC4 `description` (markdown flattened to plain text, clipped at 420 characters), so the model is the one place that says what a component is for.
 Each card carries a faint tint of its LikeC4 `color`, so databases, queues, services and externals read apart at a glance. Shapes are not drawn: edge treatments for storage and queues looked like stray fragments beside group outlines.
 
+## Interface
+
+The top bar shows the view title with a live badge on the right (filled amber only while a tool is running, a plain cyan `● LIVE source:session` otherwise) and shortcut chips for ask, session and help. The status bar shows a mode pill (`VIEW`, `SEARCH`, `FILES`), the selected ID and zoom. The bottom row shows the latest tool call while there is recent activity; otherwise, with the inspector hidden, the selected component's description; otherwise the navigation keys as keycaps, as many as fit.
+Help (`?`), the session summary (`c`) and the ask dialog (`t`) are centred dialogs over a dimmed backdrop, titled, with their key hints at the bottom. Notices (`Model reloaded`, errors) appear above the status bar with a glyph that matches their tone. The inspector header carries the element's kind as a chip tinted with its LikeC4 colour. Empty states say what to do next, for example `Run c4view init to map files to the components in this model`.
+A one-line `loading the architecture…` shows while LikeC4 loads the model.
+
 ## Live reload
 
 The viewer watches the workspace for changes to `.c4`/`.likec4` files, LikeC4 configuration and `c4view.activity.json`, and rebuilds the diagram about half a second after the last change. Your selection, pan and zoom stay where they are, and a short notice lists added and removed nodes (`Model reloaded: + Billing service`).

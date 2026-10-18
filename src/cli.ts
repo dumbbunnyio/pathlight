@@ -77,6 +77,7 @@ try {
       if (command === "show" && !pane) {
         return yield* invalid("No tmux pane. Run inside tmux, pass --pane %ID, or use c4view view in a terminal.");
       }
+      if (command === "view" && process.stdout.isTTY) process.stdout.write("\x1b[2m  c4view · loading the architecture…\x1b[0m\n");
       const view = yield* selectView(values.workspace, id, values.project);
       if (command === "show") {
         const result = yield* showView({ view, pane, socket: values.socket, activity, follow });
