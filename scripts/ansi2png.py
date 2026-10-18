@@ -64,6 +64,9 @@ def main():
                         qx = x0 + (cw // 2 if q.endswith("R") else 0); qy = y0 + (ch // 2 if q.startswith("B") else 0)
                         d.rectangle([qx, qy, qx + cw // 2, qy + ch // 2], fill=fg)
                     continue
+            tri = {0x25e2: [(1, 0), (1, 1), (0, 1)], 0x25e3: [(0, 0), (1, 1), (0, 1)], 0x25e4: [(0, 0), (1, 0), (0, 1)], 0x25e5: [(0, 0), (1, 0), (1, 1)]}.get(cp)
+            if tri:
+                d.polygon([(x0 + px * cw, y0 + py * ch) for px, py in tri], fill=fg); continue
             if 0x2800 <= cp <= 0x28ff:   # braille: draw the dots
                 mask = cp - 0x2800
                 for bit, (col, row_) in {1:(0,0),2:(0,1),4:(0,2),8:(1,0),16:(1,1),32:(1,2),64:(0,3),128:(1,3)}.items():

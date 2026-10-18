@@ -4,6 +4,13 @@ type Point = { x: number; y: number };
 type Cell = Point & { glyph: string; strong: string; mask?: number; heavy?: number; t?: number };
 type NodeBox = Point & { width: number; height: number; children: readonly string[] };
 
+/** Arrowhead pointing along (dx, dy) in terminal cells; cells are about twice as tall as wide, so the angle is taken in visual space. */
+export function arrowGlyph(dx: number, dy: number) {
+  const angle = Math.atan2(dy * 2, dx) * 180 / Math.PI;
+  const sector = ((Math.round(angle / 45) % 8) + 8) % 8;
+  return ["▶", "◢", "▼", "◣", "◀", "◤", "▲", "◥"][sector] ?? "▶";
+}
+
 export function terminalPoint(x: number, y: number, bounds: Point, zoom = 1): Point {
   return { x: 2 + (x - bounds.x) * zoom / 16, y: 1 + (y - bounds.y) * zoom / 32 };
 }
@@ -51,6 +58,10 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
     const points = edge.points.map(project);
     const first = points[0];
     const solid = points.every(point => point.x === first?.x) || points.every(point => point.y === first?.y);
+    // Judged once per connector, in dot space: sampling noise at the single-dot scale must not widen a diagonal.
+    const last = points.at(-1) ?? first;
+    const chordRatio = first && last ? Math.abs(last.y - first.y) * 4 / Math.max(1, Math.abs(last.x - first.x) * 2) : 1;
+    const diagonal = chordRatio > 0.4 && chordRatio < 2.5;
     const dots = new Map<string, Point & { mask: number; heavy: number; t: number }>();
     const masks = [[1, 8], [2, 16], [4, 32], [64, 128]];
     let previousDot: Point | undefined;
@@ -65,7 +76,8 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
       const start = previousDot ?? next;
       const steps = Math.max(1, Math.abs(next.x - start.x), Math.abs(next.y - start.y));
       const shallow = Math.abs(next.x - start.x) >= Math.abs(next.y - start.y);
-      // Each sample also lights its perpendicular neighbours: one for the medium stroke, both for the heavy one.
+      // Only near-axis lines get the heavier stroke; a widened diagonal looks fat.
+      // Quiet connections are a single dot wide; selected ones also light the next dot across the line.
       const plot = (dx: number, dy: number, field: "mask" | "heavy") => {
         const x = Math.floor(dx / 2), y = Math.floor(dy / 4);
         if (x < 0 || y < 0 || covered({ x, y })) return;
@@ -81,8 +93,7 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
         const dx = Math.round(start.x + (next.x - start.x) * step / steps);
         const dy = Math.round(start.y + (next.y - start.y) * step / steps);
         const [ax, ay] = shallow ? [0, 1] : [1, 0];
-        plot(dx, dy, "mask"); plot(dx + ax, dy + ay, "mask");
-        plot(dx - ax, dy - ay, "heavy");
+        plot(dx, dy, "mask"); if (!diagonal) plot(dx + ax, dy + ay, "heavy");
       }
       previousDot = next;
     };
@@ -124,8 +135,7 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
       const neighbor = tail ? points.find(distinct) : points.findLast(distinct);
       if (!endpoint || !neighbor) return [];
       const dx = endpoint.x - neighbor.x, dy = endpoint.y - neighbor.y;
-      const glyph = type === "diamond" ? "◆" : type === "odiamond" ? "◇" : type === "dot" ? "●" : type === "odot" ? "○"
-        : Math.abs(dx) >= Math.abs(dy) ? dx >= 0 ? "▶" : "◀" : dy >= 0 ? "▼" : "▲";
+      const glyph = type === "diamond" ? "◆" : type === "odiamond" ? "◇" : type === "dot" ? "●" : type === "odot" ? "○" : arrowGlyph(dx, dy);
       return [{ ...point, glyph, strong: glyph }];
     };
     const curves = [...dots.values()].map(cell => {

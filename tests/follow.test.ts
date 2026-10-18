@@ -42,7 +42,7 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
     await mkdir(join(directory, "src"));
     await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/activity.ts", element: "activity" }] }));
-    const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "follow-test", "-x", "110", "-y", "42", "-P", "-F", "#{pane_id}",
+    const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "follow-test", "-x", "130", "-y", "42", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory, "--follow");
     const capture = async (text: string) => {
       let output = "";
@@ -58,9 +58,12 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
     const edit = (session: string, call: string) => writeActivity(directory,
       toolActivity(directory, { source: "claude", session }, call, "Edit", { file_path: join(directory, "src/activity.ts") }, "started"));
     await edit("session-one-aaaa", "e1");
-    const first = await capture("LIVE claude:session-");
-    expect(first).toContain("[EDIT]");
-    expect(first).toContain("session-");
+    await capture("LIVE claude:session-");
+    expect(await capture("[EDIT]")).toContain("session-");
+    await writeActivity(directory, toolActivity(directory, { source: "claude", session: "session-one-aaaa" }, "e-gap", "Edit",
+      { file_path: join(directory, "src/unmapped-gap.ts") }, "completed"));
+    const gap = await capture("NO COMPONENT");
+    expect(gap).toContain("src/unmapped-gap.ts");
     await delay(20);
     await edit("zzz-second-session", "e2");
     await capture("LIVE claude:zzz-seco");

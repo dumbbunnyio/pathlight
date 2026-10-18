@@ -68,11 +68,11 @@ test("diagonals combine Braille dots within cells and leave node interiors clear
   ] };
   const [open] = terminalConnectors(diagram, []);
   expect(open?.cells.map(cell => [cell.x, cell.y, cell.glyph])).toEqual([
-    [2, 1, "⢠"], [3, 1, "⣄"], [3, 2, "⢹"], [2, 2, "⠀"], [4, 2, "⠆"],
+    [2, 1, "⠠"], [3, 1, "⡀"], [3, 2, "⠱"],
   ]);
   const [clipped] = terminalConnectors(diagram, [{ x: 3, y: 2, width: 1, height: 1, children: [] }]);
   expect(clipped?.cells.map(cell => [cell.x, cell.y, cell.glyph])).toEqual([
-    [2, 1, "⢠"], [3, 1, "⣄"], [2, 2, "⠀"], [4, 2, "⠆"],
+    [2, 1, "⠠"], [3, 1, "⡀"],
   ]);
 });
 
@@ -83,9 +83,9 @@ test("crossing curves retain both dot patterns when selection changes", () => {
   ] }, []);
   for (const selected of [undefined, "a", "b", "c", "d"]) {
     const crossing = [...composeConnectors(routes, selected)].find(cell => cell.x === 3 && cell.y === 1);
-    const quiet = 0x28a4 & 0xff; // the medium-stroke dots of both curves in this cell
+    const quiet = 0xe0; // the quiet-stroke dots of both curves in this cell
     expect((crossing?.glyph.codePointAt(0) ?? 0) & quiet).toBe(quiet);
-    expect(crossing?.glyph).toBe(selected === undefined ? "⣤" : crossing?.glyph);
+    expect(crossing?.glyph).toBe(selected === undefined ? "⣠" : crossing?.glyph);
     expect(crossing?.emphasis).toBe(selected === undefined ? "none" : selected === "a" || selected === "c" ? "outgoing" : "incoming");
   }
 });

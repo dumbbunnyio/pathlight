@@ -6,7 +6,7 @@ import { type View, acquireModel, validateActivityMapping } from "./catalog";
 import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, latestBinding, readActivity, readActivityConfig } from "./activity";
 import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
-import { composeConnectors, terminalConnectors } from "./connectors";
+import { arrowGlyph, composeConnectors, terminalConnectors } from "./connectors";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
 
@@ -122,7 +122,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let events: ActivityEvent[] = [];
   let byElement = new Map<string, ActivityEvent[]>();
   let byPath = new Map<string, ActivityEvent>();
-  let followCamera = false, focusedCall = "";
+  let followCamera = false, focusedCall = "", lastSignature = "", lastPaint = 0;
   // Which key family moves the selection; the other family pans. `v` swaps them.
   let vimTraverses = true;
   const selectKeys = () => vimTraverses ? "h j k l" : "Arrows";
@@ -256,7 +256,7 @@ INSPECT
   const section = (title: string, tone: string, right = "") => [fg(tone)(bold(title)), fg(palette.border)(` ${"─".repeat(Math.max(2, innerWidth() - title.length - right.length - 2))} `), fg(palette.muted)(right)];
   const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
   const activityContent = () => {
-    const activityTotal = events.length ? `${events.length} calls` : "";
+    const activityTotal = events.length ? `${events.length} call${events.length > 1 ? "s" : ""}` : "";
     const header = [nl, ...section("ACTIVITY", palette.muted, activityTotal), nl];
     const note = (text: string, tone: string = palette.muted) => new StyledText([...header, fg(tone)(text)]);
     if (activityError) return note(activityError, palette.failure);
@@ -274,8 +274,9 @@ INSPECT
     const chunks = [...header];
     for (const [element, group] of [...groups].slice(0, 4)) {
       const running = group.some(row => row.state === "started");
+      const inView = diagram.nodes.some(node => String(node.modelRef) === element);
       chunks.push(fg(running ? operationColor(group.find(row => row.state === "started")?.operation ?? "other") : palette.muted)(running ? `${spin} ` : "● "),
-        fg(palette.text)(bold(elementTitle(element))), nl);
+        fg(palette.text)(bold(elementTitle(element))), ...(inView ? [] : [fg(palette.muted)("  other view")]), nl);
       const collapsed: { row: (typeof group)[number]; count: number }[] = [];
       for (const row of group) {
         const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target);
@@ -295,7 +296,13 @@ INSPECT
       }
     }
     const hidden = rows.length - mapped.length;
-    if (hidden > 0) chunks.push(fg(palette.border)(`+${hidden} unmapped`));
+    // Edits to files no component claims are the useful kind of unmapped: they show where the mapping has a gap.
+    const gaps = [...new Set(rows.filter(row => !row.elements.length && row.operation === "edit").flatMap(row => row.paths))];
+    if (gaps.length) {
+      chunks.push(nl, fg(palette.outgoing)(bold("NO COMPONENT")), fg(palette.muted)(`  ${gaps.length} edited file${gaps.length > 1 ? "s" : ""}\n`));
+      for (const path of gaps.slice(0, 3)) chunks.push(fg(palette.muted)("  ✎ "), fg(palette.text)(`${path.length > width - 4 ? `…${path.slice(-(width - 5))}` : path}\n`));
+    }
+    if (hidden > 0) chunks.push(fg(palette.border)(`+${hidden} unmapped call${hidden > 1 ? "s" : ""}`));
     return new StyledText(chunks);
   };
   const tickerContent = () => {
@@ -317,6 +324,12 @@ INSPECT
         if (x >= 0 && y >= 0 && x < viewport.width && y < viewport.height) canvas.frameBuffer.setCell(x, y, "·", dot, bg);
       }
     }
+  };
+  // When a node is too small for its wrapped title plus a status line, the observed state wins and the title is clipped.
+  const labelTitle = (title: string, width: number, height: number, status: boolean) => {
+    const textWidth = Math.max(4, width - 4);
+    return Math.ceil(title.length / textWidth) + (status ? 1 : 0) > Math.max(1, height - 2) && title.length > textWidth
+      ? `${title.slice(0, textWidth - 1)}…` : title;
   };
   const update = () => {
     layout();
@@ -357,16 +370,16 @@ INSPECT
       const warmth = !latest ? 0 : Date.now() - latest.time < 10_000 ? 3 : Date.now() - latest.time < 30_000 ? 2 : Date.now() - latest.time < 90_000 ? 1 : 0;
       entry.box.backgroundColor = entry.node.id === selected?.id ? "#233343"
         : entry.node.children.length ? palette.background : warmth && latest ? mix(palette.node, operationColor(latest.operation), warmth * 0.07) : palette.node;
-      if (entry.node.children.length) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : ""}${counts ? ` ·${counts}` : ""}`;
-      else entry.label.content = new StyledText([fg(palette.text)(entry.node.title),
-        ...(state || counts ? [nl, ...(state ? [fg(operationColor(state === "EDIT" ? "edit" : state === "READ" ? "read" : state === "RUN" ? "command" : "other"))(`[${state}]`)] : []),
-          ...(counts ? [fg(palette.text)(state ? " " : ""), ...countChunks(reads, edits, runs)] : [])] : [])]);
       const origin = projected(entry.node.x, entry.node.y);
       const end = projected(entry.node.x + entry.node.width, entry.node.y + entry.node.height);
       const width = Math.max(2, Math.round(end.x) - Math.round(origin.x));
       const height = Math.max(2, Math.round(end.y) - Math.round(origin.y));
       entry.box.left = Math.round(origin.x); entry.box.top = Math.round(origin.y);
       entry.box.width = width; entry.box.height = height;
+      if (entry.node.children.length) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : ""}${counts ? ` ·${counts}` : ""}`;
+      else entry.label.content = new StyledText([fg(palette.text)(labelTitle(entry.node.title, width, height, !!(state || counts))),
+        ...(state || counts ? [nl, ...(state ? [fg(operationColor(state === "EDIT" ? "edit" : state === "READ" ? "read" : state === "RUN" ? "command" : "other"))(`[${state}]`)] : []),
+          ...(counts ? [fg(palette.text)(state ? " " : ""), ...countChunks(reads, edits, runs)] : [])] : [])]);
       entry.box.visible = end.x > 0 && end.y > 0 && origin.x < viewport.width && origin.y < viewport.height;
       const bloom = Math.min(1, Math.max(0, (easeOut(revealProgress()) - (diagram.bounds.width ? (entry.node.x - diagram.bounds.x) / diagram.bounds.width * 0.45 : 0)) / 0.55));
       if (bloom < 1) { entry.box.borderColor = fade(entry.box.borderColor, bloom); entry.box.backgroundColor = fade(entry.box.backgroundColor, bloom); }
@@ -391,7 +404,7 @@ INSPECT
         label.left = x; label.top = y; label.fg = hex;
         label.visible = !braille && x >= 0 && y >= 0 && x < viewport.width && y < viewport.height && !covered();
         label.content = type === "diamond" ? "◆" : type === "odiamond" ? "◇" : type === "dot" ? "●" : type === "odot" ? "○"
-          : Math.abs(dx) >= Math.abs(dy) ? dx >= 0 ? "▶" : "◀" : dy >= 0 ? "▼" : "▲";
+          : arrowGlyph(dx, dy);
       }
     }
     const paths = selectedPaths();
@@ -743,8 +756,12 @@ INSPECT
   if (binding || following) yield* Effect.gen(function* () {
     if (following) binding = (yield* latestBinding(view.workspace)) ?? binding;
     events = binding ? yield* readActivity(view.workspace, binding) : [];
+    const signature = `${binding?.session}/${events.map(event => `${event.call}${event.phase}`).join()}`;
+    const changed = signature !== lastSignature;
+    lastSignature = signature;
     indexEvents(); followActivity();
-    activityError = ""; if (!editorActive) update();
+    // Idle polls only refresh ages and tints every couple of seconds; a running call keeps the spinner moving.
+    if (changed || events.some(isActive) || Date.now() - lastPaint > 2000) { activityError = ""; lastPaint = Date.now(); if (!editorActive) update(); }
   }).pipe(Effect.catch(() => Effect.sync(() => { activityError = "Activity unavailable"; if (!editorActive) update(); })),
     Effect.repeat(Schedule.spaced("250 millis")), Effect.forkScoped);
   renderer.start(); update();
