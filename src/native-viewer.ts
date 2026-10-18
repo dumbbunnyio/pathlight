@@ -1,4 +1,4 @@
-import { BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRenderable, TextRenderable, StyledText, fg, RGBA, createCliRenderer } from "@opentui/core";
+import { BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRenderable, TextRenderable, StyledText, fg, bold, dim, RGBA, createCliRenderer } from "@opentui/core";
 import { THREE, ThreeCliRenderer } from "@opentui/three";
 import { SplitPaneRenderable } from "opentui-split";
 import { Effect, FiberSet, Schedule } from "effect";
@@ -85,7 +85,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const footer = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, bg: palette.panel, wrapMode: "none" });
   const shortcuts = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   const notice = new TextRenderable(renderer, { height: 1, flexShrink: 0, visible: false, fg: palette.outgoing, wrapMode: "none" });
-  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 21,
+  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 22,
     border: true, borderStyle: "rounded", borderColor: palette.incoming, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
     zIndex: 20000, visible: false, title: " Keyboard shortcuts " });
   const helpShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
@@ -121,6 +121,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let layoutKey = "";
   let events: ActivityEvent[] = [];
   let byElement = new Map<string, ActivityEvent[]>();
+  let byPath = new Map<string, ActivityEvent>();
   let followCamera = false, focusedCall = "";
   // Which key family moves the selection; the other family pans. `v` swaps them.
   let vimTraverses = true;
@@ -140,6 +141,7 @@ INSPECT
   /                  Search this view
   i                  Toggle inspector
   a                  Camera follows running tools
+  Counts on nodes:   r reads · e edits · c commands
   PageUp / PageDown  Scroll inspector
   e                  Browse mapped files
   ? / Escape         Close help
@@ -153,6 +155,8 @@ INSPECT
   };
   const indexEvents = () => {
     byElement = new Map();
+    byPath = new Map();
+    for (const event of events) for (const path of event.paths) if (!byPath.has(path) || event.time > (byPath.get(path)?.time ?? 0)) byPath.set(path, event);
     for (const event of events) {
       for (const element of new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element))) {
         byElement.set(element, [...byElement.get(element) ?? [], event]);
@@ -238,21 +242,52 @@ INSPECT
     const p = point(x, y, 10).project(camera);
     return { x: (p.x + 1) * viewport.width / 2, y: (1 - p.y) * viewport.height / 2 };
   };
+  const nl = fg(palette.text)("\n");
+  const innerWidth = () => Math.max(16, inspector.width - 3);
+  const section = (title: string, tone: string, right = "") => [fg(tone)(bold(title)), fg(palette.border)(` ${"─".repeat(Math.max(2, innerWidth() - title.length - right.length - 2))} `), fg(palette.muted)(right)];
+  const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
   const activityContent = () => {
-    const header = fg(palette.muted)("\nACTIVITY\n");
-    if (activityError) return new StyledText([header, fg(palette.failure)(activityError)]);
-    if (!binding && !following) return new StyledText([header, fg(palette.muted)("Not bound to an agent session")]);
-    if (!config) return new StyledText([header, fg(palette.muted)(`No activity mappings for ${view.project}`)]);
-    if (!binding) return new StyledText([header, fg(palette.muted)("Waiting for an agent session to record activity")]);
-    const rows = activityRows(events, config, Date.now(), 6);
-    if (!rows.length) return new StyledText([header, fg(palette.muted)("Waiting for mapped activity")]);
-    return new StyledText([header, ...rows.flatMap(row => {
-      const badge = row.state === "failed" ? "FAIL" : row.state === "unconfirmed" ? "????" : row.state === "started" ? row.operation.toUpperCase().padEnd(4) : "done";
-      const tone = row.state === "failed" ? palette.failure : row.state === "completed" || row.state === "unconfirmed" ? palette.muted : operationColor(row.operation);
-      const mapped = row.elements.length > 0;
-      return [fg(tone)(`${badge} ${formatAge(row.age).padStart(3)} `), fg(mapped ? palette.text : palette.muted)(`${row.target}\n`),
-        fg(mapped ? palette.incoming : palette.muted)(`        ${row.elements.join(", ") || "unmapped"}\n`)];
-    })]);
+    const activityTotal = events.length ? `${events.length} calls` : "";
+    const header = [nl, ...section("ACTIVITY", palette.muted, activityTotal), nl];
+    const note = (text: string, tone: string = palette.muted) => new StyledText([...header, fg(tone)(text)]);
+    if (activityError) return note(activityError, palette.failure);
+    if (!binding && !following) return note("Not bound to an agent session");
+    if (!config) return note(`No activity mappings for ${view.project}`);
+    if (!binding) return note("Waiting for an agent session to record activity");
+    const now = Date.now();
+    const rows = activityRows(events, config, now, 64);
+    const mapped = rows.filter(row => row.elements.length);
+    if (!mapped.length) return note(rows.length ? `${rows.length} calls, none mapped to a component` : "Waiting for mapped activity");
+    const groups = new Map<string, typeof mapped>();
+    for (const row of mapped) groups.set(row.elements[0] ?? "", [...groups.get(row.elements[0] ?? "") ?? [], row]);
+    const width = innerWidth();
+    const spin = spinner[Math.floor(now / 100) % spinner.length] ?? "●";
+    const chunks = [...header];
+    for (const [element, group] of [...groups].slice(0, 4)) {
+      const running = group.some(row => row.state === "started");
+      chunks.push(fg(running ? operationColor(group.find(row => row.state === "started")?.operation ?? "other") : palette.muted)(running ? `${spin} ` : "● "),
+        fg(palette.text)(bold(elementTitle(element))), nl);
+      const collapsed: { row: (typeof group)[number]; count: number }[] = [];
+      for (const row of group) {
+        const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target);
+        if (same) same.count++; else collapsed.push({ row, count: 1 });
+      }
+      for (const { row, count } of collapsed.slice(0, 3)) {
+        const glyph = row.state === "started" ? spin : row.state === "completed" ? "✓" : row.state === "failed" ? "✗" : "?";
+        const glyphTone = row.state === "failed" ? palette.failure : row.state === "started" ? operationColor(row.operation) : palette.muted;
+        const badge = (row.operation === "command" ? "RUN" : row.operation.toUpperCase()).padEnd(4);
+        const first = row.paths[0]?.split("/").at(-1) ?? row.target;
+        const target = `${first}${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}`;
+        const age = formatAge(row.age);
+        const room = Math.max(4, width - 2 - 2 - badge.length - 1 - age.length - 1);
+        const shown = target.length > room ? `${target.slice(0, room - 1)}…` : target;
+        chunks.push(fg(glyphTone)(`  ${glyph} `), fg(operationColor(row.operation))(`${badge} `), fg(palette.text)(shown),
+          fg(palette.muted)(`${" ".repeat(Math.max(1, width - 2 - 2 - badge.length - 1 - shown.length - age.length))}${age}`), nl);
+      }
+    }
+    const hidden = rows.length - mapped.length;
+    if (hidden > 0) chunks.push(fg(palette.border)(`+${hidden} unmapped`));
+    return new StyledText(chunks);
   };
   const tickerContent = () => {
     if (!binding || !config) return "";
@@ -280,6 +315,7 @@ INSPECT
       const reads = related.filter(event => event.operation === "read").length, edits = related.filter(event => event.operation === "edit").length;
       const runs = related.filter(event => event.operation === "command").length;
       const counts = [reads && `r${reads}`, edits && `e${edits}`, runs && `c${runs}`].filter(Boolean).join(" ");
+      const countChunks = (r: number, e: number, c: number) => [...r ? [fg(palette.incoming)(`r${r} `)] : [], ...e ? [fg(palette.outgoing)(`e${e} `)] : [], ...c ? [fg(palette.command)(`c${c}`)] : []];
       const active = related.filter(isActive);
       const recent = related.find(event => Date.now() - event.time <= 5000);
       const state = active.length ? active.some(event => event.operation === "edit") ? "EDIT" : active.some(event => event.operation === "read") ? "READ" : "RUN"
@@ -300,7 +336,9 @@ INSPECT
       entry.box.backgroundColor = entry.node.id === selected?.id ? "#233343"
         : warmth && latest ? mix(palette.node, operationColor(latest.operation), warmth * 0.07) : palette.node;
       if (entry.node.children.length) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : ""}${counts ? ` ·${counts}` : ""}`;
-      else entry.label.content = `${entry.node.title}${state || counts ? `\n${state ? `[${state}]` : ""}${state && counts ? " " : ""}${counts}` : ""}`;
+      else entry.label.content = new StyledText([fg(palette.text)(entry.node.title),
+        ...(state || counts ? [nl, ...(state ? [fg(operationColor(state === "EDIT" ? "edit" : state === "READ" ? "read" : state === "RUN" ? "command" : "other"))(`[${state}]`)] : []),
+          ...(counts ? [fg(palette.text)(state ? " " : ""), ...countChunks(reads, edits, runs)] : [])] : [])]);
       const origin = projected(entry.node.x, entry.node.y);
       const end = projected(entry.node.x + entry.node.width, entry.node.y + entry.node.height);
       const width = Math.max(2, Math.round(end.x) - Math.round(origin.x));
@@ -333,23 +371,33 @@ INSPECT
       }
     }
     const paths = selectedPaths();
-    inspectorTitle.content = selected?.title ?? "No selection";
-    inspectorId.content = `${selected?.id ?? ""}\n${selected?.children.length ? "Group" : "Element"} · ${paths.length} mapped files${selected?.navigateTo ? ` · o opens ${selected.navigateTo}` : ""}`;
+    inspectorTitle.content = new StyledText([fg(palette.text)(bold(selected?.title ?? "No selection"))]);
+    inspectorId.content = new StyledText([fg(palette.muted)(`${selected?.id ?? ""}\n`),
+      fg(palette.border)(`${selected?.children.length ? "Group" : "Element"} · ${paths.length} mapped files${selected?.navigateTo ? ` · o opens ${selected.navigateTo}` : ""}`)]);
     const name = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const incoming = diagram.edges.filter(edge => edge.target === selected?.id);
     const outgoing = diagram.edges.filter(edge => edge.source === selected?.id);
+    const link = (arrow: string, tone: string, node: string, label: string | null | undefined) =>
+      [fg(tone)(`${arrow} `), fg(palette.text)(`${name(node)}\n`), fg(palette.muted)(`  ${label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}\n`)];
     relations.content = new StyledText([
-      fg(palette.incoming)(`\nINCOMING  ${incoming.length}\n`),
-      fg(palette.text)(incoming.map(edge => `← ${name(edge.source)}\n  ${edge.label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}`).join("\n") || "None"),
-      fg(palette.outgoing)(`\n\nOUTGOING  ${outgoing.length}\n`),
-      fg(palette.text)(outgoing.map(edge => `→ ${name(edge.target)}\n  ${edge.label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}`).join("\n") || "None"),
+      nl, ...section("INCOMING", palette.incoming, String(incoming.length)), nl,
+      ...(incoming.length ? incoming.flatMap(edge => link("←", palette.incoming, edge.source, edge.label)) : [fg(palette.muted)("None\n")]),
+      nl, ...section("OUTGOING", palette.outgoing, String(outgoing.length)), nl,
+      ...(outgoing.length ? outgoing.flatMap(edge => link("→", palette.outgoing, edge.target, edge.label)) : [fg(palette.muted)("None\n")]),
     ]);
-    fileHeading.content = `\n${fileMode ? `Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}` : `FILES  ${paths.length}  ·  e to browse`}`;
+    fileHeading.content = new StyledText([nl, ...(fileMode
+      ? [fg(palette.outgoing)(bold(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`))]
+      : section("FILES", palette.muted, `${paths.length}  e browse`))]);
     const start = Math.floor(fileCursor / fileRows.length) * fileRows.length;
     fileRows.forEach((row, index) => {
       const path = paths[start + index];
       row.visible = !!path || index === 0;
-      row.content = path ? `${fileMode && fileCursor === start + index ? "›" : " "} ${path}` : fileError || "No direct file mappings";
+      if (path) {
+        const slash = path.lastIndexOf("/") + 1;
+        const touched = byPath.get(path);
+        row.content = new StyledText([fg(palette.outgoing)(`${fileMode && fileCursor === start + index ? "›" : " "} `), fg(palette.muted)(path.slice(0, slash)),
+          fg(touched ? operationColor(touched.operation) : palette.text)(touched ? bold(path.slice(slash)) : path.slice(slash))]);
+      } else row.content = new StyledText([fg(palette.muted)(fileError || "No direct file mappings")]);
       row.bg = fileMode && fileCursor === start + index ? "#294052" : palette.panel;
       row.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!path || help.visible || search) return;
         if (!fileMode) beginFiles(); fileCursor = start + index; message = "Enter opens the selected file"; searchInput.focus(); update(); };

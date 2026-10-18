@@ -114,7 +114,7 @@ Call `c4view.stop` to stop recording. Closing the viewer alone does not stop rec
 Plugin reloads stop recording; call `show` with `live: true` again to resume.
 Subagent sessions are separate and are not automatically included.
 
-The panel shows the latest four tool calls and their mapped components.
+The inspector groups recent mapped calls by component (up to four components, three rows each; repeats collapse to `×N`) and summarises everything else as `+N unmapped`.
 Native nodes also show active READ or EDIT labels, followed by DONE or FAILED for five seconds. Groups display their own mapped activity in their title.
 The layout stays fixed as activity arrives.
 Unmapped paths remain visible as `unmapped`. Long-running calls become `unconfirmed` after 30 seconds without an outcome.

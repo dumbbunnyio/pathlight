@@ -91,7 +91,7 @@ Groups show their own mapped activity in their title. A child's activity does no
 
 `--follow` binds to the newest recorded session in the workspace and re-binds when another session writes later.
 Until a session records, the header reads `LIVE waiting for a session`.
-The header shows a spinner while a tool runs. The footer starts with the latest call, and the inspector lists six recent calls with their age (`EDIT 3s`, `done 1m`, `FAIL`, `????` for unconfirmed).
+The header shows a spinner while a tool runs. The footer starts with the latest call, and the inspector groups recent mapped calls under their component, one short line each: a status glyph (spinner while running, `✓` done, `✗` failed, `?` unconfirmed), `READ`/`EDIT`/`RUN`, the file name (`+N` more files, `×N` repeats) and a coarse age. Unmapped calls collapse into one `+N unmapped` line. In the file list, files touched in the retained journal are bold and coloured by operation.
 Nodes show `r` and `e` counts for retained reads and edits (groups append them to the title). Counts describe the retained journal, not totals.
 Nodes that saw work in the last 90 seconds carry a faint tint (warm for edits, cool for reads) that cools in three coarse steps, so you can see where the agent has been.
 Shell commands (`Bash`) are tracked too: the journal keeps only the existing workspace files the command names, never its text. A running command shows `[RUN]` in violet on those nodes and counts as `c`. That means "a command referred to this file", not that it read or edited it.
