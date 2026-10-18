@@ -3,11 +3,26 @@ specification {
 }
 
 model {
-  plugin = component 'Agent adapters'
-  activity = component 'Activity metadata'
-  catalog = component 'LikeC4 catalog'
-  launcher = component 'tmux launcher'
-  viewer = component 'Persistent viewer'
+  plugin = component 'Agent adapters' {
+    technology 'Claude hooks, OpenCode plugin'
+    description 'Observe each tool call an agent makes and record only its lifecycle: tool, operation, files named, and when.'
+  }
+  activity = component 'Activity metadata' {
+    technology 'JSON journal'
+    description 'Bounded, local, per-session event journal. Holds metadata only: never source, arguments, commands or results.'
+  }
+  catalog = component 'LikeC4 catalog' {
+    technology 'LikeC4'
+    description 'Loads the architecture model and its layout. LikeC4 stays the source of truth for identities, hierarchy and links.'
+  }
+  launcher = component 'tmux launcher' {
+    technology 'tmux, Bun'
+    description 'Opens, reuses and cleans up the viewer pane beside the conversation. Never touches a pane it does not own.'
+  }
+  viewer = component 'Persistent viewer' {
+    technology 'OpenTUI, Three'
+    description 'The interactive diagram: pan and zoom camera, node selection, mapped files, and live activity.'
+  }
 
   plugin -> activity 'Records tool lifecycle'
   plugin -> launcher 'Opens a view'

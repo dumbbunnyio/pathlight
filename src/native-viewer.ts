@@ -74,7 +74,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     paddingLeft: 1, paddingRight: 1, backgroundColor: palette.panel });
   const inspectorScroll = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true });
   const inspectorTitle = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
-  const inspectorId = new TextRenderable(renderer, { selectable: false, height: 2, flexShrink: 0, fg: palette.muted, wrapMode: "word" });
+  const inspectorId = new TextRenderable(renderer, { selectable: false, flexShrink: 0, fg: palette.muted, wrapMode: "word" });
   const relations = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "word" });
   const fileHeading = new TextRenderable(renderer, { selectable: false, height: 2, flexShrink: 0, fg: palette.muted });
   const fileRows = Array.from({ length: 5 }, (_, index) => new TextRenderable(renderer, { selectable: false, id: `file-${index}`, height: 1,
@@ -156,8 +156,8 @@ INSPECT
   const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
   const isActive = (event: ActivityEvent) => event.phase === "started" && Date.now() - event.time <= 30_000;
   const operationColor = (operation: ActivityEvent["operation"]) => operation === "edit" ? palette.outgoing : operation === "read" ? palette.incoming : operation === "command" ? palette.command : palette.muted;
-  const mix = (from: string, to: string, amount: number) => {
-    const a = RGBA.fromHex(from), b = RGBA.fromHex(to);
+  const mix = (from: string | RGBA, to: string | RGBA, amount: number) => {
+    const a = typeof from === "string" ? RGBA.fromHex(from) : from, b = typeof to === "string" ? RGBA.fromHex(to) : to;
     return RGBA.fromValues(a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount, a.b + (b.b - a.b) * amount, 1);
   };
   const indexEvents = () => {
@@ -397,6 +397,16 @@ INSPECT
       for (let cy = y0 + 1; cy < y1; cy++) { put(x0, cy, "│"); put(x1, cy, "│"); }
     }
   };
+  // LikeC4's own description, flattened: the model is the single source of what a component is for.
+  const describe = (node: typeof selected) => {
+    const raw = node?.description as { txt?: string; md?: string } | null | undefined;
+    const text = (raw?.txt ?? raw?.md ?? "").replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[#*_`>]/g, "").replace(/\s+/g, " ").trim();
+    return text.length > 420 ? `${text.slice(0, 419)}…` : text;
+  };
+  // The element's LikeC4 colour as a faint tint on its card, so kinds (database, queue, external...) read at a glance.
+  const hues: Record<string, string> = { primary: "#4f8bd8", blue: "#4f8bd8", secondary: "#7a7fe0", indigo: "#6d6fe0", sky: "#4db8e8",
+    green: "#4fbf7f", amber: "#e0a63c", red: "#e0605f", gray: "#8a97a6", slate: "#7d8da0", muted: "#8a97a6" };
+  const cardColor = (node: { color?: unknown }) => { const hue = hues[String(node.color ?? "")]; return hue ? mix(palette.node, hue, 0.1) : RGBA.fromHex(palette.node); };
   const update = () => {
     layout();
     heading.content = headingContent();
@@ -438,7 +448,7 @@ INSPECT
       const latest = related.reduce<ActivityEvent | undefined>((best, event) => !best || event.time > best.time ? event : best, undefined);
       const warmth = !latest ? 0 : Date.now() - latest.time < 10_000 ? 3 : Date.now() - latest.time < 30_000 ? 2 : Date.now() - latest.time < 90_000 ? 1 : 0;
       entry.box.backgroundColor = entry.node.id === selected?.id ? "#233343"
-        : entry.node.children.length ? palette.background : warmth && latest ? mix(palette.node, operationColor(latest.operation), warmth * 0.07) : palette.node;
+        : entry.node.children.length ? palette.background : warmth && latest ? mix(cardColor(entry.node), operationColor(latest.operation), warmth * 0.07) : cardColor(entry.node);
       const origin = projected(entry.node.x, entry.node.y);
       const end = projected(entry.node.x + entry.node.width, entry.node.y + entry.node.height);
       const width = Math.max(2, Math.round(end.x) - Math.round(origin.x));
@@ -479,8 +489,10 @@ INSPECT
     }
     const paths = selectedPaths();
     inspectorTitle.content = new StyledText([fg(palette.text)(bold(selected?.title ?? "No selection"))]);
-    inspectorId.content = new StyledText([fg(palette.muted)(`${selected?.id ?? ""}\n`),
-      fg(palette.border)(`${selected?.children.length ? "Group" : "Element"} · ${paths.length} mapped files${selected?.navigateTo ? ` · o opens ${selected.navigateTo}` : ""}`)]);
+    const facts = [selected?.kind, selected?.technology, `${paths.length} file${paths.length === 1 ? "" : "s"}`, selected?.navigateTo ? `o opens ${selected.navigateTo}` : undefined].filter(Boolean).join(" · ");
+    const description = describe(selected);
+    inspectorId.content = new StyledText([fg(palette.muted)(`${selected?.id ?? ""}\n`), fg(palette.border)(facts),
+      ...(description ? [nl, nl, fg(palette.text)(description)] : [])]);
     const name = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const incoming = diagram.edges.filter(edge => edge.target === selected?.id);
     const outgoing = diagram.edges.filter(edge => edge.source === selected?.id);
