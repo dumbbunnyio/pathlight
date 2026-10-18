@@ -1,0 +1,14 @@
+{
+  "name": "visualize-work",
+  "owner": {
+    "name": "David Levy"
+  },
+  "plugins": [
+    {
+      "name": "visualize-work",
+      "source": "./plugins/claude",
+      "description": "Live LikeC4 architecture viewer beside Claude Code, with observed tool activity mapped to components."
+    }
+  ],
+  "description": "Live architecture viewer for coding agents in tmux."
+}

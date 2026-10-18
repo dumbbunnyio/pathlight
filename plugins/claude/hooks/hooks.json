@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$f/c4view.activity.json\" ] && command -v c4view >/dev/null 2>&1 && c4view record --workspace \"$f\" >/dev/null 2>&1; exit 0'",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$f/c4view.activity.json\" ] && command -v c4view >/dev/null 2>&1 && c4view record --workspace \"$f\" >/dev/null 2>&1; exit 0'",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$f/c4view.activity.json\" ] && command -v c4view >/dev/null 2>&1 && c4view record --workspace \"$f\" >/dev/null 2>&1; exit 0'",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -84,18 +84,20 @@ Open the live architecture viewer in the user's tmux window. It follows this ses
 Report only whether the viewer opened. Do not describe the diagram from memory.
 `;
 
-export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string) {
+export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string, options: { claudeHooks: boolean } = { claudeHooks: true }) {
   const workspace = yield* io("Init.workspace", () => realpath(path));
   const notes: string[] = [];
 
-  const settingsPath = join(workspace, ".claude", "settings.local.json");
-  const existing = yield* readOptional(settingsPath);
-  const settings = claudeSettings(existing ? yield* json(existing) : {}, join(pluginRoot, "claude", "hook.sh"));
-  yield* writeText(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
-  notes.push("Claude Code: hooks added to .claude/settings.local.json (per-user, not shared).");
+  if (options.claudeHooks) {
+    const settingsPath = join(workspace, ".claude", "settings.local.json");
+    const existing = yield* readOptional(settingsPath);
+    const settings = claudeSettings(existing ? yield* json(existing) : {}, join(pluginRoot, "claude", "hook.sh"));
+    yield* writeText(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+    notes.push("Claude Code: hooks added to .claude/settings.local.json (per-user, not shared).");
 
-  yield* writeText(join(workspace, ".claude", "commands", "c4view.md"), slashCommand);
-  notes.push("Claude Code: /c4view [view] opens the live viewer in your tmux window.");
+    yield* writeText(join(workspace, ".claude", "commands", "c4view.md"), slashCommand);
+    notes.push("Claude Code: /c4view [view] opens the live viewer in your tmux window.");
+  } else notes.push("Claude Code: no local hooks written (using the plugin).");
 
   const configPath = join(workspace, "c4view.activity.json");
   if (yield* readOptional(configPath)) notes.push("Activity: kept existing c4view.activity.json.");

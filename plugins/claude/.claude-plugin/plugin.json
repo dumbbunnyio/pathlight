@@ -1,0 +1,14 @@
+{
+  "name": "visualize-work",
+  "version": "0.1.0",
+  "description": "Show your LikeC4 architecture beside the conversation and light up the components the agent touches. Requires the c4view command (bun link in the visualize-work repository).",
+  "keywords": [
+    "architecture",
+    "likec4",
+    "tmux",
+    "visualization"
+  ],
+  "author": {
+    "name": "David Levy"
+  }
+}

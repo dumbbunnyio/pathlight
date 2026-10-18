@@ -71,3 +71,13 @@ test("rejects activity mappings to nonexistent architecture elements before open
   expect((await invoke("view", "index", "--workspace", workspace, "--session", "test-session")).stderr)
     .toContain("Activity mapping project must match");
 });
+
+test("init can skip the project-local Claude hooks for plugin users", async () => {
+  const project = join(directory, "init-plugin");
+  await cp("examples/parcel", project, { recursive: true, filter: path => !path.includes(".cache") });
+  const result = await invoke("init", "--workspace", project, "--no-claude-hooks");
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("no local hooks written");
+  expect(await Bun.file(join(project, ".claude", "settings.local.json")).exists()).toBe(false);
+  expect(await Bun.file(join(project, "c4view.activity.json")).exists()).toBe(true);
+});

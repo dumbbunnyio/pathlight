@@ -11,7 +11,7 @@ import { claudeActivity } from "./claude";
 import { initWorkspace } from "./init";
 
 const help = `c4view list [--workspace PATH]
-c4view init [--workspace PATH]
+c4view init [--workspace PATH] [--no-claude-hooks]
 c4view show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
 c4view view VIEW [--workspace PATH] [--project NAME]
 c4view record --workspace PATH < claude-hook.json
@@ -48,7 +48,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, parent: { type: "string" },
+      follow: { type: "boolean" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -66,7 +66,7 @@ try {
       process.stdout.write(`${JSON.stringify(yield* listViews(values.workspace), null, 2)}\n`);
     } else if (command === "init") {
       if (id) return yield* invalid("init takes no argument. Use --workspace PATH.");
-      process.stdout.write(`${(yield* initWorkspace(values.workspace)).join("\n")}\n`);
+      process.stdout.write(`${(yield* initWorkspace(values.workspace, { claudeHooks: !values["no-claude-hooks"] })).join("\n")}\n`);
     } else if (command === "record") {
       yield* readActivityConfig(values.workspace);
       const event = yield* claudeActivity(resolve(values.workspace), yield* json(yield* readStdin));

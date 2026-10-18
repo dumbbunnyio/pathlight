@@ -19,6 +19,19 @@ bun install
 Native mode needs no browser installation or terminal image protocol, only a working OpenTUI/Three (WebGPU) backend.
 Only open trusted LikeC4 workspaces. LikeC4 can load executable JavaScript or TypeScript project configuration.
 
+## Install as a Claude Code plugin
+
+Put the command on your PATH once, then install the plugin from this repository:
+
+```sh
+bun install && bun link          # provides the c4view command
+claude plugin marketplace add /path/to/visualize-work
+claude plugin install visualize-work@visualize-work
+```
+
+The plugin adds the recording hooks and `/c4view`. Hooks do nothing in a project without `c4view.activity.json`, so enabling the plugin globally is safe. Create the mapping with `c4view init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
+Use either this route or the project-local route below, not both.
+
 ## Quick start (Claude Code and OpenCode)
 
 From the project you work in, with its LikeC4 model:

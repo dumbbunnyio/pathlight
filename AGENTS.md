@@ -36,7 +36,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 | Connector projection/rasterization/markers | `src/connectors.ts` |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
-| Agent integrations | `plugins/` |
+| Agent integrations | `plugins/` (`plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it) |
 | Flat and nested fixtures | `tests/fixtures/viewer/` (frozen test layout), `examples/parcel/` |
 | This repo's own architecture diagram | `examples/viewer/`, mapped by `c4view.activity.json` |
 

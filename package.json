@@ -2,6 +2,10 @@
   "name": "visualize-work",
   "private": true,
   "type": "module",
+  "bin": {
+    "c4view": "src/cli.ts"
+  },
+  "version": "0.1.0",
   "scripts": {
     "c4view": "bun src/cli.ts",
     "check": "tsc --noEmit",
