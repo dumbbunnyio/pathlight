@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./effects";
 
-test("the inspector's numbered sections collapse to a header with its count, by key or by click", async () => {
+test("a number focuses an inspector section: move within it, act on an item, fold it with Space, leave with Esc", async () => {
   const directory = await mkdtemp(join(tmpdir(), "c4view-accordion-"));
   const socket = join("/tmp", `c4acc-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
@@ -26,26 +26,41 @@ test("the inspector's numbered sections collapse to a header with its count, by 
       }
       throw new Error(`Missing ${label}:\n${output}`);
     };
-    const open = await until(text => text.includes("[2] Connections") && text.includes("OUTGOING"), "expanded sections");
+    const open = await until(text => text.includes("[2] Connections") && text.includes("OUTGOING") && /\[3\] Files\s+3/.test(text), "expanded sections with mapped files");
     expect(open).toContain("[3] Files");
     expect(open).toMatch(/\[3\] Files\s+3/);
     expect(open).toContain("plugins/a.ts");
     await delay(700);
+    // A number focuses a section: the mode pill names it and the movement keys now belong to it.
     await tmux("send-keys", "-t", pane, "2");
-    const collapsed = await until(text => !text.includes("OUTGOING"), "collapsed connections");
-    expect(collapsed).toMatch(/\[2\] Connections\s+2/);
-    expect(collapsed).toContain("plugins/a.ts");
+    await until(text => text.includes("CONNECTIONS") && /Enter\s+show in diagram/.test(text), "connections focused");
+    expect(await screen()).toContain("OUTGOING");
+    // j moves to the second connection; Enter shows that node in the diagram, and the focus stays in the section.
+    await tmux("send-keys", "-t", pane, "j", "Enter");
+    await until(text => text.includes("Selected: launcher"), "walked to tmux launcher");
+    expect(await screen()).toContain("CONNECTIONS");
+    // Space folds the focused section to a header with its count.
+    await tmux("send-keys", "-t", pane, "Space");
+    const collapsed = await until(text => !text.includes("OUTGOING"), "folded connections");
+    expect(collapsed).toMatch(/\[2\] Connections\s+\d/);
+    await tmux("send-keys", "-t", pane, "Space");
+    await until(text => text.includes("OUTGOING"), "unfolded connections");
+    // Esc hands the keys back to the diagram: hjkl select neighbours again.
+    await tmux("send-keys", "-t", pane, "Escape");
+    await until(text => !text.includes("CONNECTIONS") && text.includes("VIEW"), "diagram focus");
+    await tmux("send-keys", "-t", pane, "h");
+    await until(text => !text.includes("Selected: launcher"), "diagram navigation resumed");
+    // Clicking a header folds that section and focuses it.
     await tmux("send-keys", "-t", pane, "3");
-    const filesGone = await until(text => !text.includes("plugins/a.ts"), "collapsed files");
-    expect(filesGone).toMatch(/\[3\] Files\s+3/);
-    // Clicking a header toggles it back.
+    await until(text => text.includes("FILES") || text.includes("Enter  open"), "files focused");
+    await tmux("send-keys", "-t", pane, "Space");
+    const filesGone = await until(text => !text.includes("plugins/a.ts"), "folded files");
+    expect(filesGone).toMatch(/\[3\] Files\s+\d/);
     const rows = filesGone.split("\n");
     const row = rows.findIndex(line => line.includes("[3] Files"));
     const column = (rows[row] ?? "").indexOf("[3] Files");
     await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${column + 3};${row + 1}M\x1b[<0;${column + 3};${row + 1}m`);
-    await until(text => text.includes("plugins/a.ts"), "files expanded by click");
-    await tmux("send-keys", "-t", pane, "2");
-    await until(text => text.includes("OUTGOING"), "connections expanded again");
+    await until(text => text.includes("plugins/a.ts"), "files unfolded by click");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

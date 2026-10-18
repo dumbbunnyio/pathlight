@@ -96,8 +96,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // Numbered, collapsible sections: each is a lighter block on the panel, with a bar on its left edge when focused.
   type SectionKey = "overview" | "connections" | "files" | "activity";
   const makeSection = (number: number, name: string, children: Renderable[]) => {
-    const box = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "column", backgroundColor: palette.section, border: ["left"], borderStyle: "heavy",
-      borderColor: palette.section, paddingLeft: 1, paddingRight: 1, marginTop: 1 });
+    const box = new BoxRenderable(renderer, { id: `section-${name.toLowerCase()}`, width: "100%", flexShrink: 0, flexDirection: "column", backgroundColor: palette.section,
+      paddingLeft: 2, paddingRight: 2, paddingTop: 1, paddingBottom: 1, marginTop: 1 });
     const header = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
     const content = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "column" });
     for (const child of children) content.add(child);
@@ -111,7 +111,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     activity: makeSection(4, "Activity", [activityText]),
   };
   const sectionOrder: SectionKey[] = ["overview", "connections", "files", "activity"];
-  let focusSection: SectionKey = "overview";
+  // Which section (if any) owns the movement keys. Undefined means the diagram does.
+  let focusSection: SectionKey | undefined;
+  const cursor: Record<SectionKey, number> = { overview: 0, connections: 0, files: 0, activity: 0 };
+  let connectionItems: string[] = [];
+  let activityItems: { element: string; from: number; to: number }[] = [];
+  const hot = RGBA.fromHex("#294052");
+  const highlight = (chunks: TextChunk[], from: number, to: number) => chunks.map((chunk, index) => index >= from && index < to ? { ...chunk, bg: hot } : chunk);
   for (const child of [inspectorTitle, inspectorHead, ...sectionOrder.map(key => sections[key].box)]) inspectorScroll.add(child);
   inspector.add(inspectorScroll);
   const statusLeft = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
@@ -196,7 +202,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       ["0", "actual size"], ["r", "centre the selection"], ["Tab", "next node"], ["Enter", "into a group / open a link"], ["Backspace", "up to the parent"],
       ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"]];
     const inspect: Hint[] = [["/", "search this view"], ["i", "toggle the inspector"], ["e", "browse mapped files"], ["t", "ask the agent about it"],
-      ["1-4", "fold inspector sections"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "camera follows the work"], ["v", "swap hjkl and arrows"],
+      ["1-4", "focus an inspector section"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "camera follows the work"], ["v", "swap hjkl and arrows"],
       ["PgUp PgDn", "scroll the inspector"], ["?", "this help"], ["q", "quit"]];
     const keyWidth = 9;
     const cell = ([key, label]: Hint) => [bg(palette.keycap)(fg(palette.text)(` ${key.padEnd(keyWidth)} `)), fg(palette.muted)(` ${label}`)];
@@ -256,6 +262,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (key === layoutKey) return;
     layoutKey = key;
     body.direction = side ? "horizontal" : "vertical";
+    // The short bottom inspector leads with Connections; the description is in the bottom row there. A section you folded or opened yourself is left alone.
+    if (!touched.has("overview")) sections.overview.open = side;
     inspector.visible = visible;
     if (visible && !inspector.parent) body.addPane(inspector);
     else if (!visible && inspector.parent) body.remove(inspector);
@@ -329,13 +337,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     return { x: (p.x + 1) * viewport.width / 2, y: (1 - p.y) * viewport.height / 2 };
   };
   const nl = fg(palette.text)("\n");
-  const innerWidth = () => Math.max(16, inspector.width - 7);
+  const innerWidth = () => Math.max(16, inspector.width - 8);
   const section = (title: string, tone: string, right = "") => [fg(tone)(bold(title)), fg(palette.border)(` ${"─".repeat(Math.max(2, innerWidth() - title.length - right.length - 2))} `), fg(palette.muted)(right)];
   const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
   // Which element each rendered line of the activity list belongs to, so a click can select its node.
   let activityTargets: (string | undefined)[] = [];
   const activityContent = () => {
-    activityTargets = [];
+    activityTargets = []; activityItems = [];
     const header: TextChunk[] = [];
     const note = (text: string, tone: string = palette.muted) => new StyledText([...header, fg(tone)(text)]);
     if (activityError) return note(activityError, palette.failure);
@@ -353,17 +361,19 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const spin = spinner[Math.floor(now / 100) % spinner.length] ?? "●";
     const chunks = [...header];
     for (const [element, group] of [...groups].slice(0, 4)) {
+      let lineStart = chunks.length;
       const running = group.some(row => row.state === "started");
       const inView = diagram.nodes.some(node => String(node.modelRef) === element);
       chunks.push(fg(running ? operationColor(group.find(row => row.state === "started")?.operation ?? "other") : palette.muted)(running ? `${spin} ` : "● "),
         fg(palette.text)(bold(elementTitle(element))), ...(inView ? [] : [fg(palette.muted)("  other view")]), nl);
-      activityTargets.push(element);
+      activityTargets.push(element); activityItems.push({ element, from: lineStart, to: chunks.length });
       const collapsed: { row: (typeof group)[number]; count: number }[] = [];
       for (const row of group) {
         const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target);
         if (same) same.count++; else collapsed.push({ row, count: 1 });
       }
       for (const { row, count } of collapsed.slice(0, 3)) {
+        lineStart = chunks.length;
         const glyph = row.state === "started" ? spin : row.state === "completed" ? "✓" : row.state === "failed" ? "✗" : "?";
         const glyphTone = row.state === "failed" ? palette.failure : row.state === "started" ? operationColor(row.operation) : palette.muted;
         const badge = (row.operation === "command" ? "RUN" : row.operation.toUpperCase()).padEnd(4);
@@ -374,7 +384,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const shown = target.length > room ? `${target.slice(0, room - 1)}…` : target;
         chunks.push(fg(glyphTone)(`  ${glyph} `), fg(operationColor(row.operation))(`${badge} `), fg(palette.text)(shown),
           fg(palette.muted)(`${" ".repeat(Math.max(1, width - 2 - 2 - badge.length - 1 - shown.length - age.length))}${age}`), nl);
-        activityTargets.push(element);
+        activityTargets.push(element); activityItems.push({ element, from: lineStart, to: chunks.length });
       }
     }
     const hidden = rows.length - mapped.length;
@@ -385,7 +395,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       for (const path of gaps.slice(0, 3)) chunks.push(fg(palette.muted)("  ✎ "), fg(palette.text)(`${path.length > width - 4 ? `…${path.slice(-(width - 5))}` : path}\n`));
     }
     if (hidden > 0) chunks.push(fg(palette.border)(`+${hidden} unmapped call${hidden > 1 ? "s" : ""}`));
-    return new StyledText(chunks);
+    cursor.activity = Math.min(cursor.activity, Math.max(0, activityItems.length - 1));
+    const item = focusSection === "activity" ? activityItems[cursor.activity] : undefined;
+    return new StyledText(item ? highlight(chunks, item.from, item.to) : chunks);
   };
   // What the retained journal says the agent did: observed counts only, never a claim about outcomes.
   const summaryContent = () => {
@@ -572,14 +584,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const name = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const incoming = diagram.edges.filter(edge => edge.target === selected?.id);
     const outgoing = diagram.edges.filter(edge => edge.source === selected?.id);
-    const link = (arrow: string, tone: string, node: string, label: string | null | undefined) =>
-      [fg(tone)(`${arrow} `), fg(palette.text)(`${name(node)}\n`), fg(palette.muted)(`  ${label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}\n`)];
+    connectionItems = [...incoming.map(edge => String(edge.source)), ...outgoing.map(edge => String(edge.target))];
+    cursor.connections = Math.min(cursor.connections, Math.max(0, connectionItems.length - 1));
+    const link = (index: number, arrow: string, tone: string, node: string, label: string | null | undefined) => {
+      const lines = [fg(tone)(`${arrow} `), fg(palette.text)(`${name(node)}\n`), fg(palette.muted)(`  ${label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}\n`)];
+      return focusSection === "connections" && cursor.connections === index ? lines.map(chunk => ({ ...chunk, bg: hot })) : lines;
+    };
     const sub = (title: string, tone: string, count: number) => [fg(tone)(bold(title)), fg(palette.muted)(`  ${count}`), nl];
     relations.content = new StyledText([
       ...sub("INCOMING", palette.incoming, incoming.length),
-      ...(incoming.length ? incoming.flatMap(edge => link("←", palette.incoming, edge.source, edge.label)) : [fg(palette.muted)("None\n")]),
+      ...(incoming.length ? incoming.flatMap((edge, index) => link(index, "←", palette.incoming, edge.source, edge.label)) : [fg(palette.muted)("None\n")]),
       nl, ...sub("OUTGOING", palette.outgoing, outgoing.length),
-      ...(outgoing.length ? outgoing.flatMap(edge => link("→", palette.outgoing, edge.target, edge.label)) : [fg(palette.muted)("None")]),
+      ...(outgoing.length ? outgoing.flatMap((edge, index) => link(incoming.length + index, "→", palette.outgoing, edge.target, edge.label)) : [fg(palette.muted)("None")]),
     ]);
     fileHeading.visible = fileMode;
     fileHeading.content = new StyledText([fg(palette.outgoing)(bold(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`))]);
@@ -589,10 +605,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const entry = sections[key];
       const left = `${entry.open ? "▾" : "▸"} [${entry.number}] ${entry.name}`;
       const room = Math.max(1, innerWidth() - left.length - counts[key].length);
-      entry.header.content = new StyledText([fg(palette.muted)(`${entry.open ? "▾" : "▸"} `), fg(palette.muted)(`[${entry.number}] `), fg(palette.text)(bold(entry.name)),
+      const focused = focusSection === key;
+      entry.header.content = new StyledText([fg(focused ? palette.incoming : palette.muted)(`${entry.open ? "▾" : "▸"} [${entry.number}] `), fg(palette.text)(bold(entry.name)),
         fg(palette.muted)(`${" ".repeat(room)}${counts[key]}`)]);
       entry.content.visible = entry.open;
-      entry.box.borderColor = focusSection === key ? palette.incoming : palette.section;
+      entry.box.backgroundColor = focused ? "#223140" : palette.section;
+      entry.box.paddingBottom = entry.open ? 1 : 0;
     }
     const start = Math.floor(fileCursor / fileRows.length) * fileRows.length;
     fileRows.forEach((row, index) => {
@@ -601,10 +619,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (path) {
         const slash = path.lastIndexOf("/") + 1;
         const touched = byPath.get(path);
-        row.content = new StyledText([fg(palette.outgoing)(`${fileMode && fileCursor === start + index ? "›" : " "} `), fg(palette.muted)(path.slice(0, slash)),
+        row.content = new StyledText([fg(palette.outgoing)(`${(fileMode || focusSection === "files") && fileCursor === start + index ? "›" : " "} `), fg(palette.muted)(path.slice(0, slash)),
           fg(touched ? operationColor(touched.operation) : palette.text)(touched ? bold(path.slice(slash)) : path.slice(slash))]);
       } else row.content = new StyledText([fg(palette.muted)(fileError || (config ? "No direct file mappings" : "Map files in c4view.activity.json"))]);
-      row.bg = fileMode && fileCursor === start + index ? "#294052" : palette.section;
+      row.bg = (fileMode || focusSection === "files") && fileCursor === start + index ? "#294052" : focusSection === "files" ? "#223140" : palette.section;
       // First click highlights a row; clicking the highlighted row again opens it.
       row.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!path || help.visible || summary.visible || search) return;
         if (fileMode && clickedFile === start + index) { openFile(path); return; }
@@ -614,12 +632,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     activityText.content = activityContent();
     if (summary.visible) summary.content.content = summaryContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    const mode = fileMode ? { name: "FILES", color: palette.outgoing } : search ? { name: "SEARCH", color: palette.incoming } : { name: "VIEW", color: palette.incoming };
+    const mode = fileMode ? { name: "FILES", color: palette.outgoing } : focusSection ? { name: sections[focusSection].name.toUpperCase(), color: palette.command } : search ? { name: "SEARCH", color: palette.incoming } : { name: "VIEW", color: palette.incoming };
     statusLeft.content = new StyledText([pill(mode.name, mode.color), fg(palette.muted)("  Selected: "), fg(palette.text)(bold(String(selected?.id ?? "")))]);
     statusRight.content = new StyledText([...(braille ? [] : [fg(palette.outgoing)("GPU + Three camera  ·  ")]), ...(hidden ? [fg(palette.border)(`${hidden} labels hidden  ·  `)] : []), fg(palette.muted)(`Zoom: ${Math.round(16 / scale * 100)}%`)]);
     const ticker = tickerContent();
     const navigation: Hint[] = [[selectKeys(), "select"], [vimTraverses ? "←↑↓→" : "h j k l", "pan"], ["+ -", "zoom"], ["/", "search"], ["f", "fit"], ["e", "files"], ["i", "inspector"]];
-    shortcuts.content = new StyledText(search ? [fg(palette.muted)(" Type a name or ID   "), ...hintChunks([["↑↓", "matches"], ["Enter", "keep"], ["Esc", "restore"]], renderer.width - 38)]
+    const sectionHints: Record<SectionKey, Hint[]> = {
+      overview: [["↑↓", "scroll"], ["Tab", "next"], ["Space", "fold"], ["Esc", "diagram"]],
+      connections: [["↑↓", "move"], ["Enter", "show in diagram"], ["Tab", "next"], ["Space", "fold"], ["Esc", "diagram"]],
+      files: [["↑↓", "move"], ["Enter", "open"], ["Tab", "next"], ["Space", "fold"], ["Esc", "diagram"]],
+      activity: [["↑↓", "move"], ["Enter", "show component"], ["Tab", "next"], ["Space", "fold"], ["Esc", "diagram"]],
+    };
+    shortcuts.content = new StyledText(focusSection && !fileMode && !search ? hintChunks(sectionHints[focusSection], renderer.width - 16) : search ? [fg(palette.muted)(" Type a name or ID   "), ...hintChunks([["↑↓", "matches"], ["Enter", "keep"], ["Esc", "restore"]], renderer.width - 38)]
       : fileMode ? [fg(palette.outgoing)(bold(` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`)), fg(palette.muted)("   Type to filter   "), ...hintChunks([["Enter", "open"], ["Ctrl+R", "refresh"], ["Esc", "back"]], renderer.width - 56)]
       : ticker ?? (!inspector.visible && selected && describe(selected)
         ? [fg(palette.text)(bold(` ${selected.title}`)), fg(palette.muted)(`  ${describe(selected)}`.slice(0, Math.max(0, renderer.width - selected.title.length - 4)))]
@@ -692,7 +716,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   const selectNode = (node: typeof selected, show: boolean) => {
     if (!node) return;
-    selected = node; fileCursor = 0; inspectorScroll.scrollTo(0);
+    selected = node; fileCursor = 0; cursor.connections = 0; inspectorScroll.scrollTo(0);
     if (show) reveal();
     update();
   };
@@ -796,14 +820,23 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       Effect.tap(command => Effect.sync(() => { message = submit ? `Sent to ${parent} (${command})` : `Typed into ${parent} (${command}) · press Enter there to send`; update(); })),
       Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
   };
-  const toggleSection = (key: SectionKey) => {
+  let scrollToSection: SectionKey | undefined;
+  const touched = new Set<SectionKey>();
+  // A number focuses a section (and opens it); pressing it again hands the keys back to the diagram.
+  const focusOn = (key: SectionKey) => {
     const entry = sections[key];
-    if (!inspector.visible) { inspectorPreference = "open"; entry.open = true; } else entry.open = !entry.open;
-    focusSection = key; inspectorScroll.scrollTo(0); update();
+    if (focusSection === key) { focusSection = undefined; update(); return; }
+    if (!inspector.visible) inspectorPreference = "open";
+    entry.open = true; touched.add(key); focusSection = key; scrollToSection = key; update();
   };
-  for (const key of sectionOrder) sections[key].header.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!fileMode && !search && !asking) toggleSection(key); };
+  const foldSection = (key: SectionKey) => { sections[key].open = !sections[key].open; touched.add(key); update(); };
+  for (const key of sectionOrder) sections[key].header.onMouseDown = event => {
+    event.preventDefault(); event.stopPropagation();
+    if (fileMode || search || asking) return;
+    foldSection(key); focusSection = key; update();
+  };
   let clickedFile = -1;
-  const endFiles = () => { clickedFile = -1; fileMode = false; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
+  const endFiles = () => { clickedFile = -1; fileMode = false; focusSection = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
   const openFile = (path: string) => {
     editorActive = true;
     searchInput.blur();
@@ -834,6 +867,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   });
   viewport.onMouseDown = event => {
     if (editorActive || help.visible || summary.visible || goto.visible || search || asking || pendingVisit) return;
+    focusSection = undefined;
     if (fileMode) { endFiles(); message = ""; }
     // Hit the displayed cell bounds, not the fractional world-space plane:
     // rounding can put a group's visible title just outside that plane.
@@ -880,6 +914,43 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     if (help.visible) { key.preventDefault(); if (key.name === "escape" || key.sequence === "?") help.close();
       else if (key.ctrl && key.name === "c") stop(); return; }
+    if (!fileMode && !key.ctrl && !key.meta && /^[1-4]$/.test(key.sequence)) { key.preventDefault(); focusOn(sectionOrder[Number(key.sequence) - 1] ?? "overview"); return; }
+    if (focusSection && !fileMode) {
+      const entry = sections[focusSection], key_ = focusSection;
+      const items = key_ === "connections" ? connectionItems.length : key_ === "files" ? selectedPaths().length : key_ === "activity" ? activityItems.length : 0;
+      const move = (step: number) => {
+        if (key_ === "overview") { inspectorScroll.scrollBy(step * 2); return; }
+        if (!items) return;
+        if (key_ === "files") fileCursor = (fileCursor + step + items) % items; else cursor[key_] = (cursor[key_] + step + items) % items;
+        scrollToSection = undefined; update();
+      };
+      if (key.name === "escape") { key.preventDefault(); focusSection = undefined; update(); return; }
+      if (key.name === "tab") {
+        key.preventDefault();
+        focusSection = sectionOrder[(sectionOrder.indexOf(key_) + (key.shift ? -1 : 1) + sectionOrder.length) % sectionOrder.length];
+        if (focusSection) { sections[focusSection].open = true; scrollToSection = focusSection; }
+        update(); return;
+      }
+      if (key.name === "space" || key.sequence === " ") { key.preventDefault(); entry.open = !entry.open; touched.add(key_); update(); return; }
+      if (key.name === "up" || key.name === "k") { key.preventDefault(); move(-1); return; }
+      if (key.name === "down" || key.name === "j") { key.preventDefault(); move(1); return; }
+      if (["left", "right", "h", "l"].includes(key.name) && !key.shift) { key.preventDefault(); return; }
+      if (key.name === "return") {
+        key.preventDefault();
+        if (key_ === "connections") {
+          const target = diagram.nodes.find(node => String(node.id) === connectionItems[cursor.connections]);
+          if (target) { message = ""; selectNode(target, true); }
+        } else if (key_ === "files") {
+          const path = selectedPaths()[fileCursor];
+          if (path) openFile(path);
+        } else if (key_ === "activity") {
+          const element = activityItems[cursor.activity]?.element;
+          const node = element ? nodeForElement(element) : undefined;
+          if (node) { message = ""; selectNode(node, true); } else if (element) { message = `${elementTitle(element)} is not in this view`; update(); }
+        }
+        return;
+      }
+    }
     if (!fileMode && key.sequence === "/") {
       key.preventDefault(); animating = false;
       search = { before: visit(), matches: [], index: 0 };
@@ -902,7 +973,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!fileMode && key.name === "backspace") { key.preventDefault(); selectNode(diagram.nodes.find(node => node.id === selected?.parent), true); return; }
     const direction = ({ h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" } as const)[key.name as "h"];
     const vimKey = key.name.length === 1;
-    if (!fileMode && !key.ctrl && !key.meta && /^[1-4]$/.test(key.sequence)) { key.preventDefault(); toggleSection(sectionOrder[Number(key.sequence) - 1] ?? "overview"); return; }
     if (!fileMode && key.name === "g" && !key.ctrl && !key.shift) { key.preventDefault(); beginGoto(); return; }
     if (!fileMode && key.sequence === "G") { key.preventDefault(); braille = !braille; message = ""; update(); return; }
     if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
@@ -979,6 +1049,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let fileRevealKey = "";
   renderer.on("frame", () => {
     if (!initialFit && painted && revealProgress() >= 1) displayed.resolve();
+    if (scrollToSection) { const target = scrollToSection; scrollToSection = undefined; inspectorScroll.scrollChildIntoView(`section-${target}`); }
     const key = fileMode ? `${fileQuery}/${fileCursor}/${inspectorScroll.viewport.width}/${inspectorScroll.viewport.height}` : "";
     if (key === fileRevealKey) return;
     fileRevealKey = key;
