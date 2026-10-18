@@ -36,7 +36,7 @@ const getDiagram = (id: string) => {
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
 const rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
 const palette = { background: "#0f141b", panel: "#151d27", node: "#1b2532", border: "#526171", muted: "#93a4b5",
-  text: "#e7eff7", incoming: "#68cfda", outgoing: "#e9bd70", command: "#b79cf2", failure: "#f08080" };
+  text: "#e7eff7", incoming: "#68cfda", outgoing: "#e9bd70", command: "#b79cf2", grid: "#1d2835", edgeLow: "#33404f", edgeHigh: "#7d90a6", failure: "#f08080" };
 if (!process.stdin.isTTY || !process.stdout.isTTY) return yield* Effect.fail(failure("Native.terminal", "The native viewer needs a terminal. Use c4view show to open a tmux pane."));
 const renderer = yield* Effect.acquireRelease(io("Native.renderer", () => createCliRenderer({ exitOnCtrlC: false, exitSignals: [], consoleMode: "disabled", targetFps: 30, backgroundColor: palette.background })),
   renderer => io("Native.close", async () => { renderer.destroy(); await renderer.closed; }).pipe(Effect.orDie));
@@ -233,6 +233,15 @@ INSPECT
   let edges = mountEdges();
   let previousWidth = 0, previousHeight = 0;
   let initialFit = true, stableLayoutFrames = 0;
+  // One-time "draw-on" when the first view opens: nodes bloom left to right, connectors extend source to target.
+  const revealMs = 600;
+  let revealStart: number | undefined;
+  const revealProgress = () => initialFit ? 0 : revealStart === undefined ? 1 : Math.min(1, (Date.now() - revealStart) / revealMs);
+  const easeOut = (t: number) => 1 - (1 - t) ** 3;
+  const fade = (color: string | RGBA, amount: number) => {
+    const c = typeof color === "string" ? RGBA.fromHex(color) : color, b = RGBA.fromHex(palette.background);
+    return RGBA.fromValues(b.r + (c.r - b.r) * amount, b.g + (c.g - b.g) * amount, b.b + (c.b - b.b) * amount, 1);
+  };
   const cellAspect = () => {
     const resolution = renderer.resolution;
     return resolution && resolution.width > 0 && resolution.height > 0
@@ -296,6 +305,19 @@ INSPECT
     const label = row.state === "started" ? row.operation.toUpperCase() : row.state === "completed" ? "done" : row.state === "failed" ? "FAIL" : "????";
     return ` ● ${label} ${row.target} → ${row.elements.join(", ") || "unmapped"} · ${formatAge(row.age)}`;
   };
+  // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
+  const paintGrid = () => {
+    let step = 32;
+    while (step / scale < 7) step *= 2;
+    const halfWidth = viewport.width * scale / 2, halfHeight = viewport.height * scale / cellAspect() / 2;
+    const dot = RGBA.fromHex(palette.grid), bg = RGBA.fromHex(palette.background);
+    for (let wx = Math.floor((centerX - halfWidth) / step) * step; wx <= centerX + halfWidth; wx += step) {
+      for (let wy = Math.floor((centerY - halfHeight) / step) * step; wy <= centerY + halfHeight; wy += step) {
+        const p = projected(wx, wy), x = Math.floor(p.x), y = Math.floor(p.y);
+        if (x >= 0 && y >= 0 && x < viewport.width && y < viewport.height) canvas.frameBuffer.setCell(x, y, "·", dot, bg);
+      }
+    }
+  };
   const update = () => {
     layout();
     heading.content = headingContent();
@@ -323,7 +345,7 @@ INSPECT
       const incoming = diagram.edges.some(edge => edge.target === selected?.id && edge.source === entry.node.id);
       const outgoing = diagram.edges.some(edge => edge.source === selected?.id && edge.target === entry.node.id);
       entry.box.borderColor = entry.node.id === selected?.id ? palette.text : state === "FAILED" ? palette.failure
-        : state === "EDIT" || outgoing ? palette.outgoing : state === "READ" || incoming ? palette.incoming : state === "RUN" ? palette.command : palette.border;
+        : state === "EDIT" || outgoing ? palette.outgoing : state === "READ" || incoming ? palette.incoming : state === "RUN" ? palette.command : entry.node.children.length ? palette.border : palette.node;
       if (active.length && entry.node.id !== selected?.id) {
         const pulse = RGBA.fromHex(state === "EDIT" ? palette.outgoing : state === "RUN" ? palette.command : palette.incoming);
         const brightness = 0.72 + 0.28 * (1 + Math.sin(Date.now() / 220)) / 2;
@@ -334,7 +356,7 @@ INSPECT
       const latest = related.reduce<ActivityEvent | undefined>((best, event) => !best || event.time > best.time ? event : best, undefined);
       const warmth = !latest ? 0 : Date.now() - latest.time < 10_000 ? 3 : Date.now() - latest.time < 30_000 ? 2 : Date.now() - latest.time < 90_000 ? 1 : 0;
       entry.box.backgroundColor = entry.node.id === selected?.id ? "#233343"
-        : warmth && latest ? mix(palette.node, operationColor(latest.operation), warmth * 0.07) : palette.node;
+        : entry.node.children.length ? palette.background : warmth && latest ? mix(palette.node, operationColor(latest.operation), warmth * 0.07) : palette.node;
       if (entry.node.children.length) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : ""}${counts ? ` ·${counts}` : ""}`;
       else entry.label.content = new StyledText([fg(palette.text)(entry.node.title),
         ...(state || counts ? [nl, ...(state ? [fg(operationColor(state === "EDIT" ? "edit" : state === "READ" ? "read" : state === "RUN" ? "command" : "other"))(`[${state}]`)] : []),
@@ -346,8 +368,10 @@ INSPECT
       entry.box.left = Math.round(origin.x); entry.box.top = Math.round(origin.y);
       entry.box.width = width; entry.box.height = height;
       entry.box.visible = end.x > 0 && end.y > 0 && origin.x < viewport.width && origin.y < viewport.height;
-      entry.label.visible = width >= 8 && height >= 3;
-      if (!entry.label.visible) { hidden++; continue; }
+      const bloom = Math.min(1, Math.max(0, (easeOut(revealProgress()) - (diagram.bounds.width ? (entry.node.x - diagram.bounds.x) / diagram.bounds.width * 0.45 : 0)) / 0.55));
+      if (bloom < 1) { entry.box.borderColor = fade(entry.box.borderColor, bloom); entry.box.backgroundColor = fade(entry.box.backgroundColor, bloom); }
+      entry.label.visible = width >= 8 && height >= 3 && bloom >= 0.7;
+      if (!entry.label.visible) { if (bloom >= 0.7) hidden++; continue; }
     }
     for (const { edge, material, markers } of edges) {
       const hex = edge.source === selected?.id ? palette.outgoing : edge.target === selected?.id ? palette.incoming : palette.border;
@@ -631,7 +655,7 @@ INSPECT
   });
   let fileRevealKey = "";
   renderer.on("frame", () => {
-    if (!initialFit && painted) displayed.resolve();
+    if (!initialFit && painted && revealProgress() >= 1) displayed.resolve();
     const key = fileMode ? `${fileQuery}/${fileCursor}/${inspectorScroll.viewport.width}/${inspectorScroll.viewport.height}` : "";
     if (key === fileRevealKey) return;
     fileRevealKey = key;
@@ -668,7 +692,7 @@ INSPECT
       activeEngine.setSize(Math.max(1, viewport.width), Math.max(1, viewport.height), true);
       update();
     } else if (initialFit && viewport.width > 1 && viewport.height > 1 && ++stableLayoutFrames >= 2) {
-      initialFit = false;
+      initialFit = false; revealStart = Date.now();
       fit(); targetX = centerX; targetY = centerY; targetScale = scale;
       update();
     }
@@ -680,9 +704,11 @@ INSPECT
       }
       update();
     }
+    if (revealProgress() < 1 || revealStart !== undefined) { update(); if (revealProgress() >= 1) revealStart = undefined; }
     if (!dirty) return;
     dirty = false;
     canvas.frameBuffer.clear(RGBA.fromHex(palette.background));
+    paintGrid();
     drawing = (async () => {
       if (braille) {
         const nodes = diagram.nodes.map(node => {
@@ -698,9 +724,13 @@ INSPECT
         });
         const routes = terminalConnectors({ bounds: { x: 32, y: 32 }, edges: projectedEdges }, nodes);
         const bg = RGBA.fromHex(palette.background);
+        const drawn = easeOut(revealProgress()) * 1.05;
         for (const cell of composeConnectors(routes, selected?.id)) {
+          if (cell.t > drawn) continue;
           if (cell.x < 0 || cell.y < 0 || cell.x >= viewport.width || cell.y >= viewport.height) continue;
-          const fg = RGBA.fromHex(cell.emphasis === "outgoing" ? palette.outgoing : cell.emphasis === "incoming" ? palette.incoming : palette.border);
+          // Quiet connections brighten toward their arrowhead: a static cue for direction, not an animation of traffic.
+          const fg = cell.emphasis === "outgoing" ? RGBA.fromHex(palette.outgoing) : cell.emphasis === "incoming" ? RGBA.fromHex(palette.incoming)
+            : mix(palette.edgeLow, palette.edgeHigh, Math.min(1, Math.max(0, cell.t)));
           canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, fg, bg);
         }
       } else await activeEngine.drawScene(scene, canvas.frameBuffer, 0);

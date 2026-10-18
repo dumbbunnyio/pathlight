@@ -1,7 +1,7 @@
 import type { DiagramEdge, DiagramView, RelationshipArrowType } from "likec4";
 
 type Point = { x: number; y: number };
-type Cell = Point & { glyph: string; strong: string; mask?: number };
+type Cell = Point & { glyph: string; strong: string; mask?: number; heavy?: number; t?: number };
 type NodeBox = Point & { width: number; height: number; children: readonly string[] };
 
 export function terminalPoint(x: number, y: number, bounds: Point, zoom = 1): Point {
@@ -15,7 +15,7 @@ function mix(a: Point, b: Point, t: number): Point {
 export function composeConnectors(routes: readonly {
   edge: { source: string; target: string }; cells: readonly Cell[]; arrows: readonly Cell[];
 }[], selected: string | undefined) {
-  type PaintedCell = Cell & { emphasis: "outgoing" | "incoming" | "none" };
+  type PaintedCell = Cell & { emphasis: "outgoing" | "incoming" | "none"; t: number };
   const emphasis = (edge: { source: string; target: string }): PaintedCell["emphasis"] =>
     edge.source === selected ? "outgoing" : edge.target === selected ? "incoming" : "none";
   const ordered = [...routes.filter(route => emphasis(route.edge) === "none"), ...routes.filter(route => emphasis(route.edge) !== "none")];
@@ -24,13 +24,16 @@ export function composeConnectors(routes: readonly {
     for (const cell of route.cells) {
       const key = `${cell.x},${cell.y}`;
       const state = emphasis(route.edge);
-      const mask = cell.mask ? cell.mask | (painted.get(key)?.mask ?? 0) : undefined;
-      const glyph = mask ? String.fromCodePoint(0x2800 + mask) : state === "none" ? cell.glyph : cell.strong;
-      painted.set(key, { ...cell, mask, glyph, emphasis: state });
+      const before = painted.get(key);
+      const mask = cell.mask !== undefined ? cell.mask | (before?.mask ?? 0) : undefined;
+      const heavy = cell.heavy !== undefined ? cell.heavy | (before?.heavy ?? 0) : undefined;
+      // Selected connections use the heavy stroke; everything else the medium one.
+      const glyph = mask !== undefined ? String.fromCodePoint(0x2800 + (state === "none" ? mask : heavy ?? mask)) : state === "none" ? cell.glyph : cell.strong;
+      painted.set(key, { ...cell, mask, heavy, glyph, emphasis: state, t: cell.t ?? 1 });
     }
   }
   for (const route of ordered) {
-    for (const cell of route.arrows) painted.set(`${cell.x},${cell.y}`, { ...cell, emphasis: emphasis(route.edge) });
+    for (const cell of route.arrows) painted.set(`${cell.x},${cell.y}`, { ...cell, emphasis: emphasis(route.edge), t: 1 });
   }
   return painted.values();
 }
@@ -48,9 +51,10 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
     const points = edge.points.map(project);
     const first = points[0];
     const solid = points.every(point => point.x === first?.x) || points.every(point => point.y === first?.y);
-    const dots = new Map<string, Point & { mask: number }>();
+    const dots = new Map<string, Point & { mask: number; heavy: number; t: number }>();
     const masks = [[1, 8], [2, 16], [4, 32], [64, 128]];
     let previousDot: Point | undefined;
+    let progress = 0;
     const path: Point[] = [];
     const append = (point: Point) => {
       const cell = { x: Math.round(point.x), y: Math.round(point.y) };
@@ -60,19 +64,30 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
       const next = { x: Math.round(point.x * 2 + 0.5), y: Math.round(point.y * 4 + 1.5) };
       const start = previousDot ?? next;
       const steps = Math.max(1, Math.abs(next.x - start.x), Math.abs(next.y - start.y));
+      const shallow = Math.abs(next.x - start.x) >= Math.abs(next.y - start.y);
+      // Each sample also lights its perpendicular neighbours: one for the medium stroke, both for the heavy one.
+      const plot = (dx: number, dy: number, field: "mask" | "heavy") => {
+        const x = Math.floor(dx / 2), y = Math.floor(dy / 4);
+        if (x < 0 || y < 0 || covered({ x, y })) return;
+        const bit = masks[((dy % 4) + 4) % 4]?.[((dx % 2) + 2) % 2];
+        if (bit === undefined) return;
+        const key = `${x},${y}`;
+        const cell = dots.get(key) ?? { x, y, mask: 0, heavy: 0, t: progress };
+        cell[field] |= bit; if (field === "mask") cell.heavy |= bit;
+        cell.t = Math.max(cell.t, progress);
+        dots.set(key, cell);
+      };
       for (let step = 0; step <= steps; step++) {
         const dx = Math.round(start.x + (next.x - start.x) * step / steps);
         const dy = Math.round(start.y + (next.y - start.y) * step / steps);
-        const x = Math.floor(dx / 2), y = Math.floor(dy / 4);
-        if (x < 0 || y < 0 || covered({ x, y })) continue;
-        const bit = masks[dy % 4]?.[dx % 2];
-        if (bit === undefined) continue;
-        const key = `${x},${y}`;
-        dots.set(key, { x, y, mask: (dots.get(key)?.mask ?? 0) | bit });
+        const [ax, ay] = shallow ? [0, 1] : [1, 0];
+        plot(dx, dy, "mask"); plot(dx + ax, dy + ay, "mask");
+        plot(dx - ax, dy - ay, "heavy");
       }
       previousDot = next;
     };
     const cubic = points.length >= 4 && (points.length - 1) % 3 === 0;
+    const segments = cubic ? (points.length - 1) / 3 : Math.max(1, points.length - 1);
     for (let index = 0; cubic && index + 3 < points.length; index += 3) {
       const a = points[index], b = points[index + 1], c = points[index + 2], d = points[index + 3];
       if (!a || !b || !c || !d) continue;
@@ -80,6 +95,7 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
       const steps = Math.max(1, Math.min(16384, Math.ceil(length * 4)));
       for (let step = 0; step <= steps; step++) {
         const t = step / steps;
+        progress = (index / 3 + t) / segments;
         const ab = mix(a, b, t), bc = mix(b, c, t), cd = mix(c, d, t);
         append(mix(mix(ab, bc, t), mix(bc, cd, t), t));
       }
@@ -89,7 +105,7 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
         const a = points[index], b = points[index + 1] ?? a;
         if (!a || !b) continue;
         const steps = Math.max(1, Math.ceil(Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) * 2));
-        for (let step = 0; step <= steps; step++) append({ x: a.x + (b.x - a.x) * step / steps, y: a.y + (b.y - a.y) * step / steps });
+        for (let step = 0; step <= steps; step++) { progress = (index + step / steps) / segments; append({ x: a.x + (b.x - a.x) * step / steps, y: a.y + (b.y - a.y) * step / steps }); }
       }
     }
     const cells: Cell[] = path.flatMap((point, index) => {
@@ -97,7 +113,7 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
       const before = path[index - 1] ?? point, after = path[index + 1] ?? point;
       const dx = after.x - before.x, dy = after.y - before.y;
       const glyph = dy === 0 ? "─" : dx === 0 ? "│" : dx * dy > 0 ? "╲" : "╱";
-      return [{ ...point, glyph, strong: glyph === "─" ? "━" : glyph === "│" ? "┃" : glyph }];
+      return [{ ...point, glyph, strong: glyph === "─" ? "━" : glyph === "│" ? "┃" : glyph, t: index / Math.max(1, path.length - 1) }];
     });
     const arrow = (type: RelationshipArrowType | undefined, tail: boolean): Cell[] => {
       if (type === "none" || tail && !type) return [];
@@ -114,7 +130,7 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
     };
     const curves = [...dots.values()].map(cell => {
       const glyph = String.fromCodePoint(0x2800 + cell.mask);
-      return { ...cell, glyph, strong: glyph };
+      return { ...cell, glyph, strong: String.fromCodePoint(0x2800 + cell.heavy) };
     });
     return { edge, cells: solid ? cells : curves, arrows: [...arrow(edge.tail, true), ...arrow(edge.head, false)] };
   });

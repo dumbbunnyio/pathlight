@@ -103,6 +103,8 @@ For a pane beside the user, obtain their actual tmux pane ID and use `show` with
 views, wide/narrow layouts, search/Back, editor return and activity isolation.
 ANSI reconstructions are useful diagnostics, not screenshots of the user's terminal.
 
+`scripts/ansi2png.py` renders `tmux capture-pane -e -p` output to a PNG so appearance changes can be inspected; it approximates your terminal's font.
+
 Keep README and the native controls document aligned with shipped behavior.
 Update project intent when an approved product decision changes, distinguishing
 implemented behavior from desired or unverified behavior. Do not commit or push

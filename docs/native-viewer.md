@@ -87,6 +87,19 @@ Fast tools may show only their final state. White borders identify selection ind
 Unselected READ and EDIT borders pulse gently while the tool is active. Outcome states do not pulse. Connections do not animate or imply observed traffic.
 Groups show their own mapped activity in their title. A child's activity does not automatically mark its parent active.
 
+## Appearance
+
+Leaf nodes are flat cards. The outline appears only for selection (white), neighbours (cyan incoming, amber outgoing) and observed activity (amber edit, cyan read, violet command), so emphasis is never confused with decoration. Groups are outlines with titles on the canvas colour.
+Connections are continuous Braille strokes, medium when quiet and heavy when selected. Quiet connections brighten slightly toward their arrowhead, a static direction cue.
+A faint dot grid is fixed to the diagram's coordinates, so panning and zooming read as camera motion.
+When the first view opens, nodes bloom in from left to right and connectors extend from source to target for about 0.6 seconds. This is a one-time reveal; it does not run on navigation and connectors never animate to suggest traffic. The ready signal waits for the reveal to finish.
+
+To check how a change looks without a screenshot, render a pane to an image:
+
+```sh
+tmux capture-pane -e -p -t %PANE | python3 scripts/ansi2png.py out.png
+```
+
 ## Follow mode and the live display
 
 `--follow` binds to the newest recorded session in the workspace and re-binds when another session writes later.
