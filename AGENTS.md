@@ -18,7 +18,7 @@ Read [project intent](docs/project-intent.md) for the product contract,
 - The Three candidate has been promoted. `.cache/three-probe/` and
   `.cache/pre-promotion/` are local historical artifacts, not production sources
   or required build inputs. Do not restore the rejected ScrollBox camera.
-- PNG is an explicit fallback, not the basis of native interaction.
+- The PNG/image renderer was removed; native is the only renderer.
 - Linux/tmux is the verified target. Do not claim macOS or broader terminal
   compatibility without checking it. Native initialization uses the WebGPU
   backend even though default connectors are Braille.
@@ -34,7 +34,6 @@ intentional redesigns separately; do not quietly substitute another camera.
 | Owned tmux pane launch/replacement, readiness | `src/tmux.ts`, `src/ready.ts` |
 | Native UI and camera | `src/native-viewer.ts` |
 | Connector projection/rasterization/markers | `src/connectors.ts` |
-| PNG export, display, protocols | `src/export.ts`, `src/viewer.ts`, `src/protocol.ts`, `src/placeholder.ts` |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
 | Agent integrations | `plugins/` |
@@ -65,7 +64,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 7. **Respect the terminal and filesystem.** Never replace a repurposed pane or
    guess the user's pane from a background service. Validate mapped file paths
    before editing. Treat editor commands and executable LikeC4 configuration as
-   trusted-workspace inputs. Do not disable Chromium sandboxing.
+   trusted-workspace inputs.
 8. **Keep activity minimal.** Do not store source contents, tool arguments,
    command strings, results or error text in activity journals. Preserve bounded
    queues/history and local-only storage; this is not an audit log.
@@ -73,9 +72,8 @@ intentional redesigns separately; do not quietly substitute another camera.
 ## Development and validation
 
 Dependencies are pinned in `package.json` and `bun.lock`; use Bun. See README
-for prerequisites. Full verification needs Linux `flock`, tmux, Python 3,
-Neovim, and Chromium installed for the PNG tests. Native checks need a working
-OpenTUI/Three backend but no browser or terminal image protocol.
+for prerequisites. Full verification needs Linux `flock`, tmux and Neovim.
+Native checks need a working OpenTUI/Three backend but no browser or terminal image protocol.
 
 ```sh
 bun install

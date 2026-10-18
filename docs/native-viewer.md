@@ -1,6 +1,6 @@
 # Use the native diagram viewer
 
-The native renderer is the default for `c4view show` and `c4view view`. It renders interactive nodes without PNG images.
+The native renderer is the default for `c4view show` and `c4view view`. It is the only renderer and draws interactive nodes without images.
 
 From the repository root, run this command in a terminal:
 

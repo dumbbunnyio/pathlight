@@ -3,12 +3,10 @@ import * as Activity from "../src/activity";
 import * as Claude from "../src/claude";
 import * as Process from "../src/process";
 import * as Catalog from "../src/catalog";
-import * as Export from "../src/export";
 import * as Files from "../src/node-files";
 
 export const run = (...args: Parameters<typeof Process.run>) => Effect.runPromise(Process.run(...args));
 export const selectView = (...args: Parameters<typeof Catalog.selectView>) => Effect.runPromise(Catalog.selectView(...args));
-export const exportView = (...args: Parameters<typeof Export.exportView>) => Effect.runPromise(Export.exportView(...args));
 export const nodeFiles = (...args: Parameters<typeof Files.nodeFiles>) => Effect.runPromise(Files.nodeFiles(...args));
 export const editorFile = (...args: Parameters<typeof Files.editorFile>) => Effect.runPromise(Files.editorFile(...args));
 

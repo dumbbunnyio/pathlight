@@ -2,7 +2,6 @@
 
 Show LikeC4 architecture diagrams beside an agent conversation in tmux.
 LikeC4 owns the model and layout. OpenTUI renders interactive terminal nodes, groups, and connectors by default.
-An explicit PNG renderer preserves LikeC4's image appearance with zoom and pan controls.
 The viewer can show live tool activity mapped to architecture elements. It does not infer test status or runtime service traffic.
 
 See [project intent](docs/project-intent.md) for the goals, accepted design and
@@ -17,8 +16,7 @@ The OpenCode plugin targets V2 and is pinned to SDK 2.0.31.
 bun install
 ```
 
-Native mode needs no browser installation or terminal image protocol. For PNG mode, also run `bunx --no-install playwright install chromium`.
-The PNG exporter enables Chromium sandboxing. Do not disable it to work around a host configuration problem.
+Native mode needs no browser installation or terminal image protocol, only a working OpenTUI/Three (WebGPU) backend.
 Only open trusted LikeC4 workspaces. LikeC4 can load executable JavaScript or TypeScript project configuration.
 
 ## Quick start (Claude Code and OpenCode)
@@ -68,40 +66,10 @@ To run in the current terminal instead of opening a pane:
 bun run c4view view services --workspace examples/parcel
 ```
 
-## PNG fallback
+## Outside tmux
 
-Select `--renderer png` explicitly. Graphics protocol options apply only to PNG mode.
-For Ghostty with tmux passthrough already enabled, select cell-anchored images:
-
-```sh
-bun run c4view show services --workspace examples/parcel --renderer png --protocol kitty-unicode
-```
-
-`kitty-unicode` uses Kitty virtual placements and Unicode cells that tmux can move, clip, and hide.
-It requires a terminal with Kitty Unicode-placeholder support. Indexed colors preserve image IDs even when tmux does not advertise truecolor output.
-The raw protocol prototype was visually verified on Ghostty 1.2.3 with tmux 3.5a.
-The integrated OpenTUI renderer was also visually confirmed on that setup.
-Keep the target window visible until loading finishes. With `allow-passthrough on`, tmux discards image uploads from hidden windows even though it retains their placeholder cells.
-The launcher rejects Unicode image requests targeting a window that no attached client is viewing. Switch to that window and retry, or pass the pane ID from your current window.
-`auto` remains a coarse block preview inside tmux. Small labels may be unreadable.
-Ordinary `kitty` and `sixel` remain disabled inside tmux because their images are not pane-relative.
-The launcher does not change passthrough settings. During replacement it temporarily retains the owned pane until cleanup finishes, then restores its exit setting.
-Unicode images preserve aspect ratio using reported cell dimensions, or a 1:2 cell ratio when unavailable.
-Their zoom stops at the protocol's 297-cell coordinate limit on either axis.
-
-In PNG mode, press `+` or `-` to zoom, arrow keys to pan, `f` to fit, and `q` to close the viewer.
-Showing another diagram reuses the viewer pane and resets zoom.
-If you repurpose that pane for another command, the launcher leaves it alone and opens a new pane.
-
-Outside tmux, run the viewer directly in an interactive terminal:
-
-```sh
-bun run c4view view index --workspace examples/parcel --renderer png --protocol kitty
-```
-
+Use `--pane %ID` to choose the parent pane explicitly (run `tmux display-message -p '#{pane_id}'` in it), and `--socket PATH` for a non-default tmux server.
 Use `--project NAME` when multiple projects have the same view ID.
-Pass `--pane %ID` to select the parent pane explicitly, and `--socket PATH` for a non-default tmux server.
-Run `tmux display-message -p '#{pane_id}'` in the intended parent terminal to obtain its ID.
 
 ## Use from OpenCode
 
@@ -125,8 +93,7 @@ Show the parcel project's services diagram in tmux pane %2.
 The plugin requires an explicit parent pane because OpenCode's background service may not share the current terminal's environment.
 It uses the plugin location as the workspace and passes only identifiers to the CLI, not diagram geometry through model context.
 Other agents can invoke the same CLI without the OpenCode plugin.
-The tool defaults to `renderer: "native"`. Request `renderer: "png"` with `protocol: "kitty-unicode"` for the image fallback.
-Both modes share pane ownership and reuse. A new `show` request resets the view, selection, and scroll position.
+A new `show` request reuses the owned viewer pane and resets the view, selection, and scroll position.
 
 ## Observe live activity
 
@@ -149,10 +116,10 @@ Subagent sessions are separate and are not automatically included.
 
 The panel shows the latest four tool calls and their mapped components.
 Native nodes also show active READ or EDIT labels, followed by DONE or FAILED for five seconds. Groups display their own mapped activity in their title.
-The layout stays fixed as activity arrives. PNG mode updates only the text panel, not the image.
+The layout stays fixed as activity arrives.
 Unmapped paths remain visible as `unmapped`. Long-running calls become `unconfirmed` after 30 seconds without an outcome.
 This is an observation-age indicator, not proof that the agent disconnected or the tool stopped.
-Selection and pan remain unchanged as activity arrives. PNG zoom is also preserved. Reopening the viewer reads retained activity.
+Selection, pan and zoom remain unchanged as activity arrives. Reopening the viewer reads retained activity.
 
 For Claude Code, `c4view init` installs these hooks. To do it by hand, copy the hooks from `plugins/claude/hooks.example.json` into your project settings and replace the absolute plugin path.
 Merge the hooks with existing settings; do not replace unrelated configuration.
@@ -179,11 +146,8 @@ bun run check
 bun run test
 ```
 
-Tests require Python 3 for the pseudo-terminal check.
-They exercise the real CLI, native interaction, PNG export, and isolated tmux servers.
-They cover pane reuse, protecting a repurposed pane, zoom, fit, quit, indexed image IDs, and delayed pixel-resolution replies.
-The PNG tests require the installed Chromium browser. Native interaction tests do not. Terminal image appearance still needs a check in your actual terminal.
+They exercise the real CLI, native interaction, and isolated tmux servers; the file-browser test needs Neovim.
+They cover pane reuse, protecting a repurposed pane, zoom, fit, quit and activity isolation. Appearance still needs a check in your actual terminal.
 
-PNG exports and per-request readiness files remain under the selected workspace's `.cache/c4view` directory.
-Native requests create readiness files but no PNG exports. Close viewers before removing old cache directories.
+Per-request readiness files remain under the selected workspace's `.cache/c4view` directory. Close viewers before removing old cache directories.
 Concurrent requests for the same parent pane and workspace return a busy error. Retry after the active request finishes.

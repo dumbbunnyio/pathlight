@@ -59,8 +59,6 @@ not merely an equivalent feature checklist.
 The inspector adapts between side and bottom layouts, supports a draggable
 divider, and can be hidden. Linux usability and visual quality take priority;
 narrow terminals must remain usable rather than being treated as an afterthought.
-PNG remains an explicit alternative for LikeC4 image fidelity, not a substitute
-for native interaction.
 
 ### Live activity means observed agent work—not runtime telemetry
 
@@ -124,8 +122,6 @@ These are scope boundaries, not promises of later implementation.
   Some marker shapes are simplified. GPU strokes remain a comparison mode.
 - Search is confined to the current view. Group collapsing, relationship-link
   navigation and model editing are not implemented.
-- PNG Unicode-image recovery after hidden windows or terminal reattachment is
-  not implemented; current visibility/protocol limitations still apply.
 - Journals can lose events under overload or disk failure. Their bounded history
   cannot answer historical questions like a durable event store.
 

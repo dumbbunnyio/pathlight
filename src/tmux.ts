@@ -6,30 +6,17 @@ import { mkdir, mkdtemp, open, readFile } from "node:fs/promises";
 import { Config, Effect, Schedule, Schema } from "effect";
 import { io, failure, hasCode, json } from "./effects";
 import { run } from "./process";
-import { exportView } from "./export";
 import { validateActivityMapping, type View } from "./catalog";
 import { readActivityConfig, type ActivityBinding } from "./activity";
-import { terminalProtocol, type Protocol, type RenderMode } from "./protocol";
 import { Ready } from "./ready";
 
 export const showView = Effect.fn("Tmux.show")(function* (options: {
-  view: View; pane: string; socket?: string; renderer: RenderMode; protocol: Protocol; activity?: ActivityBinding; follow?: boolean;
+  view: View; pane: string; socket?: string; activity?: ActivityBinding; follow?: boolean;
 }) {
-  const protocol = options.renderer === "png" ? terminalProtocol(options.protocol, true) : "native";
   if (!/^%\d+$/.test(options.pane)) return yield* Effect.fail(failure("Tmux.pane", "Pass an exact tmux pane ID, such as %2."));
   const tmux = (...args: string[]) => run("tmux", [
     ...(options.socket ? ["-S", options.socket] : []), ...args,
   ]);
-  const requireVisible = Effect.fn("Tmux.visible")(function* (pane: string) {
-    if (protocol !== "kitty-unicode") return;
-    const [window, zoomed, active] = (yield* tmux("display-message", "-p", "-t", pane,
-      "#{window_id}\t#{window_zoomed_flag}\t#{pane_active}")).split("\t");
-    const windows = (yield* tmux("list-clients", "-F", "#{window_id}")).split("\n");
-    if (!window || !windows.includes(window) || (zoomed === "1" && active !== "1")) {
-      return yield* Effect.fail(failure("Tmux.visible", `Pane ${pane} is not visible to an attached tmux client. Switch to its window, unzoom it, and retry. Keep it visible until the image finishes loading; tmux drops hidden image uploads.`));
-    }
-  });
-  yield* requireVisible(options.pane);
   if (options.activity || options.follow) yield* validateActivityMapping(options.view, yield* readActivityConfig(options.view.workspace));
   const socket = yield* tmux("display-message", "-p", "-t", options.pane, "#{socket_path}");
   const owner = createHash("sha256").update(`${socket}\0${options.pane}\0${options.view.workspace}`).digest("hex");
@@ -48,21 +35,16 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
           : "Could not acquire the viewer lock. Linux flock is required.",
       )));
     })).pipe(Effect.uninterruptible);
-    const exported = options.renderer === "png" ? yield* exportView(options.view) : undefined;
-    yield* requireVisible(options.pane);
-    const directory = exported?.directory ?? (yield* io("Tmux.directory", () => mkdtemp(join(cache, "native-"))));
+    const directory = yield* io("Tmux.directory", () => mkdtemp(join(cache, "native-")));
     const ready = join(directory, "ready.json");
     const args = [process.execPath, fileURLToPath(new URL("./cli.ts", import.meta.url)),
-      ...(exported ? ["image", exported.image, "--title", `${options.view.project} / ${options.view.title}`, "--protocol", protocol]
-        : ["view", options.view.id, "--workspace", options.view.workspace, "--project", options.view.project, "--renderer", "native"]),
-      "--ready", ready];
+      "view", options.view.id, "--workspace", options.view.workspace, "--project", options.view.project, "--ready", ready];
     const editorEnvironment: string[] = [];
     for (const key of ["VISUAL", "EDITOR"]) {
       const value = yield* Config.String(key).pipe(Config.withDefault(""));
       if (value) editorEnvironment.push("-e", `${key}=${value}`);
     }
     if (options.activity) {
-      if (exported) args.push("--workspace", options.view.workspace);
       args.push("--session", options.activity.session, "--source", options.activity.source);
     }
     if (options.follow) args.push("--follow");
@@ -73,7 +55,6 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
     let pane = existing?.[0];
     if (pane) {
       const owned = pane;
-      yield* requireVisible(owned);
       yield* Effect.gen(function* () {
         const remain = yield* tmux("show-options", "-p", "-v", "-t", owned, "remain-on-exit");
         yield* Effect.acquireRelease(tmux("set-option", "-p", "-t", owned, "remain-on-exit", "on"), () =>
@@ -99,8 +80,6 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
     if (!text) return yield* Effect.fail(failure("Tmux.ready", `Viewer in ${pane} did not become ready. Inspect that pane for errors.`));
     const status = yield* Schema.decodeUnknownEffect(Ready)(yield* json(text));
     if ("error" in status) return yield* Effect.fail(failure("Tmux.ready", status.error));
-    yield* requireVisible(pane);
     readyPane = true;
-    return { pane, project: options.view.project, view: options.view.id, renderer: options.renderer, protocol: status.protocol,
-      ...(exported ? { image: exported.image } : {}) };
+    return { pane, project: options.view.project, view: options.view.id };
 }, Effect.scoped);

@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { cp, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
-import { selectView, exportView } from "./effects";
+import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -47,26 +46,16 @@ test("rejects unknown view IDs rather than interpreting them as export patterns 
   }
 });
 
-test("requires a real terminal for foreground rendering", async () => {
-  const result = await invoke("image", "missing.png");
-  expect(result.code).toBe(1);
-  expect(result.stderr).toContain("needs a terminal");
-});
-
-test("native foreground mode rejects graphics-only options and non-terminal output", async () => {
-  const invalid = await invoke("view", "index", "--workspace", workspace, "--protocol", "blocks");
-  expect(invalid.code).toBe(1);
-  expect(invalid.stderr).toContain("--protocol applies only to --renderer png");
+test("native foreground mode needs a terminal", async () => {
   const headless = await invoke("view", "index", "--workspace", workspace);
   expect(headless.code).toBe(1);
   expect(headless.stderr).toContain("native viewer needs a terminal");
 });
 
-test.each(["kitty", "sixel"])("rejects unsafe %s placement before opening a tmux pane", async protocol => {
-  const result = await invoke("show", "index", "--workspace", workspace,
-    "--pane", "%0", "--socket", join(directory, "no-server.sock"), "--renderer", "png", "--protocol", protocol);
+test("follow and a bound session are mutually exclusive", async () => {
+  const result = await invoke("view", "index", "--workspace", workspace, "--follow", "--session", "s");
   expect(result.code).toBe(1);
-  expect(result.stderr).toContain("not pane-safe");
+  expect(result.stderr).toContain("either --follow or --session");
 });
 
 test("rejects activity mappings to nonexistent architecture elements before opening a pane", async () => {
@@ -82,11 +71,3 @@ test("rejects activity mappings to nonexistent architecture elements before open
   expect((await invoke("view", "index", "--workspace", workspace, "--session", "test-session")).stderr)
     .toContain("Activity mapping project must match");
 });
-
-test("exports the selected project's PNG from a multi-project workspace", async () => {
-  const multi = join(directory, "multi");
-  await cp("examples/parcel", join(multi, "parcel"), { recursive: true, filter: path => !path.includes(".cache") });
-  await cp("examples/viewer", join(multi, "viewer"), { recursive: true, filter: path => !path.includes(".cache") });
-  const exported = await exportView(await selectView(multi, "live", "viewer"));
-  expect((await readFile(exported.image)).subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-}, 30_000);

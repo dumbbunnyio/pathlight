@@ -13,8 +13,6 @@ const Show = z.object({
   project: z.string().optional(),
   pane: z.string().regex(/^%\d+$/).describe("The user's tmux pane ID. Obtain it from their terminal context, not the background server environment."),
   socket: z.string().optional().describe("tmux server socket path, if not using the default server."),
-  protocol: z.enum(["auto", "blocks", "kitty-unicode"]).default("auto"),
-  renderer: z.enum(["native", "png"]).default("native").describe("Native interactive nodes by default. Select png for image rendering; protocol applies only to png."),
   live: z.boolean().default(false).describe("Observe this session's tool activity. Requires c4view.activity.json in the workspace."),
 }).strict();
 
@@ -83,7 +81,7 @@ export default Plugin.define({
       });
       editor.add({
         name: "show",
-        description: "Open an interactive LikeC4 diagram beside the user's tmux pane. Native nodes support mouse, keyboard, search, nested groups, and linked views. Requires an explicit parent pane ID. Set live=true to record this session's tool activity. Set renderer=png for the image fallback; only PNG uses protocol. Reuses only owned viewer panes.",
+        description: "Open an interactive LikeC4 diagram beside the user's tmux pane. Native nodes support mouse, keyboard, search, nested groups, and linked views. Requires an explicit parent pane ID. Set live=true to record this session's tool activity. Reuses only owned viewer panes.",
         input: z.toJSONSchema(Show),
         options: { namespace: "c4view", codemode: true },
         execute: async (input, context) => {
@@ -104,7 +102,7 @@ export default Plugin.define({
               save: [`${workspace}:*`],
             });
             const args = [cli, "show", request.view, "--workspace", workspace,
-              "--pane", request.pane, "--renderer", request.renderer, "--protocol", request.protocol];
+              "--pane", request.pane];
             if (request.project) args.push("--project", request.project);
             if (request.socket) args.push("--socket", request.socket);
             if (request.live) args.push("--session", context.sessionID, "--source", "opencode");
