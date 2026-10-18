@@ -9,8 +9,7 @@ bun run c4view view live --project viewer
 ```
 
 Click a node. Its border becomes white, and the details panel lists its incoming and outgoing relationships.
-Curves and diagonals use Braille dots. Fully horizontal and vertical connections use solid lines.
-Selected connections use bold text. Incoming connections are cyan, and outgoing connections are amber.
+Connections are made of horizontal and vertical lines with rounded bends. Quiet ones are dotted, and the selected node's are solid: cyan for incoming, amber for outgoing.
 The details use the same colors, node names, and full relationship labels. Scroll over the details to read wrapped labels without panning the diagram.
 Press Tab or Shift+Tab to cycle through nodes. `h`, `j`, `k` and `l` select the nearest node left, down, up or right of the selection (siblings are preferred; ancestors and descendants are reached with Backspace and Enter). The camera only moves if the new node would be off screen. Arrow keys pan the camera without changing the selection, and Shift+`hjkl` pans too. Press `v` to swap the roles: arrows select, `hjkl` pan.
 Select a group and press Enter to select its first child. Press Backspace to select the parent group.
@@ -90,7 +89,7 @@ Groups show their own mapped activity in their title. A child's activity does no
 ## Appearance
 
 Leaf nodes are borderless flat cards, so their whole area is available for the label, which wraps and ends in `…` rather than showing a fragment. The ring is painted on the canvas just outside the card, only for selection (white), neighbours (cyan incoming, amber outgoing) and observed activity (amber edit, cyan read, violet command), so emphasis is never confused with decoration. Groups are outlines with titles on the canvas colour.
-Connections are continuous Braille strokes, medium when quiet and heavy when selected. Quiet connections brighten slightly toward their arrowhead, a static direction cue.
+Connections are orthogonal: thin box-drawing lines (`─ │ ╭ ╮ ╰ ╯ ├ ┤ ┬ ┴ ┼`) with rounded bends and no diagonals. Each is routed once per layout on a coarse grid that steers around other nodes and prefers few bends (`src/routes.ts`); the endpoints are LikeC4's, only the path between them is ours. Quiet connections are dotted where they run straight (`┈ ┊`), the selected node's are solid and tinted by direction, shared runs merge into junctions, and every arrowhead (`▶ ◀ ▲ ▼`) sits on the cell next to its node.
 A faint dot grid is fixed to the diagram's coordinates, so panning and zooming read as camera motion.
 When the first view opens, nodes bloom in from left to right and connectors extend from source to target for about 0.6 seconds. This is a one-time reveal; it does not run on navigation and connectors never animate to suggest traffic. The ready signal waits for the reveal to finish.
 
@@ -110,7 +109,7 @@ Help (`?`), the session summary (`c`) and the ask dialog (`t`) are centred dialo
 A one-line `loading the architecture…` shows while LikeC4 loads the model.
 
 The inspector is four numbered sections on layered surfaces (canvas darkest, panel, then lighter section blocks): `[1] Overview`, `[2] Connections`, `[3] Files`, `[4] Activity`. Press `1`–`4` to focus a section: its header turns cyan, its card lightens, the mode pill names it, and the movement keys belong to it until you press `Esc` (or the same number again). Inside a focused section `↑↓`/`jk` move a cursor and `Enter` acts on the item: in Connections it selects that node in the diagram (and the focus stays, so you can walk the graph edge by edge), in Files it opens the file in your editor, in Activity it selects the component the call touched, and in Overview the arrows scroll. `Tab` moves to the next section and `Space` folds the focused one to a header with its count (`[3] Files  8`); clicking a header folds it and focuses it. Clicking the diagram hands the keys back. The footer shows `c4view` and its version, and the top bar names the workspace.
-Press `g` for a numbered list of every view in the project; `1`–`9` jumps, arrows and Enter choose, and `Back` returns. This is a user's choice of view, not an inferred link. The experimental GPU stroke comparison moved to `G` (shift).
+Press `g` for a numbered list of every view in the project; `1`–`9` jumps, arrows and Enter choose, and `Back` returns. This is a user's choice of view, not an inferred link. 
 
 The four cards are always the same height and each scrolls on its own (mouse wheel, PageUp/PageDown, or the cursor keys when focused), so long label lists and file lists never push the others around. When the inspector is too short for every open card, the least important untouched cards fold themselves; in very short terminals folded cards shrink to one-line headers or disappear, and the focused card takes the space. Cards you opened or folded yourself are left alone. The header above them shows the selected element's name with a dot in its colour, its kind and technology in plain words, and where it sits (`in Parcel › Commerce`); the technical ID is the first line of Overview. The top-right of the screen is only the live indicator; the shortcuts are in the bottom row and in `?`.
 
@@ -145,9 +144,7 @@ Empty views are rejected. Native mode does not support collapsing groups, projec
 The framebuffer follows the terminal viewport rather than allocating a full-diagram canvas. Manual zoom ranges from 12.5% to 800%; fit can scale further to show the whole diagram.
 Leaf shapes become filled boxes. Groups become transparent outlines with titles, ordered behind their children.
 Labels wrap at cell boundaries and can be clipped on small nodes. Leaf labels hide below six columns or two rows.
-Connectors sample LikeC4's Bézier curves into a two-by-four dot grid per terminal cell. Overlapping curves combine their dots.
-Unselected connections remain dim. Selected connections draw last, then arrowheads draw above the lines.
-Arrowheads occupy exposed cells outside node boxes. The native renderer distinguishes absent, dot, and diamond markers but simplifies other arrowhead shapes to triangles.
+Connectors are routed orthogonally around leaf nodes and rasterized onto terminal cells each frame; where no clear route exists they fall back to a plain horizontal-vertical-horizontal path. Unselected connections remain dim; selected ones draw last. Arrowheads occupy the cell next to the target node; dot and diamond markers are drawn as plain arrowheads.
 Relationship labels wrap in the scrollable selection panel rather than covering the diagram.
 At 100%, coordinates use 16 horizontal pixels per terminal cell. Vertical scale follows the reported terminal cell aspect ratio, falling back to 32 pixels. Nodes and connectors share the camera projection.
 Resizing changes the viewport, not the graph layout. Native boxes and scrolling still move at terminal-cell boundaries during easing.
@@ -156,13 +153,12 @@ The activity journal is best-effort. Calls without outcomes stop showing as acti
 ## Implementation and verification
 
 Native node boxes, group outlines, and a connector framebuffer share a clipped viewport. Hit testing uses displayed cell bounds, including rounded group titles.
-Camera interpolation uses OpenTUI frame callbacks and Three. The renderer initializes OpenTUI's WebGPU backend; the default connectors are projected Braille, not GPU strokes. Linux is the verified platform.
-`G` (shift) toggles experimental GPU strokes and `s` toggles sampling for comparison. Braille remains the supported default.
+Camera interpolation uses OpenTUI frame callbacks and Three's orthographic camera for the projection. Nothing is drawn by Three or the GPU, so no WebGPU backend is needed. Linux is the verified platform.
 LikeC4 parent and child IDs drive hierarchy navigation. Renderable boxes remain siblings with absolute coordinates to avoid nested border offsets.
 The isolated tmux tests exercise the flat view and both nested Parcel views, including clicks before and after pan and resize, independent group and child activity, and normal process exit.
 The file-browser test requires `nvim` and checks an actual save, resizing during editing, editor failure recovery, file filtering, refresh, and preserved zoomed diagram position.
 The Linux editor lifecycle test checks launcher environment forwarding and shutdown of an editor wrapper with a child process.
 Navigation tests verify explicit links, rejected empty destinations, restoration of zoomed diagram cells and selection, an unchanged process, and activity updates after returning.
 Search tests exercise shortcut isolation, case-insensitive names and IDs, pasted text, match cycling, mouse isolation, resize, accepting linked nodes without opening them, and cancellation back to the original diagram cells.
-Relationship tests check curve sampling, exposed arrowheads, marker direction, selection colors, and long labels that scroll without moving the diagram.
+Routing tests check that routes are only horizontal and vertical, avoid nodes in the way, merge into junctions and end in an arrowhead outside the target. The relationship test checks selection colors and long labels that scroll without moving the diagram.
 The interactive prototype was manually tried and approved before integration into the CLI. macOS and broader terminal compatibility remain unverified.

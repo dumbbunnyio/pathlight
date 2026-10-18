@@ -46,11 +46,11 @@ workspace mappings, not agent guesses or title matching.
 ### The primary experience is genuinely interactive terminal UI
 
 OpenTUI renders nodes, groups, labels and an inspector. Three supplies the eased
-orthographic camera; projected Braille supplies the default connector strokes
-and arrowheads. They share the same projection so picking and connectors remain
+orthographic camera; orthogonal thin-line connectors with rounded bends
+connect the nodes. They share the same projection so picking and connectors remain
 aligned as the developer moves around.
 
-The user approved the Three camera, Braille appearance, polished inspector and
+The user approved the Three camera, the orthogonal thin-line appearance, polished inspector and
 restored workflows. Preserve these together. A prior ScrollBox-based camera was
 rejected because its movement did not match the approved experiment. Replacing
 the camera again requires a demonstrated improvement and explicit approval,
@@ -115,11 +115,9 @@ These are scope boundaries, not promises of later implementation.
 
 - Linux/tmux is verified. macOS and broader terminal compatibility remain open;
   locking currently relies on Linux `flock`.
-- Native mode initializes the OpenTUI/Three WebGPU backend even for Braille.
-  Backend availability is a real prerequisite, not something to obscure with a
-  claim that the renderer is purely text-only.
+- Connectors are routed by a simple grid search; in very dense diagrams two routes can share a lane or pass close to a node.
 - Labels may clip or hide at small scales; boxes move on terminal-cell boundaries.
-  Some marker shapes are simplified. GPU strokes remain a comparison mode.
+  Dot and diamond markers are drawn as plain arrowheads.
 - Search is confined to the current view. Group collapsing, relationship-link
   navigation and model editing are not implemented.
 - Journals can lose events under overload or disk failure. Their bounded history

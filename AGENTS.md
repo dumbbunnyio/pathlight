@@ -13,15 +13,14 @@ Read [project intent](docs/project-intent.md) for the product contract,
 ## Current baseline
 
 - The production default is `src/native-viewer.ts`: native OpenTUI widgets,
-  an eased Three orthographic camera, projected Braille connectors, and a
+  an eased Three orthographic camera, orthogonal thin-line connectors, and a
   responsive, draggable inspector. The user approved this camera and appearance.
 - The Three candidate has been promoted. `.cache/three-probe/` and
   `.cache/pre-promotion/` are local historical artifacts, not production sources
   or required build inputs. Do not restore the rejected ScrollBox camera.
 - The PNG/image renderer was removed; native is the only renderer.
 - Linux/tmux is the verified target. Do not claim macOS or broader terminal
-  compatibility without checking it. Native initialization uses the WebGPU
-  backend even though default connectors are Braille.
+  compatibility without checking it. Connectors, cards and the inspector are drawn by OpenTUI; Three only provides the camera projection (no GPU backend is initialised).
 
 Preserve the approved camera and visual design during maintenance. Propose
 intentional redesigns separately; do not quietly substitute another camera.
@@ -33,7 +32,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 | CLI, model/view selection, workspace setup | `src/cli.ts`, `src/catalog.ts`, `src/init.ts` |
 | Owned tmux pane launch/replacement, readiness | `src/tmux.ts`, `src/ready.ts` |
 | Native UI and camera | `src/native-viewer.ts` |
-| Connector projection/rasterization/markers | `src/connectors.ts` |
+| Orthogonal connector routing and rasterization | `src/routes.ts` |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
 | Agent integrations | `plugins/` (`plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it) |
