@@ -71,13 +71,13 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     const zoomed = await tmux("capture-pane", "-p", "-t", pane);
     const zoom = (screen: string) => Number(screen.match(/Zoom: (\d+)%/)?.[1]);
     expect(zoom(zoomed)).toBeGreaterThan(zoom(rendered));
-    await tmux("send-keys", "-t", pane, "g");
+    await tmux("send-keys", "-t", pane, "G");
     await capture("GPU + Three camera");
     const alternate = await capture(/[\u2580-\u259f]/);
     expect(alternate).toMatch(/[\u2580-\u259f]/);
     expect(alternate).toContain("Selected: activity");
     expect(zoom(alternate)).toBe(zoom(zoomed));
-    await tmux("send-keys", "-t", pane, "g");
+    await tmux("send-keys", "-t", pane, "G");
     await capture("Zoom:");
     await writeFile(resolve(".cache/native-check/capture-braille.ansi"), await tmux("capture-pane", "-e", "-p", "-t", pane));
     await tmux("resize-window", "-t", pane, "-x", "100", "-y", "36");

@@ -1,4 +1,4 @@
-import { BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRenderable, TextRenderable, StyledText, type TextChunk, fg, bg, bold, dim, RGBA, createCliRenderer } from "@opentui/core";
+import { type Renderable, BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRenderable, TextRenderable, StyledText, type TextChunk, fg, bg, bold, dim, RGBA, createCliRenderer } from "@opentui/core";
 import { THREE, ThreeCliRenderer } from "@opentui/three";
 import { SplitPaneRenderable } from "opentui-split";
 import { Effect, FiberSet, Schedule } from "effect";
@@ -8,6 +8,8 @@ import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, late
 import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
 import { askMessage, sendToPane } from "./ask";
+import pkg from "../package.json" with { type: "json" };
+import { basename } from "node:path";
 import { type Hint, hintChunks, noticeStyle, palette, pill } from "./ui";
 import { arrowGlyph, composeConnectors, terminalConnectors } from "./connectors";
 import { attempt, failure, hasCode, io } from "./effects";
@@ -84,19 +86,43 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     paddingLeft: 1, paddingRight: 1, backgroundColor: palette.panel });
   const inspectorScroll = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true });
   const inspectorTitle = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
+  const inspectorHead = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   const inspectorId = new TextRenderable(renderer, { selectable: false, flexShrink: 0, fg: palette.muted, wrapMode: "word" });
   const relations = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "word" });
-  const fileHeading = new TextRenderable(renderer, { selectable: false, height: 2, flexShrink: 0, fg: palette.muted });
+  const fileHeading = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, visible: false, fg: palette.muted });
   const fileRows = Array.from({ length: 5 }, (_, index) => new TextRenderable(renderer, { selectable: false, id: `file-${index}`, height: 1,
     flexShrink: 0, fg: palette.text, wrapMode: "none" }));
   const activityText = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
-  for (const child of [inspectorTitle, inspectorId, relations, fileHeading, ...fileRows, activityText]) inspectorScroll.add(child);
+  // Numbered, collapsible sections: each is a lighter block on the panel, with a bar on its left edge when focused.
+  type SectionKey = "overview" | "connections" | "files" | "activity";
+  const makeSection = (number: number, name: string, children: Renderable[]) => {
+    const box = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "column", backgroundColor: palette.section, border: ["left"], borderStyle: "heavy",
+      borderColor: palette.section, paddingLeft: 1, paddingRight: 1, marginTop: 1 });
+    const header = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
+    const content = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "column" });
+    for (const child of children) content.add(child);
+    box.add(header); box.add(content);
+    return { number, name, box, header, content, open: true };
+  };
+  const sections = {
+    overview: makeSection(1, "Overview", [inspectorId]),
+    connections: makeSection(2, "Connections", [relations]),
+    files: makeSection(3, "Files", [fileHeading, ...fileRows]),
+    activity: makeSection(4, "Activity", [activityText]),
+  };
+  const sectionOrder: SectionKey[] = ["overview", "connections", "files", "activity"];
+  let focusSection: SectionKey = "overview";
+  for (const child of [inspectorTitle, inspectorHead, ...sectionOrder.map(key => sections[key].box)]) inspectorScroll.add(child);
   inspector.add(inspectorScroll);
   const statusLeft = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
   const statusRight = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
   const footer = new BoxRenderable(renderer, { height: 1, flexShrink: 0, flexDirection: "row", justifyContent: "space-between", backgroundColor: palette.panel, paddingLeft: 1, paddingRight: 1 });
   footer.add(statusLeft); footer.add(statusRight);
-  const shortcuts = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
+  const shortcuts = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
+  const brand = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none",
+    content: new StyledText([fg(palette.muted)("c4"), fg(palette.text)(bold("view")), fg(palette.border)(` v${pkg.version} `)]) });
+  const shortcutsRow = new BoxRenderable(renderer, { height: 1, width: "100%", flexShrink: 0, flexDirection: "row", justifyContent: "space-between" });
+  shortcutsRow.add(shortcuts); shortcutsRow.add(brand);
   const notice = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, visible: false, fg: palette.text, wrapMode: "none" });
   // A floating dialog over a dimmed backdrop: rounded border, coloured title, body, and a row of key hints.
   const makeModal = (title: string, color: string) => {
@@ -121,6 +147,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const help = makeModal("Keyboard shortcuts", palette.incoming);
   const summary = makeModal("This session", palette.outgoing);
   const ask = makeModal("Ask the agent", palette.command);
+  const goto = makeModal("Go to view", palette.incoming);
   const askInput = new InputRenderable(renderer, { flexGrow: 1, maxLength: 400, placeholder: "What do you want to know about it?", backgroundColor: palette.background,
     textColor: palette.text, focusedBackgroundColor: palette.background });
   const askRow = new BoxRenderable(renderer, { height: 1, width: "100%", flexShrink: 0, flexDirection: "row", backgroundColor: palette.background, marginTop: 1 });
@@ -130,7 +157,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     zIndex: 10000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); searchInput.focus(); } });
   viewport.add(canvas); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
-  for (const child of [topBar, body, notice, footer, shortcuts, searchShield, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel]) renderer.root.add(child);
+  for (const child of [topBar, body, notice, footer, shortcutsRow, searchShield, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel, goto.scrim, goto.panel]) renderer.root.add(child);
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
   let centerX = diagram.bounds.x + diagram.bounds.width / 2;
   let centerY = diagram.bounds.y + diagram.bounds.height / 2;
@@ -167,9 +194,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const arrows = "← ↑ ↓ →";
     const navigate: Hint[] = [[vimTraverses ? "h j k l" : arrows, "select a neighbour"], [vimTraverses ? arrows : "h j k l", "pan"], ["+ -", "zoom"], ["f", "fit everything"],
       ["0", "actual size"], ["r", "centre the selection"], ["Tab", "next node"], ["Enter", "into a group / open a link"], ["Backspace", "up to the parent"],
-      ["o", "open the linked view"], ["b", "back"]];
+      ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"]];
     const inspect: Hint[] = [["/", "search this view"], ["i", "toggle the inspector"], ["e", "browse mapped files"], ["t", "ask the agent about it"],
-      ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "camera follows the work"], ["v", "swap hjkl and arrows"],
+      ["1-4", "fold inspector sections"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "camera follows the work"], ["v", "swap hjkl and arrows"],
       ["PgUp PgDn", "scroll the inspector"], ["?", "this help"], ["q", "quit"]];
     const keyWidth = 9;
     const cell = ([key, label]: Hint) => [bg(palette.keycap)(fg(palette.text)(` ${key.padEnd(keyWidth)} `)), fg(palette.muted)(` ${label}`)];
@@ -302,15 +329,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     return { x: (p.x + 1) * viewport.width / 2, y: (1 - p.y) * viewport.height / 2 };
   };
   const nl = fg(palette.text)("\n");
-  const innerWidth = () => Math.max(16, inspector.width - 3);
+  const innerWidth = () => Math.max(16, inspector.width - 7);
   const section = (title: string, tone: string, right = "") => [fg(tone)(bold(title)), fg(palette.border)(` ${"─".repeat(Math.max(2, innerWidth() - title.length - right.length - 2))} `), fg(palette.muted)(right)];
   const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
   // Which element each rendered line of the activity list belongs to, so a click can select its node.
   let activityTargets: (string | undefined)[] = [];
   const activityContent = () => {
-    activityTargets = [undefined, undefined];
-    const activityTotal = events.length ? `${events.length} call${events.length > 1 ? "s" : ""}` : "";
-    const header = [nl, ...section("ACTIVITY", palette.muted, activityTotal), nl];
+    activityTargets = [];
+    const header: TextChunk[] = [];
     const note = (text: string, tone: string = palette.muted) => new StyledText([...header, fg(tone)(text)]);
     if (activityError) return note(activityError, palette.failure);
     const advice = (lines: string[]) => new StyledText([...header, ...lines.flatMap((line, index) => [fg(index === 0 ? palette.muted : palette.border)(line), ...(index < lines.length - 1 ? [nl] : [])])]);
@@ -458,7 +484,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     headingText.content = headingContent(); badgeText.content = badgeContent();
     crumbHint.content = new StyledText(hintChunks([["t", "ask"], ["c", "session"], ["?", "help"]], 36));
     breadcrumb.content = search ? new StyledText([fg(palette.incoming)(bold(`Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length}`)), fg(palette.muted)(" · Enter keep · Esc cancel")])
-      : `${view.project} / ${diagram.id}  ·  ${diagram.nodes.length} nodes  ·  ${diagram.edges.length} relationships  ·  Back: ${history.length}`;
+      : `${renderer.width >= 100 ? `${basename(view.workspace)} · ` : ""}${view.project} / ${diagram.id}  ·  ${diagram.nodes.length} nodes  ·  ${diagram.edges.length} relationships  ·  Back: ${history.length}`;
+    crumbHint.visible = renderer.width >= 100;
     searchShield.visible = !!search;
     searchShield.height = Math.max(1, renderer.height - 5);
     const worldWidth = Math.max(1, viewport.width) * scale;
@@ -539,23 +566,34 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const facts = [selected?.technology, `${paths.length} file${paths.length === 1 ? "" : "s"}`, selected?.navigateTo ? `o opens ${selected.navigateTo}` : undefined].filter(Boolean).join(" · ");
     const hue = hues[String(selected?.color ?? "")] ?? palette.muted;
     const kindChip = selected?.kind ? [bg(mix(palette.panel, hue, 0.22))(fg(hue)(bold(` ${selected.kind} `))), fg(palette.muted)("  ")] : [];
+    inspectorHead.content = new StyledText([...kindChip, fg(palette.muted)(String(selected?.id ?? ""))]);
     const description = describe(selected);
-    inspectorId.content = new StyledText([...kindChip, fg(palette.muted)(`${selected?.id ?? ""}\n`), fg(palette.muted)(facts),
-      ...(description ? [nl, nl, fg(palette.text)(description)] : [])]);
+    inspectorId.content = new StyledText([fg(palette.muted)(facts), ...(description ? [nl, nl, fg(palette.text)(description)] : [])]);
     const name = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const incoming = diagram.edges.filter(edge => edge.target === selected?.id);
     const outgoing = diagram.edges.filter(edge => edge.source === selected?.id);
     const link = (arrow: string, tone: string, node: string, label: string | null | undefined) =>
       [fg(tone)(`${arrow} `), fg(palette.text)(`${name(node)}\n`), fg(palette.muted)(`  ${label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}\n`)];
+    const sub = (title: string, tone: string, count: number) => [fg(tone)(bold(title)), fg(palette.muted)(`  ${count}`), nl];
     relations.content = new StyledText([
-      nl, ...section("INCOMING", palette.incoming, String(incoming.length)), nl,
+      ...sub("INCOMING", palette.incoming, incoming.length),
       ...(incoming.length ? incoming.flatMap(edge => link("←", palette.incoming, edge.source, edge.label)) : [fg(palette.muted)("None\n")]),
-      nl, ...section("OUTGOING", palette.outgoing, String(outgoing.length)), nl,
-      ...(outgoing.length ? outgoing.flatMap(edge => link("→", palette.outgoing, edge.target, edge.label)) : [fg(palette.muted)("None\n")]),
+      nl, ...sub("OUTGOING", palette.outgoing, outgoing.length),
+      ...(outgoing.length ? outgoing.flatMap(edge => link("→", palette.outgoing, edge.target, edge.label)) : [fg(palette.muted)("None")]),
     ]);
-    fileHeading.content = new StyledText([nl, ...(fileMode
-      ? [fg(palette.outgoing)(bold(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`))]
-      : section("FILES", palette.muted, `${paths.length}  e browse`))]);
+    fileHeading.visible = fileMode;
+    fileHeading.content = new StyledText([fg(palette.outgoing)(bold(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`))]);
+    const counts: Record<SectionKey, string> = { overview: "", connections: String(incoming.length + outgoing.length),
+      files: fileMode ? `${paths.length ? fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: events.length ? String(events.length) : "" };
+    for (const key of sectionOrder) {
+      const entry = sections[key];
+      const left = `${entry.open ? "▾" : "▸"} [${entry.number}] ${entry.name}`;
+      const room = Math.max(1, innerWidth() - left.length - counts[key].length);
+      entry.header.content = new StyledText([fg(palette.muted)(`${entry.open ? "▾" : "▸"} `), fg(palette.muted)(`[${entry.number}] `), fg(palette.text)(bold(entry.name)),
+        fg(palette.muted)(`${" ".repeat(room)}${counts[key]}`)]);
+      entry.content.visible = entry.open;
+      entry.box.borderColor = focusSection === key ? palette.incoming : palette.section;
+    }
     const start = Math.floor(fileCursor / fileRows.length) * fileRows.length;
     fileRows.forEach((row, index) => {
       const path = paths[start + index];
@@ -566,7 +604,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         row.content = new StyledText([fg(palette.outgoing)(`${fileMode && fileCursor === start + index ? "›" : " "} `), fg(palette.muted)(path.slice(0, slash)),
           fg(touched ? operationColor(touched.operation) : palette.text)(touched ? bold(path.slice(slash)) : path.slice(slash))]);
       } else row.content = new StyledText([fg(palette.muted)(fileError || (config ? "No direct file mappings" : "Map files in c4view.activity.json"))]);
-      row.bg = fileMode && fileCursor === start + index ? "#294052" : palette.panel;
+      row.bg = fileMode && fileCursor === start + index ? "#294052" : palette.section;
       // First click highlights a row; clicking the highlighted row again opens it.
       row.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!path || help.visible || summary.visible || search) return;
         if (fileMode && clickedFile === start + index) { openFile(path); return; }
@@ -581,11 +619,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     statusRight.content = new StyledText([...(braille ? [] : [fg(palette.outgoing)("GPU + Three camera  ·  ")]), ...(hidden ? [fg(palette.border)(`${hidden} labels hidden  ·  `)] : []), fg(palette.muted)(`Zoom: ${Math.round(16 / scale * 100)}%`)]);
     const ticker = tickerContent();
     const navigation: Hint[] = [[selectKeys(), "select"], [vimTraverses ? "←↑↓→" : "h j k l", "pan"], ["+ -", "zoom"], ["/", "search"], ["f", "fit"], ["e", "files"], ["i", "inspector"]];
-    shortcuts.content = new StyledText(search ? [fg(palette.muted)(" Type a name or ID   "), ...hintChunks([["↑↓", "matches"], ["Enter", "keep"], ["Esc", "restore"]], renderer.width - 22)]
-      : fileMode ? [fg(palette.outgoing)(bold(` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`)), fg(palette.muted)("   Type to filter   "), ...hintChunks([["Enter", "open"], ["Ctrl+R", "refresh"], ["Esc", "back"]], renderer.width - 40)]
+    shortcuts.content = new StyledText(search ? [fg(palette.muted)(" Type a name or ID   "), ...hintChunks([["↑↓", "matches"], ["Enter", "keep"], ["Esc", "restore"]], renderer.width - 38)]
+      : fileMode ? [fg(palette.outgoing)(bold(` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`)), fg(palette.muted)("   Type to filter   "), ...hintChunks([["Enter", "open"], ["Ctrl+R", "refresh"], ["Esc", "back"]], renderer.width - 56)]
       : ticker ?? (!inspector.visible && selected && describe(selected)
         ? [fg(palette.text)(bold(` ${selected.title}`)), fg(palette.muted)(`  ${describe(selected)}`.slice(0, Math.max(0, renderer.width - selected.title.length - 4)))]
-        : hintChunks(navigation, renderer.width)));
+        : hintChunks(navigation, renderer.width - 16)));
     notice.visible = !!message;
     if (message) { const style = noticeStyle(message); notice.content = new StyledText([fg(style.color)(` ${style.glyph} `), fg(palette.text)(message)]); }
     dirty = true; renderer.requestRender();
@@ -687,6 +725,37 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       animating = false; pendingVisit = { diagram: next };
     } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
   };
+  // Go to view: every view in this project, picked by the user. It does not infer links between views.
+  let gotoIndex = 0;
+  const viewEntries = () => [...diagrams].filter(([, entry]) => entry.nodes.length);
+  const renderGoto = () => {
+    const entries = viewEntries();
+    const chunks: TextChunk[] = [];
+    entries.forEach(([id, entry], index) => {
+      const current = id === String(diagram.id), cursor = index === gotoIndex;
+      chunks.push(bg(cursor ? "#294052" : palette.panel)(fg(palette.muted)(` ${index < 9 ? index + 1 : "·"} `)),
+        bg(cursor ? "#294052" : palette.panel)(fg(palette.text)(bold(` ${String(entry.title ?? id).padEnd(30).slice(0, 30)}`))),
+        bg(cursor ? "#294052" : palette.panel)(fg(palette.muted)(` ${id.padEnd(16).slice(0, 16)} ${entry.nodes.length} nodes `)),
+        fg(current ? palette.incoming : palette.panel)(current ? "  ● here" : ""), nl);
+    });
+    goto.content.content = new StyledText(chunks);
+    goto.foot.content = new StyledText(hintChunks([["1-9", "jump"], ["↑↓", "choose"], ["Enter", "go"], ["Esc", "close"]], Math.min(80, renderer.width - 4) - 6));
+    goto.place(Math.min(80, renderer.width - 4), entries.length + 7);
+  };
+  const beginGoto = () => {
+    const entries = viewEntries();
+    gotoIndex = Math.max(0, entries.findIndex(([id]) => id === String(diagram.id)));
+    goto.open(Math.min(80, renderer.width - 4), entries.length + 7); renderGoto(); update();
+  };
+  const goToView = (id: string) => {
+    goto.close();
+    if (id === String(diagram.id)) { update(); return; }
+    try {
+      const next = getDiagram(id);
+      history.push(visit()); if (history.length > 32) history.shift();
+      animating = false; pendingVisit = { diagram: next };
+    } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
+  };
   const finishSearch = (cancel: boolean) => {
     if (!search) return;
     if (cancel) restore(search.before);
@@ -727,6 +796,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       Effect.tap(command => Effect.sync(() => { message = submit ? `Sent to ${parent} (${command})` : `Typed into ${parent} (${command}) · press Enter there to send`; update(); })),
       Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
   };
+  const toggleSection = (key: SectionKey) => {
+    const entry = sections[key];
+    if (!inspector.visible) { inspectorPreference = "open"; entry.open = true; } else entry.open = !entry.open;
+    focusSection = key; inspectorScroll.scrollTo(0); update();
+  };
+  for (const key of sectionOrder) sections[key].header.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!fileMode && !search && !asking) toggleSection(key); };
   let clickedFile = -1;
   const endFiles = () => { clickedFile = -1; fileMode = false; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
   const openFile = (path: string) => {
@@ -742,7 +817,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }).pipe(Effect.scoped, Effect.catch(error => Effect.sync(() => { editorActive = false; message = error.message; searchInput.focus(); update(); }))));
   };
   const beginFiles = () => {
-    fileMode = true; fileCursor = 0; fileQuery = ""; inspectorPreference = "open"; message = fileError;
+    fileMode = true; fileCursor = 0; fileQuery = ""; sections.files.open = true; focusSection = "files"; inspectorPreference = "open"; message = fileError;
     searchInput.placeholder = "Filter mapped files"; searchInput.value = ""; searchPrompt.content = " files › "; searchPrompt.fg = palette.outgoing;
     searchRow.visible = true; heading.visible = false; searchInput.focus();
   };
@@ -758,7 +833,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     else { restore(search.before); update(); }
   });
   viewport.onMouseDown = event => {
-    if (editorActive || help.visible || summary.visible || search || asking || pendingVisit) return;
+    if (editorActive || help.visible || summary.visible || goto.visible || search || asking || pendingVisit) return;
     if (fileMode) { endFiles(); message = ""; }
     // Hit the displayed cell bounds, not the fractional world-space plane:
     // rounding can put a group's visible title just outside that plane.
@@ -786,6 +861,16 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (asking) {
       if (key.name === "escape") { key.preventDefault(); finishAsk(); }
       else if (key.name === "return") { key.preventDefault(); sendAsk(key.meta || key.option); }
+      return;
+    }
+    if (goto.visible) {
+      key.preventDefault();
+      const entries = viewEntries();
+      if (key.name === "escape" || key.name === "g") { goto.close(); update(); }
+      else if (key.name === "return") { const entry = entries[gotoIndex]; if (entry) goToView(entry[0]); }
+      else if (key.name === "up" || key.name === "k") { gotoIndex = (gotoIndex - 1 + entries.length) % entries.length; renderGoto(); }
+      else if (key.name === "down" || key.name === "j") { gotoIndex = (gotoIndex + 1) % entries.length; renderGoto(); }
+      else if (/^[1-9]$/.test(key.sequence)) { const entry = entries[Number(key.sequence) - 1]; if (entry) goToView(entry[0]); }
       return;
     }
     if (summary.visible) {
@@ -817,6 +902,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!fileMode && key.name === "backspace") { key.preventDefault(); selectNode(diagram.nodes.find(node => node.id === selected?.parent), true); return; }
     const direction = ({ h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" } as const)[key.name as "h"];
     const vimKey = key.name.length === 1;
+    if (!fileMode && !key.ctrl && !key.meta && /^[1-4]$/.test(key.sequence)) { key.preventDefault(); toggleSection(sectionOrder[Number(key.sequence) - 1] ?? "overview"); return; }
+    if (!fileMode && key.name === "g" && !key.ctrl && !key.shift) { key.preventDefault(); beginGoto(); return; }
+    if (!fileMode && key.sequence === "G") { key.preventDefault(); braille = !braille; message = ""; update(); return; }
     if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
     if (!fileMode && key.name === "c" && !key.ctrl) {
       key.preventDefault(); summary.foot.content = new StyledText(hintChunks([["Esc", "close"]], 40)); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
@@ -868,7 +956,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       message = followCamera ? (binding || following ? "Camera follows running tools (a to stop)" : "Camera follow needs a bound session") : "Camera follow off";
       if (followCamera) followActivity();
     }
-    else if (key.name === "g") { braille = !braille; message = ""; }
     else if (key.name === "s") { engine?.toggleSuperSampling(); message = "Sampling changed: compare line continuity"; }
     else if (key.name === "e") beginFiles();
     else if (key.name === "tab") {

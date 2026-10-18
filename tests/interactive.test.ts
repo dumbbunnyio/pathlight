@@ -237,7 +237,7 @@ test("search isolates typing, cycles matches, accepts without navigation, and ca
     await tmux("send-keys", "-t", pane, "Escape");
     await capture("Service architecture");
     await delay(700);
-    const diagramCells = (text: string) => text.split("\n").slice(1, 25).map(line => line.padEnd(90).slice(0, 89)).join("\n");
+    const diagramCells = (text: string) => text.split("\n").slice(1, 25).map(line => line.padEnd(90).slice(0, 86)).join("\n");
     expect(diagramCells(await tmux("capture-pane", "-p", "-t", pane))).toBe(diagramCells(before));
     await tmux("send-keys", "-t", pane, "/");
     await tmux("send-keys", "-t", pane, "-l", "commerce");

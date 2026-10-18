@@ -109,6 +109,9 @@ The top bar shows the view title with a live badge on the right (filled amber on
 Help (`?`), the session summary (`c`) and the ask dialog (`t`) are centred dialogs over a dimmed backdrop, titled, with their key hints at the bottom. Notices (`Model reloaded`, errors) appear above the status bar with a glyph that matches their tone. The inspector header carries the element's kind as a chip tinted with its LikeC4 colour. Empty states say what to do next, for example `Run c4view init to map files to the components in this model`.
 A one-line `loading the architecture…` shows while LikeC4 loads the model.
 
+The inspector is four numbered sections on layered surfaces (canvas darkest, panel, then lighter section blocks): `[1] Overview`, `[2] Connections`, `[3] Files`, `[4] Activity`. Press `1`–`4` or click a header to fold or unfold a section; a folded section keeps its header and count (`[3] Files  8`), and a bar on the left edge marks the one you last touched. The footer shows `c4view` and its version, and the top bar names the workspace.
+Press `g` for a numbered list of every view in the project; `1`–`9` jumps, arrows and Enter choose, and `Back` returns. This is a user's choice of view, not an inferred link. The experimental GPU stroke comparison moved to `G` (shift).
+
 ## Live reload
 
 The viewer watches the workspace for changes to `.c4`/`.likec4` files, LikeC4 configuration and `c4view.activity.json`, and rebuilds the diagram about half a second after the last change. Your selection, pan and zoom stay where they are, and a short notice lists added and removed nodes (`Model reloaded: + Billing service`).
@@ -152,7 +155,7 @@ The activity journal is best-effort. Calls without outcomes stop showing as acti
 
 Native node boxes, group outlines, and a connector framebuffer share a clipped viewport. Hit testing uses displayed cell bounds, including rounded group titles.
 Camera interpolation uses OpenTUI frame callbacks and Three. The renderer initializes OpenTUI's WebGPU backend; the default connectors are projected Braille, not GPU strokes. Linux is the verified platform.
-`g` toggles experimental GPU strokes and `s` toggles sampling for comparison. Braille remains the supported default.
+`G` (shift) toggles experimental GPU strokes and `s` toggles sampling for comparison. Braille remains the supported default.
 LikeC4 parent and child IDs drive hierarchy navigation. Renderable boxes remain siblings with absolute coordinates to avoid nested border offsets.
 The isolated tmux tests exercise the flat view and both nested Parcel views, including clicks before and after pan and resize, independent group and child activity, and normal process exit.
 The file-browser test requires `nvim` and checks an actual save, resizing during editing, editor failure recovery, file filtering, refresh, and preserved zoomed diagram position.
