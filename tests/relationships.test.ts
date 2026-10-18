@@ -30,20 +30,7 @@ test("Bezier routes follow the curve rather than control polygon and remain visi
   ] }, [{ x: 1, y: 0, width: 24, height: 14, children: ["child"] }]);
   expect(route?.cells.some(cell => cell.x === 12 && cell.y >= 8 && /[\u2801-\u28ff]/.test(cell.glyph))).toBe(true);
   expect(Math.max(...route?.cells.map(cell => cell.y) ?? [])).toBe(9);
-  expect(route?.arrows).toEqual([]);
-});
-
-test("arrowheads on curved connectors are dots on the line, so the tip is centred on it", () => {
-  const curve = (head: "none" | "normal") => terminalConnectors({ bounds: { x: 0, y: 0 }, edges: [
-    { points: [[0, 0], [100, 60], [200, 120], [320, 200]] satisfies [number, number][], head },
-  ] } as never, [])[0];
-  const bare = curve("none"), headed = curve("normal");
-  expect(headed?.arrows).toEqual([]);
-  expect(headed?.cells.length).toBeGreaterThan(bare?.cells.length ?? 0);
-  expect(headed?.cells.every(cell => /[\u2800-\u28ff]/.test(cell.glyph))).toBe(true);
-  // Straight axis-aligned connectors keep their glyph arrowhead.
-  const [straight] = terminalConnectors({ bounds: { x: 0, y: 0 }, edges: [{ points: [[0, 32], [128, 32]], head: "normal" }] }, []);
-  expect(straight?.arrows.map(cell => cell.glyph)).toEqual(["▶"]);
+  expect(route?.arrows.map(cell => [cell.x, cell.y, cell.glyph])).toEqual([[22, 1, "▲"]]);
 });
 
 test("zoomed horizontal connectors meet their arrowheads on the same row outside node borders", () => {
@@ -77,7 +64,7 @@ test("straight curves on half-cell boundaries remain straight and continuous", (
 
 test("diagonals combine Braille dots within cells and leave node interiors clear", () => {
   const diagram = { bounds: { x: 0, y: 0 }, edges: [
-    { points: [[0, 0], [16, 32]] satisfies [[number, number], ...[number, number][]], head: "none" as const },
+    { points: [[0, 0], [16, 32]] satisfies [[number, number], ...[number, number][]] },
   ] };
   const [open] = terminalConnectors(diagram, []);
   expect(open?.cells.map(cell => [cell.x, cell.y, cell.glyph])).toEqual([
