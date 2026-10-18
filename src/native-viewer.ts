@@ -6,11 +6,12 @@ import { type View, acquireModel, validateActivityMapping } from "./catalog";
 import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, latestBinding, readActivity, readActivityConfig } from "./activity";
 import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
+import { askMessage, sendToPane } from "./ask";
 import { arrowGlyph, composeConnectors, terminalConnectors } from "./connectors";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
 
-export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; ready?: string }) {
+export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string }) {
 const view = options.view;
 let binding = options.activity;
 const following = options.follow === true;
@@ -85,7 +86,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const footer = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, bg: palette.panel, wrapMode: "none" });
   const shortcuts = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   const notice = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, visible: false, fg: palette.outgoing, wrapMode: "none" });
-  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 24,
+  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 25,
     border: true, borderStyle: "rounded", borderColor: palette.incoming, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
     zIndex: 20000, visible: false, title: " Keyboard shortcuts " });
   const helpShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
@@ -146,6 +147,7 @@ INSPECT
   /                  Search this view
   i                  Toggle inspector
   w                  Select what the agent is working on
+  t                  Ask the agent about the selected node
   c                  This session: what was touched
   a                  Camera follows running tools
   Counts on nodes:   r reads · e edits · c commands
@@ -528,7 +530,7 @@ INSPECT
     if (summary.visible) summaryText.content = summaryContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
     footer.content = ` ${braille ? "BRAILLE + Three camera" : "GPU + Three camera"} | Zoom: ${Math.round(16 / scale * 100)}% | Selected: ${selected?.id}${hidden ? ` | ${hidden} labels hidden` : ""}`;
-    shortcuts.content = search ? " Type a name or ID · ↑↓/Tab matches · Enter keep · Esc restore" : fileMode ? ` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length} · Type to filter · Enter edit · Ctrl+R refresh · Esc diagram` : tickerContent() || ` ${selectKeys()} select · ${panKeys()} pan · +/- zoom · / search · f fit · e files · i inspect · ? help`;
+    shortcuts.content = asking ? ` Ask about ${asking.title} · Enter types it into your agent prompt · Alt+Enter also sends · Esc cancels` : search ? " Type a name or ID · ↑↓/Tab matches · Enter keep · Esc restore" : fileMode ? ` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length} · Type to filter · Enter edit · Ctrl+R refresh · Esc diagram` : tickerContent() || ` ${selectKeys()} select · ${panKeys()} pan · +/- zoom · / search · f fit · e files · i inspect · ? help`;
     notice.visible = !!message; notice.content = ` ${message}`;
     dirty = true; renderer.requestRender();
   };
@@ -635,6 +637,29 @@ INSPECT
     search = undefined; searchInput.blur(); searchInput.visible = false; heading.visible = true;
     message = ""; update();
   };
+  // Ask about a node: type a question, with the component's context, into the agent's own tmux pane.
+  let asking: typeof selected;
+  const beginAsk = () => {
+    if (!options.parent) { message = "Ask needs the viewer opened with c4view show, which knows your agent's pane"; update(); return; }
+    if (!selected) return;
+    asking = selected; animating = false;
+    searchInput.placeholder = `Ask the agent about ${selected.title}`; searchInput.value = "";
+    heading.visible = false; searchInput.visible = true; searchInput.focus(); message = ""; update();
+  };
+  const finishAsk = () => { asking = undefined; searchInput.blur(); searchInput.visible = false; heading.visible = true; update(); };
+  const sendAsk = (submit: boolean) => {
+    const target = asking, parent = options.parent, question = searchInput.value.trim();
+    if (!target || !parent) return;
+    if (!question) { message = "Type a question first"; update(); return; }
+    const title = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
+    const links = [...diagram.edges.filter(edge => edge.source === target.id).map(edge => `→ ${title(edge.target)}`),
+      ...diagram.edges.filter(edge => edge.target === target.id).map(edge => `← ${title(edge.source)}`)];
+    const text = askMessage({ title: target.title, id: String(target.id), files: files.get(String(target.modelRef ?? "")) ?? [], links }, question);
+    finishAsk(); message = "Sending…"; update();
+    runTask(sendToPane(parent, text, submit).pipe(
+      Effect.tap(command => Effect.sync(() => { message = submit ? `Sent to ${parent} (${command})` : `Typed into ${parent} (${command}) · press Enter there to send`; update(); })),
+      Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
+  };
   let clickedFile = -1;
   const endFiles = () => { clickedFile = -1; fileMode = false; searchInput.blur(); searchInput.visible = false; heading.visible = true; };
   const openFile = (path: string) => {
@@ -666,7 +691,7 @@ INSPECT
     else { restore(search.before); update(); }
   });
   viewport.onMouseDown = event => {
-    if (editorActive || help.visible || summary.visible || search || pendingVisit) return;
+    if (editorActive || help.visible || summary.visible || search || asking || pendingVisit) return;
     if (fileMode) { endFiles(); message = ""; }
     // Hit the displayed cell bounds, not the fractional world-space plane:
     // rounding can put a group's visible title just outside that plane.
@@ -689,6 +714,11 @@ INSPECT
           selectNode(search.matches[search.index], true);
         }
       }
+      return;
+    }
+    if (asking) {
+      if (key.name === "escape") { key.preventDefault(); finishAsk(); }
+      else if (key.name === "return") { key.preventDefault(); sendAsk(key.meta || key.option); }
       return;
     }
     if (summary.visible) {
@@ -720,6 +750,7 @@ INSPECT
     if (!fileMode && key.name === "backspace") { key.preventDefault(); selectNode(diagram.nodes.find(node => node.id === selected?.parent), true); return; }
     const direction = ({ h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" } as const)[key.name as "h"];
     const vimKey = key.name.length === 1;
+    if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
     if (!fileMode && key.name === "c" && !key.ctrl) {
       key.preventDefault(); summaryText.content = summaryContent(); summary.visible = true; helpShield.visible = true; update(); return;
     }

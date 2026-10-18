@@ -63,7 +63,7 @@ intentional redesigns separately; do not quietly substitute another camera.
    and readiness only after usable rendering. Zod remains at the OpenCode schema
    boundary; follow existing Effect schema/error conventions elsewhere.
 7. **Respect the terminal and filesystem.** Never replace a repurposed pane or
-   guess the user's pane from a background service. Validate mapped file paths
+   guess the user's pane from a background service. Ask-about-node types only into the pane `c4view show` was given (`--parent`), verifies it exists, and sends literal text. Validate mapped file paths
    before editing. Treat editor commands and executable LikeC4 configuration as
    trusted-workspace inputs.
 8. **Keep activity minimal.** Do not store source contents, tool arguments,

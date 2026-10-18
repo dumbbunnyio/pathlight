@@ -38,7 +38,7 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
     const directory = yield* io("Tmux.directory", () => mkdtemp(join(cache, "native-")));
     const ready = join(directory, "ready.json");
     const args = [process.execPath, fileURLToPath(new URL("./cli.ts", import.meta.url)),
-      "view", options.view.id, "--workspace", options.view.workspace, "--project", options.view.project, "--ready", ready];
+      "view", options.view.id, "--workspace", options.view.workspace, "--project", options.view.project, "--parent", options.pane, "--ready", ready];
     const editorEnvironment: string[] = [];
     for (const key of ["VISUAL", "EDITOR"]) {
       const value = yield* Config.String(key).pipe(Config.withDefault(""));

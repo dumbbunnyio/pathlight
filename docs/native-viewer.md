@@ -112,6 +112,8 @@ Nodes show `r` and `e` counts for retained reads and edits (groups append them t
 Nodes that saw work in the last 90 seconds carry a faint tint (warm for edits, cool for reads) that cools in three coarse steps, so you can see where the agent has been.
 Shell commands (`Bash`) are tracked too: the journal keeps only the existing workspace files the command names, never its text. A running command shows `[RUN]` in violet on those nodes and counts as `c`. That means "a command referred to this file", not that it read or edited it.
 Click a component's row in the activity list, or press `w`, to select the node the agent is working on (the newest observed call that maps to this view). Press `c` for a summary of the session: components touched with read, edit and command counts and recency, and the files edited with their owning component. Both are computed from the retained journal and make no claim beyond what was observed.
+Press `t` to ask the agent about the selected node. Type a question and press Enter: the viewer types it into your agent's tmux pane (the one it was opened beside), followed by the component's files and connections, for example `About the "Orders" component (parcel.orders): why is this slow? [files: ...; connects: ...]`.
+It is only typed, so a half-written prompt is never sent by surprise: press Enter in the agent pane to send it. Alt+Enter types and submits in one step. This needs the viewer to have been opened with `c4view show` (which records the parent pane); text is sent literally and the pane is checked to still exist.
 Press `a` to let the camera glide to the node of the newest running tool. It never changes the selection, and it is off until you press `a`.
 
 Run the repeatable terminal check:

@@ -48,7 +48,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" },
+      follow: { type: "boolean" }, parent: { type: "string" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -83,7 +83,7 @@ try {
         process.stdout.write(`${JSON.stringify(result)}\n`);
       } else {
         const { viewNative } = yield* io("CLI.viewer", () => import("./native-viewer"));
-        yield* viewNative({ view, activity, follow, ready: values.ready });
+        yield* viewNative({ view, activity, follow, parent: values.parent, ready: values.ready });
       }
     } else return yield* invalid(`Unknown command '${command}'. Use --help.`);
   }), { signal: abort.signal });
