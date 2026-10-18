@@ -194,12 +194,12 @@ INSPECT
   const mountNodes = () => diagram.nodes.map(node => {
     const z = node.level + 1;
     const box = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: 1, height: 1,
-      border: true, borderStyle: "rounded", borderColor: palette.border, shouldFill: !node.children.length, backgroundColor: palette.node, zIndex: z,
+      ...(node.children.length ? { border: true, borderStyle: "rounded" as const, borderColor: palette.border } : { border: false }), shouldFill: !node.children.length, backgroundColor: palette.node, zIndex: z,
       justifyContent: "center",
       title: node.children.length ? node.title : undefined });
     const label = new TextRenderable(renderer, { fg: palette.text, wrapMode: "word", content: node.children.length ? "" : node.title, marginLeft: 1, marginRight: 1 });
     box.add(label); viewport.add(box);
-    return { node, box, label };
+    return { node, box, label, ring: undefined as RGBA | undefined, rect: { x: 0, y: 0, width: 1, height: 1 } };
   });
   const mountEdges = () => diagram.edges.map(edge => {
     const points = edge.points.map(([x, y]) => point(x, y, 0));
@@ -325,11 +325,25 @@ INSPECT
       }
     }
   };
-  // When a node is too small for its wrapped title plus a status line, the observed state wins and the title is clipped.
-  const labelTitle = (title: string, width: number, height: number, status: boolean) => {
-    const textWidth = Math.max(4, width - 4);
-    return Math.ceil(title.length / textWidth) + (status ? 1 : 0) > Math.max(1, height - 2) && title.length > textWidth
-      ? `${title.slice(0, textWidth - 1)}…` : title;
+  // Never show a fragment: if a word cannot fit the node's width, or the wrapped title plus status line cannot fit its
+  // height, the title becomes one line ending in an ellipsis (the observed state keeps its own line).
+  const labelTitle = (title: string, width: number, rows: number, status: boolean) => {
+    const textWidth = Math.max(3, width);
+    const widest = Math.max(...title.split(/\s+/).map(word => word.length));
+    const tooTall = Math.ceil(title.length / textWidth) + (status ? 1 : 0) > Math.max(1, rows);
+    return (widest > textWidth || tooTall) && title.length > textWidth ? `${title.slice(0, textWidth - 1)}…` : title;
+  };
+  const paintRings = () => {
+    const bg = RGBA.fromHex(palette.background);
+    for (const entry of nodeObjects) {
+      if (!entry.ring || !entry.box.visible || entry.node.children.length) continue;
+      const { x, y, width, height } = entry.rect, ring = entry.ring;
+      const x0 = x - 1, y0 = y - 1, x1 = x + width, y1 = y + height;
+      const put = (cx: number, cy: number, glyph: string) => { if (cx >= 0 && cy >= 0 && cx < viewport.width && cy < viewport.height) canvas.frameBuffer.setCell(cx, cy, glyph, ring, bg); };
+      put(x0, y0, "╭"); put(x1, y0, "╮"); put(x0, y1, "╰"); put(x1, y1, "╯");
+      for (let cx = x0 + 1; cx < x1; cx++) { put(cx, y0, "─"); put(cx, y1, "─"); }
+      for (let cy = y0 + 1; cy < y1; cy++) { put(x0, cy, "│"); put(x1, cy, "│"); }
+    }
   };
   const update = () => {
     layout();
@@ -357,13 +371,16 @@ INSPECT
         : recent?.phase === "failed" ? "FAILED" : recent?.phase === "completed" ? "DONE" : "";
       const incoming = diagram.edges.some(edge => edge.target === selected?.id && edge.source === entry.node.id);
       const outgoing = diagram.edges.some(edge => edge.source === selected?.id && edge.target === entry.node.id);
-      entry.box.borderColor = entry.node.id === selected?.id ? palette.text : state === "FAILED" ? palette.failure
-        : state === "EDIT" || outgoing ? palette.outgoing : state === "READ" || incoming ? palette.incoming : state === "RUN" ? palette.command : entry.node.children.length ? palette.border : palette.node;
+      // Leaves are borderless cards; their ring is painted on the canvas just outside them (see paintRings).
+      const emphasis: string | RGBA | undefined = entry.node.id === selected?.id ? palette.text : state === "FAILED" ? palette.failure
+        : state === "EDIT" || outgoing ? palette.outgoing : state === "READ" || incoming ? palette.incoming : state === "RUN" ? palette.command : undefined;
+      const outline = (color: string | RGBA | undefined) => { if (entry.node.children.length) entry.box.borderColor = color ?? palette.border; else entry.ring = color === undefined ? undefined : typeof color === "string" ? RGBA.fromHex(color) : color; };
+      outline(emphasis);
       if (active.length && entry.node.id !== selected?.id) {
         const pulse = RGBA.fromHex(state === "EDIT" ? palette.outgoing : state === "RUN" ? palette.command : palette.incoming);
         const brightness = 0.72 + 0.28 * (1 + Math.sin(Date.now() / 220)) / 2;
         pulse.r *= brightness; pulse.g *= brightness; pulse.b *= brightness;
-        entry.box.borderColor = pulse;
+        outline(pulse);
       }
       // Where work has recently happened: a tint that cools in coarse steps (so a finished call stops changing the screen).
       const latest = related.reduce<ActivityEvent | undefined>((best, event) => !best || event.time > best.time ? event : best, undefined);
@@ -376,14 +393,15 @@ INSPECT
       const height = Math.max(2, Math.round(end.y) - Math.round(origin.y));
       entry.box.left = Math.round(origin.x); entry.box.top = Math.round(origin.y);
       entry.box.width = width; entry.box.height = height;
+      entry.rect = { x: Math.round(origin.x), y: Math.round(origin.y), width, height };
       if (entry.node.children.length) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : ""}${counts ? ` ·${counts}` : ""}`;
-      else entry.label.content = new StyledText([fg(palette.text)(labelTitle(entry.node.title, width, height, !!(state || counts))),
+      else entry.label.content = new StyledText([fg(palette.text)(labelTitle(entry.node.title, width - 2, height, !!(state || counts))),
         ...(state || counts ? [nl, ...(state ? [fg(operationColor(state === "EDIT" ? "edit" : state === "READ" ? "read" : state === "RUN" ? "command" : "other"))(`[${state}]`)] : []),
           ...(counts ? [fg(palette.text)(state ? " " : ""), ...countChunks(reads, edits, runs)] : [])] : [])]);
       entry.box.visible = end.x > 0 && end.y > 0 && origin.x < viewport.width && origin.y < viewport.height;
       const bloom = Math.min(1, Math.max(0, (easeOut(revealProgress()) - (diagram.bounds.width ? (entry.node.x - diagram.bounds.x) / diagram.bounds.width * 0.45 : 0)) / 0.55));
-      if (bloom < 1) { entry.box.borderColor = fade(entry.box.borderColor, bloom); entry.box.backgroundColor = fade(entry.box.backgroundColor, bloom); }
-      entry.label.visible = width >= 8 && height >= 3 && bloom >= 0.7;
+      if (bloom < 1) { if (entry.ring) entry.ring = fade(entry.ring, bloom); if (entry.node.children.length) entry.box.borderColor = fade(entry.box.borderColor, bloom); entry.box.backgroundColor = fade(entry.box.backgroundColor, bloom); }
+      entry.label.visible = width >= 6 && height >= 2 && bloom >= 0.7;
       if (!entry.label.visible) { if (bloom >= 0.7) hidden++; continue; }
     }
     for (const { edge, material, markers } of edges) {
@@ -721,7 +739,7 @@ INSPECT
     if (!dirty) return;
     dirty = false;
     canvas.frameBuffer.clear(RGBA.fromHex(palette.background));
-    paintGrid();
+    paintGrid(); paintRings();
     drawing = (async () => {
       if (braille) {
         const nodes = diagram.nodes.map(node => {
@@ -739,7 +757,7 @@ INSPECT
         const bg = RGBA.fromHex(palette.background);
         const drawn = easeOut(revealProgress()) * 1.05;
         for (const cell of composeConnectors(routes, selected?.id)) {
-          if (cell.t > drawn) continue;
+          if (cell.t > drawn || cell.glyph === "\u2800") continue;
           if (cell.x < 0 || cell.y < 0 || cell.x >= viewport.width || cell.y >= viewport.height) continue;
           // Quiet connections brighten toward their arrowhead: a static cue for direction, not an animation of traffic.
           const fg = cell.emphasis === "outgoing" ? RGBA.fromHex(palette.outgoing) : cell.emphasis === "incoming" ? RGBA.fromHex(palette.incoming)

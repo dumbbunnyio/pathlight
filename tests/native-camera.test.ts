@@ -39,10 +39,10 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     expect(rendered).toContain("BRAILLE + Three camera");
     expect(rendered).toMatch(/[\u2801-\u28ff]/);
     expect(rendered).toMatch(/[▶◀▲▼]/);
-    expect(rendered).toMatch(/─{5,}▶│/);
+    expect(rendered).toMatch(/─{5,}▶/);
     await tmux("resize-window", "-t", pane, "-y", "46");
     await delay(200);
-    expect(await tmux("capture-pane", "-p", "-t", pane)).toMatch(/─{5,}▶│/);
+    expect(await tmux("capture-pane", "-p", "-t", pane)).toMatch(/─{5,}▶/);
     await tmux("resize-window", "-t", pane, "-y", "45");
     await delay(200);
     const divider = rendered.split("\n")[3]?.indexOf("│") ?? -1;
