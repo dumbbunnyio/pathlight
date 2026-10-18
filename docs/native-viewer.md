@@ -51,7 +51,7 @@ The list uses direct mappings in `c4view.activity.json`, including overlapping g
 It works without an activity session. A group does not inherit its children's files.
 Mappings must name the selected project. Files are sorted and deduplicated, not inferred from recent activity.
 Press Ctrl+R in the file list to find added, removed, or renamed files.
-Restart the viewer after changing the mapping configuration itself.
+The mapping reloads automatically (see Live reload).
 
 The scan includes hidden files but skips symlinks and directories named `.git`, `.cache`, or `node_modules`.
 It does not apply `.gitignore` rules. Scans exceeding 50,000 directory entries report an error rather than a partial file list.
@@ -102,6 +102,11 @@ tmux capture-pane -e -p -t %PANE | python3 scripts/ansi2png.py out.png
 
 The inspector shows the selected element's `kind`, `technology` and its LikeC4 `description` (markdown flattened to plain text, clipped at 420 characters), so the model is the one place that says what a component is for.
 Each card carries a faint tint of its LikeC4 `color`, so databases, queues, services and externals read apart at a glance. Shapes are not drawn: edge treatments for storage and queues looked like stray fragments beside group outlines.
+
+## Live reload
+
+The viewer watches the workspace for changes to `.c4`/`.likec4` files, LikeC4 configuration and `c4view.activity.json`, and rebuilds the diagram about half a second after the last change. Your selection, pan and zoom stay where they are, and a short notice lists added and removed nodes (`Model reloaded: + Billing service`).
+If the new model has errors (for example an agent is mid-edit), the viewer keeps the last good diagram and says so; it recovers on the next valid save. A new or removed view you are looking at is reported rather than dropped. Mapped files refresh with the mapping. `node_modules`, `.git` and `.cache` are ignored.
 
 ## Follow mode and the live display
 

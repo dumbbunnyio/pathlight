@@ -2,6 +2,7 @@ import { BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRendera
 import { THREE, ThreeCliRenderer } from "@opentui/three";
 import { SplitPaneRenderable } from "opentui-split";
 import { Effect, FiberSet, Schedule } from "effect";
+import { watch } from "node:fs";
 import { type View, acquireModel, validateActivityMapping } from "./catalog";
 import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, latestBinding, readActivity, readActivityConfig } from "./activity";
 import { nodeFiles } from "./node-files";
@@ -17,13 +18,13 @@ let binding = options.activity;
 const following = options.follow === true;
 const loadedConfig = yield* readActivityConfig(view.workspace).pipe(
   Effect.catchIf(error => !binding && !following && hasCode(error, "ENOENT"), () => Effect.succeed(undefined)));
-const config = binding || following || loadedConfig?.project === view.project ? loadedConfig : undefined;
+let config = binding || following || loadedConfig?.project === view.project ? loadedConfig : undefined;
 if (config) yield* validateActivityMapping(view, config);
 let fileError = "";
 let files = yield* nodeFiles(view.workspace, config).pipe(Effect.catch(error => Effect.sync(() => {
   fileError = error.message; return new Map<string, string[]>();
 })));
-const diagrams = yield* Effect.gen(function* () {
+let diagrams = yield* Effect.gen(function* () {
   const source = yield* acquireModel(view.workspace);
   const model = yield* io("LikeC4.layout", () => source.layoutedModel(view.project));
   return new Map([...model.views()].map(entry => [String(entry.id), entry.$view]));
@@ -35,7 +36,7 @@ const getDiagram = (id: string) => {
   return next;
 };
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
-const rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
+let rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
 const palette = { background: "#0f141b", panel: "#151d27", node: "#1b2532", border: "#526171", muted: "#93a4b5",
   text: "#e7eff7", incoming: "#68cfda", outgoing: "#e9bd70", command: "#b79cf2", grid: "#1d2835", edgeLow: "#33404f", edgeHigh: "#7d90a6", failure: "#f08080" };
 if (!process.stdin.isTTY || !process.stdout.isTTY) return yield* Effect.fail(failure("Native.terminal", "The native viewer needs a terminal. Use c4view show to open a tmux pane."));
@@ -110,6 +111,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let selected = diagram.nodes[0];
   type Visit = { view: string; selected: string | undefined; x: number; y: number; scale: number };
   const history: Visit[] = [];
+  let pendingReload: { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; notice: string } | undefined;
   let pendingVisit: { diagram: ReturnType<typeof getDiagram>; restore?: Visit } | undefined;
   let search: { before: Visit; matches: typeof diagram.nodes; index: number } | undefined;
   let dirty = true;
@@ -837,6 +839,32 @@ INSPECT
   renderer.setFrameCallback(async deltaMs => {
     if (editorActive || closing) return;
     try {
+    if (pendingReload) {
+      const next = pendingReload; pendingReload = undefined;
+      const target = next.diagrams.get(String(diagram.id));
+      if (!target?.nodes.length) { message = `View '${diagram.id}' is gone or empty in the new model; showing the previous version`; }
+      else {
+        const before = new Set(diagram.nodes.map(node => String(node.id)));
+        const keep = selected ? String(selected.id) : undefined;
+        for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
+        for (const entry of edges) for (const marker of entry.markers) { viewport.remove(marker.label); marker.label.destroyRecursively(); }
+        scene.clear();
+        for (const resource of sceneResources.splice(0)) resource.dispose();
+        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError;
+        rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
+        diagram = target;
+        nodeObjects = mountNodes(); edges = mountEdges();
+        selected = diagram.nodes.find(node => String(node.id) === keep) ?? diagram.nodes[0];
+        fileCursor = Math.min(fileCursor, Math.max(0, selectedPaths().length - 1));
+        indexEvents();
+        const added = diagram.nodes.filter(node => !before.has(String(node.id))).map(node => node.title);
+        const removed = [...before].filter(id => !diagram.nodes.some(node => String(node.id) === id));
+        message = next.notice || (added.length || removed.length ? `Model reloaded: ${[...added.map(title => `+ ${title}`), ...removed.map(id => `− ${id.split(".").at(-1)}`)].slice(0, 4).join("  ")}` : "Model reloaded");
+        const shown = message;
+        setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, 6000);
+      }
+      update();
+    }
     if (pendingVisit) {
       const next = pendingVisit; pendingVisit = undefined;
       for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
@@ -909,6 +937,38 @@ INSPECT
     canvas.requestRender();
     } catch (error) { renderError = error; stop(); }
   });
+  // Live reload: the model, its layout and the activity mapping are re-read when their files change, keeping camera and selection.
+  const reloadWorld = Effect.gen(function* () {
+    const raw = yield* readActivityConfig(view.workspace).pipe(
+      Effect.catchIf(error => !binding && !following && hasCode(error, "ENOENT"), () => Effect.succeed(undefined)));
+    const nextConfig = binding || following || raw?.project === view.project ? raw : undefined;
+    let nextError = "";
+    const nextFiles = yield* nodeFiles(view.workspace, nextConfig).pipe(Effect.catch(error => Effect.sync(() => { nextError = error.message; return new Map<string, string[]>(); })));
+    const nextDiagrams = yield* Effect.gen(function* () {
+      const source = yield* acquireModel(view.workspace);
+      if (source.hasErrors()) return yield* Effect.fail(failure("Reload.model", "The model has errors; showing the last good version"));
+      const model = yield* io("LikeC4.layout", () => source.layoutedModel(view.project));
+      return new Map([...model.views()].map(entry => [String(entry.id), entry.$view]));
+    }).pipe(Effect.scoped);
+    if (nextConfig) yield* validateActivityMapping(view, nextConfig);
+    pendingReload = { diagrams: nextDiagrams, config: nextConfig, files: nextFiles, fileError: nextError, notice: "" };
+    renderer.requestRender();
+  });
+  let reloading = false, again = false, reloadTimer: ReturnType<typeof setTimeout> | undefined;
+  const triggerReload = () => {
+    if (closing) return;
+    if (reloading) { again = true; return; }
+    reloading = true;
+    runTask(reloadWorld.pipe(
+      Effect.catch(error => Effect.sync(() => { message = error.message; if (!editorActive) update(); })),
+      Effect.ensuring(Effect.sync(() => { reloading = false; if (again) { again = false; scheduleReload(); } }))));
+  };
+  const scheduleReload = () => { clearTimeout(reloadTimer); reloadTimer = setTimeout(triggerReload, 500); };
+  const relevant = (name: string) => !/(^|\/)(node_modules|\.git|\.cache)(\/|$)/.test(name)
+    && /\.(c4|likec4)$|(^|\/)(likec4\.config\.(json|js|ts)|\.likec4rc|c4view\.activity\.json)$/.test(name);
+  yield* Effect.acquireRelease(Effect.try({ try: () => watch(view.workspace, { recursive: true }, (_event, name) => { if (name && relevant(String(name))) scheduleReload(); }), catch: cause => failure("Native.watch", cause) }).pipe(
+    Effect.catch(() => Effect.sync(() => { message = "Live reload unavailable: the model will not update until the viewer is reopened"; return undefined; }))),
+    watcher => Effect.sync(() => { clearTimeout(reloadTimer); watcher?.close(); }));
   if (binding || following) yield* Effect.gen(function* () {
     if (following) binding = (yield* latestBinding(view.workspace)) ?? binding;
     events = binding ? yield* readActivity(view.workspace, binding) : [];
