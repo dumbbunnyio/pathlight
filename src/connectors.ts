@@ -67,6 +67,20 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
     let previousDot: Point | undefined;
     let progress = 0;
     const path: Point[] = [];
+    const trail: Point[] = [];
+    // Quiet connections are a single dot wide; selected ones also light the next dot across the line.
+    const plot = (dx: number, dy: number, field: "mask" | "heavy") => {
+      const x = Math.floor(dx / 2), y = Math.floor(dy / 4);
+      if (x < 0 || y < 0 || covered({ x, y })) return false;
+      const bit = masks[((dy % 4) + 4) % 4]?.[((dx % 2) + 2) % 2];
+      if (bit === undefined) return false;
+      const key = `${x},${y}`;
+      const cell = dots.get(key) ?? { x, y, mask: 0, heavy: 0, t: progress };
+      cell[field] |= bit; if (field === "mask") cell.heavy |= bit;
+      cell.t = Math.max(cell.t, progress);
+      dots.set(key, cell);
+      return true;
+    };
     const append = (point: Point) => {
       const cell = { x: Math.round(point.x), y: Math.round(point.y) };
       const previous = path.at(-1);
@@ -77,23 +91,12 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
       const steps = Math.max(1, Math.abs(next.x - start.x), Math.abs(next.y - start.y));
       const shallow = Math.abs(next.x - start.x) >= Math.abs(next.y - start.y);
       // Only near-axis lines get the heavier stroke; a widened diagonal looks fat.
-      // Quiet connections are a single dot wide; selected ones also light the next dot across the line.
-      const plot = (dx: number, dy: number, field: "mask" | "heavy") => {
-        const x = Math.floor(dx / 2), y = Math.floor(dy / 4);
-        if (x < 0 || y < 0 || covered({ x, y })) return;
-        const bit = masks[((dy % 4) + 4) % 4]?.[((dx % 2) + 2) % 2];
-        if (bit === undefined) return;
-        const key = `${x},${y}`;
-        const cell = dots.get(key) ?? { x, y, mask: 0, heavy: 0, t: progress };
-        cell[field] |= bit; if (field === "mask") cell.heavy |= bit;
-        cell.t = Math.max(cell.t, progress);
-        dots.set(key, cell);
-      };
       for (let step = 0; step <= steps; step++) {
         const dx = Math.round(start.x + (next.x - start.x) * step / steps);
         const dy = Math.round(start.y + (next.y - start.y) * step / steps);
         const [ax, ay] = shallow ? [0, 1] : [1, 0];
-        plot(dx, dy, "mask"); if (!diagonal) plot(dx + ax, dy + ay, "heavy");
+        if (plot(dx, dy, "mask") && (trail.at(-1)?.x !== dx || trail.at(-1)?.y !== dy)) trail.push({ x: dx, y: dy });
+        if (!diagonal) plot(dx + ax, dy + ay, "heavy");
       }
       previousDot = next;
     };
@@ -126,8 +129,28 @@ export function terminalConnectors<Edge extends Pick<DiagramEdge, "points" | "he
       const glyph = dy === 0 ? "─" : dx === 0 ? "│" : dx * dy > 0 ? "╲" : "╱";
       return [{ ...point, glyph, strong: glyph === "─" ? "━" : glyph === "│" ? "┃" : glyph, t: index / Math.max(1, path.length - 1) }];
     });
+    // Arrowheads on curved connectors are drawn from the same dots as the line, as two barbs rotated from its own
+    // direction, so the tip always sits on the line's centre. A glyph cannot be centred on an arbitrary diagonal.
+    const glyphTypes = ["diamond", "odiamond", "dot", "odot"];
+    const barbs = (tip: Point | undefined, from: Point | undefined) => {
+      if (!tip || !from) return;
+      const length = Math.hypot(tip.x - from.x, tip.y - from.y);
+      if (!length) return;
+      const ux = (tip.x - from.x) / length, uy = (tip.y - from.y) / length;
+      progress = 1;
+      for (const sign of [1, -1]) {
+        const angle = sign * 30 * Math.PI / 180;
+        const bx = -(ux * Math.cos(angle) - uy * Math.sin(angle)), by = -(ux * Math.sin(angle) + uy * Math.cos(angle));
+        for (let step = 1; step <= 5; step++) plot(Math.round(tip.x + bx * step), Math.round(tip.y + by * step), "mask");
+      }
+    };
+    if (!solid && trail.length > 1) {
+      if (edge.head !== "none" && !glyphTypes.includes(edge.head ?? "")) barbs(trail.at(-1), trail[Math.max(0, trail.length - 9)]);
+      if (edge.tail && edge.tail !== "none" && !glyphTypes.includes(edge.tail)) barbs(trail[0], trail[Math.min(8, trail.length - 1)]);
+    }
     const arrow = (type: RelationshipArrowType | undefined, tail: boolean): Cell[] => {
       if (type === "none" || tail && !type) return [];
+      if (!solid && !glyphTypes.includes(type ?? "")) return [];
       const point = tail ? cells[0] : cells.at(-1);
       if (!point) return [];
       const endpoint = tail ? points[0] : points.at(-1);
