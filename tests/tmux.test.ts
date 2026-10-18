@@ -162,7 +162,7 @@ test("default native show records activity, and replaces during search in the ow
   const pid = await tmux("display-message", "-p", "-t", pane, "#{pane_pid}");
   await writeActivity(nativeWorkspace, toolActivity(nativeWorkspace, { source: "claude", session: "native-session" },
     "native-edit", "Edit", { path: "src/orders.ts" }, "started"));
-  expect(await capture(pane, "[EDIT]")).toMatch(/\n\s+(database\s+)?parcel\.commerce\.orders/);
+  expect(await capture(pane, "[EDIT]")).toContain("Selected: parcel.commerce.orders");
   expect(await tmux("display-message", "-p", "-t", pane, "#{pane_pid}")).toBe(pid);
   await tmux("send-keys", "-t", pane, "/");
   await tmux("send-keys", "-t", pane, "-l", "pending");

@@ -99,7 +99,7 @@ test("mapped files filter without live recording and round-trip through a real t
     await tmux("send-keys", "-t", pane, "Tab");
     await capture("Selected: catalog");
     await tmux("send-keys", "-t", pane, "e");
-    expect(await capture("No direct file mappings")).toContain("Files 0/0");
+    expect(await capture("Files 0/0")).toContain("No direct file mappings");
     await tmux("send-keys", "-t", pane, "C-c");
   } finally {
     await tmux("kill-server").catch(() => {});

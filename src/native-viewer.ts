@@ -86,20 +86,19 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     paddingLeft: 1, paddingRight: 1, backgroundColor: palette.panel });
   const inspectorScroll = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true });
   const inspectorTitle = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
-  const inspectorHead = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
+  const inspectorHead = new TextRenderable(renderer, { selectable: false, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   const inspectorId = new TextRenderable(renderer, { selectable: false, flexShrink: 0, fg: palette.muted, wrapMode: "word" });
   const relations = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "word" });
-  const fileHeading = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, visible: false, fg: palette.muted });
-  const fileRows = Array.from({ length: 5 }, (_, index) => new TextRenderable(renderer, { selectable: false, id: `file-${index}`, height: 1,
-    flexShrink: 0, fg: palette.text, wrapMode: "none" }));
+  const filesText = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
   const activityText = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
   // Numbered, collapsible sections: each is a lighter block on the panel, with a bar on its left edge when focused.
   type SectionKey = "overview" | "connections" | "files" | "activity";
   const makeSection = (number: number, name: string, children: Renderable[]) => {
-    const box = new BoxRenderable(renderer, { id: `section-${name.toLowerCase()}`, width: "100%", flexShrink: 0, flexDirection: "column", backgroundColor: palette.section,
-      paddingLeft: 2, paddingRight: 2, paddingTop: 1, paddingBottom: 1, marginTop: 1 });
+    const box = new BoxRenderable(renderer, { id: `section-${name.toLowerCase()}`, width: "100%", height: 8, flexShrink: 0, flexDirection: "column", backgroundColor: palette.section,
+      paddingLeft: 1, paddingRight: 1, paddingTop: 1, paddingBottom: 1, marginTop: 1 });
     const header = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
-    const content = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "column" });
+    // Every card is the same height; whatever does not fit scrolls inside it.
+    const content = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, backgroundColor: palette.section });
     for (const child of children) content.add(child);
     box.add(header); box.add(content);
     return { number, name, box, header, content, open: true };
@@ -107,7 +106,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const sections = {
     overview: makeSection(1, "Overview", [inspectorId]),
     connections: makeSection(2, "Connections", [relations]),
-    files: makeSection(3, "Files", [fileHeading, ...fileRows]),
+    files: makeSection(3, "Files", [filesText]),
     activity: makeSection(4, "Activity", [activityText]),
   };
   const sectionOrder: SectionKey[] = ["overview", "connections", "files", "activity"];
@@ -252,7 +251,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const busy = events.some(isActive);
     const label = `${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} LIVE ${liveLabel()}`;
     // Filled only while the agent is actually working, so it draws the eye exactly when something is happening.
-    return new StyledText([busy ? pill(label, palette.outgoing) : fg(binding ? palette.incoming : palette.muted)(` ${label} `)]);
+    return new StyledText([fg(busy ? palette.outgoing : binding ? palette.incoming : palette.muted)(bold(`${label} `))]);
   };
   let activityError = "";
   const layout = () => {
@@ -262,8 +261,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (key === layoutKey) return;
     layoutKey = key;
     body.direction = side ? "horizontal" : "vertical";
-    // The short bottom inspector leads with Connections; the description is in the bottom row there. A section you folded or opened yourself is left alone.
-    if (!touched.has("overview")) sections.overview.open = side;
+    // The short bottom inspector starts with only Connections open (the description is in the bottom row there). A section you folded or opened yourself is left alone.
+    for (const key of sectionOrder) if (!touched.has(key)) sections[key].open = side || key === "connections";
     inspector.visible = visible;
     if (visible && !inspector.parent) body.addPane(inspector);
     else if (!visible && inspector.parent) body.remove(inspector);
@@ -342,6 +341,44 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
   // Which element each rendered line of the activity list belongs to, so a click can select its node.
   let activityTargets: (string | undefined)[] = [];
+  // Every open card gets an equal share of the inspector's height; a folded card is a padded header.
+  let headRows = 2;
+  const bodyRows: Record<SectionKey, number> = { overview: 4, connections: 4, files: 4, activity: 4 };
+  const resetInspectorScroll = () => { inspectorScroll.scrollTo(0); for (const key of sectionOrder) sections[key].content.scrollTo(0); };
+  // Sections folded automatically because the inspector is too short for every open card (never ones the user touched).
+  const autoFolded = new Set<SectionKey>();
+  const isOpen = (key: SectionKey) => sections[key].open && !autoFolded.has(key);
+  const layoutSections = () => {
+    const total = inspectorScroll.viewport.height;
+    if (total <= 0) return;
+    autoFolded.clear();
+    let active = sectionOrder.filter(key => sections[key].open);
+    // Roomy: folded cards are padded 3-row headers with a gap between cards. Compact: 1-row headers, no gaps.
+    const share = (count: number, compact: boolean) => Math.floor((total - headRows - (compact ? 0 : sectionOrder.length) - (sectionOrder.length - count) * (compact ? 1 : 3)) / Math.max(1, count));
+    for (const drop of ["overview", "activity", "files", "connections"] as SectionKey[]) {
+      if (active.length <= 1 || share(active.length, false) >= 7) break;
+      if (active.includes(drop) && !touched.has(drop)) { active = active.filter(key => key !== drop); autoFolded.add(drop); }
+    }
+    const compact = active.length > 0 && share(active.length, false) < 7;
+    // Ultra-compact: no room even for folded headers beside a usable card, so the folded cards disappear.
+    const ultra = compact && total - headRows - (sectionOrder.length - active.length) < 4;
+    const rows = active.length ? (ultra ? Math.max(3, total - headRows) : Math.max(compact ? 5 : 7, share(active.length, compact))) : 3;
+    for (const key of sectionOrder) {
+      const entry = sections[key], isActive = active.includes(key);
+      entry.box.visible = isActive || !ultra;
+      entry.box.height = isActive ? rows : compact ? 1 : 3;
+      entry.box.marginTop = compact ? 0 : 1;
+      entry.box.paddingTop = entry.box.paddingBottom = compact ? 0 : 1;
+      entry.content.visible = isActive;
+      bodyRows[key] = Math.max(1, (isActive ? rows : 0) - 1 - (compact ? 0 : 2));
+    }
+  };
+  // Keep a line of a card's scrolling body in view.
+  const followLine = (key: SectionKey, line: number) => {
+    const box = sections[key].content, rows = Math.min(bodyRows[key], box.viewport.height > 0 ? box.viewport.height : bodyRows[key]);
+    if (rows <= 0) return;
+    if (line < box.scrollTop) box.scrollTo(line); else if (line >= box.scrollTop + rows) box.scrollTo(line - rows + 1);
+  };
   const activityContent = () => {
     activityTargets = []; activityItems = [];
     const header: TextChunk[] = [];
@@ -494,10 +531,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const update = () => {
     layout();
     headingText.content = headingContent(); badgeText.content = badgeContent();
-    crumbHint.content = new StyledText(hintChunks([["t", "ask"], ["c", "session"], ["?", "help"]], 36));
+    crumbHint.content = "";
     breadcrumb.content = search ? new StyledText([fg(palette.incoming)(bold(`Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length}`)), fg(palette.muted)(" · Enter keep · Esc cancel")])
       : `${renderer.width >= 100 ? `${basename(view.workspace)} · ` : ""}${view.project} / ${diagram.id}  ·  ${diagram.nodes.length} nodes  ·  ${diagram.edges.length} relationships  ·  Back: ${history.length}`;
-    crumbHint.visible = renderer.width >= 100;
+    crumbHint.visible = false;
     searchShield.visible = !!search;
     searchShield.height = Math.max(1, renderer.height - 5);
     const worldWidth = Math.max(1, viewport.width) * scale;
@@ -574,18 +611,29 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       }
     }
     const paths = selectedPaths();
-    inspectorTitle.content = new StyledText([fg(palette.text)(bold(selected?.title ?? "No selection"))]);
-    const facts = [selected?.technology, `${paths.length} file${paths.length === 1 ? "" : "s"}`, selected?.navigateTo ? `o opens ${selected.navigateTo}` : undefined].filter(Boolean).join(" · ");
-    const hue = hues[String(selected?.color ?? "")] ?? palette.muted;
-    const kindChip = selected?.kind ? [bg(mix(palette.panel, hue, 0.22))(fg(hue)(bold(` ${selected.kind} `))), fg(palette.muted)("  ")] : [];
-    inspectorHead.content = new StyledText([...kindChip, fg(palette.muted)(String(selected?.id ?? ""))]);
+    const hueColor = hues[String(selected?.color ?? "")] ?? palette.muted;
+    inspectorTitle.content = new StyledText([fg(hueColor)("● "), fg(palette.text)(bold(selected?.title ?? "No selection"))]);
+    const facts = [`${paths.length} file${paths.length === 1 ? "" : "s"}`, selected?.navigateTo ? `o opens ${selected.navigateTo}` : undefined].filter(Boolean).join(" · ");
+    // What it is (kind, technology) and where it sits (the groups around it), in plain words; the ID is in Overview.
+    const ancestors: string[] = [];
+    for (let parent = diagram.nodes.find(node => node.id === selected?.parent); parent; parent = diagram.nodes.find(node => node.id === parent?.parent)) ancestors.unshift(parent.title);
+    const what = [selected?.kind, selected?.technology].filter(Boolean).join(" · ");
+    inspectorHead.content = new StyledText([fg(palette.muted)(what || " "), ...(ancestors.length ? [nl, fg(palette.border)("in "), fg(palette.muted)(ancestors.join(" › "))] : [])]);
+    headRows = 1 + (ancestors.length ? 2 : 1);
     const description = describe(selected);
-    inspectorId.content = new StyledText([fg(palette.muted)(facts), ...(description ? [nl, nl, fg(palette.text)(description)] : [])]);
+    inspectorId.content = new StyledText([fg(palette.muted)(`${selected?.id ?? ""}\n`), fg(palette.border)(facts), ...(description ? [nl, nl, fg(palette.text)(description)] : [])]);
     const name = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const incoming = diagram.edges.filter(edge => edge.target === selected?.id);
     const outgoing = diagram.edges.filter(edge => edge.source === selected?.id);
     connectionItems = [...incoming.map(edge => String(edge.source)), ...outgoing.map(edge => String(edge.target))];
     cursor.connections = Math.min(cursor.connections, Math.max(0, connectionItems.length - 1));
+    const labelRows = (label: string | null | undefined) => Math.max(1, Math.ceil((label?.replace(/\s+/g, " ").trim().length || 22) / Math.max(8, innerWidth() - 2)));
+    const connectionLines: number[] = [];
+    let connectionLine = 1;
+    for (const edge of incoming) { connectionLines.push(connectionLine); connectionLine += 1 + labelRows(edge.label); }
+    connectionLine += (incoming.length ? 0 : 1) + 2;
+    for (const edge of outgoing) { connectionLines.push(connectionLine); connectionLine += 1 + labelRows(edge.label); }
+    if (focusSection === "connections") followLine("connections", connectionLines[cursor.connections] ?? 0);
     const link = (index: number, arrow: string, tone: string, node: string, label: string | null | undefined) => {
       const lines = [fg(tone)(`${arrow} `), fg(palette.text)(`${name(node)}\n`), fg(palette.muted)(`  ${label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}\n`)];
       return focusSection === "connections" && cursor.connections === index ? lines.map(chunk => ({ ...chunk, bg: hot })) : lines;
@@ -597,46 +645,52 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       nl, ...sub("OUTGOING", palette.outgoing, outgoing.length),
       ...(outgoing.length ? outgoing.flatMap((edge, index) => link(incoming.length + index, "→", palette.outgoing, edge.target, edge.label)) : [fg(palette.muted)("None")]),
     ]);
-    fileHeading.visible = fileMode;
-    fileHeading.content = new StyledText([fg(palette.outgoing)(bold(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`))]);
     const counts: Record<SectionKey, string> = { overview: "", connections: String(incoming.length + outgoing.length),
       files: fileMode ? `${paths.length ? fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: events.length ? String(events.length) : "" };
+    layoutSections();
     for (const key of sectionOrder) {
       const entry = sections[key];
-      const left = `${entry.open ? "▾" : "▸"} [${entry.number}] ${entry.name}`;
+      const left = `${isOpen(key) ? "▾" : "▸"} [${entry.number}] ${entry.name}`;
       const room = Math.max(1, innerWidth() - left.length - counts[key].length);
       const focused = focusSection === key;
-      entry.header.content = new StyledText([fg(focused ? palette.incoming : palette.muted)(`${entry.open ? "▾" : "▸"} [${entry.number}] `), fg(palette.text)(bold(entry.name)),
+      entry.header.content = new StyledText([fg(focused ? palette.incoming : palette.muted)(`${isOpen(key) ? "▾" : "▸"} [${entry.number}] `), fg(palette.text)(bold(entry.name)),
         fg(palette.muted)(`${" ".repeat(room)}${counts[key]}`)]);
-      entry.content.visible = entry.open;
-      entry.box.backgroundColor = focused ? "#223140" : palette.section;
-      entry.box.paddingBottom = entry.open ? 1 : 0;
+      entry.box.backgroundColor = entry.content.backgroundColor = focused ? "#223140" : palette.section;
     }
-    const start = Math.floor(fileCursor / fileRows.length) * fileRows.length;
-    fileRows.forEach((row, index) => {
-      const path = paths[start + index];
-      row.visible = !!path || index === 0;
-      if (path) {
-        const slash = path.lastIndexOf("/") + 1;
-        const touched = byPath.get(path);
-        row.content = new StyledText([fg(palette.outgoing)(`${(fileMode || focusSection === "files") && fileCursor === start + index ? "›" : " "} `), fg(palette.muted)(path.slice(0, slash)),
-          fg(touched ? operationColor(touched.operation) : palette.text)(touched ? bold(path.slice(slash)) : path.slice(slash))]);
-      } else row.content = new StyledText([fg(palette.muted)(fileError || (config ? "No direct file mappings" : "Map files in c4view.activity.json"))]);
-      row.bg = (fileMode || focusSection === "files") && fileCursor === start + index ? "#294052" : focusSection === "files" ? "#223140" : palette.section;
-      // First click highlights a row; clicking the highlighted row again opens it.
-      row.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!path || help.visible || summary.visible || search) return;
-        if (fileMode && clickedFile === start + index) { openFile(path); return; }
-        if (!fileMode) beginFiles();
-        fileCursor = clickedFile = start + index; message = "Click again or Enter to open · Esc or click the diagram to go back"; searchInput.focus(); update(); };
+    // Every mapped file, in one scrolling list (capped); the cursor row is highlighted and kept in view.
+    const fileFocus = fileMode || focusSection === "files";
+    const fileChunks: TextChunk[] = fileMode ? [fg(palette.outgoing)(bold(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`)), nl] : [];
+    const firstFileLine = fileChunks.length ? 1 : 0;
+    const shownFiles = paths.slice(0, 500);
+    shownFiles.forEach((path, index) => {
+      const slash = path.lastIndexOf("/") + 1;
+      const recent = byPath.get(path);
+      const from = fileChunks.length;
+      fileChunks.push(fg(palette.outgoing)(`${fileFocus && fileCursor === index ? "›" : " "} `), fg(palette.muted)(path.slice(0, slash)),
+        fg(recent ? operationColor(recent.operation) : palette.text)(recent ? bold(path.slice(slash)) : path.slice(slash)), nl);
+      if (fileFocus && fileCursor === index) for (let at = from; at < fileChunks.length; at++) fileChunks[at] = { ...fileChunks[at]!, bg: hot };
     });
+    if (!shownFiles.length) fileChunks.push(fg(palette.muted)(fileError || (config ? "No direct file mappings" : "Map files in c4view.activity.json")));
+    filesText.content = new StyledText(fileChunks);
+    // First click highlights a row; clicking the highlighted row again opens it.
+    filesText.onMouseDown = event => {
+      event.preventDefault(); event.stopPropagation();
+      const index = event.y - filesText.y - firstFileLine, path = paths[index];
+      if (!path || help.visible || summary.visible || search) return;
+      if (fileMode && clickedFile === index) { openFile(path); return; }
+      if (!fileMode) beginFiles();
+      fileCursor = clickedFile = index; message = "Click again or Enter to open · Esc or click the diagram to go back"; searchInput.focus(); update();
+    };
+    if (fileFocus) followLine("files", firstFileLine + fileCursor);
     activityText.content = activityContent();
+    if (focusSection === "activity") followLine("activity", cursor.activity);
     if (summary.visible) summary.content.content = summaryContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
     const mode = fileMode ? { name: "FILES", color: palette.outgoing } : focusSection ? { name: sections[focusSection].name.toUpperCase(), color: palette.command } : search ? { name: "SEARCH", color: palette.incoming } : { name: "VIEW", color: palette.incoming };
     statusLeft.content = new StyledText([pill(mode.name, mode.color), fg(palette.muted)("  Selected: "), fg(palette.text)(bold(String(selected?.id ?? "")))]);
     statusRight.content = new StyledText([...(braille ? [] : [fg(palette.outgoing)("GPU + Three camera  ·  ")]), ...(hidden ? [fg(palette.border)(`${hidden} labels hidden  ·  `)] : []), fg(palette.muted)(`Zoom: ${Math.round(16 / scale * 100)}%`)]);
     const ticker = tickerContent();
-    const navigation: Hint[] = [[selectKeys(), "select"], [vimTraverses ? "←↑↓→" : "h j k l", "pan"], ["+ -", "zoom"], ["/", "search"], ["f", "fit"], ["e", "files"], ["i", "inspector"]];
+    const navigation: Hint[] = [[selectKeys(), "select"], [vimTraverses ? "←↑↓→" : "h j k l", "pan"], ["+ -", "zoom"], ["/", "search"], ["f", "fit"], ["e", "files"], ["i", "inspector"], ["t", "ask"], ["c", "session"], ["?", "help"]];
     const sectionHints: Record<SectionKey, Hint[]> = {
       overview: [["↑↓", "scroll"], ["Tab", "next"], ["Space", "fold"], ["Esc", "diagram"]],
       connections: [["↑↓", "move"], ["Enter", "show in diagram"], ["Tab", "next"], ["Space", "fold"], ["Esc", "diagram"]],
@@ -716,7 +770,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   const selectNode = (node: typeof selected, show: boolean) => {
     if (!node) return;
-    selected = node; fileCursor = 0; cursor.connections = 0; inspectorScroll.scrollTo(0);
+    selected = node; fileCursor = 0; cursor.connections = 0; resetInspectorScroll();
     if (show) reveal();
     update();
   };
@@ -850,7 +904,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }).pipe(Effect.scoped, Effect.catch(error => Effect.sync(() => { editorActive = false; message = error.message; searchInput.focus(); update(); }))));
   };
   const beginFiles = () => {
-    fileMode = true; fileCursor = 0; fileQuery = ""; sections.files.open = true; focusSection = "files"; inspectorPreference = "open"; message = fileError;
+    fileMode = true; fileCursor = 0; fileQuery = ""; sections.files.open = true; touched.add("files"); focusSection = "files"; scrollToSection = "files"; inspectorPreference = "open"; message = fileError;
     searchInput.placeholder = "Filter mapped files"; searchInput.value = ""; searchPrompt.content = " files › "; searchPrompt.fg = palette.outgoing;
     searchRow.visible = true; heading.visible = false; searchInput.focus();
   };
@@ -919,7 +973,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const entry = sections[focusSection], key_ = focusSection;
       const items = key_ === "connections" ? connectionItems.length : key_ === "files" ? selectedPaths().length : key_ === "activity" ? activityItems.length : 0;
       const move = (step: number) => {
-        if (key_ === "overview") { inspectorScroll.scrollBy(step * 2); return; }
+        if (key_ === "overview") { sections.overview.content.scrollBy(step * 2); return; }
         if (!items) return;
         if (key_ === "files") fileCursor = (fileCursor + step + items) % items; else cursor[key_] = (cursor[key_] + step + items) % items;
         scrollToSection = undefined; update();
@@ -1000,7 +1054,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       else if (["up", "down", "tab", "pageup", "pagedown"].includes(key.name)) {
         key.preventDefault();
         const direction = key.name === "up" || key.name === "pageup" || key.name === "tab" && key.shift ? -1 : 1;
-        const step = key.name === "pageup" || key.name === "pagedown" ? fileRows.length : 1;
+        const step = key.name === "pageup" || key.name === "pagedown" ? Math.max(1, sections.files.content.viewport.height - 1) : 1;
         if (paths.length) fileCursor = (fileCursor + direction * step % paths.length + paths.length) % paths.length;
         clickedFile = -1;
       } else if (key.ctrl && key.name === "r") {
@@ -1020,7 +1074,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       }
     } else if (key.sequence === "?") { const guide = helpContent(); help.content.content = guide.content; help.foot.content = new StyledText(hintChunks([["Esc", "close"]], 40)); help.open(Math.min(96, renderer.width - 4), guide.lines + 7); }
     else if (key.name === "i") { inspectorPreference = inspector.visible ? "closed" : "open"; }
-    else if (key.name === "pageup" || key.name === "pagedown") { inspectorScroll.scrollBy(key.name === "pageup" ? -5 : 5); }
+    else if (key.name === "pageup" || key.name === "pagedown") {
+      // The focused card scrolls; with none focused, the first open card that overflows does.
+      const card = focusSection ? sections[focusSection].content : sectionOrder.map(name => sections[name].content).find(box => box.visible && box.scrollHeight > box.viewport.height);
+      (card ?? inspectorScroll).scrollBy(key.name === "pageup" ? -5 : 5);
+    }
     else if (key.name === "a") {
       followCamera = !followCamera; focusedCall = "";
       message = followCamera ? (binding || following ? "Camera follows running tools (a to stop)" : "Camera follow needs a bound session") : "Camera follow off";
@@ -1031,7 +1089,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     else if (key.name === "tab") {
       const index = diagram.nodes.findIndex(node => node.id === selected?.id);
       selected = diagram.nodes[(index + (key.shift ? -1 : 1) + diagram.nodes.length) % diagram.nodes.length];
-      fileCursor = 0; inspectorScroll.scrollTo(0);
+      fileCursor = 0; resetInspectorScroll();
     } else if (key.name === "+" || key.name === "=" || key.sequence === "+") scale = Math.max(2, scale / 1.25);
     else if (key.name === "-" || key.sequence === "-") scale = Math.min(128, scale * 1.25);
     else if (direction === "left") centerX -= scale * 6;
@@ -1046,14 +1104,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     update();
   });
-  let fileRevealKey = "";
+  let lastInspectorKey = "";
   renderer.on("frame", () => {
     if (!initialFit && painted && revealProgress() >= 1) displayed.resolve();
     if (scrollToSection) { const target = scrollToSection; scrollToSection = undefined; inspectorScroll.scrollChildIntoView(`section-${target}`); }
-    const key = fileMode ? `${fileQuery}/${fileCursor}/${inspectorScroll.viewport.width}/${inspectorScroll.viewport.height}` : "";
-    if (key === fileRevealKey) return;
-    fileRevealKey = key;
-    if (fileMode) inspectorScroll.scrollChildIntoView(`file-${fileCursor % fileRows.length}`);
+    const inspectorKey = `${inspectorScroll.viewport.height}/${inspector.width}`;
+    if (inspectorKey !== lastInspectorKey) { lastInspectorKey = inspectorKey; update(); }
   });
   engine = new ThreeCliRenderer(renderer, { width: Math.max(1, renderer.width), height: Math.max(1, renderer.height - 7), autoResize: false, backgroundColor: RGBA.fromHex(palette.background) });
   yield* io("Native.graphics.init", () => engine.init()).pipe(Effect.uninterruptible);
@@ -1096,7 +1152,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       for (const resource of sceneResources.splice(0)) resource.dispose();
       diagram = next.diagram;
       nodeObjects = mountNodes(); edges = mountEdges();
-      selected = diagram.nodes[0]; fileCursor = 0; inspectorScroll.scrollTo(0); message = "";
+      selected = diagram.nodes[0]; fileCursor = 0; resetInspectorScroll(); message = "";
       initialFit = false; animating = false;
       if (next.restore) restore(next.restore);
       else { fit(); targetX = centerX; targetY = centerY; targetScale = scale; }
@@ -1201,7 +1257,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     indexEvents(); followActivity();
     // Idle polls only refresh ages and tints every couple of seconds; a running call keeps the spinner moving.
     if (changed || events.some(isActive) || Date.now() - lastPaint > 2000) { activityError = ""; lastPaint = Date.now(); if (!editorActive) update(); }
-  }).pipe(Effect.catch(() => Effect.sync(() => { activityError = "Activity unavailable"; if (!editorActive) update(); })),
+  }).pipe(Effect.catch(() => Effect.sync(() => { if (!activityError) message = "Activity unavailable: the journal could not be read"; activityError = "Activity unavailable"; if (!editorActive) update(); })),
     Effect.repeat(Schedule.spaced("250 millis")), Effect.forkScoped);
   renderer.start(); update();
   const ready = yield* io("Native.firstFrame", () => Promise.race([displayed.promise.then(() => true), stopped.promise.then(() => false), renderer.closed.then(() => false)]));
