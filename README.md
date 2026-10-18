@@ -95,6 +95,8 @@ It uses the plugin location as the workspace and passes only identifiers to the 
 Other agents can invoke the same CLI without the OpenCode plugin.
 A new `show` request reuses the owned viewer pane and resets the view, selection, and scroll position.
 
+OpenCode status: `opencode plugin list` shows this plugin loading from the repository. Its tools, permissions, recording and `stop` are tested against a stubbed plugin context and a real CLI and tmux server (`tests/opencode-plugin.test.ts`). It has not been run through a complete live OpenCode model session, so treat the hook payloads OpenCode sends in practice as unverified.
+
 ## Observe live activity
 
 Place `c4view.activity.json` in the agent's workspace. This repository includes a mapping to its own `viewer` LikeC4 project.
