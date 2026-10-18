@@ -21,11 +21,11 @@ test("mapped files filter without live recording and round-trip through a real t
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "editor-test", "-x", "100", "-y", "36",
       "-P", "-F", "#{pane_id}", "env", "VISUAL=nvim -u NONE -i NONE -n", "EDITOR=nonexistent-editor",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory);
-    const capture = async (text: string) => {
+    const capture = async (text: string | RegExp) => {
       let output = "";
       for (let attempt = 0; attempt < 120; attempt++) {
         output = await tmux("capture-pane", "-p", "-t", pane);
-        if (output.includes(text)) return output;
+        if (typeof text === "string" ? output.includes(text) : text.test(output)) return output;
         await delay(50);
       }
       throw new Error(`Missing ${text}:\n${output}`);
@@ -40,9 +40,9 @@ test("mapped files filter without live recording and round-trip through a real t
     const diagram = (text: string) => text.split("\n").slice(3, 22).join("\n");
     await tmux("send-keys", "-t", pane, "e");
     await capture("Files 1/6");
-    const listing = (await capture("src/b.ts")).split("\n");
-    const row = listing.findIndex(line => line.includes("src/b.ts"));
-    const column = listing[row]!.indexOf("src/b.ts");
+    const listing = (await capture("b.ts")).split("\n");
+    const row = listing.findIndex(line => line.includes("b.ts"));
+    const column = listing[row]!.indexOf("b.ts");
     await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${column + 2};${row + 1}M\x1b[<0;${column + 2};${row + 1}m`);
     await capture("Click again or Enter to open");
     await tmux("send-keys", "-t", pane, "-l", "b.ts");
@@ -58,9 +58,9 @@ test("mapped files filter without live recording and round-trip through a real t
     await delay(100);
     expect(diagram(await tmux("capture-pane", "-p", "-t", pane))).toBe(before);
     await tmux("send-keys", "-t", pane, "Down", "Down", "Down", "Down");
-    expect(await capture("› src/f.ts")).toContain("Files 5/6");
+    expect(await capture(/› [├└]─ f\.ts/)).toContain("Files 5/6");
     await tmux("send-keys", "-t", pane, "-l", "it's");
-    expect(await capture("Files 1/1")).toContain(filename);
+    expect(await capture("Files 1/1")).toContain("it's a file.ts");
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("initial");
     await tmux("resize-window", "-t", pane, "-x", "120", "-y", "40");
@@ -123,11 +123,11 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
       "--workspace", directory, "--session", "native-test", "--source", "claude"].map(quote).join(" ");
     await writeFile(join(directory, "run.sh"), `${command}\nprintf '%s' "$?" > ${quote(join(directory, "exit-status"))}\n`);
     await tmux("respawn-pane", "-k", "-t", pane, "sh", join(directory, "run.sh"));
-    const capture = async (text: string) => {
+    const capture = async (text: string | RegExp) => {
       let output = "";
       for (let attempt = 0; attempt < 120; attempt++) {
         output = await tmux("capture-pane", "-p", "-t", pane);
-        if (output.includes(text)) return output;
+        if (typeof text === "string" ? output.includes(text) : text.test(output)) return output;
         await delay(50);
       }
       throw new Error(`Missing ${text}:\n${output}`);
@@ -211,11 +211,11 @@ test("search isolates typing, cycles matches, accepts without navigation, and ca
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "search-test", "-x", "90", "-y", "36",
       "-P", "-F", "#{pane_id}", process.execPath, resolve("src/cli.ts"), "view", "services",
       "--workspace", directory, "--project", "parcel");
-    const capture = async (text: string) => {
+    const capture = async (text: string | RegExp) => {
       let output = "";
       for (let attempt = 0; attempt < 120; attempt++) {
         output = await tmux("capture-pane", "-p", "-t", pane);
-        if (output.includes(text)) return output;
+        if (typeof text === "string" ? output.includes(text) : text.test(output)) return output;
         await delay(50);
       }
       throw new Error(`Missing ${text}:\n${output}`);
@@ -319,11 +319,11 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("set-option", "-w", "remain-on-exit", "on");
     await tmux("respawn-pane", "-k", "-t", pane, process.execPath, resolve("src/cli.ts"), "view", "index",
       "--workspace", directory, "--project", "parcel", "--session", "navigation-test", "--source", "claude");
-    const capture = async (text: string) => {
+    const capture = async (text: string | RegExp) => {
       let output = "";
       for (let attempt = 0; attempt < 120; attempt++) {
         output = await tmux("capture-pane", "-p", "-t", pane);
-        if (output.includes(text)) return output;
+        if (typeof text === "string" ? output.includes(text) : text.test(output)) return output;
         await delay(50);
       }
       throw new Error(`Missing ${text}:\n${output}`);
@@ -433,6 +433,7 @@ test.each([
     await capture("Selected: parcel.storefront");
     await tmux("send-keys", "-t", pane, "BSpace");
     await capture(rootSelection);
+    await tmux("send-keys", "-t", pane, "f");
     await delay(700);
     await click("Commerce", "parcel.commerce");
     await tmux("send-keys", "-t", pane, "Enter");

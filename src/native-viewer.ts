@@ -1,5 +1,5 @@
-import { type Renderable, BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRenderable, TextRenderable, StyledText, type TextChunk, fg, bg, bold, dim, RGBA, createCliRenderer } from "@opentui/core";
-import { THREE, ThreeCliRenderer } from "@opentui/three";
+import { type Renderable, BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRenderable, TextRenderable, StyledText, type TextChunk, fg, bg, bold, RGBA, createCliRenderer } from "@opentui/core";
+import { THREE } from "@opentui/three";
 import { SplitPaneRenderable } from "opentui-split";
 import { Effect, FiberSet, Schedule } from "effect";
 import { watch } from "node:fs";
@@ -11,7 +11,7 @@ import { askMessage, sendToPane } from "./ask";
 import pkg from "../package.json" with { type: "json" };
 import { basename } from "node:path";
 import { type Hint, hintChunks, noticeStyle, palette, pill } from "./ui";
-import { arrowGlyph, composeConnectors, terminalConnectors } from "./connectors";
+import { rasterize, routeEdges, type Route } from "./routes";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
 
@@ -48,16 +48,11 @@ const stop = () => stopped.resolve();
 const displayed = Promise.withResolvers<void>();
 let painted = false, closing = false;
 let renderError: unknown;
-let engine: ThreeCliRenderer | undefined;
 let drawing: Promise<void> | undefined;
 let refreshing = false;
-const scene = new THREE.Scene();
 const resources: { dispose(): void }[] = [];
-const sceneResources: { dispose(): void }[] = [];
 yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
   closing = true; renderer.pause(); await drawing?.catch(() => {});
-  engine?.destroy();
-  for (const resource of sceneResources) resource.dispose();
   for (const resource of resources) resource.dispose();
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
@@ -84,21 +79,24 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const canvas = new FrameBufferRenderable(renderer, { position: "absolute", left: 0, top: 0, width: renderer.width, height: Math.max(1, renderer.height - 7) });
   const inspector = new BoxRenderable(renderer, { width: 38, flexShrink: 0, border: false,
     paddingLeft: 1, paddingRight: 1, backgroundColor: palette.panel });
-  const inspectorScroll = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true });
-  const inspectorTitle = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
-  const inspectorHead = new TextRenderable(renderer, { selectable: false, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
-  const inspectorId = new TextRenderable(renderer, { selectable: false, flexShrink: 0, fg: palette.muted, wrapMode: "word" });
-  const relations = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "word" });
-  const filesText = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
-  const activityText = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
+  // Every layer of a scroll box paints its own background; set them all so no cell falls back to the terminal default.
+  const surface = { backgroundColor: palette.panel, rootOptions: { backgroundColor: palette.panel }, wrapperOptions: { backgroundColor: palette.panel },
+    viewportOptions: { backgroundColor: palette.panel }, contentOptions: { backgroundColor: palette.panel } };
+  const inspectorScroll = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, verticalScrollbarOptions: { showArrows: false, trackOptions: { foregroundColor: "#3a4352", backgroundColor: palette.panel } } });
+  const inspectorTitle = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
+  const inspectorHead = new TextRenderable(renderer, { selectable: false, bg: palette.panel, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
+  const inspectorId = new TextRenderable(renderer, { selectable: false, bg: palette.panel, flexShrink: 0, fg: palette.muted, wrapMode: "word" });
+  const relations = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "word" });
+  const filesText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
+  const activityText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
   // Numbered, collapsible sections: each is a lighter block on the panel, with a bar on its left edge when focused.
   type SectionKey = "overview" | "connections" | "files" | "activity";
+  const thin = { showArrows: false, trackOptions: { foregroundColor: "#3a4352", backgroundColor: palette.panel } };
   const makeSection = (number: number, name: string, children: Renderable[]) => {
-    const box = new BoxRenderable(renderer, { id: `section-${name.toLowerCase()}`, width: "100%", height: 8, flexShrink: 0, flexDirection: "column", backgroundColor: palette.section,
-      paddingLeft: 1, paddingRight: 1, paddingTop: 1, paddingBottom: 1, marginTop: 1 });
-    const header = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
-    // Every card is the same height; whatever does not fit scrolls inside it.
-    const content = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, backgroundColor: palette.section });
+    const box = new BoxRenderable(renderer, { id: `section-${name.toLowerCase()}`, backgroundColor: palette.panel, width: "100%", height: 8, flexShrink: 0, flexDirection: "column", marginTop: 1 });
+    const header = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
+    // Every card is the same height; whatever does not fit scrolls inside it, behind a hairline scrollbar.
+    const content = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, paddingLeft: 2, verticalScrollbarOptions: thin });
     for (const child of children) content.add(child);
     box.add(header); box.add(content);
     return { number, name, box, header, content, open: true };
@@ -114,6 +112,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let focusSection: SectionKey | undefined;
   const cursor: Record<SectionKey, number> = { overview: 0, connections: 0, files: 0, activity: 0 };
   let connectionItems: string[] = [];
+  let fileLines: number[] = [];
   let activityItems: { element: string; from: number; to: number }[] = [];
   const hot = RGBA.fromHex("#294052");
   const highlight = (chunks: TextChunk[], from: number, to: number) => chunks.map((chunk, index) => index >= from && index < to ? { ...chunk, bg: hot } : chunk);
@@ -177,11 +176,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let redrawAfterResize = false;
   let targetX = centerX, targetY = centerY, targetScale = scale;
   let animating = false;
-  let braille = true;
   let fileMode = false, fileCursor = 0, editorActive = false;
   let fileQuery = "";
   const selectedPaths = () => {
-    const paths = files.get(String(selected?.modelRef ?? "")) ?? [];
+    const dirOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
+    const paths = [...files.get(String(selected?.modelRef ?? "")) ?? []].sort((a, b) => dirOf(a).localeCompare(dirOf(b)) || a.localeCompare(b));
     return fileMode ? paths.filter(path => path.toLowerCase().includes(fileQuery.trim().toLowerCase())) : paths;
   };
   let inspectorPreference: "auto" | "open" | "closed" = "auto";
@@ -193,7 +192,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // Which key family moves the selection; the other family pans. `v` swaps them.
   let vimTraverses = true;
   const selectKeys = () => vimTraverses ? "h j k l" : "Arrows";
-  const panKeys = () => vimTraverses ? "Arrows" : "h j k l";
   // Two columns of keycaps and what they do; one column when the terminal is narrow.
   const helpContent = () => {
     const arrows = "← ↑ ↓ →";
@@ -267,14 +265,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (visible && !inspector.parent) body.addPane(inspector);
     else if (!visible && inspector.parent) body.remove(inspector);
     const total = side ? renderer.width : Math.max(1, renderer.height - 5 - (message ? 1 : 0));
-    const panelSize = side ? Math.min(42, Math.max(32, Math.floor(renderer.width * 0.23))) : Math.min(10, Math.max(5, Math.floor(renderer.height / 3)));
+    const panelSize = side ? Math.min(64, Math.max(38, Math.floor(renderer.width * 0.30))) : Math.min(10, Math.max(5, Math.floor(renderer.height / 3)));
     body.minSizes = visible ? [side ? 36 : 8, side ? 28 : 5] : [1];
     body.sizes = visible ? [Math.max(1, total - panelSize - 1), panelSize] : [total];
   };
   let message = "";
-  const own = <T extends { dispose(): void }>(resource: T) => { sceneResources.push(resource); return resource; };
-  const point = (x: number, y: number, z = 0) => new THREE.Vector3(x, -y, z);
-  const color = (hex: string) => new THREE.Color(hex).convertLinearToSRGB();
   const mountNodes = () => diagram.nodes.map(node => {
     const z = node.level + 1;
     const box = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: 1, height: 1,
@@ -285,36 +280,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     box.add(label); viewport.add(box);
     return { node, box, label, ring: undefined as RGBA | undefined, rect: { x: 0, y: 0, width: 1, height: 1 } };
   });
-  const mountEdges = () => diagram.edges.map(edge => {
-    const points = edge.points.map(([x, y]) => point(x, y, 0));
-    const path = new THREE.CurvePath<THREE.Vector3>();
-    if (points.length >= 4 && (points.length - 1) % 3 === 0) {
-      for (let i = 0; i + 3 < points.length; i += 3) {
-        const a = points[i], b = points[i + 1], c = points[i + 2], d = points[i + 3];
-        if (a && b && c && d) path.add(new THREE.CubicBezierCurve3(a, b, c, d));
-      }
-    } else for (let i = 1; i < points.length; i++) {
-      const a = points[i - 1], b = points[i];
-      if (a && b) path.add(new THREE.LineCurve3(a, b));
-    }
-    const material = own(new THREE.LineBasicMaterial({ color: color(palette.border) }));
-    if (path.curves.length) scene.add(new THREE.Line(own(new THREE.BufferGeometry().setFromPoints(path.getPoints(240))), material));
-    const markers: { end: THREE.Vector3; direction: THREE.Vector3; label: TextRenderable; type: string | undefined }[] = [];
-    const marker = (tail: boolean) => {
-      const type = tail ? edge.tail : edge.head;
-      if (type === "none" || tail && !type) return;
-      const end = tail ? points[0] : points.at(-1);
-      const neighbor = tail ? points.find(p => !p.equals(end ?? p)) : points.findLast(p => !p.equals(end ?? p));
-      if (!end || !neighbor) return;
-      const direction = end.clone().sub(neighbor).normalize();
-      const label = new TextRenderable(renderer, { selectable: false, position: "absolute", width: 1, height: 1, content: "▶", fg: palette.border, bg: palette.background, zIndex: 1000 });
-      viewport.add(label); markers.push({ end, direction, label, type });
-    };
-    marker(false); marker(true);
-    return { edge, material, markers };
-  });
+  // Orthogonal routes between the same nodes LikeC4 connects, found once per layout (see routes.ts).
+  const computeRoutes = (): Route[] => routeEdges(diagram.nodes.map(node => ({ id: String(node.id), x: node.x, y: node.y, width: node.width, height: node.height, children: node.children.map(String) })),
+    diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target), points: edge.points })));
   let nodeObjects = mountNodes();
-  let edges = mountEdges();
+  let routes = computeRoutes();
   let previousWidth = 0, previousHeight = 0;
   let initialFit = true, stableLayoutFrames = 0;
   // One-time "draw-on" when the first view opens: nodes bloom left to right, connectors extend source to target.
@@ -332,11 +302,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       ? (resolution.width / renderer.width) / (resolution.height / renderer.height) : 0.5;
   };
   const projected = (x: number, y: number) => {
-    const p = point(x, y, 10).project(camera);
+    const p = new THREE.Vector3(x, -y, 10).project(camera);
     return { x: (p.x + 1) * viewport.width / 2, y: (1 - p.y) * viewport.height / 2 };
   };
   const nl = fg(palette.text)("\n");
-  const innerWidth = () => Math.max(16, inspector.width - 8);
+  const innerWidth = () => Math.max(16, inspector.width - 6);
   const section = (title: string, tone: string, right = "") => [fg(tone)(bold(title)), fg(palette.border)(` ${"─".repeat(Math.max(2, innerWidth() - title.length - right.length - 2))} `), fg(palette.muted)(right)];
   const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
   // Which element each rendered line of the activity list belongs to, so a click can select its node.
@@ -353,24 +323,22 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (total <= 0) return;
     autoFolded.clear();
     let active = sectionOrder.filter(key => sections[key].open);
-    // Roomy: folded cards are padded 3-row headers with a gap between cards. Compact: 1-row headers, no gaps.
-    const share = (count: number, compact: boolean) => Math.floor((total - headRows - (compact ? 0 : sectionOrder.length) - (sectionOrder.length - count) * (compact ? 1 : 3)) / Math.max(1, count));
+    // Roomy: a blank line before every section. Compact: no gaps.
+    const share = (count: number, compact: boolean) => Math.floor((total - headRows - (compact ? 0 : sectionOrder.length) - (sectionOrder.length - count)) / Math.max(1, count));
     for (const drop of ["overview", "activity", "files", "connections"] as SectionKey[]) {
-      if (active.length <= 1 || share(active.length, false) >= 7) break;
+      if (active.length <= 1 || share(active.length, false) >= 5) break;
       if (active.includes(drop) && !touched.has(drop)) { active = active.filter(key => key !== drop); autoFolded.add(drop); }
     }
-    const compact = active.length > 0 && share(active.length, false) < 7;
-    // Ultra-compact: no room even for folded headers beside a usable card, so the folded cards disappear.
-    const ultra = compact && total - headRows - (sectionOrder.length - active.length) < 4;
-    const rows = active.length ? (ultra ? Math.max(3, total - headRows) : Math.max(compact ? 5 : 7, share(active.length, compact))) : 3;
+    const compact = active.length > 0 && share(active.length, false) < 5;
+    const ultra = compact && total - headRows - (sectionOrder.length - active.length) < 3;
+    const rows = active.length ? (ultra ? Math.max(3, total - headRows) : Math.max(compact ? 4 : 5, share(active.length, compact))) : 1;
     for (const key of sectionOrder) {
       const entry = sections[key], isActive = active.includes(key);
       entry.box.visible = isActive || !ultra;
-      entry.box.height = isActive ? rows : compact ? 1 : 3;
+      entry.box.height = isActive ? rows : 1;
       entry.box.marginTop = compact ? 0 : 1;
-      entry.box.paddingTop = entry.box.paddingBottom = compact ? 0 : 1;
       entry.content.visible = isActive;
-      bodyRows[key] = Math.max(1, (isActive ? rows : 0) - 1 - (compact ? 0 : 2));
+      bodyRows[key] = Math.max(1, (isActive ? rows : 0) - 1);
     }
   };
   // Keep a line of a card's scrolling body in view.
@@ -409,7 +377,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target);
         if (same) same.count++; else collapsed.push({ row, count: 1 });
       }
-      for (const { row, count } of collapsed.slice(0, 3)) {
+      const visibleRows = collapsed.slice(0, 3);
+      for (const [at, { row, count }] of visibleRows.entries()) {
         lineStart = chunks.length;
         const glyph = row.state === "started" ? spin : row.state === "completed" ? "✓" : row.state === "failed" ? "✗" : "?";
         const glyphTone = row.state === "failed" ? palette.failure : row.state === "started" ? operationColor(row.operation) : palette.muted;
@@ -417,10 +386,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const first = row.paths[0]?.split("/").at(-1) ?? row.target;
         const target = `${first}${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}`;
         const age = formatAge(row.age);
-        const room = Math.max(4, width - 2 - 2 - badge.length - 1 - age.length - 1);
+        const room = Math.max(4, width - 3 - 2 - badge.length - 1 - age.length - 1);
         const shown = target.length > room ? `${target.slice(0, room - 1)}…` : target;
-        chunks.push(fg(glyphTone)(`  ${glyph} `), fg(operationColor(row.operation))(`${badge} `), fg(palette.text)(shown),
-          fg(palette.muted)(`${" ".repeat(Math.max(1, width - 2 - 2 - badge.length - 1 - shown.length - age.length))}${age}`), nl);
+        chunks.push(fg("#2f3744")(`${at === visibleRows.length - 1 ? "└─" : "├─"} `), fg(glyphTone)(`${glyph} `), fg(operationColor(row.operation))(`${badge} `), fg(palette.text)(shown),
+          fg(palette.muted)(`${" ".repeat(Math.max(1, width - 3 - 2 - badge.length - 1 - shown.length - age.length))}${age}`), nl);
         activityTargets.push(element); activityItems.push({ element, from: lineStart, to: chunks.length });
       }
     }
@@ -506,16 +475,23 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const tooTall = Math.ceil(title.length / textWidth) + (status ? 1 : 0) > Math.max(1, rows);
     return (widest > textWidth || tooTall) && title.length > textWidth ? `${title.slice(0, textWidth - 1)}…` : title;
   };
+  // Every leaf card is outlined by a thin ring just outside it: dim at rest, tinted for selection, neighbours and activity, and
+  // dashed amber for the node the connections cursor would show.
   const paintRings = () => {
     const bg = RGBA.fromHex(palette.background);
+    const preview = focusSection === "connections" ? connectionItems[cursor.connections] : undefined;
     for (const entry of nodeObjects) {
-      if (!entry.ring || !entry.box.visible || entry.node.children.length) continue;
-      const { x, y, width, height } = entry.rect, ring = entry.ring;
+      if (!entry.box.visible || entry.node.children.length) continue;
+      const previewed = preview !== undefined && String(entry.node.id) === preview && String(entry.node.id) !== String(selected?.id);
+      if (!entry.ring && !previewed && revealProgress() < 1) continue;
+      const ring = previewed ? RGBA.fromHex(palette.outgoing) : entry.ring ?? RGBA.fromHex(palette.cardEdge);
+      const { x, y, width, height } = entry.rect;
       const x0 = x - 1, y0 = y - 1, x1 = x + width, y1 = y + height;
+      const across = previewed ? "┄" : "─", down = previewed ? "┆" : "│";
       const put = (cx: number, cy: number, glyph: string) => { if (cx >= 0 && cy >= 0 && cx < viewport.width && cy < viewport.height) canvas.frameBuffer.setCell(cx, cy, glyph, ring, bg); };
       put(x0, y0, "╭"); put(x1, y0, "╮"); put(x0, y1, "╰"); put(x1, y1, "╯");
-      for (let cx = x0 + 1; cx < x1; cx++) { put(cx, y0, "─"); put(cx, y1, "─"); }
-      for (let cy = y0 + 1; cy < y1; cy++) { put(x0, cy, "│"); put(x1, cy, "│"); }
+      for (let cx = x0 + 1; cx < x1; cx++) { put(cx, y0, across); put(cx, y1, across); }
+      for (let cy = y0 + 1; cy < y1; cy++) { put(x0, cy, down); put(x1, cy, down); }
     }
   };
   // LikeC4's own description, flattened: the model is the single source of what a component is for.
@@ -580,7 +556,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       entry.box.width = width; entry.box.height = height;
       entry.rect = { x: Math.round(origin.x), y: Math.round(origin.y), width, height };
       if (entry.node.children.length) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : ""}${counts ? ` ·${counts}` : ""}`;
-      else entry.label.content = new StyledText([fg(palette.text)(labelTitle(entry.node.title, width - 2, height, !!(state || counts))),
+      else entry.label.content = new StyledText([...(height >= 4 && entry.node.kind ? [fg(entry.node.id === selected?.id ? palette.text : palette.muted)(`${String(entry.node.kind)}`), nl] : []),
+        fg(palette.text)(labelTitle(entry.node.title, width - 2, height - (height >= 4 && entry.node.kind ? 1 : 0), !!(state || counts))),
         ...(state || counts ? [nl, ...(state ? [fg(operationColor(state === "EDIT" ? "edit" : state === "READ" ? "read" : state === "RUN" ? "command" : "other"))(`[${state}]`)] : []),
           ...(counts ? [fg(palette.text)(state ? " " : ""), ...countChunks(reads, edits, runs)] : [])] : [])]);
       entry.box.visible = end.x > 0 && end.y > 0 && origin.x < viewport.width && origin.y < viewport.height;
@@ -589,31 +566,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       entry.label.visible = width >= 6 && height >= 2 && bloom >= 0.7;
       if (!entry.label.visible) { if (bloom >= 0.7) hidden++; continue; }
     }
-    for (const { edge, material, markers } of edges) {
-      const hex = edge.source === selected?.id ? palette.outgoing : edge.target === selected?.id ? palette.incoming : palette.border;
-      material.color.copy(color(hex));
-      for (const { end, direction, label, type } of markers) {
-        const tip = projected(end.x, -end.y);
-        const dx = direction.x, dy = -direction.y * cellAspect();
-        const length = Math.hypot(dx, dy);
-        let x = Math.floor(tip.x), y = Math.floor(tip.y);
-        const covered = () => nodeObjects.some(({ node }) => {
-          const a = projected(node.x, node.y), b = projected(node.x + node.width, node.y + node.height);
-          const left = Math.round(a.x), top = Math.round(a.y), right = Math.max(left + 2, Math.round(b.x)) - 1, bottom = Math.max(top + 2, Math.round(b.y)) - 1;
-          return x >= left && x <= right && y >= top && y <= bottom
-            && (!node.children.length || x === left || x === right || y === top || y === bottom);
-        });
-        for (let step = 1; step <= 32 && covered(); step++) { x = Math.floor(tip.x - dx / length * step); y = Math.floor(tip.y - dy / length * step); }
-        label.left = x; label.top = y; label.fg = hex;
-        label.visible = !braille && x >= 0 && y >= 0 && x < viewport.width && y < viewport.height && !covered();
-        label.content = type === "diamond" ? "◆" : type === "odiamond" ? "◇" : type === "dot" ? "●" : type === "odot" ? "○"
-          : arrowGlyph(dx, dy);
-      }
-    }
     const paths = selectedPaths();
     const hueColor = hues[String(selected?.color ?? "")] ?? palette.muted;
     inspectorTitle.content = new StyledText([fg(hueColor)("● "), fg(palette.text)(bold(selected?.title ?? "No selection"))]);
-    const facts = [`${paths.length} file${paths.length === 1 ? "" : "s"}`, selected?.navigateTo ? `o opens ${selected.navigateTo}` : undefined].filter(Boolean).join(" · ");
     // What it is (kind, technology) and where it sits (the groups around it), in plain words; the ID is in Overview.
     const ancestors: string[] = [];
     for (let parent = diagram.nodes.find(node => node.id === selected?.parent); parent; parent = diagram.nodes.find(node => node.id === parent?.parent)) ancestors.unshift(parent.title);
@@ -621,74 +576,85 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     inspectorHead.content = new StyledText([fg(palette.muted)(what || " "), ...(ancestors.length ? [nl, fg(palette.border)("in "), fg(palette.muted)(ancestors.join(" › "))] : [])]);
     headRows = 1 + (ancestors.length ? 2 : 1);
     const description = describe(selected);
-    inspectorId.content = new StyledText([fg(palette.muted)(`${selected?.id ?? ""}\n`), fg(palette.border)(facts), ...(description ? [nl, nl, fg(palette.text)(description)] : [])]);
+    const observed = byElement.get(String(selected?.modelRef ?? ""))?.length ?? 0;
+    const row = (key: string, value: string) => [fg(palette.border)(key.padEnd(8)), fg(palette.muted)(`${value}\n`)];
+    inspectorId.content = new StyledText([...(description ? [fg(palette.text)(description), nl, nl] : []), ...row("id", String(selected?.id ?? "")), ...row("files", String(paths.length)),
+      ...(binding || following ? row("events", String(observed)) : []), ...(selected?.navigateTo ? row("opens", `${selected.navigateTo}  (o)`) : [])]);
     const name = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const incoming = diagram.edges.filter(edge => edge.target === selected?.id);
     const outgoing = diagram.edges.filter(edge => edge.source === selected?.id);
-    connectionItems = [...incoming.map(edge => String(edge.source)), ...outgoing.map(edge => String(edge.target))];
+    connectionItems = [...outgoing.map(edge => String(edge.target)), ...incoming.map(edge => String(edge.source))];
     cursor.connections = Math.min(cursor.connections, Math.max(0, connectionItems.length - 1));
-    const labelRows = (label: string | null | undefined) => Math.max(1, Math.ceil((label?.replace(/\s+/g, " ").trim().length || 22) / Math.max(8, innerWidth() - 2)));
+    const labelRows = (label: string | null | undefined) => Math.max(1, Math.ceil((label?.replace(/\s+/g, " ").trim().length || 22) / Math.max(8, innerWidth() - 4)));
     const connectionLines: number[] = [];
     let connectionLine = 1;
-    for (const edge of incoming) { connectionLines.push(connectionLine); connectionLine += 1 + labelRows(edge.label); }
-    connectionLine += (incoming.length ? 0 : 1) + 2;
-    for (const edge of outgoing) { connectionLines.push(connectionLine); connectionLine += 1 + labelRows(edge.label); }
+    for (const edge of [...outgoing, ...incoming]) { connectionLines.push(connectionLine); connectionLine += 1 + labelRows(edge.label); }
     if (focusSection === "connections") followLine("connections", connectionLines[cursor.connections] ?? 0);
     const link = (index: number, arrow: string, tone: string, node: string, label: string | null | undefined) => {
-      const lines = [fg(tone)(`${arrow} `), fg(palette.text)(`${name(node)}\n`), fg(palette.muted)(`  ${label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}\n`)];
-      return focusSection === "connections" && cursor.connections === index ? lines.map(chunk => ({ ...chunk, bg: hot })) : lines;
+      const here = focusSection === "connections" && cursor.connections === index;
+      const lines = [fg(palette.outgoing)(here ? "› " : "  "), fg(tone)(`${arrow} `), fg(here ? palette.text : "#c9d0da")(`${name(node)}\n`),
+        fg(palette.muted)(`    ${label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}\n`)];
+      return here ? lines.map(chunk => ({ ...chunk, bg: hot })) : lines;
     };
-    const sub = (title: string, tone: string, count: number) => [fg(tone)(bold(title)), fg(palette.muted)(`  ${count}`), nl];
     relations.content = new StyledText([
-      ...sub("INCOMING", palette.incoming, incoming.length),
-      ...(incoming.length ? incoming.flatMap((edge, index) => link(index, "←", palette.incoming, edge.source, edge.label)) : [fg(palette.muted)("None\n")]),
-      nl, ...sub("OUTGOING", palette.outgoing, outgoing.length),
-      ...(outgoing.length ? outgoing.flatMap((edge, index) => link(incoming.length + index, "→", palette.outgoing, edge.target, edge.label)) : [fg(palette.muted)("None")]),
+      fg(palette.border)(`out ${outgoing.length} · in ${incoming.length}\n`),
+      ...outgoing.flatMap((edge, index) => link(index, "→", palette.outgoing, edge.target, edge.label)),
+      ...incoming.flatMap((edge, index) => link(outgoing.length + index, "←", palette.incoming, edge.source, edge.label)),
+      ...(outgoing.length + incoming.length ? [] : [fg(palette.muted)("No relationships")]),
     ]);
     const counts: Record<SectionKey, string> = { overview: "", connections: String(incoming.length + outgoing.length),
       files: fileMode ? `${paths.length ? fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: events.length ? String(events.length) : "" };
     layoutSections();
     for (const key of sectionOrder) {
       const entry = sections[key];
-      const left = `${isOpen(key) ? "▾" : "▸"} [${entry.number}] ${entry.name}`;
-      const room = Math.max(1, innerWidth() - left.length - counts[key].length);
       const focused = focusSection === key;
-      entry.header.content = new StyledText([fg(focused ? palette.incoming : palette.muted)(`${isOpen(key) ? "▾" : "▸"} [${entry.number}] `), fg(palette.text)(bold(entry.name)),
-        fg(palette.muted)(`${" ".repeat(room)}${counts[key]}`)]);
-      entry.box.backgroundColor = entry.content.backgroundColor = focused ? "#223140" : palette.section;
+      const label = `${isOpen(key) ? "▾" : "▸"} ${entry.number} ${entry.name}`;
+      const rule = "─".repeat(Math.max(2, innerWidth() + 2 - label.length - counts[key].length - 3));
+      entry.header.content = new StyledText([fg(focused ? palette.outgoing : palette.muted)(`${isOpen(key) ? "▾" : "▸"} `), fg(palette.border)(`${entry.number} `),
+        fg(focused ? palette.outgoing : palette.text)(entry.name), fg("#232b36")(` ${rule} `), fg(palette.muted)(counts[key])]);
+      entry.box.backgroundColor = palette.panel;
     }
-    // Every mapped file, in one scrolling list (capped); the cursor row is highlighted and kept in view.
+    // Mapped files as a tree: each directory once, then its files with branches; files touched this session carry a dot on the right.
     const fileFocus = fileMode || focusSection === "files";
     const fileChunks: TextChunk[] = fileMode ? [fg(palette.outgoing)(bold(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`)), nl] : [];
     const firstFileLine = fileChunks.length ? 1 : 0;
+    fileLines = [];
     const shownFiles = paths.slice(0, 500);
+    let lastDirectory: string | undefined;
+    let touchedAny = false;
     shownFiles.forEach((path, index) => {
-      const slash = path.lastIndexOf("/") + 1;
-      const recent = byPath.get(path);
-      const from = fileChunks.length;
-      fileChunks.push(fg(palette.outgoing)(`${fileFocus && fileCursor === index ? "›" : " "} `), fg(palette.muted)(path.slice(0, slash)),
-        fg(recent ? operationColor(recent.operation) : palette.text)(recent ? bold(path.slice(slash)) : path.slice(slash)), nl);
-      if (fileFocus && fileCursor === index) for (let at = from; at < fileChunks.length; at++) fileChunks[at] = { ...fileChunks[at]!, bg: hot };
+      const slash = path.lastIndexOf("/") + 1, directory = path.slice(0, slash);
+      if (directory !== lastDirectory) { fileChunks.push(fg(palette.border)(`${directory || "./"}\n`)); fileLines.push(-1); lastDirectory = directory; }
+      const last = (shownFiles[index + 1]?.slice(0, (shownFiles[index + 1]?.lastIndexOf("/") ?? -1) + 1) ?? undefined) !== directory;
+      const recent = byPath.get(path), here = fileFocus && fileCursor === index;
+      const name = path.slice(slash), used = 2 + 3 + name.length;
+      const row: TextChunk[] = [fg(palette.outgoing)(here ? "› " : "  "), fg("#2f3744")(`${last ? "└─" : "├─"} `),
+        fg(recent ? palette.text : palette.muted)(recent ? bold(name) : name), fg(palette.muted)(" ".repeat(Math.max(1, innerWidth() - used - 1))),
+        fg(recent ? operationColor(recent.operation) : palette.panel)(recent ? "●" : " "), nl];
+      if (recent) touchedAny = true;
+      fileChunks.push(...(here ? row.map(chunk => ({ ...chunk, bg: hot })) : row));
+      fileLines.push(index);
     });
     if (!shownFiles.length) fileChunks.push(fg(palette.muted)(fileError || (config ? "No direct file mappings" : "Map files in c4view.activity.json")));
+    else if (touchedAny) fileChunks.push(fg(palette.border)("● touched this session"));
     filesText.content = new StyledText(fileChunks);
     // First click highlights a row; clicking the highlighted row again opens it.
     filesText.onMouseDown = event => {
       event.preventDefault(); event.stopPropagation();
-      const index = event.y - filesText.y - firstFileLine, path = paths[index];
-      if (!path || help.visible || summary.visible || search) return;
+      const index = fileLines[event.y - filesText.y - firstFileLine] ?? -1, path = paths[index];
+      if (index < 0 || !path || help.visible || summary.visible || search) return;
       if (fileMode && clickedFile === index) { openFile(path); return; }
       if (!fileMode) beginFiles();
       fileCursor = clickedFile = index; message = "Click again or Enter to open · Esc or click the diagram to go back"; searchInput.focus(); update();
     };
-    if (fileFocus) followLine("files", firstFileLine + fileCursor);
+    if (fileFocus) followLine("files", firstFileLine + Math.max(0, fileLines.indexOf(fileCursor)));
     activityText.content = activityContent();
     if (focusSection === "activity") followLine("activity", cursor.activity);
     if (summary.visible) summary.content.content = summaryContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    const mode = fileMode ? { name: "FILES", color: palette.outgoing } : focusSection ? { name: sections[focusSection].name.toUpperCase(), color: palette.command } : search ? { name: "SEARCH", color: palette.incoming } : { name: "VIEW", color: palette.incoming };
+    const mode = fileMode ? { name: "FILES", color: palette.outgoing } : focusSection ? { name: sections[focusSection].name.toUpperCase(), color: palette.outgoing } : search ? { name: "SEARCH", color: palette.outgoing } : { name: "VIEW", color: palette.outgoing };
     statusLeft.content = new StyledText([pill(mode.name, mode.color), fg(palette.muted)("  Selected: "), fg(palette.text)(bold(String(selected?.id ?? "")))]);
-    statusRight.content = new StyledText([...(braille ? [] : [fg(palette.outgoing)("GPU + Three camera  ·  ")]), ...(hidden ? [fg(palette.border)(`${hidden} labels hidden  ·  `)] : []), fg(palette.muted)(`Zoom: ${Math.round(16 / scale * 100)}%`)]);
+    statusRight.content = new StyledText([...(hidden ? [fg(palette.border)(`${hidden} labels hidden  ·  `)] : []), fg(palette.muted)(`Zoom: ${Math.round(16 / scale * 100)}%`)]);
     const ticker = tickerContent();
     const navigation: Hint[] = [[selectKeys(), "select"], [vimTraverses ? "←↑↓→" : "h j k l", "pan"], ["+ -", "zoom"], ["/", "search"], ["f", "fit"], ["e", "files"], ["i", "inspector"], ["t", "ask"], ["c", "session"], ["?", "help"]];
     const sectionHints: Record<SectionKey, Hint[]> = {
@@ -1028,7 +994,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const direction = ({ h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" } as const)[key.name as "h"];
     const vimKey = key.name.length === 1;
     if (!fileMode && key.name === "g" && !key.ctrl && !key.shift) { key.preventDefault(); beginGoto(); return; }
-    if (!fileMode && key.sequence === "G") { key.preventDefault(); braille = !braille; message = ""; update(); return; }
     if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
     if (!fileMode && key.name === "c" && !key.ctrl) {
       key.preventDefault(); summary.foot.content = new StyledText(hintChunks([["Esc", "close"]], 40)); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
@@ -1084,7 +1049,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       message = followCamera ? (binding || following ? "Camera follows running tools (a to stop)" : "Camera follow needs a bound session") : "Camera follow off";
       if (followCamera) followActivity();
     }
-    else if (key.name === "s") { engine?.toggleSuperSampling(); message = "Sampling changed: compare line continuity"; }
     else if (key.name === "e") beginFiles();
     else if (key.name === "tab") {
       const index = diagram.nodes.findIndex(node => node.id === selected?.id);
@@ -1111,10 +1075,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const inspectorKey = `${inspectorScroll.viewport.height}/${inspector.width}`;
     if (inspectorKey !== lastInspectorKey) { lastInspectorKey = inspectorKey; update(); }
   });
-  engine = new ThreeCliRenderer(renderer, { width: Math.max(1, renderer.width), height: Math.max(1, renderer.height - 7), autoResize: false, backgroundColor: RGBA.fromHex(palette.background) });
-  yield* io("Native.graphics.init", () => engine.init()).pipe(Effect.uninterruptible);
-  engine.setActiveCamera(camera);
-  const activeEngine = engine;
   renderer.setFrameCallback(async deltaMs => {
     if (editorActive || closing) return;
     try {
@@ -1126,13 +1086,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const before = new Set(diagram.nodes.map(node => String(node.id)));
         const keep = selected ? String(selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
-        for (const entry of edges) for (const marker of entry.markers) { viewport.remove(marker.label); marker.label.destroyRecursively(); }
-        scene.clear();
-        for (const resource of sceneResources.splice(0)) resource.dispose();
         diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError;
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;
-        nodeObjects = mountNodes(); edges = mountEdges();
+        nodeObjects = mountNodes(); routes = computeRoutes();
         selected = diagram.nodes.find(node => String(node.id) === keep) ?? diagram.nodes[0];
         fileCursor = Math.min(fileCursor, Math.max(0, selectedPaths().length - 1));
         indexEvents();
@@ -1147,11 +1104,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (pendingVisit) {
       const next = pendingVisit; pendingVisit = undefined;
       for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
-      for (const entry of edges) for (const marker of entry.markers) { viewport.remove(marker.label); marker.label.destroyRecursively(); }
-      scene.clear();
-      for (const resource of sceneResources.splice(0)) resource.dispose();
       diagram = next.diagram;
-      nodeObjects = mountNodes(); edges = mountEdges();
+      nodeObjects = mountNodes(); routes = computeRoutes();
       selected = diagram.nodes[0]; fileCursor = 0; resetInspectorScroll(); message = "";
       initialFit = false; animating = false;
       if (next.restore) restore(next.restore);
@@ -1165,7 +1119,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       previousWidth = viewport.width; previousHeight = viewport.height;
       canvas.width = Math.max(1, viewport.width); canvas.height = Math.max(1, viewport.height);
       redrawAfterResize = true;
-      activeEngine.setSize(Math.max(1, viewport.width), Math.max(1, viewport.height), true);
       update();
     } else if (initialFit && viewport.width > 1 && viewport.height > 1 && ++stableLayoutFrames >= 2) {
       initialFit = false; revealStart = Date.now();
@@ -1186,30 +1139,17 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     canvas.frameBuffer.clear(RGBA.fromHex(palette.background));
     paintGrid(); paintRings();
     drawing = (async () => {
-      if (braille) {
-        const nodes = diagram.nodes.map(node => {
-          const a = projected(node.x, node.y), b = projected(node.x + node.width, node.y + node.height);
-          return { x: Math.round(a.x), y: Math.round(a.y), width: Math.max(2, Math.round(b.x) - Math.round(a.x)), height: Math.max(2, Math.round(b.y) - Math.round(a.y)), children: node.children };
-        });
-        const projectedEdges = diagram.edges.map(edge => {
-          const coordinates = edge.points.map(([x, y]): [number, number] => { const p = projected(x, y); return [p.x * 16, p.y * 32]; });
-          const first = coordinates[0];
-          if (!first) throw new Error("Empty edge geometry");
-          const points: [[number, number], ...[number, number][]] = [first, ...coordinates.slice(1)];
-          return { ...edge, points };
-        });
-        const routes = terminalConnectors({ bounds: { x: 32, y: 32 }, edges: projectedEdges }, nodes);
-        const bg = RGBA.fromHex(palette.background);
-        const drawn = easeOut(revealProgress()) * 1.05;
-        for (const cell of composeConnectors(routes, selected?.id)) {
-          if (cell.t > drawn || cell.glyph === "\u2800") continue;
-          if (cell.x < 0 || cell.y < 0 || cell.x >= viewport.width || cell.y >= viewport.height) continue;
-          // Quiet connections brighten toward their arrowhead: a static cue for direction, not an animation of traffic.
-          const fg = cell.emphasis === "outgoing" ? RGBA.fromHex(palette.outgoing) : cell.emphasis === "incoming" ? RGBA.fromHex(palette.incoming)
-            : mix(palette.edgeLow, palette.edgeHigh, Math.min(1, Math.max(0, cell.t)));
-          canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, fg, bg);
-        }
-      } else await activeEngine.drawScene(scene, canvas.frameBuffer, 0);
+      const bg = RGBA.fromHex(palette.background);
+      const drawn = easeOut(revealProgress()) * 1.05;
+      const isCovered = (x: number, y: number) => nodeObjects.some(({ node, rect }) => {
+        const left = rect.x, top = rect.y, right = rect.x + rect.width - 1, bottom = rect.y + rect.height - 1;
+        return x >= left && x <= right && y >= top && y <= bottom && (!node.children.length || x === left || x === right || y === top || y === bottom);
+      });
+      for (const cell of rasterize(routes, point => projected(point.x, point.y), isCovered, selected ? String(selected.id) : undefined)) {
+        if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width || cell.y >= viewport.height) continue;
+        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : palette.edgeDim;
+        canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(fg), bg);
+      }
     })();
     await drawing;
     painted = true;

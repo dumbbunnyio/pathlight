@@ -97,7 +97,7 @@ When the first view opens, nodes bloom in from left to right and connectors exte
 To check how a change looks without a screenshot, render a pane to an image:
 
 ```sh
-tmux capture-pane -e -p -t %PANE | python3 scripts/ansi2png.py out.png
+tmux capture-pane -e -p -N -t %PANE | python3 scripts/ansi2png.py out.png
 ```
 
 The inspector shows the selected element's `kind`, `technology` and its LikeC4 `description` (markdown flattened to plain text, clipped at 420 characters), so the model is the one place that says what a component is for.

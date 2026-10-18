@@ -16,11 +16,11 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "navigation", "-x", "180", "-y", "46",
       "-e", "VISUAL=nvim -u NONE -i NONE -n", "-P", "-F", "#{pane_id}", process.execPath, resolve("src/cli.ts"), "view", "services",
       "--workspace", directory, "--project", "parcel", "--session", "navigation", "--source", "claude");
-    const capture = async (text: string) => {
+    const capture = async (text: string | RegExp) => {
       let output = "";
       for (let attempt = 0; attempt < 160; attempt++) {
         output = await tmux("capture-pane", "-p", "-t", pane);
-        if (output.includes(text)) return output;
+        if (typeof text === "string" ? output.includes(text) : text.test(output)) return output;
         await delay(50);
       }
       throw new Error(`Missing ${text}:\n${output}`);
@@ -90,7 +90,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     expect(restored).toContain("[EDIT]");
     expect(restored.match(/Zoom: \d+%/)?.[0]).toBe(selectedApi.match(/Zoom: \d+%/)?.[0]);
     await tmux("send-keys", "-t", pane, "e");
-    await capture("› src/api.ts");
+    await capture(/› [├└]─ api\.ts/);
     await tmux("send-keys", "-t", pane, "Enter");
     await delay(400);
     await tmux("send-keys", "-t", pane, "Escape", ":q", "Enter");

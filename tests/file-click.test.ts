@@ -33,8 +33,8 @@ test("clicking a file row highlights it, and clicking the diagram leaves file mo
       const row = rows.findIndex(line => line.includes(text));
       return { row, column: (rows[row] ?? "").indexOf(text) };
     };
-    const before = await until(text => text.includes("src/a.ts"), "file rows");
-    const file = find("src/b.ts", before);
+    const before = await until(text => text.includes("a.ts"), "file rows");
+    const file = find("b.ts", before);
     await click(file.column + 4, file.row);
     await until(text => text.includes("Click again or Enter to open"), "file highlight");
     const diagram = find("LikeC4", await until(text => text.includes("LikeC4"), "diagram labels"));
