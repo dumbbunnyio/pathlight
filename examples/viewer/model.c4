@@ -24,6 +24,12 @@ model {
     description 'The interactive diagram: pan and zoom camera, node selection, mapped files, and live activity.'
   }
 
+  ask = component 'Ask bridge' {
+    technology 'tmux send-keys'
+    description 'Types a question about a component, with its files and connections, into the agent pane the viewer was opened beside. Typed, not sent, unless you ask.'
+  }
+
+  viewer -> ask 'Hands a question over'
   plugin -> activity 'Records tool lifecycle'
   plugin -> launcher 'Opens a view'
   catalog -> launcher 'Selects diagram'
