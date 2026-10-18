@@ -38,7 +38,7 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
   const socket = join("/tmp", `c4f-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
-    await cp("examples/viewer", directory, { recursive: true });
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
     await mkdir(join(directory, "src"));
     await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/activity.ts", element: "activity" }] }));

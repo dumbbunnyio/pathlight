@@ -93,7 +93,7 @@ test("native relationship emphasis follows selection and long labels wrap and sc
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
-    await cp("examples/viewer", directory, { recursive: true });
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
     const model = join(directory, "model.c4");
     await writeFile(model, (await readFile(model, "utf8")).replace("Records tool lifecycle",
       "Records tool lifecycle with workspace attribution and bounded retention so each agent session remains separate. " +

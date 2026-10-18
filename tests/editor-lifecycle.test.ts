@@ -12,7 +12,7 @@ test("show forwards editor configuration and shutdown stops a non-exec editor wr
   const wrapper = join(directory, "editor.sh");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
-    await cp("examples/viewer", directory, { recursive: true });
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
     await writeFile(join(directory, "code.txt"), "example\n");
     await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "code.txt", element: "plugin" }] }));

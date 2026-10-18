@@ -11,7 +11,7 @@ test("mapped files filter without live recording and round-trip through a real t
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
-    await cp("examples/viewer", directory, { recursive: true });
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
     await mkdir(join(directory, "src"));
     const filename = "src/it's a file.ts";
     await writeFile(join(directory, filename), "initial\n");
@@ -112,7 +112,7 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
-    await cp("examples/viewer", directory, { recursive: true });
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
     await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/activity.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "native-test", "-x", "100", "-y", "42",

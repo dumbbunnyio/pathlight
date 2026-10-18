@@ -37,7 +37,8 @@ intentional redesigns separately; do not quietly substitute another camera.
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
 | Agent integrations | `plugins/` |
-| Flat and nested fixtures | `examples/viewer/`, `examples/parcel/` |
+| Flat and nested fixtures | `tests/fixtures/viewer/` (frozen test layout), `examples/parcel/` |
+| This repo's own architecture diagram | `examples/viewer/`, mapped by `c4view.activity.json` |
 
 ## Contracts to preserve
 

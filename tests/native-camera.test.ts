@@ -9,7 +9,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
   const tmux = (...args: string[]) => run("tmux", ["-S", join(directory, "tmux.sock"), ...args]);
   try {
     await mkdir(resolve(".cache/native-check"), { recursive: true });
-    await cp("examples/viewer", directory, { recursive: true });
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
     await mkdir(join(directory, "src"));
     await writeFile(join(directory, "src/activity.ts"), "export const example = true;\n");
     for (let index = 1; index <= 6; index++) await writeFile(join(directory, `src/z${index}.ts`), "export {};\n");

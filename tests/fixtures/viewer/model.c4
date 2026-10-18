@@ -1,0 +1,28 @@
+specification {
+  element component
+}
+
+model {
+  plugin = component 'Agent adapters'
+  activity = component 'Activity metadata'
+  catalog = component 'LikeC4 catalog'
+  exporter = component 'PNG export'
+  launcher = component 'tmux launcher'
+  viewer = component 'Persistent viewer'
+
+  plugin -> activity 'Records tool lifecycle'
+  plugin -> launcher 'Opens a view'
+  catalog -> exporter 'Selects diagram'
+  launcher -> exporter 'Requests PNG'
+  launcher -> viewer 'Starts owned pane'
+  exporter -> viewer 'Provides PNG'
+  activity -> viewer 'Updates component activity'
+}
+
+views {
+  view live {
+    title 'Visualize work implementation'
+    include *
+    autoLayout LeftRight
+  }
+}
