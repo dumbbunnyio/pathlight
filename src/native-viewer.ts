@@ -85,15 +85,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const footer = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, bg: palette.panel, wrapMode: "none" });
   const shortcuts = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   const notice = new TextRenderable(renderer, { height: 1, flexShrink: 0, visible: false, fg: palette.outgoing, wrapMode: "none" });
-  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 18,
+  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 21,
     border: true, borderStyle: "rounded", borderColor: palette.incoming, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
     zIndex: 20000, visible: false, title: " Keyboard shortcuts " });
   const helpShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
     zIndex: 19000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); } });
   const searchShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 3, width: "100%", height: 1,
     zIndex: 10000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); searchInput.focus(); } });
-  help.add(new TextRenderable(renderer, { fg: palette.text, content:
-    "NAVIGATE\n  Arrows / h j k l   Pan\n  + / -              Zoom\n  f / 0 / r          Fit / actual size / reveal\n  Tab / Shift+Tab    Select node\n  Enter / Backspace Child / parent\n  o / b              Open linked view / back\n\nINSPECT\n  /                  Search this view\n  i                  Toggle inspector\n  a                  Camera follows running tools\n  PageUp / PageDown  Scroll inspector\n  e                  Browse mapped files\n  ? / Escape         Close help\n  q                  Quit", wrapMode: "word" }));
+  const helpText = new TextRenderable(renderer, { fg: palette.text, wrapMode: "word" });
+  help.add(helpText);
   viewport.add(canvas); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
   for (const child of [topBar, body, notice, footer, shortcuts, searchShield, helpShield, help]) renderer.root.add(child);
@@ -122,6 +122,28 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let events: ActivityEvent[] = [];
   let byElement = new Map<string, ActivityEvent[]>();
   let followCamera = false, focusedCall = "";
+  // Which key family moves the selection; the other family pans. `v` swaps them.
+  let vimTraverses = true;
+  const selectKeys = () => vimTraverses ? "h j k l" : "Arrows";
+  const panKeys = () => vimTraverses ? "Arrows" : "h j k l";
+  const helpContent = () => `NAVIGATE
+  ${selectKeys().padEnd(18)} Select the neighbor in that direction
+  ${panKeys().padEnd(18)} Pan (Shift+${vimTraverses ? "hjkl" : "arrows"} also pans)
+  v                  Swap: ${vimTraverses ? "arrows select, hjkl pan" : "hjkl select, arrows pan"}
+  Tab / Shift+Tab    Next / previous node
+  + / -              Zoom
+  f / 0 / r          Fit / actual size / center selection
+  Enter / Backspace  Child / parent
+  o / b              Open linked view / back
+
+INSPECT
+  /                  Search this view
+  i                  Toggle inspector
+  a                  Camera follows running tools
+  PageUp / PageDown  Scroll inspector
+  e                  Browse mapped files
+  ? / Escape         Close help
+  q                  Quit`;
   const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
   const isActive = (event: ActivityEvent) => event.phase === "started" && Date.now() - event.time <= 30_000;
   const operationColor = (operation: ActivityEvent["operation"]) => operation === "edit" ? palette.outgoing : operation === "read" ? palette.incoming : palette.muted;
@@ -333,7 +355,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     activityText.content = activityContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
     footer.content = ` ${braille ? "BRAILLE + Three camera" : "GPU + Three camera"} | Zoom: ${Math.round(16 / scale * 100)}% | Selected: ${selected?.id}${hidden ? ` | ${hidden} labels hidden` : ""}`;
-    shortcuts.content = search ? " Type a name or ID · ↑↓/Tab matches · Enter keep · Esc restore" : fileMode ? ` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length} · Type to filter · Enter edit · Ctrl+R refresh · Esc diagram` : tickerContent() || " Arrows pan · +/- zoom · / search · f fit · e files · i inspect · ? help";
+    shortcuts.content = search ? " Type a name or ID · ↑↓/Tab matches · Enter keep · Esc restore" : fileMode ? ` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length} · Type to filter · Enter edit · Ctrl+R refresh · Esc diagram` : tickerContent() || ` ${selectKeys()} select · ${panKeys()} pan · +/- zoom · / search · f fit · e files · i inspect · ? help`;
     notice.visible = !!message; notice.content = ` ${message}`;
     dirty = true; renderer.requestRender();
   };
@@ -366,6 +388,38 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const target = diagram.nodes.filter(node => elements.has(String(node.modelRef))).sort((a, b) => a.children.length - b.children.length)[0];
     focusedCall = latest.call;
     if (target) reveal(target);
+  };
+  type Direction = "left" | "right" | "up" | "down";
+  const ensureVisible = (node: NonNullable<typeof selected>) => {
+    if (!animating) { targetX = centerX; targetY = centerY; targetScale = scale; }
+    const halfWidth = viewport.width * targetScale / 2 * 0.9, halfHeight = viewport.height * targetScale / cellAspect() / 2 * 0.9;
+    const inside = node.x >= targetX - halfWidth && node.x + node.width <= targetX + halfWidth
+      && node.y >= targetY - halfHeight && node.y + node.height <= targetY + halfHeight;
+    if (!inside) reveal(node);
+  };
+  // Nearest node in a direction, by the centres of their boxes; siblings win ties. Ancestors and descendants are
+  // reached with Backspace/Enter, so they are not neighbours.
+  const traverse = (direction: Direction) => {
+    if (!selected) return;
+    const current = selected;
+    const lineage = new Set<string>([String(current.id)]);
+    for (let parent = diagram.nodes.find(node => node.id === current.parent); parent; parent = diagram.nodes.find(node => node.id === parent?.parent)) lineage.add(String(parent.id));
+    const descend = (id: string) => { for (const child of diagram.nodes.find(node => String(node.id) === id)?.children ?? []) { lineage.add(String(child)); descend(String(child)); } };
+    descend(String(current.id));
+    const cx = current.x + current.width / 2, cy = current.y + current.height / 2;
+    const scored = diagram.nodes.filter(node => !lineage.has(String(node.id))).flatMap(node => {
+      const dx = node.x + node.width / 2 - cx, dy = node.y + node.height / 2 - cy;
+      const along = direction === "right" ? dx : direction === "left" ? -dx : direction === "down" ? dy : -dy;
+      const across = Math.abs(direction === "left" || direction === "right" ? dy : dx);
+      if (along <= 1) return [];
+      return [{ node, cone: across <= along * 1.5, score: (along + across * 2) * (node.parent === current.parent ? 0.6 : 1) }];
+    });
+    const pool = scored.some(entry => entry.cone) ? scored.filter(entry => entry.cone) : scored;
+    const best = pool.sort((a, b) => a.score - b.score)[0]?.node;
+    if (!best) { message = `Nothing ${direction === "up" ? "above" : direction === "down" ? "below" : `to the ${direction} of`} ${current.title}`; update(); return; }
+    message = "";
+    selectNode(best, false);
+    ensureVisible(best);
   };
   const selectNode = (node: typeof selected, show: boolean) => {
     if (!node) return;
@@ -451,6 +505,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       return;
     }
     if (!fileMode && key.name === "backspace") { key.preventDefault(); selectNode(diagram.nodes.find(node => node.id === selected?.parent), true); return; }
+    const direction = ({ h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" } as const)[key.name as "h"];
+    const vimKey = key.name.length === 1;
+    if (!fileMode && key.name === "v" && !key.ctrl) {
+      key.preventDefault(); vimTraverses = !vimTraverses;
+      message = vimTraverses ? "hjkl select nodes, arrows pan" : "Arrows select nodes, hjkl pan"; update(); return;
+    }
+    if (!fileMode && direction && vimKey === vimTraverses && !key.shift) { key.preventDefault(); traverse(direction); return; }
     const before = { x: centerX, y: centerY, scale };
     if (animating) { centerX = targetX; centerY = targetY; scale = targetScale; }
     if (!fileMode) key.preventDefault();
@@ -489,7 +550,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
           }).pipe(Effect.scoped, Effect.catch(error => Effect.sync(() => { editorActive = false; message = error.message; searchInput.focus(); update(); }))));
         }
       }
-    } else if (key.sequence === "?") { help.visible = true; helpShield.visible = true; }
+    } else if (key.sequence === "?") { helpText.content = helpContent(); help.visible = true; helpShield.visible = true; }
     else if (key.name === "i") { inspectorPreference = inspector.visible ? "closed" : "open"; }
     else if (key.name === "pageup" || key.name === "pagedown") { inspectorScroll.scrollBy(key.name === "pageup" ? -5 : 5); }
     else if (key.name === "a") {
@@ -506,10 +567,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       fileCursor = 0; inspectorScroll.scrollTo(0);
     } else if (key.name === "+" || key.name === "=" || key.sequence === "+") scale = Math.max(2, scale / 1.25);
     else if (key.name === "-" || key.sequence === "-") scale = Math.min(128, scale * 1.25);
-    else if (["h", "left"].includes(key.name)) centerX -= scale * 6;
-    else if (["l", "right"].includes(key.name)) centerX += scale * 6;
-    else if (["j", "down"].includes(key.name)) centerY += scale * 3 / cellAspect();
-    else if (["k", "up"].includes(key.name)) centerY -= scale * 3 / cellAspect();
+    else if (direction === "left") centerX -= scale * 6;
+    else if (direction === "right") centerX += scale * 6;
+    else if (direction === "down") centerY += scale * 3 / cellAspect();
+    else if (direction === "up") centerY -= scale * 3 / cellAspect();
     else if (key.name === "f") fit();
     else if (key.name === "0") scale = 16;
     else if (key.name === "r" && selected) { centerX = selected.x + selected.width / 2; centerY = selected.y + selected.height / 2; }

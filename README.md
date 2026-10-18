@@ -52,12 +52,12 @@ bun run c4view list --workspace examples/parcel
 bun run c4view show services --workspace examples/parcel
 ```
 
-Select nodes with the mouse or Tab. Arrow keys pan the Three camera; connectors use projected Braille. Press `/` to search the current view by name or ID.
+Select nodes with the mouse, Tab, or `h` `j` `k` `l`, which move to the nearest node in that direction. Arrow keys pan the Three camera (press `v` to swap the two);  connectors use projected Braille. Press `/` to search the current view by name or ID.
 Selected connections are thicker, with cyan incoming lines and amber outgoing lines. Scroll over the relationship details to read long labels.
 Press `e` to browse the selected node's mapped files, then Enter to open one in your external editor.
 Set `VISUAL` or `EDITOR` before starting the viewer. File browsing does not require live recording.
 Enter selects a group's first child or opens a leaf's linked view. Press `o` to open a group's linked view, `b` for view history, or Backspace for the parent group.
-Use `h`, `j`, `k`, and `l` to pan, `f` to fit, `r` to center the selection, and `q` to quit. Press `i` for the responsive inspector or `?` for help. Ctrl+C quits even while search is active.
+Use `f` to fit, `r` to center the selection, and `q` to quit. Press `i` for the responsive inspector or `?` for help. Ctrl+C quits even while search is active.
 See [native viewer controls and limits](docs/native-viewer.md) for search, activity, and navigation details.
 
 To run in the current terminal instead of opening a pane:

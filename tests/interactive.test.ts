@@ -35,7 +35,7 @@ test("mapped files filter without live recording and round-trip through a real t
     await tmux("send-keys", "-t", pane, "0");
     await capture("Zoom: 100%");
     await delay(700);
-    await tmux("send-keys", "-t", pane, "l", "j");
+    await tmux("send-keys", "-t", pane, "Right", "Down");
     await delay(300);
     const diagram = (text: string) => text.split("\n").slice(3, 22).join("\n");
     await tmux("send-keys", "-t", pane, "e");
@@ -157,7 +157,7 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
     await tmux("send-keys", "-t", pane, "0");
     await capture("Zoom: 100%");
     await delay(300);
-    await tmux("send-keys", "-t", pane, "l", "l");
+    await tmux("send-keys", "-t", pane, "Right", "Right");
     await tmux("resize-window", "-t", pane, "-x", "90", "-y", "36");
     await delay(200);
     await tmux("send-keys", "-t", pane, "Tab");
@@ -222,7 +222,7 @@ test("search isolates typing, cycles matches, accepts without navigation, and ca
     };
     await capture("Service architecture");
     await delay(700);
-    await tmux("send-keys", "-t", pane, "0", "Tab", "Tab", "Tab", "l", "j");
+    await tmux("send-keys", "-t", pane, "0", "Tab", "Tab", "Tab", "Right", "Down");
     await capture("Selected: parcel.commerce");
     await delay(700);
     const before = await tmux("capture-pane", "-p", "-t", pane);
@@ -349,7 +349,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "0", "+");
     await capture("Zoom: 125%");
     await delay(700);
-    await tmux("send-keys", "-t", pane, "l", "j");
+    await tmux("send-keys", "-t", pane, "Right", "Down");
     await delay(700);
     const before = await tmux("capture-pane", "-p", "-t", pane);
     await tmux("send-keys", "-t", pane, "o");
@@ -437,7 +437,7 @@ test.each([
     await click("Commerce", "parcel.commerce");
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("Selected: parcel.commerce.api");
-    await tmux("send-keys", "-t", pane, "j", "l");
+    await tmux("send-keys", "-t", pane, "Down", "Right");
     await tmux("resize-window", "-t", pane, "-x", "90", "-y", "36");
     await delay(700);
     await tmux("send-keys", "-t", pane, "BSpace");

@@ -12,11 +12,11 @@ Click a node. Its border becomes white, and the details panel lists its incoming
 Curves and diagonals use Braille dots. Fully horizontal and vertical connections use solid lines.
 Selected connections use bold text. Incoming connections are cyan, and outgoing connections are amber.
 The details use the same colors, node names, and full relationship labels. Scroll over the details to read wrapped labels without panning the diagram.
-Press Tab or Shift+Tab to cycle through nodes. Arrow keys pan the camera.
+Press Tab or Shift+Tab to cycle through nodes. `h`, `j`, `k` and `l` select the nearest node left, down, up or right of the selection (siblings are preferred; ancestors and descendants are reached with Backspace and Enter). The camera only moves if the new node would be off screen. Arrow keys pan the camera without changing the selection, and Shift+`hjkl` pans too. Press `v` to swap the roles: arrows select, `hjkl` pan.
 Select a group and press Enter to select its first child. Press Backspace to select the parent group.
 The inspector identifies linked views with `o opens`. Press `o` to open one. Enter also opens links on leaf nodes.
 Press `b` to return to the previous view, selection, zoom, and scroll position. Backspace navigates the group hierarchy, not view history.
-Use `h`, `j`, `k`, and `l` to pan. Press `f` to fit the diagram, `r` to center the selection, and `q` to quit.
+Press `f` to fit the diagram, `r` to center the selection, and `q` to quit.
 Press `+` or `=` to zoom in, `-` to zoom out, and `0` to return to 100%.
 Zoom keeps the viewport center in place. Keyboard pan, reveal, and zoom ease into position using a Three orthographic camera.
 Search snapshots the current camera position. Hierarchy and search navigation reveal a group's upper-left corner or center a leaf.

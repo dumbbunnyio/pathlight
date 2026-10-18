@@ -66,7 +66,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     expect(await capture("[READ]")).toContain("READ now src/activity.ts");
     await writeActivity(directory, { ...event, phase: "completed", time: Date.now() });
     expect(await capture("[DONE]")).toContain("done now src/activity.ts");
-    await tmux("send-keys", "-t", pane, "+", "l");
+    await tmux("send-keys", "-t", pane, "+", "Right");
     await delay(700);
     const zoomed = await tmux("capture-pane", "-p", "-t", pane);
     const zoom = (screen: string) => Number(screen.match(/Zoom: (\d+)%/)?.[1]);
@@ -96,7 +96,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await writeFile(resolve(".cache/native-check/capture-narrow.ansi"), await tmux("capture-pane", "-e", "-p", "-t", pane));
     await tmux("send-keys", "-t", pane, "?");
     await capture("Keyboard shortcuts");
-    await tmux("send-keys", "-t", pane, "l", "Tab", "q", "Escape");
+    await tmux("send-keys", "-t", pane, "Right", "Tab", "q", "Escape");
     await delay(200);
     expect(await capture("Selected: activity")).toContain("BRAILLE + Three camera");
     expect(await tmux("capture-pane", "-p", "-t", pane)).not.toContain("Keyboard shortcuts");
