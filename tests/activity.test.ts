@@ -75,6 +75,22 @@ test("the activity journal is bounded and Claude failure payloads exclude tool r
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("a Claude session that cd'd into a workspace subdirectory is still recorded, with paths resolved from there", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "c4view-subdir-"));
+  try {
+    await mkdir(join(directory, "src/deep"), { recursive: true });
+    await writeFile(join(directory, "src/deep/a.ts"), "");
+    const event = await claudeActivity(directory, { hook_event_name: "PostToolUse", cwd: join(directory, "src/deep"),
+      session_id: "s", tool_use_id: "c", tool_name: "Read", tool_input: { file_path: "a.ts" } });
+    expect(event.paths).toEqual(["src/deep/a.ts"]);
+    const command = await claudeActivity(directory, { hook_event_name: "PreToolUse", cwd: join(directory, "src/deep"),
+      session_id: "s", tool_use_id: "d", tool_name: "Bash", tool_input: { command: "cat a.ts ../../outside.ts" } });
+    expect(command.paths).toEqual(["src/deep/a.ts"]);
+    await expect(claudeActivity(directory, { hook_event_name: "PostToolUse", cwd: tmpdir(),
+      session_id: "s", tool_use_id: "e", tool_name: "Read", tool_input: {} })).rejects.toThrow("does not match");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("stop cancels an outstanding attachment and concurrent reservations respect the limit", () => {
   const subscriptions = new ActivitySubscriptions();
   const cancelled = subscriptions.begin("cancelled");

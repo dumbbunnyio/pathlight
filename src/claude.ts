@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { isAbsolute, relative } from "node:path";
 import { Effect, Schema } from "effect";
 import { toolActivity } from "./activity";
 import { io, failure } from "./effects";
@@ -12,9 +13,12 @@ const Hook = Schema.Struct({
 export const claudeActivity = Effect.fn("Claude.fromHook")(function* (workspace: string, input: unknown) {
   const hook = yield* Schema.decodeUnknownEffect(Hook)(input);
   const root = yield* io("Claude.workspace", () => realpath(workspace));
-  if ((yield* io("Claude.cwd", () => realpath(hook.cwd))) !== root) return yield* Effect.fail(failure("Claude.workspace", "Claude hook cwd does not match the activity workspace."));
+  // A session may `cd` into a subdirectory; anything outside the workspace is still rejected.
+  const cwd = yield* io("Claude.cwd", () => realpath(hook.cwd));
+  const within = relative(root, cwd);
+  if (within === ".." || within.startsWith("../") || isAbsolute(within)) return yield* Effect.fail(failure("Claude.workspace", "Claude hook cwd does not match the activity workspace."));
   const phase = hook.hook_event_name === "PreToolUse" ? "started"
     : hook.hook_event_name === "PostToolUse" ? "completed" : "failed";
   return yield* toolActivity(root, { source: "claude", session: hook.session_id }, hook.tool_use_id,
-    hook.tool_name, hook.tool_input, phase);
+    hook.tool_name, hook.tool_input, phase, cwd);
 });

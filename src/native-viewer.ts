@@ -85,7 +85,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const footer = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, bg: palette.panel, wrapMode: "none" });
   const shortcuts = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   const notice = new TextRenderable(renderer, { height: 1, flexShrink: 0, visible: false, fg: palette.outgoing, wrapMode: "none" });
-  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 22,
+  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 24,
     border: true, borderStyle: "rounded", borderColor: palette.incoming, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
     zIndex: 20000, visible: false, title: " Keyboard shortcuts " });
   const helpShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
@@ -94,9 +94,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     zIndex: 10000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); searchInput.focus(); } });
   const helpText = new TextRenderable(renderer, { fg: palette.text, wrapMode: "word" });
   help.add(helpText);
+  const summary = new BoxRenderable(renderer, { position: "absolute", left: 4, top: 3, width: "80%", height: Math.max(8, Math.min(26, renderer.height - 6)),
+    border: true, borderStyle: "rounded", borderColor: palette.outgoing, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
+    zIndex: 20000, visible: false, title: " This session " });
+  const summaryText = new TextRenderable(renderer, { fg: palette.text, wrapMode: "none" });
+  summary.add(summaryText);
   viewport.add(canvas); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
-  for (const child of [topBar, body, notice, footer, shortcuts, searchShield, helpShield, help]) renderer.root.add(child);
+  for (const child of [topBar, body, notice, footer, shortcuts, searchShield, helpShield, help, summary]) renderer.root.add(child);
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
   let centerX = diagram.bounds.x + diagram.bounds.width / 2;
   let centerY = diagram.bounds.y + diagram.bounds.height / 2;
@@ -140,6 +145,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
 INSPECT
   /                  Search this view
   i                  Toggle inspector
+  w                  Select what the agent is working on
+  c                  This session: what was touched
   a                  Camera follows running tools
   Counts on nodes:   r reads · e edits · c commands
   PageUp / PageDown  Scroll inspector
@@ -255,7 +262,10 @@ INSPECT
   const innerWidth = () => Math.max(16, inspector.width - 3);
   const section = (title: string, tone: string, right = "") => [fg(tone)(bold(title)), fg(palette.border)(` ${"─".repeat(Math.max(2, innerWidth() - title.length - right.length - 2))} `), fg(palette.muted)(right)];
   const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
+  // Which element each rendered line of the activity list belongs to, so a click can select its node.
+  let activityTargets: (string | undefined)[] = [];
   const activityContent = () => {
+    activityTargets = [undefined, undefined];
     const activityTotal = events.length ? `${events.length} call${events.length > 1 ? "s" : ""}` : "";
     const header = [nl, ...section("ACTIVITY", palette.muted, activityTotal), nl];
     const note = (text: string, tone: string = palette.muted) => new StyledText([...header, fg(tone)(text)]);
@@ -277,6 +287,7 @@ INSPECT
       const inView = diagram.nodes.some(node => String(node.modelRef) === element);
       chunks.push(fg(running ? operationColor(group.find(row => row.state === "started")?.operation ?? "other") : palette.muted)(running ? `${spin} ` : "● "),
         fg(palette.text)(bold(elementTitle(element))), ...(inView ? [] : [fg(palette.muted)("  other view")]), nl);
+      activityTargets.push(element);
       const collapsed: { row: (typeof group)[number]; count: number }[] = [];
       for (const row of group) {
         const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target);
@@ -293,6 +304,7 @@ INSPECT
         const shown = target.length > room ? `${target.slice(0, room - 1)}…` : target;
         chunks.push(fg(glyphTone)(`  ${glyph} `), fg(operationColor(row.operation))(`${badge} `), fg(palette.text)(shown),
           fg(palette.muted)(`${" ".repeat(Math.max(1, width - 2 - 2 - badge.length - 1 - shown.length - age.length))}${age}`), nl);
+        activityTargets.push(element);
       }
     }
     const hidden = rows.length - mapped.length;
@@ -303,6 +315,46 @@ INSPECT
       for (const path of gaps.slice(0, 3)) chunks.push(fg(palette.muted)("  ✎ "), fg(palette.text)(`${path.length > width - 4 ? `…${path.slice(-(width - 5))}` : path}\n`));
     }
     if (hidden > 0) chunks.push(fg(palette.border)(`+${hidden} unmapped call${hidden > 1 ? "s" : ""}`));
+    return new StyledText(chunks);
+  };
+  // What the retained journal says the agent did: observed counts only, never a claim about outcomes.
+  const summaryContent = () => {
+    summary.height = 4;
+    if (!binding || !config) return new StyledText([fg(palette.muted)("Not bound to an agent session. Start the viewer with --follow or --session.")]);
+    if (!events.length) return new StyledText([fg(palette.muted)("No calls recorded yet.")]);
+    const now = Date.now();
+    const rows = activityRows(events, config, now, 128);
+    const width = Math.max(30, Math.floor(renderer.width * 0.8) - 8);
+    const byComponent = new Map<string, { reads: number; edits: number; commands: number; last: number }>();
+    const edited = new Map<string, { count: number; element?: string }>();
+    for (const row of rows) {
+      for (const element of row.elements) {
+        const entry = byComponent.get(element) ?? { reads: 0, edits: 0, commands: 0, last: Infinity };
+        if (row.operation === "read") entry.reads++; else if (row.operation === "edit") entry.edits++; else if (row.operation === "command") entry.commands++;
+        entry.last = Math.min(entry.last, row.age);
+        byComponent.set(element, entry);
+      }
+      if (row.operation === "edit") for (const path of row.paths) edited.set(path, { count: (edited.get(path)?.count ?? 0) + 1, element: edited.get(path)?.element ?? row.elements[0] });
+    }
+    const oldest = Math.max(...rows.map(row => row.age));
+    const chunks = [...section(`${binding.source}:${binding.session.slice(0, 8)}`, palette.text, `${rows.length} calls over ${formatAge(oldest)}`), nl, nl,
+      fg(palette.muted)(bold("COMPONENTS TOUCHED")), nl];
+    for (const [element, entry] of [...byComponent].sort((a, b) => a[1].last - b[1].last).slice(0, 8)) {
+      const name = elementTitle(element).padEnd(24).slice(0, 24);
+      chunks.push(fg(palette.muted)("  ● "), fg(palette.text)(name), fg(palette.incoming)(`r${entry.reads}`.padEnd(5)), fg(palette.outgoing)(`e${entry.edits}`.padEnd(5)),
+        fg(palette.command)(`c${entry.commands}`.padEnd(6)), fg(palette.muted)(formatAge(entry.last)), nl);
+    }
+    if (!byComponent.size) chunks.push(fg(palette.muted)("  none mapped"), nl);
+    chunks.push(nl, fg(palette.muted)(bold("FILES EDITED")), nl);
+    const files = [...edited].sort((a, b) => b[1].count - a[1].count).slice(0, 8);
+    for (const [path, info] of files) {
+      const room = width - 30;
+      chunks.push(fg(palette.outgoing)("  ✎ "), fg(info.element ? palette.text : palette.failure)((path.length > room ? `…${path.slice(-(room - 1))}` : path).padEnd(Math.min(room, 40))),
+        fg(palette.muted)(`×${info.count}  ${info.element ? elementTitle(info.element) : "no component"}`), nl);
+    }
+    if (!files.length) chunks.push(fg(palette.muted)("  no edits observed"), nl);
+    chunks.push(nl, fg(palette.border)("Counts come from the retained calls, not totals. Commands show files they name.  Esc closes"));
+    summary.height = Math.min(renderer.height - 6, chunks.filter(chunk => chunk.text.includes("\n")).length + 3);
     return new StyledText(chunks);
   };
   const tickerContent = () => {
@@ -458,6 +510,7 @@ INSPECT
         if (!fileMode) beginFiles(); fileCursor = start + index; message = "Enter opens the selected file"; searchInput.focus(); update(); };
     });
     activityText.content = activityContent();
+    if (summary.visible) summaryText.content = summaryContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
     footer.content = ` ${braille ? "BRAILLE + Three camera" : "GPU + Three camera"} | Zoom: ${Math.round(16 / scale * 100)}% | Selected: ${selected?.id}${hidden ? ` | ${hidden} labels hidden` : ""}`;
     shortcuts.content = search ? " Type a name or ID · ↑↓/Tab matches · Enter keep · Esc restore" : fileMode ? ` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length} · Type to filter · Enter edit · Ctrl+R refresh · Esc diagram` : tickerContent() || ` ${selectKeys()} select · ${panKeys()} pan · +/- zoom · / search · f fit · e files · i inspect · ? help`;
@@ -532,6 +585,26 @@ INSPECT
     if (show) reveal();
     update();
   };
+  // The node for the newest observed call that maps to something in this view.
+  const nodeForElement = (element: string) => diagram.nodes.filter(node => String(node.modelRef) === element).sort((a, b) => a.children.length - b.children.length)[0];
+  const newestWorkNode = () => {
+    for (const event of events) {
+      for (const rule of rules) {
+        if (!event.paths.some(path => rule.match.match(path))) continue;
+        const node = nodeForElement(rule.element);
+        if (node) return node;
+      }
+    }
+    return undefined;
+  };
+  activityText.onMouseDown = event => {
+    event.preventDefault(); event.stopPropagation();
+    if (fileMode || help.visible || summary.visible || search || pendingVisit) return;
+    const element = activityTargets[event.y - activityText.y];
+    if (!element) return;
+    const node = nodeForElement(element);
+    if (node) { message = ""; selectNode(node, true); } else { message = `${elementTitle(element)} is not in this view`; update(); }
+  };
   const openLink = () => {
     if (!selected?.navigateTo) { message = "No linked view"; update(); return; }
     if (selected.navigateTo === diagram.id) return;
@@ -564,7 +637,7 @@ INSPECT
     else { restore(search.before); update(); }
   });
   viewport.onMouseDown = event => {
-    if (fileMode || editorActive || help.visible || search || pendingVisit) return;
+    if (fileMode || editorActive || help.visible || summary.visible || search || pendingVisit) return;
     // Hit the displayed cell bounds, not the fractional world-space plane:
     // rounding can put a group's visible title just outside that plane.
     const entry = nodeObjects.filter(({ box }) => box.visible && event.x >= box.x && event.x < box.x + box.width
@@ -586,6 +659,11 @@ INSPECT
           selectNode(search.matches[search.index], true);
         }
       }
+      return;
+    }
+    if (summary.visible) {
+      key.preventDefault();
+      if (key.name === "escape" || key.name === "c" || key.sequence === "?") { summary.visible = false; helpShield.visible = false; update(); }
       return;
     }
     if (help.visible) { key.preventDefault(); if (key.name === "escape" || key.sequence === "?") { help.visible = false; helpShield.visible = false; }
@@ -612,6 +690,15 @@ INSPECT
     if (!fileMode && key.name === "backspace") { key.preventDefault(); selectNode(diagram.nodes.find(node => node.id === selected?.parent), true); return; }
     const direction = ({ h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" } as const)[key.name as "h"];
     const vimKey = key.name.length === 1;
+    if (!fileMode && key.name === "c" && !key.ctrl) {
+      key.preventDefault(); summaryText.content = summaryContent(); summary.visible = true; helpShield.visible = true; update(); return;
+    }
+    if (!fileMode && key.name === "w" && !key.ctrl) {
+      key.preventDefault();
+      const target = newestWorkNode();
+      if (target) { message = ""; selectNode(target, true); } else { message = binding || following ? "No recent activity maps to a node in this view" : "Camera jump needs a bound session"; update(); }
+      return;
+    }
     if (!fileMode && key.name === "v" && !key.ctrl) {
       key.preventDefault(); vimTraverses = !vimTraverses;
       message = vimTraverses ? "hjkl select nodes, arrows pan" : "Arrows select nodes, hjkl pan"; update(); return;

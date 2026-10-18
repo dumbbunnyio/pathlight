@@ -44,6 +44,7 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
       mappings: [{ glob: "src/activity.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "follow-test", "-x", "130", "-y", "42", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory, "--follow");
+    const screen = () => tmux("capture-pane", "-p", "-t", pane);
     const capture = async (text: string) => {
       let output = "";
       for (let attempt = 0; attempt < 160; attempt++) {
@@ -60,6 +61,25 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
     await edit("session-one-aaaa", "e1");
     await capture("LIVE claude:session-");
     expect(await capture("[EDIT]")).toContain("session-");
+    // `w` selects what the agent is working on; clicking its row in the activity list does the same.
+    await tmux("send-keys", "-t", pane, "w");
+    await capture("Selected: activity");
+    await tmux("send-keys", "-t", pane, "Tab");
+    for (let attempt = 0; attempt < 40 && (await screen()).includes("Selected: activity"); attempt++) await delay(50);
+    expect(await screen()).not.toContain("Selected: activity");
+    const rows = (await screen()).split("\n");
+    const row = rows.findIndex(line => /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Activity metadata/.test(line));
+    expect(row).toBeGreaterThan(0);
+    const column = (rows[row] ?? "").indexOf("Activity metadata");
+    await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${column + 3};${row + 1}M\x1b[<0;${column + 3};${row + 1}m`);
+    await capture("Selected: activity");
+    // `c` opens the session summary; Escape closes it.
+    await tmux("send-keys", "-t", pane, "c");
+    const summary = await capture("COMPONENTS TOUCHED");
+    expect(summary).toContain("FILES EDITED");
+    await tmux("send-keys", "-t", pane, "Escape");
+    for (let attempt = 0; attempt < 40 && (await screen()).includes("COMPONENTS TOUCHED"); attempt++) await delay(50);
+    expect(await screen()).not.toContain("COMPONENTS TOUCHED");
     await writeActivity(directory, toolActivity(directory, { source: "claude", session: "session-one-aaaa" }, "e-gap", "Edit",
       { file_path: join(directory, "src/unmapped-gap.ts") }, "completed"));
     const gap = await capture("NO COMPONENT");

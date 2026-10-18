@@ -47,7 +47,7 @@ const commandPaths = (workspace: string, command: string) => {
 };
 
 export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace: string, binding: ActivityBinding, call: string, tool: string,
-  input: unknown, phase: ActivityEvent["phase"]) {
+  input: unknown, phase: ActivityEvent["phase"], cwd = workspace) {
   const args = Schema.decodeUnknownResult(Schema.Record(Schema.String, Schema.Unknown))(input);
   const name = tool.toLowerCase();
   const operation = /^(read|glob|grep|ls|list|view|notebookread)$/.test(name) ? "read"
@@ -55,7 +55,7 @@ export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace:
     : /^(bash|shell|powershell)$/.test(name) ? "command" : "other";
   const candidates: string[] = [];
   if (Result.isSuccess(args) && operation === "command" && typeof args.success.command === "string") {
-    candidates.push(...commandPaths(workspace, args.success.command));
+    candidates.push(...commandPaths(cwd, args.success.command));
   }
   if (Result.isSuccess(args) && (operation === "read" || operation === "edit")) {
     for (const key of ["path", "filePath", "file_path", "notebook_path"]) {
@@ -70,7 +70,7 @@ export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace:
       }
     }
   }
-  const paths = [...new Set(candidates.map(path => relative(workspace, resolve(workspace, path)))
+  const paths = [...new Set(candidates.map(path => relative(workspace, resolve(cwd, path)))
     .filter(path => path && path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path)
       && !/[\x00-\x1f\x7f]/.test(path)).map(path => path.split(sep).join("/")))].slice(0, 32);
   return yield* Schema.decodeUnknownEffect(ActivityEvent)({ ...binding, version: 1, call, tool, phase, operation, paths, time: yield* Effect.clockWith(clock => clock.currentTimeMillis) });

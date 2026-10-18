@@ -41,7 +41,7 @@ bun run c4view show VIEW --workspace /path/to/project --follow
 Installing the Claude hooks is the opt-in for Claude recording; remove them to stop. OpenCode still records only after a `live: true` request.
 `--follow` only reads journals: it never starts recording, and it switches to whichever recorded session wrote last, so subagent sessions are not merged.
 The header shows `LIVE source:session` with a spinner while a tool runs, the footer shows the latest call, and the inspector lists recent calls with their age.
-Nodes show `r`/`e` counts of retained reads and edits. Press `a` to make the camera glide to the node of the newest running tool; it is off by default and never changes your selection.
+Nodes show `r`/`e` counts of retained reads and edits. Press `w` to select the node the agent is working on (or click its row in the activity list), and `c` for a one-screen summary of what the session touched. Press `a` to make the camera glide to the node of the newest running tool; it is off by default and never changes your selection.
 
 ## Open a diagram
 
