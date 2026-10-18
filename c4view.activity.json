@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "project": "viewer",
+  "mappings": [
+    { "glob": "plugins/**", "element": "plugin" },
+    { "glob": "src/claude.ts", "element": "plugin" },
+    { "glob": "src/activity.ts", "element": "activity" },
+    { "glob": "src/catalog.ts", "element": "catalog" },
+    { "glob": "src/export.ts", "element": "exporter" },
+    { "glob": "src/{cli,tmux,process,protocol,ready}.ts", "element": "launcher" },
+    { "glob": "src/{viewer,native-viewer,connectors,node-files,editor,placeholder}.ts", "element": "viewer" }
+  ]
+}

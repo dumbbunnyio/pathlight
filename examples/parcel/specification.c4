@@ -1,0 +1,30 @@
+specification {
+  element person {
+    style { shape person; color green }
+  }
+  element system {
+    style { color primary }
+  }
+  element boundary {
+    style { color muted }
+  }
+  element webapp {
+    style { shape browser; color primary }
+  }
+  element service {
+    style { shape component; color primary }
+  }
+  element database {
+    style { shape storage; color secondary }
+  }
+  element queue {
+    style { shape queue; color amber }
+  }
+  element external {
+    style { color gray }
+  }
+  relationship event {
+    color amber
+    line dashed
+  }
+}

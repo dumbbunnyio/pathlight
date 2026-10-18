@@ -1,0 +1,35 @@
+views {
+  view index {
+    title "Parcel / System context"
+    description "A small baseline diagram for checking terminal text and arrow readability."
+    include customer, parcel, payments, carrier, email
+    include parcel with {
+      navigateTo services
+    }
+    autoLayout LeftRight
+  }
+
+  view services {
+    title "Parcel / Service architecture"
+    description "Nested boundaries, browser and storage shapes, and dashed event delivery links. All systems are fictional."
+    include customer, parcel.storefront,
+      parcel.commerce.*, parcel.fulfillment.*,
+      payments, carrier, email
+    include parcel.commerce with {
+      navigateTo checkout
+    }
+    autoLayout LeftRight
+  }
+
+  view checkout {
+    title "Parcel / Checkout detail"
+    description "A focused dependency view for a narrow terminal pane."
+    include parcel.storefront,
+      parcel.commerce.api, parcel.commerce.inventory,
+      parcel.commerce.orders, parcel.commerce.stock, payments
+    include parcel.commerce.api with {
+      navigateTo services
+    }
+    autoLayout TopBottom
+  }
+}

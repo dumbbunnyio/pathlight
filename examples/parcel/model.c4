@@ -1,0 +1,65 @@
+model {
+  customer = person "Customer"
+
+  parcel = system "Parcel" {
+    description "A fictional storefront with synchronous checkout and asynchronous fulfillment."
+
+    storefront = webapp "Storefront" {
+      technology "React"
+      description "Browse products, place orders, and track deliveries."
+    }
+
+    commerce = boundary "Commerce" {
+      api = service "Checkout API" {
+        technology "TypeScript / HTTP"
+        description "Validates carts, reserves stock, and authorizes payment."
+      }
+      inventory = service "Inventory" {
+        technology "TypeScript / HTTP"
+        description "Owns stock levels and reservations."
+      }
+      orders = database "Orders" {
+        technology "PostgreSQL"
+        description "Orders and an outbox of committed order events."
+      }
+      stock = database "Stock" {
+        technology "PostgreSQL"
+      }
+      relay = service "Outbox relay" {
+        technology "Background worker"
+        description "Publishes committed outbox records with at-least-once delivery."
+      }
+    }
+
+    fulfillment = boundary "Fulfillment" {
+      events = queue "Order events" {
+        technology "RabbitMQ"
+      }
+      shipping = service "Shipping worker" {
+        technology "TypeScript"
+        description "Books shipments; deduplicates retries using the order ID."
+      }
+      notifications = service "Email worker" {
+        technology "TypeScript"
+        description "Sends confirmations; deduplicates retries using the order ID."
+      }
+    }
+  }
+
+  payments = external "Payment provider"
+  carrier = external "Shipping carrier"
+  email = external "Email provider"
+
+  customer -> parcel.storefront "Shops and tracks orders"
+  parcel.storefront -> parcel.commerce.api "Submits checkout"
+  parcel.commerce.api -> parcel.commerce.inventory "Reserves stock"
+  parcel.commerce.inventory -> parcel.commerce.stock "Updates reservations"
+  parcel.commerce.api -> payments "Authorizes payment"
+  parcel.commerce.api -> parcel.commerce.orders "Commits order and outbox"
+  parcel.commerce.relay -> parcel.commerce.orders "Reads pending events"
+  parcel.commerce.relay -[event]-> parcel.fulfillment.events "Publishes OrderPlaced"
+  parcel.fulfillment.events -[event]-> parcel.fulfillment.shipping "Delivers OrderPlaced"
+  parcel.fulfillment.events -[event]-> parcel.fulfillment.notifications "Delivers OrderPlaced"
+  parcel.fulfillment.shipping -> carrier "Books shipment"
+  parcel.fulfillment.notifications -> email "Sends confirmation"
+}

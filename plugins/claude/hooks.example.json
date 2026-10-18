@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "sh '/ABSOLUTE/PATH/visualize-work/plugins/claude/hook.sh'", "async": true }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "sh '/ABSOLUTE/PATH/visualize-work/plugins/claude/hook.sh'", "async": true }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "sh '/ABSOLUTE/PATH/visualize-work/plugins/claude/hook.sh'", "async": true }] }]
+  }
+}
