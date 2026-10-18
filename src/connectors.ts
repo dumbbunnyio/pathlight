@@ -4,11 +4,9 @@ type Point = { x: number; y: number };
 type Cell = Point & { glyph: string; strong: string; mask?: number; heavy?: number; t?: number };
 type NodeBox = Point & { width: number; height: number; children: readonly string[] };
 
-/** Arrowhead pointing along (dx, dy) in terminal cells; cells are about twice as tall as wide, so the angle is taken in visual space. */
+/** Arrowhead snapped to the nearest axis; diagonal glyphs sat off the line's centre and looked worse. */
 export function arrowGlyph(dx: number, dy: number) {
-  const angle = Math.atan2(dy * 2, dx) * 180 / Math.PI;
-  const sector = ((Math.round(angle / 45) % 8) + 8) % 8;
-  return ["▶", "◢", "▼", "◣", "◀", "◤", "▲", "◥"][sector] ?? "▶";
+  return Math.abs(dx) >= Math.abs(dy) ? dx >= 0 ? "▶" : "◀" : dy >= 0 ? "▼" : "▲";
 }
 
 export function terminalPoint(x: number, y: number, bounds: Point, zoom = 1): Point {
