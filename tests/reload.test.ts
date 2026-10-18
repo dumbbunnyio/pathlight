@@ -28,7 +28,7 @@ test("editing the model reloads the diagram in place, keeps selection and zoom, 
     await until(text => text.includes("Selected: plugin"), "viewer");
     await delay(800);
     await tmux("send-keys", "-t", pane, "0", "+");
-    await until(text => text.includes("Zoom: 125%"), "zoom");
+    await until(text => text.includes("zoom 125%"), "zoom");
     const model = join(directory, "model.c4");
     const original = await readFile(model, "utf8");
 
@@ -36,7 +36,7 @@ test("editing the model reloads the diagram in place, keeps selection and zoom, 
       .replace("  activity -> viewer 'Updates component activity'", "  activity -> viewer 'Updates component activity'\n  billing -> launcher 'Charges'"));
     const added = await until(text => text.includes("+ Billing service"), "reload notice for the new node");
     expect(added).toContain("Selected: plugin");
-    expect(added).toContain("Zoom: 125%");
+    expect(added).toContain("zoom 125%");
     await until(text => text.includes("7 nodes"), "new node counted");
 
     await writeFile(model, "model { this is not valid");
@@ -49,7 +49,7 @@ test("editing the model reloads the diagram in place, keeps selection and zoom, 
 
     // The activity mapping reloads too: a new glob changes the selected node's file list.
     await tmux("send-keys", "-t", pane, "e");
-    await until(text => text.includes("Files 0/0"), "no mapped files yet");
+    await until(text => /Files[─\s]+0\/0/.test(text), "no mapped files yet");
     await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "model.c4", element: "plugin" }] }));
     await until(text => text.includes("model.c4"), "new mapping applied");

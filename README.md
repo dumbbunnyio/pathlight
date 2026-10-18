@@ -54,7 +54,7 @@ bun run c4view show VIEW --workspace /path/to/project --follow
 Installing the Claude hooks is the opt-in for Claude recording; remove them to stop. OpenCode still records only after a `live: true` request.
 `--follow` only reads journals: it never starts recording, and it switches to whichever recorded session wrote last, so subagent sessions are not merged.
 The header shows `LIVE source:session` with a spinner while a tool runs, the footer shows the latest call, and the inspector lists recent calls with their age.
-Nodes show `r`/`e` counts of retained reads and edits. Press `t` to ask the agent about the selected node (typed into your agent's pane, with the component's files and connections; Alt+Enter also submits). Press `1`–`4` to fold inspector sections and `g` to jump to any view. Press `w` to select the node the agent is working on (or click its row in the activity list), and `c` for a one-screen summary of what the session touched. Press `a` to make the camera glide to the node of the newest running tool; it is off by default and never changes your selection.
+Nodes show `r`/`e` counts of retained reads and edits. Press `t` to ask the agent about the selected node (typed into your agent's pane, with the component's files, connections and, if you choose, recent activity; Enter sends and submits it, Alt+Enter adds a line). Press `1`–`4` to fold inspector sections and `g` to jump to any view. Press `w` to select the node the agent is working on (or click its row in the activity list), and `c` for a one-screen summary of what the session touched. Press `a` to make the camera glide to the node of the newest running tool; it is off by default and never changes your selection.
 
 ## Open a diagram
 
@@ -70,7 +70,7 @@ The selected node's connections are solid, cyan for incoming and amber for outgo
 Press `e` to browse the selected node's mapped files, then Enter to open one in your external editor.
 Set `VISUAL` or `EDITOR` before starting the viewer. File browsing does not require live recording.
 Enter selects a group's first child or opens a leaf's linked view. Press `o` to open a group's linked view, `b` for view history, or Backspace for the parent group.
-Use `f` to fit, `r` to center the selection, and `q` to quit. Press `i` for the responsive inspector or `?` for help. Ctrl+C quits even while search is active.
+Use `f` to fit, `r` to center the selection, and `q` to quit. Press `i` to show or hide the inspector (docked from 120 columns, an overlay below that; under 80 columns the nodes are a list) or `?` for help. The diagram refits on resize until you pan or zoom; `f` fits again. Set `C4VIEW_COLORS=256` if your terminal lacks 24-bit colour and is not detected. Ctrl+C quits even while search is active.
 See [native viewer controls and limits](docs/native-viewer.md) for search, activity, and navigation details.
 
 To run in the current terminal instead of opening a pane:

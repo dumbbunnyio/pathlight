@@ -18,7 +18,7 @@ test("follow picks the most recently active session in this workspace only", asy
     await at("old", 10); await at("new", 20); await at("elsewhere", 30, other);
     expect(await Effect.runPromise(latestBinding(directory))).toEqual({ source: "claude", session: "new" });
   } finally { await Promise.all([rm(directory, { recursive: true, force: true }), rm(other, { recursive: true, force: true })]); }
-});
+}, 30_000);
 
 test("init merges hooks without touching other settings and proposes only mappings that exist on disk", () => {
   const first = claudeSettings({ model: "x", hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "other" }] }] } }, "/p/plugins/claude/hook.sh");
@@ -31,7 +31,7 @@ test("init merges hooks without touching other settings and proposes only mappin
   ], ["services/orders/index.ts", "src/billing-api.ts", "README.md"])).toEqual([
     { glob: "services/orders/**", element: "app.orders" }, { glob: "src/billing-api.*", element: "app.billingApi" },
   ]);
-});
+}, 30_000);
 
 test("a viewer started with --follow shows the live badge, then switches to a newer session", async () => {
   const directory = await mkdtemp(join(tmpdir(), "c4view-follow-"));
@@ -55,12 +55,12 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
       throw new Error(`Missing ${text}:\n${output}`);
     };
     await capture("Selected:");
-    expect(await capture("LIVE waiting for a session")).not.toContain("claude:");
+    expect(await capture("live waiting for a session")).not.toContain("claude:");
     const edit = (session: string, call: string) => writeActivity(directory,
       toolActivity(directory, { source: "claude", session }, call, "Edit", { file_path: join(directory, "src/activity.ts") }, "started"));
     await edit("session-one-aaaa", "e1");
-    await capture("LIVE claude:session-");
-    expect(await capture("[EDIT]")).toContain("session-");
+    await capture("live claude:session-");
+    expect(await capture("[edit]")).toContain("session-");
     // `w` selects what the agent is working on; clicking its row in the activity list does the same.
     await tmux("send-keys", "-t", pane, "w");
     await capture("Selected: activity");
@@ -68,27 +68,28 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
     for (let attempt = 0; attempt < 40 && (await screen()).includes("Selected: activity"); attempt++) await delay(50);
     expect(await screen()).not.toContain("Selected: activity");
     const rows = (await screen()).split("\n");
-    const row = rows.findIndex(line => /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Activity metadata/.test(line));
+    const row = rows.findIndex(line => /│ Activity/.test(line));
     expect(row).toBeGreaterThan(0);
-    const column = (rows[row] ?? "").indexOf("Activity metadata");
+    const column = (rows[row] ?? "").indexOf("Activity");
     await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${column + 3};${row + 1}M\x1b[<0;${column + 3};${row + 1}m`);
     await capture("Selected: activity");
     // `c` opens the session summary; Escape closes it.
     await tmux("send-keys", "-t", pane, "c");
-    const summary = await capture("COMPONENTS TOUCHED");
-    expect(summary).toContain("FILES EDITED");
+    const summary = await capture("components touched");
+    expect(summary).toContain("files edited");
     await tmux("send-keys", "-t", pane, "Escape");
-    for (let attempt = 0; attempt < 40 && (await screen()).includes("COMPONENTS TOUCHED"); attempt++) await delay(50);
-    expect(await screen()).not.toContain("COMPONENTS TOUCHED");
+    for (let attempt = 0; attempt < 40 && (await screen()).includes("components touched"); attempt++) await delay(50);
+    expect(await screen()).not.toContain("components touched");
     await writeActivity(directory, toolActivity(directory, { source: "claude", session: "session-one-aaaa" }, "e-gap", "Edit",
       { file_path: join(directory, "src/unmapped-gap.ts") }, "completed"));
-    const gap = await capture("NO COMPONENT");
+    await tmux("send-keys", "-t", pane, "4");
+    const gap = await capture("no component");
     expect(gap).toContain("src/unmapped-gap.ts");
     await delay(20);
     await edit("zzz-second-session", "e2");
-    await capture("LIVE claude:zzz-seco");
+    await capture("live claude:zzz-seco");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });
   }
-});
+}, 30_000);

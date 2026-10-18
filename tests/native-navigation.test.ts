@@ -30,7 +30,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
       await tmux("send-keys", "-t", pane, "-l", query);
     };
     const settled = async () => { await delay(700); return tmux("capture-pane", "-p", "-t", pane); };
-    await capture("parcel / services");
+    await capture("parcel/services");
     const initial = await settled();
     await find("qbohjkl");
     expect(await capture("No matches in this view")).toContain("Search 0/0");
@@ -46,7 +46,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Down");
     await capture("Search 1/6");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("parcel / services")).toContain("Back: 0");
+    expect(await capture("parcel/services")).toContain("back 0");
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("Selected: parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "BSpace");
@@ -57,10 +57,10 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     const pid = await tmux("display-message", "-p", "-t", pane, "#{pane_pid}");
 
     await tmux("send-keys", "-t", pane, "o");
-    expect(await capture("parcel / checkout")).toContain("Back: 1");
+    expect(await capture("parcel/checkout")).toContain("back 1");
     await settled();
     await tmux("send-keys", "-t", pane, "b");
-    await capture("parcel / services");
+    await capture("parcel/services");
     expect(await settled()).toBe(beforeLink);
 
     await find("Checkout API");
@@ -72,23 +72,23 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Escape");
     expect(await settled()).toBe(beforeLink);
     await tmux("send-keys", "-t", pane, "o");
-    await capture("parcel / checkout");
+    await capture("parcel/checkout");
     await find("parcel.commerce.api");
     await capture("Search 1/1");
     await tmux("send-keys", "-t", pane, "Enter");
     const selectedApi = await settled();
-    expect(selectedApi).toContain("parcel / checkout");
+    expect(selectedApi).toContain("parcel/checkout");
     const event = await toolActivity(directory, { source: "claude", session: "navigation" }, "edit-1", "Edit",
       { file_path: join(directory, "src/api.ts") }, "started");
     await writeActivity(directory, event);
-    await capture("[EDIT]");
+    await capture("[edit]");
     await tmux("send-keys", "-t", pane, "Enter");
-    await capture("parcel / services");
+    await capture("parcel/services");
     await tmux("send-keys", "-t", pane, "b");
     const restored = await capture("Selected: parcel.commerce.api");
-    expect(restored).toContain("parcel / checkout");
-    expect(restored).toContain("[EDIT]");
-    expect(restored.match(/Zoom: \d+%/)?.[0]).toBe(selectedApi.match(/Zoom: \d+%/)?.[0]);
+    expect(restored).toContain("parcel/checkout");
+    expect(restored).toContain("[edit]");
+    expect(restored.match(/zoom \d+%/)?.[0]).toBe(selectedApi.match(/zoom \d+%/)?.[0]);
     await tmux("send-keys", "-t", pane, "e");
     await capture(/› [├└]─ api\.ts/);
     await tmux("send-keys", "-t", pane, "Enter");
@@ -96,7 +96,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Escape", ":q", "Enter");
     expect(await capture("Returned from editor: src/api.ts")).toContain("Selected: parcel.commerce.api");
     await writeActivity(directory, { ...event, phase: "failed", time: Date.now() });
-    await capture("[FAILED]");
+    await capture("[failed]");
     expect(await tmux("display-message", "-p", "-t", pane, "#{pane_pid}")).toBe(pid);
   } finally {
     await tmux("kill-server").catch(() => {});

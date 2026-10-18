@@ -32,6 +32,36 @@ test("a route goes around a node that sits in the way instead of through it", ()
   }
 });
 
+test("edges leave the middle of the source's right side and enter the middle of the target's left side, with the vertical in the middle of the gap", () => {
+  const nodes = [node("a", 0, 100), node("b", 400, 300)];
+  const [route] = routeEdges(nodes, [{ source: "a", target: "b", points: [[160, 132], [400, 332]] }]);
+  expect(route?.points).toEqual([{ x: 160, y: 132 }, { x: 280, y: 132 }, { x: 280, y: 332 }, { x: 400, y: 332 }]);
+  // Two edges from one source share its exit point and trunk, then split.
+  const split = routeEdges([node("a", 0, 200), node("b", 400, 40), node("c", 400, 360)], [
+    { source: "a", target: "b", points: [[160, 232], [400, 72]] }, { source: "a", target: "c", points: [[160, 232], [400, 392]] }]);
+  expect(split.map(item => item.points[0])).toEqual([{ x: 160, y: 232 }, { x: 160, y: 232 }]);
+  expect(split.map(item => item.points[1]?.x)).toEqual([280, 280]);
+});
+
+test("a detour around a node in the way is still only horizontal and vertical, and still ends flush on the target's left middle", () => {
+  const nodes = [node("a", 0, 100), node("wall", 220, 60, 160, 400), node("b", 560, 300)];
+  const [route] = routeEdges(nodes, [{ source: "a", target: "b", points: [[160, 132], [560, 332]] }]);
+  const points = route?.points ?? [];
+  expect(straight(points)).toBe(true);
+  expect(points[0]).toEqual({ x: 160, y: 132 });
+  expect(points.at(-1)).toEqual({ x: 560, y: 332 });
+  expect(points.at(-2)?.y).toBe(332);
+});
+
+test("a backward edge still leaves east and arrives from the west", () => {
+  const nodes = [node("a", 400, 100), node("b", 0, 100)];
+  const [route] = routeEdges(nodes, [{ source: "a", target: "b", points: [[400, 132], [160, 132]] }]);
+  const points = route?.points ?? [];
+  expect(straight(points)).toBe(true);
+  expect(points[0]).toEqual({ x: 560, y: 132 });
+  expect(points.at(-1)).toEqual({ x: 0, y: 132 });
+});
+
 test("rasterizing draws rounded bends, dotted quiet runs, solid selected runs, and an arrowhead outside the target", () => {
   const route = { source: "a", target: "b", entry: "W" as const, points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 8, y: 3 }] };
   const project = (point: { x: number; y: number }) => ({ x: point.x, y: point.y });

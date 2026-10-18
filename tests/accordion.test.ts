@@ -31,12 +31,12 @@ test("a number focuses an inspector section: move within it, act on an item, fol
     await delay(700);
     // A number focuses a section: the mode pill names it and the movement keys now belong to it.
     await tmux("send-keys", "-t", pane, "2");
-    await until(text => text.includes("CONNECTIONS") && /Enter\s+show in diagram/.test(text), "connections focused");
+    await until(text => text.includes("Connections") && /enter\s+show in diagram/.test(text), "connections focused");
     expect(await screen()).toContain("out 2 · in 0");
     // j moves to the second connection; Enter shows that node in the diagram, and the focus stays in the section.
     await tmux("send-keys", "-t", pane, "j", "Enter");
     await until(text => text.includes("Selected: launcher"), "walked to tmux launcher");
-    expect(await screen()).toContain("CONNECTIONS");
+    expect(await screen()).toContain("Connections");
     // Space folds the focused section to a header with its count.
     await tmux("send-keys", "-t", pane, "Space");
     const collapsed = await until(text => !text.includes("Starts owned pane"), "folded connections");
@@ -45,12 +45,12 @@ test("a number focuses an inspector section: move within it, act on an item, fol
     await until(text => text.includes("Starts owned pane"), "unfolded connections");
     // Esc hands the keys back to the diagram: hjkl select neighbours again.
     await tmux("send-keys", "-t", pane, "Escape");
-    await until(text => !text.includes("CONNECTIONS") && text.includes("VIEW"), "diagram focus");
+    await until(text => /diagram\s+Selected/.test(text), "diagram focus");
     await tmux("send-keys", "-t", pane, "h");
     await until(text => !text.includes("Selected: launcher"), "diagram navigation resumed");
     // Clicking a header folds that section and focuses it.
     await tmux("send-keys", "-t", pane, "3");
-    await until(text => text.includes("FILES") || text.includes("Enter  open"), "files focused");
+    await until(text => text.includes("files") || text.includes("enter  open"), "files focused");
     await tmux("send-keys", "-t", pane, "Space");
     const filesGone = await until(text => !text.includes("a.ts"), "folded files");
     expect(filesGone).toMatch(/3 Files[─\s]+\d/);

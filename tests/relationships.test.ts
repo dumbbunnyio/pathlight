@@ -48,7 +48,7 @@ test("native relationship emphasis follows selection and long labels wrap and sc
     expect(initial).toContain("Records tool lifecycle");
     expect(initial).toMatch(/[╭╮╰╯]/);
     expect(initial).toMatch(/[▶◀▲▼]/);
-    expect(await connectorColors()).toContain("233;189;112");
+    expect(await connectorColors()).toContain("232;180;90");
     const diagram = (text: string) => text.split("\n").slice(3, 22).map(line => line.padEnd(180).slice(0, 120)).join("\n");
     const before = diagram(initial);
     const wheelRow = initial.split("\n").findIndex(line => line.includes("out 2")) + 3;
@@ -71,7 +71,7 @@ test("native relationship emphasis follows selection and long labels wrap and sc
     await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("← Agent adapters")).toContain("Selected: activity");
     await delay(700);
-    expect(await connectorColors()).toContain("104;207;218");
+    expect(await connectorColors()).toContain("111;202;214");
     await tmux("send-keys", "-t", pane, "q");
   } finally {
     await tmux("kill-server").catch(() => {});

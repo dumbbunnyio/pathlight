@@ -126,11 +126,12 @@ export const latestBinding = Effect.fn("Activity.latest")(function* (workspace: 
   return { source: event.source, session: event.session } satisfies ActivityBinding;
 }, Effect.catch(() => Effect.succeed(undefined)));
 
-export type ActivityRow = { state: "started" | "completed" | "failed" | "unconfirmed"; operation: ActivityEvent["operation"]; elements: string[]; paths: readonly string[]; target: string; age: number };
+export type ActivityRow = { call: string; state: "started" | "completed" | "failed" | "unconfirmed"; operation: ActivityEvent["operation"]; elements: string[]; paths: readonly string[]; target: string; age: number };
 
 export function activityRows(events: ActivityEvent[], config: ActivityConfig, now = Date.now(), limit = 4): ActivityRow[] {
   const rules = config.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) }));
   return events.slice(0, limit).map(event => ({
+    call: event.call,
     state: event.phase === "started" && now - event.time > 30_000 ? "unconfirmed" : event.phase,
     operation: event.operation,
     elements: [...new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element))],

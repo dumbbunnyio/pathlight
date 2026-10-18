@@ -54,58 +54,77 @@ class Heap {
 
 export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdge[]): Route[] {
   const leaves = nodes.filter(node => !node.children.length);
+  const groups = nodes.filter(node => node.children.length);
   const byId = new Map(nodes.map(node => [node.id, node]));
   const xs = [...nodes.flatMap(node => [node.x, node.x + node.width]), ...edges.flatMap(edge => edge.points.map(point => point[0]))];
   const ys = [...nodes.flatMap(node => [node.y, node.y + node.height]), ...edges.flatMap(edge => edge.points.map(point => point[1]))];
-  const originX = Math.min(...xs, 0) - grid * 4, originY = Math.min(...ys, 0) - grid * 4;
-  const width = Math.ceil((Math.max(...xs, 0) + grid * 4 - originX) / grid) + 1, height = Math.ceil((Math.max(...ys, 0) + grid * 4 - originY) / grid) + 1;
+  const originX = Math.min(...xs, 0) - grid * 6, originY = Math.min(...ys, 0) - grid * 6;
+  const width = Math.ceil((Math.max(...xs, 0) + grid * 6 - originX) / grid) + 1, height = Math.ceil((Math.max(...ys, 0) + grid * 6 - originY) / grid) + 1;
   const toCell = (value: number, origin: number) => Math.round((value - origin) / grid);
+  const band = grid * 1.5;
+
+  // A run may cross a group's outline but never travel along it: these mark where vertical / horizontal travel would.
+  const alongVertical = (x: number, y: number) => groups.some(group => y >= group.y - band && y <= group.y + group.height + band
+    && (Math.abs(x - group.x) <= band || Math.abs(x - (group.x + group.width)) <= band));
+  const alongHorizontal = (x: number, y: number) => groups.some(group => x >= group.x - band && x <= group.x + group.width + band
+    && (Math.abs(y - group.y) <= band || Math.abs(y - (group.y + group.height)) <= band));
 
   return edges.flatMap(edge => {
     const source = byId.get(edge.source), target = byId.get(edge.target);
-    const first = edge.points[0], last = edge.points.at(-1);
-    if (!source || !target || !first || !last) return [];
-    const exit = nearestSide(source, { x: first[0], y: first[1] }), entry = nearestSide(target, { x: last[0], y: last[1] });
-    // The anchor slides along its side to the grid lane nearest LikeC4's own end point, kept inside the side.
-    const anchor = (node: RouteNode, side: Side, along: number): { anchor: Point; cell: Point } => {
-      const vertical = side === "E" || side === "W";
-      const low = (vertical ? node.y : node.x) + grid, high = (vertical ? node.y + node.height : node.x + node.width) - grid;
-      const lane = Math.min(Math.max(along, low), Math.max(low, high));
-      const laneCell = vertical ? toCell(lane, originY) : toCell(lane, originX);
-      const laneValue = (vertical ? originY : originX) + laneCell * grid;
-      const edgeValue = side === "E" ? node.x + node.width : side === "W" ? node.x : side === "S" ? node.y + node.height : node.y;
-      const border = vertical ? { x: edgeValue, y: laneValue } : { x: laneValue, y: edgeValue };
-      const normal = normals[side];
-      return { anchor: border, cell: { x: toCell(border.x, originX) + normal.x * 4, y: toCell(border.y, originY) + normal.y * 4 } };
+    if (!source || !target) return [];
+    // Always out of the middle of the source's right side and into the middle of the target's left side.
+    const start = { x: source.x + source.width, y: source.y + source.height / 2 };
+    const end = { x: target.x, y: target.y + target.height / 2 };
+    const others = leaves.filter(node => node !== source && node !== target);
+    const blockedPoint = (x: number, y: number) => others.some(node => x >= node.x - grid && x <= node.x + node.width + grid && y >= node.y - grid && y <= node.y + node.height + grid);
+    const free = (a: Point, b: Point) => {
+      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (grid / 2)));
+      for (let step = 0; step <= steps; step++) {
+        const x = a.x + (b.x - a.x) * step / steps, y = a.y + (b.y - a.y) * step / steps;
+        if (blockedPoint(x, y)) return false;
+        if (a.x === b.x && alongVertical(x, y) && Math.abs(b.y - a.y) > grid) return false;
+        if (a.y === b.y && alongHorizontal(x, y) && Math.abs(b.x - a.x) > grid) return false;
+      }
+      return true;
     };
-    const start = anchor(source, exit, exit === "E" || exit === "W" ? first[1] : first[0]);
-    const end = anchor(target, entry, entry === "E" || entry === "W" ? last[1] : last[0]);
 
+    // Preferred: horizontal, then vertical in the middle of the gap between the two columns, then horizontal.
+    // If that column is blocked, the nearest free one in the gap.
+    const gap = end.x - start.x;
+    if (gap >= grid * 4) {
+      const middle = (start.x + end.x) / 2;
+      const candidates: number[] = [];
+      for (let x = start.x + grid * 2; x <= end.x - grid * 2; x += grid) candidates.push(x);
+      candidates.sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle));
+      for (const x of candidates) {
+        const route: Point[] = start.y === end.y ? [start, end] : [start, { x, y: start.y }, { x, y: end.y }, end];
+        if (route.every((point, index) => index === 0 || free(route[index - 1]!, point))) return [{ source: edge.source, target: edge.target, points: route, entry: "W" as const }];
+      }
+    }
+
+    // No such route (a node in the way, a backward edge, or no gap): search around, still leaving east and arriving from the west.
+    const startCell = { x: toCell(start.x, originX) + 3, y: toCell(start.y, originY) };
+    const goal = { x: toCell(end.x, originX) - 3, y: toCell(end.y, originY) };
     const memo = new Int8Array(width * height).fill(-1);
     const blocked = (cx: number, cy: number) => {
       if (cx < 0 || cy < 0 || cx >= width || cy >= height) return true;
-      const key = cy * width + cx;
-      const known = memo[key];
+      const key = cy * width + cx, known = memo[key];
       if (known !== undefined && known >= 0) return known === 1;
       const x = originX + cx * grid, y = originY + cy * grid;
-      const hit = leaves.some(node => {
-        const pad = node === source || node === target ? 0 : grid;
-        return x >= node.x - pad && x <= node.x + node.width + pad && y >= node.y - pad && y <= node.y + node.height + pad;
-      });
+      const hit = others.some(node => x >= node.x - grid && x <= node.x + node.width + grid && y >= node.y - grid && y <= node.y + node.height + grid)
+        || [source, target].some(node => !node.children.length && x > node.x - grid * 0.5 && x < node.x + node.width + grid * 0.5 && y > node.y - grid * 0.5 && y < node.y + node.height + grid * 0.5
+          && !(x >= start.x - grid && x <= start.x + grid * 4 && Math.abs(y - start.y) < grid) && !(x <= end.x + grid && x >= end.x - grid * 4 && Math.abs(y - end.y) < grid));
       memo[key] = hit ? 1 : 0;
       return hit;
     };
-
-    const goal = end.cell;
     const states = width * height * 4;
     const cost = new Float32Array(states).fill(Infinity), previous = new Int32Array(states).fill(-1);
     const heap = new Heap();
-    const startDirection = directions.indexOf(exit);
-    const startState = (start.cell.y * width + start.cell.x) * 4 + startDirection;
+    const startState = (startCell.y * width + startCell.x) * 4;
     cost[startState] = 0;
     heap.push(0, startState);
     let found = -1;
-    for (let steps = 0; heap.size && steps < 120_000; steps++) {
+    for (let steps = 0; heap.size && steps < 160_000; steps++) {
       const popped = heap.pop();
       if (!popped) break;
       const state = popped[1], direction = state & 3, cellIndex = state >> 2;
@@ -117,6 +136,9 @@ export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdg
         const nx = cx + step.x, ny = cy + step.y;
         const isGoal = nx === goal.x && ny === goal.y;
         if (!isGoal && blocked(nx, ny)) continue;
+        const wx = originX + cx * grid, wy = originY + cy * grid;
+        if (step.x === 0 && alongVertical(wx, wy)) continue;
+        if (step.y === 0 && alongHorizontal(wx, wy)) continue;
         const next = (ny * width + nx) * 4 + turn;
         const total = (cost[state] ?? Infinity) + 1 + (turn === direction ? 0 : 5);
         if (total < (cost[next] ?? Infinity)) {
@@ -130,19 +152,22 @@ export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdg
       const cellIndex = state >> 2;
       cells.unshift({ x: originX + (cellIndex % width) * grid, y: originY + Math.floor(cellIndex / width) * grid });
     }
-    // No clear path: an unobstructed horizontal-vertical-horizontal route rather than no connector at all.
-    const route = cells.length ? cells : [{ x: originX + start.cell.x * grid, y: originY + start.cell.y * grid },
-      { x: (originX + start.cell.x * grid + originX + goal.x * grid) / 2, y: originY + start.cell.y * grid },
-      { x: (originX + start.cell.x * grid + originX + goal.x * grid) / 2, y: originY + goal.y * grid },
-      { x: originX + goal.x * grid, y: originY + goal.y * grid }];
-    const points: Point[] = [start.anchor, ...route, end.anchor];
-    // Drop points that sit on a straight run between their neighbours.
-    const corners = points.filter((point, index) => {
-      const before = points[index - 1], after = points[index + 1];
+    const around = cells.length ? cells : [{ x: start.x + grid * 3, y: start.y }, { x: start.x + grid * 3, y: end.y }, { x: end.x - grid * 3, y: end.y }];
+    // The search works on the grid; the first and last runs are pinned back onto the exact middles so they leave and enter flush.
+    const points: Point[] = [start, ...around.map((point, index) => index === 0 ? { x: point.x, y: start.y } : index === around.length - 1 ? { x: point.x, y: end.y } : point), end];
+    // Pinning can leave a short diagonal; split it into a horizontal-first corner (vertical-first on the final approach).
+    const square: Point[] = [];
+    points.forEach((point, index) => {
+      const before = square.at(-1);
+      if (before && before.x !== point.x && before.y !== point.y) square.push(index === points.length - 1 ? { x: before.x, y: point.y } : { x: point.x, y: before.y });
+      square.push(point);
+    });
+    const corners = square.filter((point, index) => {
+      const before = square[index - 1], after = square[index + 1];
       if (!before || !after) return true;
       return !(before.x === point.x && point.x === after.x || before.y === point.y && point.y === after.y);
     });
-    return [{ source: edge.source, target: edge.target, points: corners, entry }];
+    return [{ source: edge.source, target: edge.target, points: corners, entry: "W" as const }];
   });
 }
 

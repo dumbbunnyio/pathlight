@@ -22,6 +22,8 @@ Read [project intent](docs/project-intent.md) for the product contract,
 - Linux/tmux is the verified target. Do not claim macOS or broader terminal
   compatibility without checking it. Connectors, cards and the inspector are drawn by OpenTUI; Three only provides the camera projection (no GPU backend is initialised).
 
+The inspector is docked from 120 columns and an overlay below that; under 80 columns the diagram is replaced by a node list. The diagram auto-fits on load and resize until the user pans or zooms.
+
 Preserve the approved camera and visual design during maintenance. Propose
 intentional redesigns separately; do not quietly substitute another camera.
 

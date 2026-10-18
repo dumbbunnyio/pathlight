@@ -13,7 +13,7 @@ test("an ask message leads with the question, adds the component's context, and 
   expect(text).not.toMatch(/[\x00-\x08\x0a-\x1f\x7f]/);
 });
 
-test("t types a question about the selected node into the harness pane; Alt+Enter also submits it", async () => {
+test("t types a question about the selected node into the harness pane; Enter submits it and Alt+Enter adds a line", async () => {
   const directory = await mkdtemp(join(tmpdir(), "c4view-ask-"));
   const socket = join("/tmp", `c4a-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
@@ -38,22 +38,35 @@ test("t types a question about the selected node into the harness pane; Alt+Ente
     await delay(700);
     await tmux("send-keys", "-t", shown.pane, "t");
     await until(shown.pane, text => text.includes("Ask the agent"), "ask prompt");
+    // An empty question does not send: the prompt stays open.
+    await tmux("send-keys", "-t", shown.pane, "Enter");
+    await delay(300);
+    expect(await tmux("capture-pane", "-p", "-t", shown.pane)).toContain("Ask the agent");
     await tmux("send-keys", "-t", shown.pane, "-l", "why does this exist?");
     await tmux("send-keys", "-t", shown.pane, "Enter");
-    const typed = await until(harness, text => text.includes("why does this exist?"), "text in the harness pane");
+    const typed = await until(harness, text => (text.replace(/\n/g, "").match(/why does this exist\?/g) ?? []).length >= 2, "submitted line echoed back");
     const joined = typed.replace(/\n/g, "");
     expect(joined).toContain('About the "Agent adapters" component (plugin): why does this exist?');
     expect(joined).toContain("connects: → Activity metadata, → tmux launcher");
-    await until(shown.pane, text => text.includes("press Enter there to send"), "typed-not-sent notice");
-    // Without Alt the text is only typed: cat has not received a newline, so it has not echoed the line back.
-    expect(typed.match(/About the "Agent adapters"/g)).toHaveLength(1);
+    const toast = await until(shown.pane, text => text.includes("Asked"), "asked toast");
+    expect(toast).toContain("✓ Asked the agent about Agent adapters");
+    expect(toast).not.toContain("Ask the agent");
+    // Tab moves to the include row; Space turns connections off, so the next question carries no connections.
     await tmux("send-keys", "-t", shown.pane, "t");
     await until(shown.pane, text => text.includes("Ask the agent"), "second ask prompt");
-    await tmux("send-keys", "-t", shown.pane, "-l", "second one");
+    await until(shown.pane, text => text.includes("● connections 2"), "connections on by default");
+    await tmux("send-keys", "-t", shown.pane, "Tab", "Right", "Space");
+    await until(shown.pane, text => text.includes("○ connections 2") && text.includes("← → choose"), "connections off, include row hints");
+    await tmux("send-keys", "-t", shown.pane, "Tab");
+    // Alt+Enter adds a line instead of sending.
+    await tmux("send-keys", "-t", shown.pane, "-l", "second");
     await tmux("send-keys", "-t", shown.pane, "M-Enter");
-    await until(shown.pane, text => text.includes("Sent to"), "sent notice");
-    const submitted = await until(harness, text => (text.replace(/\n/g, "").match(/second one/g) ?? []).length >= 2, "submitted line echoed back");
-    expect(submitted.replace(/\n/g, "")).toContain("second one");
+    await tmux("send-keys", "-t", shown.pane, "-l", "one");
+    await delay(300);
+    expect(await tmux("capture-pane", "-p", "-t", shown.pane)).toContain("Ask the agent");
+    await tmux("send-keys", "-t", shown.pane, "Enter");
+    const submitted = await until(harness, text => (text.replace(/\n/g, "").match(/second one/g) ?? []).length >= 2, "second line echoed back");
+    expect(submitted.replace(/\n/g, "").split("second one")[1]).not.toContain("connects:");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

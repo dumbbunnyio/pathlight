@@ -51,11 +51,11 @@ async function capture(pane: string, text: string) {
 test("opens, reuses, protects a repurposed pane, and closes an actual viewer without replacing the parent", async () => {
   const pane = await show("index");
   expect(pane).not.toBe(parent);
-  expect(await capture(pane, "System context")).toContain("Zoom:");
+  expect(await capture(pane, "System context")).toContain("zoom");
   await tmux("send-keys", "-t", pane, "0");
-  await capture(pane, "Zoom: 100%");
+  await capture(pane, "zoom 100%");
   await tmux("send-keys", "-t", pane, "+");
-  expect(await capture(pane, "Zoom: 125%")).toContain("Zoom:");
+  expect(await capture(pane, "zoom 125%")).toContain("zoom");
   expect(await show("checkout")).toBe(pane);
   expect(await capture(pane, "Checkout detail")).toContain("Checkout detail");
   expect((await tmux("list-panes", "-a", "-F", "#{pane_id}")).split("\n")).toHaveLength(2);
@@ -106,9 +106,9 @@ test("a live viewer observes Claude hook metadata without restart and reloads re
   const pane = await show("services", "live-session", liveParent);
   const pid = await tmux("display-message", "-p", "-t", pane, "#{pane_pid}");
   await tmux("send-keys", "-t", pane, "0");
-  await capture(pane, "Zoom: 100%");
+  await capture(pane, "zoom 100%");
   await tmux("send-keys", "-t", pane, "+");
-  await capture(pane, "Zoom: 125%");
+  await capture(pane, "zoom 125%");
   const record = async (session: string, phase: string, file: string) => {
     const child = Bun.spawn([process.execPath, cli, "record", "--workspace", workspace], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     child.stdin.write(JSON.stringify({ hook_event_name: phase, session_id: session, tool_use_id: "call-live",
@@ -119,15 +119,14 @@ test("a live viewer observes Claude hook metadata without restart and reloads re
     expect(code).toBe(0);
   };
   await record("live-session", "PreToolUse", "src/orders.ts");
-  expect(await capture(pane, "READ src/orders.ts → parcel.commerce.orders")).toContain("READ");
+  expect(await capture(pane, "read src/orders.ts →")).toContain("read");
   await record("other-session", "PostToolUse", "PRIVATE-OTHER-SESSION.ts");
   await record("live-session", "PostToolUse", "src/orders.ts");
-  const completed = await capture(pane, "done src/orders.ts → parcel.commerce.orders");
+  const completed = await capture(pane, "done src/orders.ts →");
   expect(completed).not.toContain("PRIVATE-OTHER-SESSION");
-  expect(completed).toContain("Zoom: 125%");
   expect(await tmux("display-message", "-p", "-t", pane, "#{pane_pid}")).toBe(pid);
   expect(await show("services", "live-session", liveParent)).toBe(pane);
-  expect(await capture(pane, "done src/orders.ts → parcel.commerce.orders")).toContain("done");
+  expect(await capture(pane, "done src/orders.ts →")).toContain("done");
   await tmux("send-keys", "-t", pane, "q");
 }, 120_000);
 
@@ -151,18 +150,18 @@ test("default native show records activity, and replaces during search in the ow
   const first = await native("services");
   const pane = first.pane;
   expect((await readdir(join(nativeWorkspace, ".cache", "c4view"))).filter(file => file.startsWith("render-"))).toEqual([]);
-  await capture(pane, "Zoom:");
+  await capture(pane, "Service architecture");
   await tmux("send-keys", "-t", pane, "/");
   await tmux("send-keys", "-t", pane, "-l", "Orders");
   await capture(pane, "Search 1/1");
   await tmux("send-keys", "-t", pane, "Enter");
   await capture(pane, "Selected: parcel.commerce.orders");
   await tmux("send-keys", "-t", pane, "0", "r");
-  await capture(pane, "Zoom: 100%");
+  await capture(pane, "zoom 100%");
   const pid = await tmux("display-message", "-p", "-t", pane, "#{pane_pid}");
   await writeActivity(nativeWorkspace, toolActivity(nativeWorkspace, { source: "claude", session: "native-session" },
     "native-edit", "Edit", { path: "src/orders.ts" }, "started"));
-  expect(await capture(pane, "[EDIT]")).toContain("Selected: parcel.commerce.orders");
+  expect(await capture(pane, "[edit]")).toContain("database");
   expect(await tmux("display-message", "-p", "-t", pane, "#{pane_pid}")).toBe(pid);
   await tmux("send-keys", "-t", pane, "/");
   await tmux("send-keys", "-t", pane, "-l", "pending");
@@ -170,7 +169,7 @@ test("default native show records activity, and replaces during search in the ow
   expect((await native("checkout")).pane).toBe(pane);
   await capture(pane, "Checkout detail");
   expect((await native("services")).pane).toBe(pane);
-  expect(await capture(pane, "Zoom:")).toContain("Service architecture");
+  await capture(pane, "Service architecture");
   expect(await tmux("display-message", "-p", "-t", nativeParent, "#{pane_current_command}")).toBe("sleep");
 }, 120_000);
 

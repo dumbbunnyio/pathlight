@@ -3,11 +3,12 @@ import { failure } from "./effects";
 import { run } from "./process";
 
 /** One line for the agent's prompt: the question first, then the context the viewer already knows about the component. */
-export function askMessage(target: { title: string; id: string; files: readonly string[]; links: readonly string[] }, question: string) {
+export function askMessage(target: { title: string; id: string; files: readonly string[]; links: readonly string[]; activity?: readonly string[] }, question: string) {
   const clean = (text: string) => text.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim();
   const context = [
     target.files.length ? `files: ${target.files.slice(0, 6).map(clean).join(", ")}` : "",
     target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
+    target.activity?.length ? `recent: ${target.activity.slice(0, 5).map(clean).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   return `About the "${clean(target.title)}" component (${clean(target.id)}): ${clean(question).slice(0, 600)}${context ? ` [${context}]` : ""}`;
 }
