@@ -42,7 +42,7 @@ When an agent starts the viewer, the viewer inherits that agent process's enviro
 
 Select a node and press `e`. The inspector opens and scrolls to its file list; the heading becomes a path filter.
 Type to filter paths. Use Up, Down, Tab, Shift+Tab, Page Up, or Page Down to select a file.
-You can also click a visible file row. Press Enter to open the selected file in your editor.
+You can also click a visible file row to highlight it; click the highlighted row again, or press Enter, to open it in your editor. Clicking the diagram leaves file browsing and selects that node, so a stray click never traps the keyboard. Text in the panels is not mouse-selectable.
 Exit the editor to return to the same file selection and diagram position.
 Press Escape to return to diagram controls, or Ctrl+C to quit the viewer while browsing files.
 While the editor runs, it owns terminal input and handles its own shortcuts.

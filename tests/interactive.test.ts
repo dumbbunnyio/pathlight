@@ -44,7 +44,7 @@ test("mapped files filter without live recording and round-trip through a real t
     const row = listing.findIndex(line => line.includes("src/b.ts"));
     const column = listing[row]!.indexOf("src/b.ts");
     await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${column + 2};${row + 1}M\x1b[<0;${column + 2};${row + 1}m`);
-    await capture("Enter opens the selected file");
+    await capture("Click again or Enter to open");
     await tmux("send-keys", "-t", pane, "-l", "b.ts");
     await capture("Files 1/1");
     await tmux("send-keys", "-t", pane, "C-u");
@@ -54,7 +54,7 @@ test("mapped files filter without live recording and round-trip through a real t
     await capture("Files refreshed");
     await delay(700);
     const before = diagram(await tmux("capture-pane", "-p", "-t", pane));
-    await tmux("send-keys", "-t", pane, "-l", "\x1b[<65;15;10M\x1b[<0;20;10M\x1b[<0;20;10m");
+    await tmux("send-keys", "-t", pane, "-l", "\x1b[<65;15;10M");
     await delay(100);
     expect(diagram(await tmux("capture-pane", "-p", "-t", pane))).toBe(before);
     await tmux("send-keys", "-t", pane, "Down", "Down", "Down", "Down");

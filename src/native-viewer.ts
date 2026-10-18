@@ -59,8 +59,8 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
   const topBar = new BoxRenderable(renderer, { height: 3, flexShrink: 0, border: ["bottom"], borderColor: palette.border, paddingLeft: 1 });
-  const heading = new TextRenderable(renderer, { height: 1, fg: palette.text, wrapMode: "none" });
-  const breadcrumb = new TextRenderable(renderer, { height: 1, fg: palette.muted, wrapMode: "none",
+  const heading = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.text, wrapMode: "none" });
+  const breadcrumb = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none",
     content: `${view.project} / ${diagram.id}  ·  ${diagram.nodes.length} nodes  ·  ${diagram.edges.length} relationships` });
   topBar.add(heading); topBar.add(breadcrumb);
   const searchInput = new InputRenderable(renderer, { width: "100%", visible: false, maxLength: 256,
@@ -73,18 +73,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const inspector = new BoxRenderable(renderer, { width: 38, flexShrink: 0, border: false,
     paddingLeft: 1, paddingRight: 1, backgroundColor: palette.panel });
   const inspectorScroll = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true });
-  const inspectorTitle = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
-  const inspectorId = new TextRenderable(renderer, { height: 2, flexShrink: 0, fg: palette.muted, wrapMode: "word" });
-  const relations = new TextRenderable(renderer, { width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "word" });
-  const fileHeading = new TextRenderable(renderer, { height: 2, flexShrink: 0, fg: palette.muted });
-  const fileRows = Array.from({ length: 5 }, (_, index) => new TextRenderable(renderer, { id: `file-${index}`, height: 1,
+  const inspectorTitle = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
+  const inspectorId = new TextRenderable(renderer, { selectable: false, height: 2, flexShrink: 0, fg: palette.muted, wrapMode: "word" });
+  const relations = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "word" });
+  const fileHeading = new TextRenderable(renderer, { selectable: false, height: 2, flexShrink: 0, fg: palette.muted });
+  const fileRows = Array.from({ length: 5 }, (_, index) => new TextRenderable(renderer, { selectable: false, id: `file-${index}`, height: 1,
     flexShrink: 0, fg: palette.text, wrapMode: "none" }));
-  const activityText = new TextRenderable(renderer, { width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
+  const activityText = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
   for (const child of [inspectorTitle, inspectorId, relations, fileHeading, ...fileRows, activityText]) inspectorScroll.add(child);
   inspector.add(inspectorScroll);
-  const footer = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, bg: palette.panel, wrapMode: "none" });
-  const shortcuts = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
-  const notice = new TextRenderable(renderer, { height: 1, flexShrink: 0, visible: false, fg: palette.outgoing, wrapMode: "none" });
+  const footer = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, bg: palette.panel, wrapMode: "none" });
+  const shortcuts = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
+  const notice = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, visible: false, fg: palette.outgoing, wrapMode: "none" });
   const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 24,
     border: true, borderStyle: "rounded", borderColor: palette.incoming, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
     zIndex: 20000, visible: false, title: " Keyboard shortcuts " });
@@ -92,12 +92,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     zIndex: 19000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); } });
   const searchShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 3, width: "100%", height: 1,
     zIndex: 10000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); searchInput.focus(); } });
-  const helpText = new TextRenderable(renderer, { fg: palette.text, wrapMode: "word" });
+  const helpText = new TextRenderable(renderer, { selectable: false, fg: palette.text, wrapMode: "word" });
   help.add(helpText);
   const summary = new BoxRenderable(renderer, { position: "absolute", left: 4, top: 3, width: "80%", height: Math.max(8, Math.min(26, renderer.height - 6)),
     border: true, borderStyle: "rounded", borderColor: palette.outgoing, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
     zIndex: 20000, visible: false, title: " This session " });
-  const summaryText = new TextRenderable(renderer, { fg: palette.text, wrapMode: "none" });
+  const summaryText = new TextRenderable(renderer, { selectable: false, fg: palette.text, wrapMode: "none" });
   summary.add(summaryText);
   viewport.add(canvas); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
@@ -204,7 +204,7 @@ INSPECT
       ...(node.children.length ? { border: true, borderStyle: "rounded" as const, borderColor: palette.border } : { border: false }), shouldFill: !node.children.length, backgroundColor: palette.node, zIndex: z,
       justifyContent: "center",
       title: node.children.length ? node.title : undefined });
-    const label = new TextRenderable(renderer, { fg: palette.text, wrapMode: "word", content: node.children.length ? "" : node.title, marginLeft: 1, marginRight: 1 });
+    const label = new TextRenderable(renderer, { selectable: false, fg: palette.text, wrapMode: "word", content: node.children.length ? "" : node.title, marginLeft: 1, marginRight: 1 });
     box.add(label); viewport.add(box);
     return { node, box, label, ring: undefined as RGBA | undefined, rect: { x: 0, y: 0, width: 1, height: 1 } };
   });
@@ -230,7 +230,7 @@ INSPECT
       const neighbor = tail ? points.find(p => !p.equals(end ?? p)) : points.findLast(p => !p.equals(end ?? p));
       if (!end || !neighbor) return;
       const direction = end.clone().sub(neighbor).normalize();
-      const label = new TextRenderable(renderer, { position: "absolute", width: 1, height: 1, content: "▶", fg: palette.border, bg: palette.background, zIndex: 1000 });
+      const label = new TextRenderable(renderer, { selectable: false, position: "absolute", width: 1, height: 1, content: "▶", fg: palette.border, bg: palette.background, zIndex: 1000 });
       viewport.add(label); markers.push({ end, direction, label, type });
     };
     marker(false); marker(true);
@@ -506,8 +506,11 @@ INSPECT
           fg(touched ? operationColor(touched.operation) : palette.text)(touched ? bold(path.slice(slash)) : path.slice(slash))]);
       } else row.content = new StyledText([fg(palette.muted)(fileError || "No direct file mappings")]);
       row.bg = fileMode && fileCursor === start + index ? "#294052" : palette.panel;
-      row.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!path || help.visible || search) return;
-        if (!fileMode) beginFiles(); fileCursor = start + index; message = "Enter opens the selected file"; searchInput.focus(); update(); };
+      // First click highlights a row; clicking the highlighted row again opens it.
+      row.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!path || help.visible || summary.visible || search) return;
+        if (fileMode && clickedFile === start + index) { openFile(path); return; }
+        if (!fileMode) beginFiles();
+        fileCursor = clickedFile = start + index; message = "Click again or Enter to open · Esc or click the diagram to go back"; searchInput.focus(); update(); };
     });
     activityText.content = activityContent();
     if (summary.visible) summaryText.content = summaryContent();
@@ -620,6 +623,20 @@ INSPECT
     search = undefined; searchInput.blur(); searchInput.visible = false; heading.visible = true;
     message = ""; update();
   };
+  let clickedFile = -1;
+  const endFiles = () => { clickedFile = -1; fileMode = false; searchInput.blur(); searchInput.visible = false; heading.visible = true; };
+  const openFile = (path: string) => {
+    editorActive = true;
+    searchInput.blur();
+    runTask(Effect.gen(function* () {
+      yield* io("Native.finishDrawing", async () => { await drawing; });
+      yield* Effect.acquireRelease(io("Native.suspend", () => renderer.suspend()),
+        () => io("Native.resume", async () => { await renderer.resume(); editorActive = false; searchInput.focus(); update(); }).pipe(Effect.orDie));
+      yield* openEditor({ workspace: view.workspace, path }).pipe(
+        Effect.tap(() => Effect.sync(() => { message = `Returned from editor: ${path}`; })),
+        Effect.catch(error => Effect.sync(() => { message = error.message; })));
+    }).pipe(Effect.scoped, Effect.catch(error => Effect.sync(() => { editorActive = false; message = error.message; searchInput.focus(); update(); }))));
+  };
   const beginFiles = () => {
     fileMode = true; fileCursor = 0; fileQuery = ""; inspectorPreference = "open"; message = fileError;
     searchInput.placeholder = "Filter mapped files"; searchInput.value = "";
@@ -637,7 +654,8 @@ INSPECT
     else { restore(search.before); update(); }
   });
   viewport.onMouseDown = event => {
-    if (fileMode || editorActive || help.visible || summary.visible || search || pendingVisit) return;
+    if (editorActive || help.visible || summary.visible || search || pendingVisit) return;
+    if (fileMode) { endFiles(); message = ""; }
     // Hit the displayed cell bounds, not the fractional world-space plane:
     // rounding can put a group's visible title just outside that plane.
     const entry = nodeObjects.filter(({ box }) => box.visible && event.x >= box.x && event.x < box.x + box.width
@@ -710,12 +728,13 @@ INSPECT
     if (key.ctrl && key.name === "c" || !fileMode && key.name === "q") { stop(); return; }
     if (fileMode) {
       const paths = selectedPaths();
-      if (key.name === "escape") { key.preventDefault(); fileMode = false; searchInput.blur(); searchInput.visible = false; heading.visible = true; }
+      if (key.name === "escape") { key.preventDefault(); endFiles(); }
       else if (["up", "down", "tab", "pageup", "pagedown"].includes(key.name)) {
         key.preventDefault();
         const direction = key.name === "up" || key.name === "pageup" || key.name === "tab" && key.shift ? -1 : 1;
         const step = key.name === "pageup" || key.name === "pagedown" ? fileRows.length : 1;
         if (paths.length) fileCursor = (fileCursor + direction * step % paths.length + paths.length) % paths.length;
+        clickedFile = -1;
       } else if (key.ctrl && key.name === "r") {
         key.preventDefault();
         if (!refreshing) {
@@ -729,18 +748,7 @@ INSPECT
       else if (key.name === "return") {
         key.preventDefault();
         const path = paths[fileCursor];
-        if (path) {
-          editorActive = true;
-          searchInput.blur();
-          runTask(Effect.gen(function* () {
-            yield* io("Native.finishDrawing", async () => { await drawing; });
-            yield* Effect.acquireRelease(io("Native.suspend", () => renderer.suspend()),
-              () => io("Native.resume", async () => { await renderer.resume(); editorActive = false; searchInput.focus(); update(); }).pipe(Effect.orDie));
-            yield* openEditor({ workspace: view.workspace, path }).pipe(
-              Effect.tap(() => Effect.sync(() => { message = `Returned from editor: ${path}`; })),
-              Effect.catch(error => Effect.sync(() => { message = error.message; })));
-          }).pipe(Effect.scoped, Effect.catch(error => Effect.sync(() => { editorActive = false; message = error.message; searchInput.focus(); update(); }))));
-        }
+        if (path) openFile(path);
       }
     } else if (key.sequence === "?") { helpText.content = helpContent(); help.visible = true; helpShield.visible = true; }
     else if (key.name === "i") { inspectorPreference = inspector.visible ? "closed" : "open"; }
