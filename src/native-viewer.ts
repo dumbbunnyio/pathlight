@@ -3,19 +3,20 @@ import { THREE, ThreeCliRenderer } from "@opentui/three";
 import { SplitPaneRenderable } from "opentui-split";
 import { Effect, FiberSet, Schedule } from "effect";
 import { type View, acquireModel, validateActivityMapping } from "./catalog";
-import { type ActivityBinding, type ActivityEvent, activityLines, readActivity, readActivityConfig } from "./activity";
+import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, latestBinding, readActivity, readActivityConfig } from "./activity";
 import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
 import { composeConnectors, terminalConnectors } from "./connectors";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
 
-export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; ready?: string }) {
+export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; ready?: string }) {
 const view = options.view;
-const binding = options.activity;
+let binding = options.activity;
+const following = options.follow === true;
 const loadedConfig = yield* readActivityConfig(view.workspace).pipe(
-  Effect.catchIf(error => !binding && hasCode(error, "ENOENT"), () => Effect.succeed(undefined)));
-const config = binding || loadedConfig?.project === view.project ? loadedConfig : undefined;
+  Effect.catchIf(error => !binding && !following && hasCode(error, "ENOENT"), () => Effect.succeed(undefined)));
+const config = binding || following || loadedConfig?.project === view.project ? loadedConfig : undefined;
 if (config) yield* validateActivityMapping(view, config);
 let fileError = "";
 let files = yield* nodeFiles(view.workspace, config).pipe(Effect.catch(error => Effect.sync(() => {
@@ -58,8 +59,7 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
   const topBar = new BoxRenderable(renderer, { height: 3, flexShrink: 0, border: ["bottom"], borderColor: palette.border, paddingLeft: 1 });
-  const heading = new TextRenderable(renderer, { height: 1, fg: palette.text, wrapMode: "none",
-    content: `C4VIEW  /  ${diagram.title ?? diagram.id}` });
+  const heading = new TextRenderable(renderer, { height: 1, fg: palette.text, wrapMode: "none" });
   const breadcrumb = new TextRenderable(renderer, { height: 1, fg: palette.muted, wrapMode: "none",
     content: `${view.project} / ${diagram.id}  ·  ${diagram.nodes.length} nodes  ·  ${diagram.edges.length} relationships` });
   topBar.add(heading); topBar.add(breadcrumb);
@@ -85,7 +85,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const footer = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, bg: palette.panel, wrapMode: "none" });
   const shortcuts = new TextRenderable(renderer, { height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   const notice = new TextRenderable(renderer, { height: 1, flexShrink: 0, visible: false, fg: palette.outgoing, wrapMode: "none" });
-  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 17,
+  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 18,
     border: true, borderStyle: "rounded", borderColor: palette.incoming, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
     zIndex: 20000, visible: false, title: " Keyboard shortcuts " });
   const helpShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
@@ -93,7 +93,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const searchShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 3, width: "100%", height: 1,
     zIndex: 10000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); searchInput.focus(); } });
   help.add(new TextRenderable(renderer, { fg: palette.text, content:
-    "NAVIGATE\n  Arrows / h j k l   Pan\n  + / -              Zoom\n  f / 0 / r          Fit / actual size / reveal\n  Tab / Shift+Tab    Select node\n  Enter / Backspace Child / parent\n  o / b              Open linked view / back\n\nINSPECT\n  /                  Search this view\n  i                  Toggle inspector\n  PageUp / PageDown  Scroll inspector\n  e                  Browse mapped files\n  ? / Escape         Close help\n  q                  Quit", wrapMode: "word" }));
+    "NAVIGATE\n  Arrows / h j k l   Pan\n  + / -              Zoom\n  f / 0 / r          Fit / actual size / reveal\n  Tab / Shift+Tab    Select node\n  Enter / Backspace Child / parent\n  o / b              Open linked view / back\n\nINSPECT\n  /                  Search this view\n  i                  Toggle inspector\n  a                  Camera follows running tools\n  PageUp / PageDown  Scroll inspector\n  e                  Browse mapped files\n  ? / Escape         Close help\n  q                  Quit", wrapMode: "word" }));
   viewport.add(canvas); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
   for (const child of [topBar, body, notice, footer, shortcuts, searchShield, helpShield, help]) renderer.root.add(child);
@@ -120,6 +120,31 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let inspectorPreference: "auto" | "open" | "closed" = "auto";
   let layoutKey = "";
   let events: ActivityEvent[] = [];
+  let byElement = new Map<string, ActivityEvent[]>();
+  let followCamera = false, focusedCall = "";
+  const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+  const isActive = (event: ActivityEvent) => event.phase === "started" && Date.now() - event.time <= 30_000;
+  const operationColor = (operation: ActivityEvent["operation"]) => operation === "edit" ? palette.outgoing : operation === "read" ? palette.incoming : palette.muted;
+  const mix = (from: string, to: string, amount: number) => {
+    const a = RGBA.fromHex(from), b = RGBA.fromHex(to);
+    return RGBA.fromValues(a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount, a.b + (b.b - a.b) * amount, 1);
+  };
+  const indexEvents = () => {
+    byElement = new Map();
+    for (const event of events) {
+      for (const element of new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element))) {
+        byElement.set(element, [...byElement.get(element) ?? [], event]);
+      }
+    }
+  };
+  const liveLabel = () => binding ? `${binding.source}:${binding.session.slice(0, 8)}` : "waiting for a session";
+  const headingContent = () => {
+    const title = `C4VIEW  /  ${diagram.title ?? diagram.id}`;
+    if (!binding && !following) return title;
+    const busy = events.some(isActive);
+    return new StyledText([fg(palette.text)(title),
+      fg(busy ? palette.outgoing : binding ? palette.incoming : palette.muted)(`   ${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} LIVE ${liveLabel()}`)]);
+  };
   let activityError = "";
   const layout = () => {
     const side = renderer.width >= 120;
@@ -191,9 +216,29 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const p = point(x, y, 10).project(camera);
     return { x: (p.x + 1) * viewport.width / 2, y: (1 - p.y) * viewport.height / 2 };
   };
+  const activityContent = () => {
+    const header = fg(palette.muted)("\nACTIVITY\n");
+    if (activityError) return new StyledText([header, fg(palette.failure)(activityError)]);
+    if (!binding && !following) return new StyledText([header, fg(palette.muted)("Not bound to an agent session")]);
+    if (!config) return new StyledText([header, fg(palette.muted)(`No activity mappings for ${view.project}`)]);
+    if (!binding) return new StyledText([header, fg(palette.muted)("Waiting for an agent session to record activity")]);
+    const rows = activityRows(events, config, Date.now(), 6);
+    if (!rows.length) return new StyledText([header, fg(palette.muted)("Waiting for mapped activity")]);
+    return new StyledText([header, ...rows.flatMap(row => {
+      const badge = row.state === "failed" ? "FAIL" : row.state === "unconfirmed" ? "????" : row.state === "started" ? row.operation.toUpperCase().padEnd(4) : "done";
+      const tone = row.state === "failed" ? palette.failure : row.state === "completed" || row.state === "unconfirmed" ? palette.muted : operationColor(row.operation);
+      return [fg(tone)(`${badge} ${formatAge(row.age).padStart(3)} `), fg(palette.text)(`${row.target}\n`),
+        fg(palette.muted)(`        ${row.elements.join(", ") || "unmapped"}\n`)];
+    })]);
+  };
+  const tickerContent = () => {
+    if (!binding || !config) return "";
+    const [row] = activityRows(events, config, Date.now(), 1);
+    return row ? ` | ${row.state === "started" ? row.operation.toUpperCase() : row.state} ${row.target} → ${row.elements.join(", ") || "unmapped"} ${formatAge(row.age)}` : "";
+  };
   const update = () => {
     layout();
-    heading.content = `C4VIEW  /  ${diagram.title ?? diagram.id}`;
+    heading.content = headingContent();
     breadcrumb.content = search ? `Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length} · Enter keep · Esc cancel`
       : `${view.project} / ${diagram.id}  ·  ${diagram.nodes.length} nodes  ·  ${diagram.edges.length} relationships  ·  Back: ${history.length}`;
     searchShield.visible = !!search;
@@ -206,8 +251,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     camera.updateProjectionMatrix(); camera.updateMatrixWorld();
     let hidden = 0;
     for (const entry of nodeObjects) {
-      const related = events.filter(event => rules.some(rule => rule.element === entry.node.modelRef && event.paths.some(path => rule.match.match(path))));
-      const active = related.filter(event => event.phase === "started" && Date.now() - event.time <= 30_000);
+      const related = byElement.get(String(entry.node.modelRef)) ?? [];
+      const reads = related.filter(event => event.operation === "read").length, edits = related.filter(event => event.operation === "edit").length;
+      const counts = [reads && `r${reads}`, edits && `e${edits}`].filter(Boolean).join(" ");
+      const active = related.filter(isActive);
       const recent = related.find(event => Date.now() - event.time <= 5000);
       const state = active.length ? active.some(event => event.operation === "edit") ? "EDIT" : "READ"
         : recent?.phase === "failed" ? "FAILED" : recent?.phase === "completed" ? "DONE" : "";
@@ -221,9 +268,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         pulse.r *= brightness; pulse.g *= brightness; pulse.b *= brightness;
         entry.box.borderColor = pulse;
       }
-      entry.box.backgroundColor = entry.node.id === selected?.id ? "#233343" : palette.node;
-      if (entry.node.children.length) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : ""}`;
-      else entry.label.content = `${entry.node.title}${state ? `\n[${state}]` : ""}`;
+      // Where work has recently happened: a tint that cools in coarse steps (so a finished call stops changing the screen).
+      const latest = related.reduce<ActivityEvent | undefined>((best, event) => !best || event.time > best.time ? event : best, undefined);
+      const warmth = !latest ? 0 : Date.now() - latest.time < 10_000 ? 3 : Date.now() - latest.time < 30_000 ? 2 : Date.now() - latest.time < 90_000 ? 1 : 0;
+      entry.box.backgroundColor = entry.node.id === selected?.id ? "#233343"
+        : warmth && latest ? mix(palette.node, operationColor(latest.operation), warmth * 0.07) : palette.node;
+      if (entry.node.children.length) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : ""}${counts ? ` ·${counts}` : ""}`;
+      else entry.label.content = `${entry.node.title}${state || counts ? `\n${state ? `[${state}]` : ""}${state && counts ? " " : ""}${counts}` : ""}`;
       const origin = projected(entry.node.x, entry.node.y);
       const end = projected(entry.node.x + entry.node.width, entry.node.y + entry.node.height);
       const width = Math.max(2, Math.round(end.x) - Math.round(origin.x));
@@ -277,9 +328,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       row.onMouseDown = event => { event.preventDefault(); event.stopPropagation(); if (!path || help.visible || search) return;
         if (!fileMode) beginFiles(); fileCursor = start + index; message = "Enter opens the selected file"; searchInput.focus(); update(); };
     });
-    activityText.content = `\nACTIVITY\n${activityError || (binding ? config ? activityLines(events, config).join("\n") || "Waiting for mapped activity" : `No activity mappings for ${view.project}` : "Not bound to an agent session")}`;
+    activityText.content = activityContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    footer.content = ` ${braille ? "BRAILLE + Three camera" : "GPU + Three camera"} | Zoom: ${Math.round(16 / scale * 100)}% | Selected: ${selected?.id}${hidden ? ` | ${hidden} labels hidden` : ""}`;
+    footer.content = ` ${braille ? "BRAILLE + Three camera" : "GPU + Three camera"} | Zoom: ${Math.round(16 / scale * 100)}% | Selected: ${selected?.id}${hidden ? ` | ${hidden} labels hidden` : ""}${tickerContent()}`;
     shortcuts.content = search ? " Type a name or ID · ↑↓/Tab matches · Enter keep · Esc restore" : fileMode ? ` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length} · Type to filter · Enter edit · Ctrl+R refresh · Esc diagram` : " Arrows pan · +/- zoom · / search · f fit · e files · i inspect · ? help";
     notice.visible = !!message; notice.content = ` ${message}`;
     dirty = true; renderer.requestRender();
@@ -298,12 +349,21 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     centerX = targetX = saved.x; centerY = targetY = saved.y; scale = targetScale = saved.scale;
     animating = false;
   };
-  const reveal = () => {
-    if (!selected) return;
+  const reveal = (target = selected) => {
+    if (!target) return;
     if (!animating) targetScale = scale;
-    targetX = selected.children.length ? selected.x + viewport.width * targetScale / 2 - targetScale * 2 : selected.x + selected.width / 2;
-    targetY = selected.children.length ? selected.y + viewport.height * targetScale / cellAspect() / 2 - targetScale / cellAspect() : selected.y + selected.height / 2;
+    targetX = target.children.length ? target.x + viewport.width * targetScale / 2 - targetScale * 2 : target.x + target.width / 2;
+    targetY = target.children.length ? target.y + viewport.height * targetScale / cellAspect() / 2 - targetScale / cellAspect() : target.y + target.height / 2;
     animating = true;
+  };
+  // Opt-in only (key `a`): glide to the node of the newest running call without changing the selection.
+  const followActivity = () => {
+    const latest = events.find(isActive);
+    if (!followCamera || !latest || latest.call === focusedCall) return;
+    const elements = new Set(rules.filter(rule => latest.paths.some(path => rule.match.match(path))).map(rule => rule.element));
+    const target = diagram.nodes.filter(node => elements.has(String(node.modelRef))).sort((a, b) => a.children.length - b.children.length)[0];
+    focusedCall = latest.call;
+    if (target) reveal(target);
   };
   const selectNode = (node: typeof selected, show: boolean) => {
     if (!node) return;
@@ -430,6 +490,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     } else if (key.sequence === "?") { help.visible = true; helpShield.visible = true; }
     else if (key.name === "i") { inspectorPreference = inspector.visible ? "closed" : "open"; }
     else if (key.name === "pageup" || key.name === "pagedown") { inspectorScroll.scrollBy(key.name === "pageup" ? -5 : 5); }
+    else if (key.name === "a") {
+      followCamera = !followCamera; focusedCall = "";
+      message = followCamera ? (binding || following ? "Camera follows running tools (a to stop)" : "Camera follow needs a bound session") : "Camera follow off";
+      if (followCamera) followActivity();
+    }
     else if (key.name === "g") { braille = !braille; message = ""; }
     else if (key.name === "s") { engine?.toggleSuperSampling(); message = "Sampling changed: compare line continuity"; }
     else if (key.name === "e") beginFiles();
@@ -532,8 +597,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     canvas.requestRender();
     } catch (error) { renderError = error; stop(); }
   });
-  if (binding) yield* Effect.gen(function* () {
-    events = yield* readActivity(view.workspace, binding);
+  if (binding || following) yield* Effect.gen(function* () {
+    if (following) binding = (yield* latestBinding(view.workspace)) ?? binding;
+    events = binding ? yield* readActivity(view.workspace, binding) : [];
+    indexEvents(); followActivity();
     activityError = ""; if (!editorActive) update();
   }).pipe(Effect.catch(() => Effect.sync(() => { activityError = "Activity unavailable"; if (!editorActive) update(); })),
     Effect.repeat(Schedule.spaced("250 millis")), Effect.forkScoped);

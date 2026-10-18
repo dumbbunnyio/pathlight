@@ -38,12 +38,12 @@ export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace:
   input: unknown, phase: ActivityEvent["phase"]) {
   const args = Schema.decodeUnknownResult(Schema.Record(Schema.String, Schema.Unknown))(input);
   const name = tool.toLowerCase();
-  const operation = /^(read|glob|grep)$/.test(name) ? "read"
-    : /^(edit|write|patch|apply_patch|multiedit)$/.test(name) ? "edit"
+  const operation = /^(read|glob|grep|ls|list|view|notebookread)$/.test(name) ? "read"
+    : /^(edit|write|patch|apply_patch|multiedit|notebookedit|str_replace_based_edit_tool)$/.test(name) ? "edit"
     : /^(bash|shell|powershell)$/.test(name) ? "command" : "other";
   const candidates: string[] = [];
   if (Result.isSuccess(args) && (operation === "read" || operation === "edit")) {
-    for (const key of ["path", "filePath", "file_path"]) {
+    for (const key of ["path", "filePath", "file_path", "notebook_path"]) {
       if (typeof args.success[key] === "string") candidates.push(args.success[key]);
     }
     for (const key of ["patchText", "patch"]) {
@@ -93,11 +93,46 @@ export const readActivity = Effect.fn("Activity.read")(function* (workspace: str
   return [...calls.values()].sort((a, b) => b.time - a.time).slice(0, 128);
 });
 
-export function activityLines(events: ActivityEvent[], config: ActivityConfig, now = Date.now()) {
+const activityRoot = (root: string) => join(root, ".cache", "c4view", "activity");
+
+/** The session that most recently wrote an event for this workspace, for `--follow`. */
+export const latestBinding = Effect.fn("Activity.latest")(function* (workspace: string) {
+  const base = activityRoot(yield* io("Activity.root", () => realpath(workspace)));
+  const directories = yield* io("Activity.sessions", () => readdir(base)).pipe(
+    Effect.catchIf(error => hasCode(error, "ENOENT"), () => Effect.succeed([])));
+  const newest = yield* Effect.forEach(directories, directory => io("Activity.entries", () => readdir(join(base, directory))).pipe(
+    Effect.map(files => files.filter(file => file.endsWith(".json")).sort().at(-1)),
+    Effect.map(file => file ? { directory, file } : undefined),
+    Effect.catch(() => Effect.succeed(undefined))), { concurrency: 8 });
+  const winner = newest.filter(entry => entry !== undefined).sort((a, b) => b.file.localeCompare(a.file))[0];
+  if (!winner) return undefined;
+  const text = yield* io("Activity.readEvent", () => readFile(join(base, winner.directory, winner.file), "utf8"));
+  const event = yield* Schema.decodeUnknownEffect(ActivityEvent, { onExcessProperty: "error" })(yield* json(text));
+  return { source: event.source, session: event.session } satisfies ActivityBinding;
+}, Effect.catch(() => Effect.succeed(undefined)));
+
+export type ActivityRow = { state: "started" | "completed" | "failed" | "unconfirmed"; operation: ActivityEvent["operation"]; elements: string[]; target: string; age: number };
+
+export function activityRows(events: ActivityEvent[], config: ActivityConfig, now = Date.now(), limit = 4): ActivityRow[] {
   const rules = config.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) }));
-  return events.slice(0, 4).map(event => {
-    const elements = [...new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element))];
-    const state = event.phase === "started" && now - event.time > 30_000 ? "unconfirmed" : event.phase;
-    return `${state} ${event.operation} | ${elements.join(", ") || "unmapped"} | ${event.paths.join(", ") || event.tool}`;
+  return events.slice(0, limit).map(event => ({
+    state: event.phase === "started" && now - event.time > 30_000 ? "unconfirmed" : event.phase,
+    operation: event.operation,
+    elements: [...new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element))],
+    target: event.paths.join(", ") || event.tool,
+    age: Math.max(0, now - event.time),
+  }));
+}
+
+export function activityLines(events: ActivityEvent[], config: ActivityConfig, now = Date.now()) {
+  return activityRows(events, config, now).map(row => {
+    const state = row.state === "started" ? "started" : row.state;
+    return `${state} ${row.operation} | ${row.elements.join(", ") || "unmapped"} | ${row.target}`;
   });
+}
+
+/** Coarse on purpose: a finished call must not make the display change every second. */
+export function formatAge(milliseconds: number) {
+  const seconds = Math.floor(milliseconds / 1000);
+  return seconds < 10 ? "now" : seconds < 60 ? "<1m" : seconds < 3600 ? `${Math.floor(seconds / 60)}m` : `${Math.floor(seconds / 3600)}h`;
 }

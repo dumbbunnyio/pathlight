@@ -13,7 +13,7 @@ import { terminalProtocol, type Protocol, type RenderMode } from "./protocol";
 import { Ready } from "./ready";
 
 export const showView = Effect.fn("Tmux.show")(function* (options: {
-  view: View; pane: string; socket?: string; renderer: RenderMode; protocol: Protocol; activity?: ActivityBinding;
+  view: View; pane: string; socket?: string; renderer: RenderMode; protocol: Protocol; activity?: ActivityBinding; follow?: boolean;
 }) {
   const protocol = options.renderer === "png" ? terminalProtocol(options.protocol, true) : "native";
   if (!/^%\d+$/.test(options.pane)) return yield* Effect.fail(failure("Tmux.pane", "Pass an exact tmux pane ID, such as %2."));
@@ -30,7 +30,7 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
     }
   });
   yield* requireVisible(options.pane);
-  if (options.activity) yield* validateActivityMapping(options.view, yield* readActivityConfig(options.view.workspace));
+  if (options.activity || options.follow) yield* validateActivityMapping(options.view, yield* readActivityConfig(options.view.workspace));
   const socket = yield* tmux("display-message", "-p", "-t", options.pane, "#{socket_path}");
   const owner = createHash("sha256").update(`${socket}\0${options.pane}\0${options.view.workspace}`).digest("hex");
   const cache = join(options.view.workspace, ".cache", "c4view");
@@ -65,6 +65,7 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
       if (exported) args.push("--workspace", options.view.workspace);
       args.push("--session", options.activity.session, "--source", options.activity.source);
     }
+    if (options.follow) args.push("--follow");
     const panes = yield* tmux("list-panes", "-a", "-F", "#{pane_id}\t#{@c4view-owner}\t#{pane_current_command}\t#{pane_dead}\t#{pane_start_command}\t#{@c4view-command}");
     const existing = panes.split("\n").map(line => line.split("\t"))
       .find(([, tag, command, dead, started, expected]) =>

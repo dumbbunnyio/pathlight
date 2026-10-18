@@ -30,7 +30,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 
 | Area | Files |
 | --- | --- |
-| CLI, model/view selection | `src/cli.ts`, `src/catalog.ts` |
+| CLI, model/view selection, workspace setup | `src/cli.ts`, `src/catalog.ts`, `src/init.ts` |
 | Owned tmux pane launch/replacement, readiness | `src/tmux.ts`, `src/ready.ts` |
 | Native UI and camera | `src/native-viewer.ts` |
 | Connector projection/rasterization/markers | `src/connectors.ts` |
@@ -49,14 +49,14 @@ intentional redesigns separately; do not quietly substitute another camera.
    titles after projection, pan, zoom and resize.
 3. **State survives workflows.** Search cancellation and Back restore camera and
    selection. Linked-view navigation stays in one process. Editor return retains
-   the diagram and file selection. Activity updates must not move the camera.
+   the diagram and file selection. Activity updates must not move the camera unless the user turned on camera follow (`a`, off by default).
 4. **Observation is truthful and isolated.** Bind events to workspace, project,
    source and session. Show only observed tool lifecycle states; never infer
    service traffic, test success, or parent activity from a child's event.
    Only actual active operations pulse; connectors do not imply live traffic.
 5. **Recording and viewing are separate.** A bound CLI viewer consumes journals.
    OpenCode recording requires opt-in; closing a viewer does not stop recording.
-   Do not silently enable recording or aggregate subagent sessions.
+   Do not silently enable recording or aggregate subagent sessions. `--follow` is an explicit viewing choice: it tracks only the single most recently active recorded session and never starts recording. Claude hook installation by `c4view init` is the Claude opt-in.
 6. **Resource ownership is scoped.** Use Effect-returning module functions and
    scoped acquisition/finalization for renderers, polling and processes. Preserve
    signal cancellation, editor process-group cleanup, initialization/draw ordering,

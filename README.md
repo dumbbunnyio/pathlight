@@ -21,6 +21,30 @@ Native mode needs no browser installation or terminal image protocol. For PNG mo
 The PNG exporter enables Chromium sandboxing. Do not disable it to work around a host configuration problem.
 Only open trusted LikeC4 workspaces. LikeC4 can load executable JavaScript or TypeScript project configuration.
 
+## Quick start (Claude Code and OpenCode)
+
+From the project you work in, with its LikeC4 model:
+
+```sh
+bun run --cwd /path/to/visualize-work c4view init --workspace /path/to/project
+```
+
+`init` adds the Claude Code hooks to `.claude/settings.local.json` (per-user), writes a `/c4view` slash command,
+registers the OpenCode plugin, and creates `c4view.activity.json` if absent. It maps only elements whose name matches
+a directory or file that exists; review it and add globs for the rest. Re-running `init` is safe and never overwrites an existing mapping.
+
+Then, in tmux, run `/c4view` in Claude Code (or `/c4view VIEW_ID`). The viewer opens beside the conversation and
+follows the most recently active recorded session with `--follow`, so you need no pane or session IDs. You can also run it yourself:
+
+```sh
+bun run c4view show VIEW --workspace /path/to/project --follow
+```
+
+Installing the Claude hooks is the opt-in for Claude recording; remove them to stop. OpenCode still records only after a `live: true` request.
+`--follow` only reads journals: it never starts recording, and it switches to whichever recorded session wrote last, so subagent sessions are not merged.
+The header shows `LIVE source:session` with a spinner while a tool runs, the footer shows the latest call, and the inspector lists recent calls with their age.
+Nodes show `r`/`e` counts of retained reads and edits. Press `a` to make the camera glide to the node of the newest running tool; it is off by default and never changes your selection.
+
 ## Open a diagram
 
 Inside tmux, list the example diagrams, then show one:
@@ -130,7 +154,7 @@ Unmapped paths remain visible as `unmapped`. Long-running calls become `unconfir
 This is an observation-age indicator, not proof that the agent disconnected or the tool stopped.
 Selection and pan remain unchanged as activity arrives. PNG zoom is also preserved. Reopening the viewer reads retained activity.
 
-For Claude Code, copy the hooks from `plugins/claude/hooks.example.json` into your project settings and replace the absolute plugin path.
+For Claude Code, `c4view init` installs these hooks. To do it by hand, copy the hooks from `plugins/claude/hooks.example.json` into your project settings and replace the absolute plugin path.
 Merge the hooks with existing settings; do not replace unrelated configuration.
 The hook runs asynchronously and exits successfully even if observation fails.
 The adapter accepts `PreToolUse`, `PostToolUse`, and `PostToolUseFailure`; it has been tested with hook payloads, not an interactive Claude session.

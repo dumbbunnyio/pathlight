@@ -87,6 +87,15 @@ Fast tools may show only their final state. White borders identify selection ind
 Unselected READ and EDIT borders pulse gently while the tool is active. Outcome states do not pulse. Connections do not animate or imply observed traffic.
 Groups show their own mapped activity in their title. A child's activity does not automatically mark its parent active.
 
+## Follow mode and the live display
+
+`--follow` binds to the newest recorded session in the workspace and re-binds when another session writes later.
+Until a session records, the header reads `LIVE waiting for a session`.
+The header shows a spinner while a tool runs. The footer starts with the latest call, and the inspector lists six recent calls with their age (`EDIT 3s`, `done 1m`, `FAIL`, `????` for unconfirmed).
+Nodes show `r` and `e` counts for retained reads and edits (groups append them to the title). Counts describe the retained journal, not totals.
+Nodes that saw work in the last 90 seconds carry a faint tint (warm for edits, cool for reads) that cools in three coarse steps, so you can see where the agent has been.
+Press `a` to let the camera glide to the node of the newest running tool. It never changes the selection, and it is off until you press `a`.
+
 Run the repeatable terminal check:
 
 ```sh
