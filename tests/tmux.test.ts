@@ -151,7 +151,7 @@ test("default native show records activity, and replaces during search in the ow
   const first = await native("services");
   const pane = first.pane;
   expect((await readdir(join(nativeWorkspace, ".cache", "c4view"))).filter(file => file.startsWith("render-"))).toEqual([]);
-  await capture(pane, "BRAILLE + Three camera");
+  await capture(pane, "Zoom:");
   await tmux("send-keys", "-t", pane, "/");
   await tmux("send-keys", "-t", pane, "-l", "Orders");
   await capture(pane, "Search 1/1");
@@ -170,7 +170,7 @@ test("default native show records activity, and replaces during search in the ow
   expect((await native("checkout")).pane).toBe(pane);
   await capture(pane, "Checkout detail");
   expect((await native("services")).pane).toBe(pane);
-  expect(await capture(pane, "BRAILLE + Three camera")).toContain("Service architecture");
+  expect(await capture(pane, "Zoom:")).toContain("Service architecture");
   expect(await tmux("display-message", "-p", "-t", nativeParent, "#{pane_current_command}")).toBe("sleep");
 }, 120_000);
 

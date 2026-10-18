@@ -37,7 +37,7 @@ test("t types a question about the selected node into the harness pane; Alt+Ente
     await until(shown.pane, text => text.includes("Selected: plugin"), "viewer");
     await delay(700);
     await tmux("send-keys", "-t", shown.pane, "t");
-    await until(shown.pane, text => text.includes("Enter types it into your agent prompt"), "ask prompt");
+    await until(shown.pane, text => text.includes("Ask the agent"), "ask prompt");
     await tmux("send-keys", "-t", shown.pane, "-l", "why does this exist?");
     await tmux("send-keys", "-t", shown.pane, "Enter");
     const typed = await until(harness, text => text.includes("why does this exist?"), "text in the harness pane");
@@ -48,7 +48,7 @@ test("t types a question about the selected node into the harness pane; Alt+Ente
     // Without Alt the text is only typed: cat has not received a newline, so it has not echoed the line back.
     expect(typed.match(/About the "Agent adapters"/g)).toHaveLength(1);
     await tmux("send-keys", "-t", shown.pane, "t");
-    await until(shown.pane, text => text.includes("Enter types it into your agent prompt"), "second ask prompt");
+    await until(shown.pane, text => text.includes("Ask the agent"), "second ask prompt");
     await tmux("send-keys", "-t", shown.pane, "-l", "second one");
     await tmux("send-keys", "-t", shown.pane, "M-Enter");
     await until(shown.pane, text => text.includes("Sent to"), "sent notice");

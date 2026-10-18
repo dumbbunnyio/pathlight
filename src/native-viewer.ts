@@ -1,4 +1,4 @@
-import { BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRenderable, TextRenderable, StyledText, fg, bold, dim, RGBA, createCliRenderer } from "@opentui/core";
+import { BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRenderable, TextRenderable, StyledText, type TextChunk, fg, bg, bold, dim, RGBA, createCliRenderer } from "@opentui/core";
 import { THREE, ThreeCliRenderer } from "@opentui/three";
 import { SplitPaneRenderable } from "opentui-split";
 import { Effect, FiberSet, Schedule } from "effect";
@@ -8,6 +8,7 @@ import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, late
 import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
 import { askMessage, sendToPane } from "./ask";
+import { type Hint, hintChunks, noticeStyle, palette, pill } from "./ui";
 import { arrowGlyph, composeConnectors, terminalConnectors } from "./connectors";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
@@ -37,8 +38,6 @@ const getDiagram = (id: string) => {
 };
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
 let rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
-const palette = { background: "#0f141b", panel: "#151d27", node: "#1b2532", border: "#526171", muted: "#93a4b5",
-  text: "#e7eff7", incoming: "#68cfda", outgoing: "#e9bd70", command: "#b79cf2", grid: "#1d2835", edgeLow: "#33404f", edgeHigh: "#7d90a6", failure: "#f08080" };
 if (!process.stdin.isTTY || !process.stdout.isTTY) return yield* Effect.fail(failure("Native.terminal", "The native viewer needs a terminal. Use c4view show to open a tmux pane."));
 const renderer = yield* Effect.acquireRelease(io("Native.renderer", () => createCliRenderer({ exitOnCtrlC: false, exitSignals: [], consoleMode: "disabled", targetFps: 30, backgroundColor: palette.background })),
   renderer => io("Native.close", async () => { renderer.destroy(); await renderer.closed; }).pipe(Effect.orDie));
@@ -60,14 +59,20 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
   for (const resource of resources) resource.dispose();
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
-  const topBar = new BoxRenderable(renderer, { height: 3, flexShrink: 0, border: ["bottom"], borderColor: palette.border, paddingLeft: 1 });
-  const heading = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.text, wrapMode: "none" });
-  const breadcrumb = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none",
-    content: `${view.project} / ${diagram.id}  ·  ${diagram.nodes.length} nodes  ·  ${diagram.edges.length} relationships` });
-  topBar.add(heading); topBar.add(breadcrumb);
+  const topBar = new BoxRenderable(renderer, { height: 3, flexShrink: 0, border: ["bottom"], borderColor: palette.border, paddingLeft: 1, paddingRight: 1 });
+  const row = () => new BoxRenderable(renderer, { height: 1, width: "100%", flexShrink: 0, flexDirection: "row", justifyContent: "space-between" });
+  const headingText = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.text, wrapMode: "none" });
+  const badgeText = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
+  const heading = row();
+  heading.add(headingText); heading.add(badgeText);
+  const breadcrumb = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
+  const crumbHint = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
+  const breadcrumbRow = row();
+  breadcrumbRow.add(breadcrumb); breadcrumbRow.add(crumbHint);
+  topBar.add(heading); topBar.add(breadcrumbRow);
   const searchInput = new InputRenderable(renderer, { width: "100%", visible: false, maxLength: 256,
     placeholder: "Search nodes in this view", backgroundColor: palette.panel, textColor: palette.text });
-  topBar.insertBefore(searchInput, breadcrumb);
+  topBar.insertBefore(searchInput, breadcrumbRow);
   const body = new SplitPaneRenderable(renderer, { flexGrow: 1, flexBasis: 0, minHeight: 1, direction: "horizontal",
     gutterOptions: { color: palette.border } });
   const viewport = new BoxRenderable(renderer, { minHeight: 1, overflow: "hidden" });
@@ -84,26 +89,45 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const activityText = new TextRenderable(renderer, { selectable: false, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
   for (const child of [inspectorTitle, inspectorId, relations, fileHeading, ...fileRows, activityText]) inspectorScroll.add(child);
   inspector.add(inspectorScroll);
-  const footer = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, bg: palette.panel, wrapMode: "none" });
+  const statusLeft = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
+  const statusRight = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
+  const footer = new BoxRenderable(renderer, { height: 1, flexShrink: 0, flexDirection: "row", justifyContent: "space-between", backgroundColor: palette.panel, paddingLeft: 1, paddingRight: 1 });
+  footer.add(statusLeft); footer.add(statusRight);
   const shortcuts = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
-  const notice = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, visible: false, fg: palette.outgoing, wrapMode: "none" });
-  const help = new BoxRenderable(renderer, { position: "absolute", left: 2, top: 3, width: "90%", height: 25,
-    border: true, borderStyle: "rounded", borderColor: palette.incoming, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
-    zIndex: 20000, visible: false, title: " Keyboard shortcuts " });
-  const helpShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
-    zIndex: 19000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); } });
+  const notice = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, visible: false, fg: palette.text, wrapMode: "none" });
+  // A floating dialog over a dimmed backdrop: rounded border, coloured title, body, and a row of key hints.
+  const makeModal = (title: string, color: string) => {
+    const scrim = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", zIndex: 19000, visible: false,
+      backgroundColor: RGBA.fromValues(0.03, 0.04, 0.06, 0.7), onMouse(event) { event.preventDefault(); event.stopPropagation(); } });
+    const panel = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: 60, height: 10, border: true, borderStyle: "rounded", borderColor: color,
+      backgroundColor: palette.panel, title: ` ${title} `, titleColor: color, titleAlignment: "left", paddingLeft: 2, paddingRight: 2, paddingTop: 1,
+      zIndex: 20000, visible: false, flexDirection: "column" });
+    const content = new TextRenderable(renderer, { selectable: false, fg: palette.text, wrapMode: "none", flexShrink: 0 });
+    const foot = new TextRenderable(renderer, { selectable: false, fg: palette.muted, wrapMode: "none", flexShrink: 0, marginTop: 1 });
+    panel.add(content); panel.add(foot);
+    const place = (width: number, height: number) => {
+      const w = Math.max(20, Math.min(width, renderer.width - 2)), h = Math.max(5, Math.min(height, renderer.height - 2));
+      panel.width = w; panel.height = h;
+      panel.left = Math.floor((renderer.width - w) / 2); panel.top = Math.max(1, Math.floor((renderer.height - h) / 3));
+    };
+    return { scrim, panel, content, foot, place,
+      get visible() { return panel.visible; },
+      open(width: number, height: number) { place(width, height); scrim.visible = panel.visible = true; },
+      close() { scrim.visible = panel.visible = false; } };
+  };
+  const help = makeModal("Keyboard shortcuts", palette.incoming);
+  const summary = makeModal("This session", palette.outgoing);
+  const ask = makeModal("Ask the agent", palette.command);
+  const askInput = new InputRenderable(renderer, { flexGrow: 1, maxLength: 400, placeholder: "What do you want to know about it?", backgroundColor: palette.background,
+    textColor: palette.text, focusedBackgroundColor: palette.background });
+  const askRow = new BoxRenderable(renderer, { height: 1, width: "100%", flexShrink: 0, flexDirection: "row", backgroundColor: palette.background, marginTop: 1 });
+  askRow.add(new TextRenderable(renderer, { selectable: false, content: " › ", fg: palette.command, wrapMode: "none", flexShrink: 0 })); askRow.add(askInput);
+  ask.panel.insertBefore(askRow, ask.foot);
   const searchShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 3, width: "100%", height: 1,
     zIndex: 10000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); searchInput.focus(); } });
-  const helpText = new TextRenderable(renderer, { selectable: false, fg: palette.text, wrapMode: "word" });
-  help.add(helpText);
-  const summary = new BoxRenderable(renderer, { position: "absolute", left: 4, top: 3, width: "80%", height: Math.max(8, Math.min(26, renderer.height - 6)),
-    border: true, borderStyle: "rounded", borderColor: palette.outgoing, backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2,
-    zIndex: 20000, visible: false, title: " This session " });
-  const summaryText = new TextRenderable(renderer, { selectable: false, fg: palette.text, wrapMode: "none" });
-  summary.add(summaryText);
   viewport.add(canvas); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
-  for (const child of [topBar, body, notice, footer, shortcuts, searchShield, helpShield, help, summary]) renderer.root.add(child);
+  for (const child of [topBar, body, notice, footer, shortcuts, searchShield, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel]) renderer.root.add(child);
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
   let centerX = diagram.bounds.x + diagram.bounds.width / 2;
   let centerY = diagram.bounds.y + diagram.bounds.height / 2;
@@ -135,28 +159,37 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let vimTraverses = true;
   const selectKeys = () => vimTraverses ? "h j k l" : "Arrows";
   const panKeys = () => vimTraverses ? "Arrows" : "h j k l";
-  const helpContent = () => `NAVIGATE
-  ${selectKeys().padEnd(18)} Select the neighbor in that direction
-  ${panKeys().padEnd(18)} Pan (Shift+${vimTraverses ? "hjkl" : "arrows"} also pans)
-  v                  Swap: ${vimTraverses ? "arrows select, hjkl pan" : "hjkl select, arrows pan"}
-  Tab / Shift+Tab    Next / previous node
-  + / -              Zoom
-  f / 0 / r          Fit / actual size / center selection
-  Enter / Backspace  Child / parent
-  o / b              Open linked view / back
-
-INSPECT
-  /                  Search this view
-  i                  Toggle inspector
-  w                  Select what the agent is working on
-  t                  Ask the agent about the selected node
-  c                  This session: what was touched
-  a                  Camera follows running tools
-  Counts on nodes:   r reads · e edits · c commands
-  PageUp / PageDown  Scroll inspector
-  e                  Browse mapped files
-  ? / Escape         Close help
-  q                  Quit`;
+  // Two columns of keycaps and what they do; one column when the terminal is narrow.
+  const helpContent = () => {
+    const arrows = "← ↑ ↓ →";
+    const navigate: Hint[] = [[vimTraverses ? "h j k l" : arrows, "select a neighbour"], [vimTraverses ? arrows : "h j k l", "pan"], ["+ -", "zoom"], ["f", "fit everything"],
+      ["0", "actual size"], ["r", "centre the selection"], ["Tab", "next node"], ["Enter", "into a group / open a link"], ["Backspace", "up to the parent"],
+      ["o", "open the linked view"], ["b", "back"]];
+    const inspect: Hint[] = [["/", "search this view"], ["i", "toggle the inspector"], ["e", "browse mapped files"], ["t", "ask the agent about it"],
+      ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "camera follows the work"], ["v", "swap hjkl and arrows"],
+      ["PgUp PgDn", "scroll the inspector"], ["?", "this help"], ["q", "quit"]];
+    const keyWidth = 9;
+    const cell = ([key, label]: Hint) => [bg(palette.keycap)(fg(palette.text)(` ${key.padEnd(keyWidth)} `)), fg(palette.muted)(` ${label}`)];
+    const cellText = ([key, label]: Hint) => ` ${key.padEnd(keyWidth)}  ${label}`.length;
+    const chunks: TextChunk[] = [];
+    const wide = renderer.width >= 92;
+    if (wide) {
+      const column = 46;
+      chunks.push(fg(palette.incoming)(bold("NAVIGATE".padEnd(column))), fg(palette.outgoing)(bold("INSPECT AND ACT")), nl, nl);
+      for (let index = 0; index < Math.max(navigate.length, inspect.length); index++) {
+        const left = navigate[index], right = inspect[index];
+        if (left) chunks.push(...cell(left)); chunks.push(fg(palette.muted)(" ".repeat(Math.max(1, column - (left ? cellText(left) : 0)))));
+        if (right) chunks.push(...cell(right));
+        chunks.push(nl);
+      }
+    } else {
+      chunks.push(fg(palette.incoming)(bold("NAVIGATE")), nl);
+      for (const hint of navigate) chunks.push(...cell(hint), nl);
+      chunks.push(nl, fg(palette.outgoing)(bold("INSPECT AND ACT")), nl);
+      for (const hint of inspect) chunks.push(...cell(hint), nl);
+    }
+    return { content: new StyledText(chunks), lines: chunks.filter(chunk => chunk.text.includes("\n")).length };
+  };
   const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
   const isActive = (event: ActivityEvent) => event.phase === "started" && Date.now() - event.time <= 30_000;
   const operationColor = (operation: ActivityEvent["operation"]) => operation === "edit" ? palette.outgoing : operation === "read" ? palette.incoming : operation === "command" ? palette.command : palette.muted;
@@ -175,12 +208,13 @@ INSPECT
     }
   };
   const liveLabel = () => binding ? `${binding.source}:${binding.session.slice(0, 8)}` : "waiting for a session";
-  const headingContent = () => {
-    const title = `C4VIEW  /  ${diagram.title ?? diagram.id}`;
-    if (!binding && !following) return title;
+  const headingContent = () => new StyledText([fg(palette.incoming)("◆ "), fg(palette.muted)(bold("C4VIEW")), fg(palette.border)("  /  "),
+    fg(palette.text)(bold(diagram.title ?? String(diagram.id)))]);
+  // Right-hand badge: the live session when there is one, otherwise nothing at all.
+  const badgeContent = () => {
+    if (!binding && !following) return "";
     const busy = events.some(isActive);
-    return new StyledText([fg(palette.text)(title),
-      fg(busy ? palette.outgoing : binding ? palette.incoming : palette.muted)(`   ${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} LIVE ${liveLabel()}`)]);
+    return new StyledText([pill(`${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} LIVE ${liveLabel()}`, busy ? palette.outgoing : binding ? palette.incoming : palette.keycap)]);
   };
   let activityError = "";
   const layout = () => {
@@ -323,7 +357,7 @@ INSPECT
   };
   // What the retained journal says the agent did: observed counts only, never a claim about outcomes.
   const summaryContent = () => {
-    summary.height = 4;
+    summary.place(60, 5);
     if (!binding || !config) return new StyledText([fg(palette.muted)("Not bound to an agent session. Start the viewer with --follow or --session.")]);
     if (!events.length) return new StyledText([fg(palette.muted)("No calls recorded yet.")]);
     const now = Date.now();
@@ -357,16 +391,18 @@ INSPECT
         fg(palette.muted)(`×${info.count}  ${info.element ? elementTitle(info.element) : "no component"}`), nl);
     }
     if (!files.length) chunks.push(fg(palette.muted)("  no edits observed"), nl);
-    chunks.push(nl, fg(palette.border)("Counts come from the retained calls, not totals. Commands show files they name.  Esc closes"));
-    summary.height = Math.min(renderer.height - 6, chunks.filter(chunk => chunk.text.includes("\n")).length + 3);
+    chunks.push(nl, fg(palette.border)("Counts come from the retained calls, not totals. Commands show files they name."));
+    summary.place(Math.min(100, renderer.width - 6), chunks.filter(chunk => chunk.text.includes("\n")).length + 7);
     return new StyledText(chunks);
   };
   const tickerContent = () => {
-    if (!binding || !config) return "";
+    if (!binding || !config) return undefined;
     const [row] = activityRows(events, config, Date.now(), 1);
-    if (!row || row.age > 120_000) return "";
+    if (!row || row.age > 120_000) return undefined;
     const label = row.state === "started" ? row.operation.toUpperCase() : row.state === "completed" ? "done" : row.state === "failed" ? "FAIL" : "????";
-    return ` ● ${label} ${row.target} → ${row.elements.join(", ") || "unmapped"} · ${formatAge(row.age)}`;
+    const tone = row.state === "failed" ? palette.failure : row.state === "started" ? operationColor(row.operation) : palette.muted;
+    return [fg(tone)(" ● "), fg(tone)(bold(label)), fg(palette.text)(` ${row.target} `), fg(palette.muted)("→ "), fg(row.elements.length ? palette.incoming : palette.muted)(row.elements.join(", ") || "unmapped"),
+      fg(palette.muted)(` · ${formatAge(row.age)}`)];
   };
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
@@ -413,7 +449,8 @@ INSPECT
   const cardColor = (node: { color?: unknown }) => { const hue = hues[String(node.color ?? "")]; return hue ? mix(palette.node, hue, 0.1) : RGBA.fromHex(palette.node); };
   const update = () => {
     layout();
-    heading.content = headingContent();
+    headingText.content = headingContent(); badgeText.content = badgeContent();
+    crumbHint.content = new StyledText(hintChunks([["t", "ask"], ["c", "session"], ["?", "help"]], 26));
     breadcrumb.content = search ? `Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length} · Enter keep · Esc cancel`
       : `${view.project} / ${diagram.id}  ·  ${diagram.nodes.length} nodes  ·  ${diagram.edges.length} relationships  ·  Back: ${history.length}`;
     searchShield.visible = !!search;
@@ -529,11 +566,18 @@ INSPECT
         fileCursor = clickedFile = start + index; message = "Click again or Enter to open · Esc or click the diagram to go back"; searchInput.focus(); update(); };
     });
     activityText.content = activityContent();
-    if (summary.visible) summaryText.content = summaryContent();
+    if (summary.visible) summary.content.content = summaryContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    footer.content = ` ${braille ? "BRAILLE + Three camera" : "GPU + Three camera"} | Zoom: ${Math.round(16 / scale * 100)}% | Selected: ${selected?.id}${hidden ? ` | ${hidden} labels hidden` : ""}`;
-    shortcuts.content = asking ? ` Ask about ${asking.title} · Enter types it into your agent prompt · Alt+Enter also sends · Esc cancels` : search ? " Type a name or ID · ↑↓/Tab matches · Enter keep · Esc restore" : fileMode ? ` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length} · Type to filter · Enter edit · Ctrl+R refresh · Esc diagram` : tickerContent() || ` ${selectKeys()} select · ${panKeys()} pan · +/- zoom · / search · f fit · e files · i inspect · ? help`;
-    notice.visible = !!message; notice.content = ` ${message}`;
+    const mode = fileMode ? { name: "FILES", color: palette.outgoing } : search ? { name: "SEARCH", color: palette.incoming } : { name: "VIEW", color: palette.incoming };
+    statusLeft.content = new StyledText([pill(mode.name, mode.color), fg(palette.muted)("  Selected: "), fg(palette.text)(bold(String(selected?.id ?? "")))]);
+    statusRight.content = new StyledText([...(braille ? [] : [fg(palette.outgoing)("GPU + Three camera  ·  ")]), ...(hidden ? [fg(palette.border)(`${hidden} labels hidden  ·  `)] : []), fg(palette.muted)(`Zoom: ${Math.round(16 / scale * 100)}%`)]);
+    const ticker = tickerContent();
+    const navigation: Hint[] = [[selectKeys(), "select"], [vimTraverses ? "←↑↓→" : "h j k l", "pan"], ["+ -", "zoom"], ["/", "search"], ["f", "fit"], ["e", "files"], ["i", "inspector"]];
+    shortcuts.content = new StyledText(search ? [fg(palette.muted)(" Type a name or ID   "), ...hintChunks([["↑↓", "matches"], ["Enter", "keep"], ["Esc", "restore"]], renderer.width - 22)]
+      : fileMode ? [fg(palette.outgoing)(bold(` Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`)), fg(palette.muted)("   Type to filter   "), ...hintChunks([["Enter", "open"], ["Ctrl+R", "refresh"], ["Esc", "back"]], renderer.width - 40)]
+      : ticker ?? hintChunks(navigation, renderer.width));
+    notice.visible = !!message;
+    if (message) { const style = noticeStyle(message); notice.content = new StyledText([fg(style.color)(` ${style.glyph} `), fg(palette.text)(message)]); }
     dirty = true; renderer.requestRender();
   };
   const fit = () => {
@@ -641,22 +685,33 @@ INSPECT
   };
   // Ask about a node: type a question, with the component's context, into the agent's own tmux pane.
   let asking: typeof selected;
+  const askContext = (target: NonNullable<typeof selected>) => {
+    const title = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
+    const links = [...diagram.edges.filter(edge => edge.source === target.id).map(edge => `→ ${title(edge.target)}`),
+      ...diagram.edges.filter(edge => edge.target === target.id).map(edge => `← ${title(edge.source)}`)];
+    return { files: files.get(String(target.modelRef ?? "")) ?? [], links };
+  };
   const beginAsk = () => {
     if (!options.parent) { message = "Ask needs the viewer opened with c4view show, which knows your agent's pane"; update(); return; }
     if (!selected) return;
     asking = selected; animating = false;
-    searchInput.placeholder = `Ask the agent about ${selected.title}`; searchInput.value = "";
-    heading.visible = false; searchInput.visible = true; searchInput.focus(); message = ""; update();
+    const context = askContext(selected);
+    ask.content.content = new StyledText([fg(palette.muted)("About  "), fg(palette.text)(bold(selected.title)), fg(palette.muted)(`  ${selected.id}`), nl,
+      fg(palette.muted)("Sends  "), fg(palette.text)(`${context.files.length} file${context.files.length === 1 ? "" : "s"} · ${context.links.length} connection${context.links.length === 1 ? "" : "s"}`),
+      fg(palette.muted)("  with it")]);
+    const inner = Math.min(76, renderer.width - 4) - 6;
+    ask.foot.content = new StyledText(hintChunks([["Enter", "type it in"], ["Alt+Enter", "send"], ["Esc", "cancel"]], inner));
+    askInput.value = "";
+    ask.open(Math.min(76, renderer.width - 4), 10);
+    askInput.focus(); message = ""; update();
   };
-  const finishAsk = () => { asking = undefined; searchInput.blur(); searchInput.visible = false; heading.visible = true; update(); };
+  const finishAsk = () => { asking = undefined; askInput.blur(); ask.close(); update(); };
   const sendAsk = (submit: boolean) => {
-    const target = asking, parent = options.parent, question = searchInput.value.trim();
+    const target = asking, parent = options.parent, question = askInput.value.trim();
     if (!target || !parent) return;
     if (!question) { message = "Type a question first"; update(); return; }
-    const title = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
-    const links = [...diagram.edges.filter(edge => edge.source === target.id).map(edge => `→ ${title(edge.target)}`),
-      ...diagram.edges.filter(edge => edge.target === target.id).map(edge => `← ${title(edge.source)}`)];
-    const text = askMessage({ title: target.title, id: String(target.id), files: files.get(String(target.modelRef ?? "")) ?? [], links }, question);
+    const context = askContext(target);
+    const text = askMessage({ title: target.title, id: String(target.id), files: context.files, links: context.links }, question);
     finishAsk(); message = "Sending…"; update();
     runTask(sendToPane(parent, text, submit).pipe(
       Effect.tap(command => Effect.sync(() => { message = submit ? `Sent to ${parent} (${command})` : `Typed into ${parent} (${command}) · press Enter there to send`; update(); })),
@@ -725,10 +780,10 @@ INSPECT
     }
     if (summary.visible) {
       key.preventDefault();
-      if (key.name === "escape" || key.name === "c" || key.sequence === "?") { summary.visible = false; helpShield.visible = false; update(); }
+      if (key.name === "escape" || key.name === "c" || key.sequence === "?") { summary.close(); update(); }
       return;
     }
-    if (help.visible) { key.preventDefault(); if (key.name === "escape" || key.sequence === "?") { help.visible = false; helpShield.visible = false; }
+    if (help.visible) { key.preventDefault(); if (key.name === "escape" || key.sequence === "?") help.close();
       else if (key.ctrl && key.name === "c") stop(); return; }
     if (!fileMode && key.sequence === "/") {
       key.preventDefault(); animating = false;
@@ -754,7 +809,7 @@ INSPECT
     const vimKey = key.name.length === 1;
     if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
     if (!fileMode && key.name === "c" && !key.ctrl) {
-      key.preventDefault(); summaryText.content = summaryContent(); summary.visible = true; helpShield.visible = true; update(); return;
+      key.preventDefault(); summary.foot.content = new StyledText(hintChunks([["Esc", "close"]], 40)); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
     }
     if (!fileMode && key.name === "w" && !key.ctrl) {
       key.preventDefault();
@@ -795,7 +850,7 @@ INSPECT
         const path = paths[fileCursor];
         if (path) openFile(path);
       }
-    } else if (key.sequence === "?") { helpText.content = helpContent(); help.visible = true; helpShield.visible = true; }
+    } else if (key.sequence === "?") { const guide = helpContent(); help.content.content = guide.content; help.foot.content = new StyledText(hintChunks([["Esc", "close"]], 40)); help.open(Math.min(96, renderer.width - 4), guide.lines + 7); }
     else if (key.name === "i") { inspectorPreference = inspector.visible ? "closed" : "open"; }
     else if (key.name === "pageup" || key.name === "pagedown") { inspectorScroll.scrollBy(key.name === "pageup" ? -5 : 5); }
     else if (key.name === "a") {

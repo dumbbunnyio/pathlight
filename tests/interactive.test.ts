@@ -408,7 +408,7 @@ test.each([
       let output = "";
       for (let attempt = 0; attempt < 120; attempt++) {
         output = await tmux("capture-pane", "-p", "-t", pane);
-        if (text.startsWith("Selected:") ? output.split("\n").some(line => line.split(" | ").includes(text)) : output.includes(text)) return output;
+        if (text.startsWith("Selected:") ? new RegExp(`${text.replace(/\./g, "\\.")}(?=\\s|$)`, "m").test(output) : output.includes(text)) return output;
         await delay(50);
       }
       throw new Error(`Missing ${text}:\n${output}`);

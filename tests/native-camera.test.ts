@@ -36,7 +36,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await tmux("send-keys", "-t", pane, "0");
     await delay(700);
     const rendered = await tmux("capture-pane", "-p", "-t", pane);
-    expect(rendered).toContain("BRAILLE + Three camera");
+    expect(rendered).toContain("Zoom:");
     expect(rendered).toMatch(/[\u2801-\u28ff]/);
     expect(rendered).toMatch(/[▶◀▲▼]/);
     expect(rendered).toMatch(/─{5,}▶/);
@@ -78,7 +78,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     expect(alternate).toContain("Selected: activity");
     expect(zoom(alternate)).toBe(zoom(zoomed));
     await tmux("send-keys", "-t", pane, "g");
-    await capture("BRAILLE + Three camera");
+    await capture("Zoom:");
     await writeFile(resolve(".cache/native-check/capture-braille.ansi"), await tmux("capture-pane", "-e", "-p", "-t", pane));
     await tmux("resize-window", "-t", pane, "-x", "100", "-y", "36");
     await delay(250);
@@ -98,7 +98,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await capture("Keyboard shortcuts");
     await tmux("send-keys", "-t", pane, "Right", "Tab", "q", "Escape");
     await delay(200);
-    expect(await capture("Selected: activity")).toContain("BRAILLE + Three camera");
+    expect(await capture("Selected: activity")).toContain("Zoom:");
     expect(await tmux("capture-pane", "-p", "-t", pane)).not.toContain("Keyboard shortcuts");
     await tmux("send-keys", "-t", pane, "e");
     await capture("› src/activity.ts");
@@ -113,7 +113,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await capture("› src/z6.ts");
     await tmux("resize-window", "-t", pane, "-x", "100", "-y", "20");
     await delay(250);
-    expect(await capture("› src/z6.ts")).toContain("Enter edit");
+    expect(await capture("› src/z6.ts")).toMatch(/Enter\s+open/);
     await tmux("send-keys", "-t", pane, "Escape");
     await delay(200);
     await tmux("resize-window", "-t", pane, "-x", "160", "-y", "42");
