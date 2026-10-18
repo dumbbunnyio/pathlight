@@ -36,7 +36,7 @@ const getDiagram = (id: string) => {
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
 const rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
 const palette = { background: "#0f141b", panel: "#151d27", node: "#1b2532", border: "#526171", muted: "#93a4b5",
-  text: "#e7eff7", incoming: "#68cfda", outgoing: "#e9bd70", failure: "#f08080" };
+  text: "#e7eff7", incoming: "#68cfda", outgoing: "#e9bd70", command: "#b79cf2", failure: "#f08080" };
 if (!process.stdin.isTTY || !process.stdout.isTTY) return yield* Effect.fail(failure("Native.terminal", "The native viewer needs a terminal. Use c4view show to open a tmux pane."));
 const renderer = yield* Effect.acquireRelease(io("Native.renderer", () => createCliRenderer({ exitOnCtrlC: false, exitSignals: [], consoleMode: "disabled", targetFps: 30, backgroundColor: palette.background })),
   renderer => io("Native.close", async () => { renderer.destroy(); await renderer.closed; }).pipe(Effect.orDie));
@@ -146,7 +146,7 @@ INSPECT
   q                  Quit`;
   const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
   const isActive = (event: ActivityEvent) => event.phase === "started" && Date.now() - event.time <= 30_000;
-  const operationColor = (operation: ActivityEvent["operation"]) => operation === "edit" ? palette.outgoing : operation === "read" ? palette.incoming : palette.muted;
+  const operationColor = (operation: ActivityEvent["operation"]) => operation === "edit" ? palette.outgoing : operation === "read" ? palette.incoming : operation === "command" ? palette.command : palette.muted;
   const mix = (from: string, to: string, amount: number) => {
     const a = RGBA.fromHex(from), b = RGBA.fromHex(to);
     return RGBA.fromValues(a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount, a.b + (b.b - a.b) * amount, 1);
@@ -249,8 +249,9 @@ INSPECT
     return new StyledText([header, ...rows.flatMap(row => {
       const badge = row.state === "failed" ? "FAIL" : row.state === "unconfirmed" ? "????" : row.state === "started" ? row.operation.toUpperCase().padEnd(4) : "done";
       const tone = row.state === "failed" ? palette.failure : row.state === "completed" || row.state === "unconfirmed" ? palette.muted : operationColor(row.operation);
-      return [fg(tone)(`${badge} ${formatAge(row.age).padStart(3)} `), fg(palette.text)(`${row.target}\n`),
-        fg(palette.muted)(`        ${row.elements.join(", ") || "unmapped"}\n`)];
+      const mapped = row.elements.length > 0;
+      return [fg(tone)(`${badge} ${formatAge(row.age).padStart(3)} `), fg(mapped ? palette.text : palette.muted)(`${row.target}\n`),
+        fg(mapped ? palette.incoming : palette.muted)(`        ${row.elements.join(", ") || "unmapped"}\n`)];
     })]);
   };
   const tickerContent = () => {
@@ -277,17 +278,18 @@ INSPECT
     for (const entry of nodeObjects) {
       const related = byElement.get(String(entry.node.modelRef)) ?? [];
       const reads = related.filter(event => event.operation === "read").length, edits = related.filter(event => event.operation === "edit").length;
-      const counts = [reads && `r${reads}`, edits && `e${edits}`].filter(Boolean).join(" ");
+      const runs = related.filter(event => event.operation === "command").length;
+      const counts = [reads && `r${reads}`, edits && `e${edits}`, runs && `c${runs}`].filter(Boolean).join(" ");
       const active = related.filter(isActive);
       const recent = related.find(event => Date.now() - event.time <= 5000);
-      const state = active.length ? active.some(event => event.operation === "edit") ? "EDIT" : "READ"
+      const state = active.length ? active.some(event => event.operation === "edit") ? "EDIT" : active.some(event => event.operation === "read") ? "READ" : "RUN"
         : recent?.phase === "failed" ? "FAILED" : recent?.phase === "completed" ? "DONE" : "";
       const incoming = diagram.edges.some(edge => edge.target === selected?.id && edge.source === entry.node.id);
       const outgoing = diagram.edges.some(edge => edge.source === selected?.id && edge.target === entry.node.id);
       entry.box.borderColor = entry.node.id === selected?.id ? palette.text : state === "FAILED" ? palette.failure
-        : state === "EDIT" || outgoing ? palette.outgoing : state === "READ" || incoming ? palette.incoming : palette.border;
+        : state === "EDIT" || outgoing ? palette.outgoing : state === "READ" || incoming ? palette.incoming : state === "RUN" ? palette.command : palette.border;
       if (active.length && entry.node.id !== selected?.id) {
-        const pulse = RGBA.fromHex(state === "EDIT" ? palette.outgoing : palette.incoming);
+        const pulse = RGBA.fromHex(state === "EDIT" ? palette.outgoing : state === "RUN" ? palette.command : palette.incoming);
         const brightness = 0.72 + 0.28 * (1 + Math.sin(Date.now() / 220)) / 2;
         pulse.r *= brightness; pulse.g *= brightness; pulse.b *= brightness;
         entry.box.borderColor = pulse;

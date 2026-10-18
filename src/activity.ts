@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Effect, Schema, Result } from "effect";
@@ -34,6 +35,17 @@ export const activityDirectory = Effect.fn("Activity.directory")(function* (work
   return join(root, ".cache", "c4view", "activity", id);
 });
 
+/**
+ * Existing workspace files that a shell command names. Only these paths are kept, never the command text:
+ * a mention is not proof the command read or wrote the file.
+ */
+const commandPaths = (workspace: string, command: string) => {
+  const tokens = [...new Set(command.match(/[\w@%+=:,.~/-]*[\w-]\.[\w-]+|[\w@%+=:,.~-]+\/[\w@%+=:,.~/-]+/g) ?? [])].slice(0, 200);
+  return tokens.filter(token => token.length <= 512 && !token.startsWith("-") && !token.includes("://")).filter(token => {
+    try { return statSync(resolve(workspace, token)).isFile(); } catch { return false; }
+  });
+};
+
 export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace: string, binding: ActivityBinding, call: string, tool: string,
   input: unknown, phase: ActivityEvent["phase"]) {
   const args = Schema.decodeUnknownResult(Schema.Record(Schema.String, Schema.Unknown))(input);
@@ -42,6 +54,9 @@ export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace:
     : /^(edit|write|patch|apply_patch|multiedit|notebookedit|str_replace_based_edit_tool)$/.test(name) ? "edit"
     : /^(bash|shell|powershell)$/.test(name) ? "command" : "other";
   const candidates: string[] = [];
+  if (Result.isSuccess(args) && operation === "command" && typeof args.success.command === "string") {
+    candidates.push(...commandPaths(workspace, args.success.command));
+  }
   if (Result.isSuccess(args) && (operation === "read" || operation === "edit")) {
     for (const key of ["path", "filePath", "file_path", "notebook_path"]) {
       if (typeof args.success[key] === "string") candidates.push(args.success[key]);

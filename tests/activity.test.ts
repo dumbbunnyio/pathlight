@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { activityLines } from "../src/activity";
@@ -17,6 +17,19 @@ test("tool observation keeps only metadata and maps explicit paths without expos
   expect(activityLines([event], { version: 1, project: "parcel", mappings: [
     { glob: "src/payments.ts", element: "parcel.commerce.orders" },
   ] })).toEqual(["completed edit | parcel.commerce.orders | src/payments.ts"]);
+});
+
+test("a shell command contributes only existing workspace files it names, never its text", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "c4view-command-"));
+  try {
+    await mkdir(join(directory, "src"));
+    await writeFile(join(directory, "src/a.ts"), "");
+    const event = toolActivity(directory, { source: "claude", session: "s" }, "c", "Bash",
+      { command: "sed -i s/x/SECRET/ src/a.ts ../outside.ts src/missing.ts https://example.com/b.js --flag" }, "started");
+    expect(event.operation).toBe("command");
+    expect(event.paths).toEqual(["src/a.ts"]);
+    expect(JSON.stringify(event)).not.toContain("SECRET");
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("concurrent writers preserve tool outcomes and isolate sessions and workspaces", async () => {

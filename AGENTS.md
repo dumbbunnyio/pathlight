@@ -67,7 +67,7 @@ intentional redesigns separately; do not quietly substitute another camera.
    before editing. Treat editor commands and executable LikeC4 configuration as
    trusted-workspace inputs.
 8. **Keep activity minimal.** Do not store source contents, tool arguments,
-   command strings, results or error text in activity journals. Preserve bounded
+   command strings, results or error text in activity journals. For shell commands keep only existing workspace files the command names (state `command`, never read/edit). Preserve bounded
    queues/history and local-only storage; this is not an audit log.
 
 ## Development and validation

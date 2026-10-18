@@ -94,6 +94,7 @@ Until a session records, the header reads `LIVE waiting for a session`.
 The header shows a spinner while a tool runs. The footer starts with the latest call, and the inspector lists six recent calls with their age (`EDIT 3s`, `done 1m`, `FAIL`, `????` for unconfirmed).
 Nodes show `r` and `e` counts for retained reads and edits (groups append them to the title). Counts describe the retained journal, not totals.
 Nodes that saw work in the last 90 seconds carry a faint tint (warm for edits, cool for reads) that cools in three coarse steps, so you can see where the agent has been.
+Shell commands (`Bash`) are tracked too: the journal keeps only the existing workspace files the command names, never its text. A running command shows `[RUN]` in violet on those nodes and counts as `c`. That means "a command referred to this file", not that it read or edited it.
 Press `a` to let the camera glide to the node of the newest running tool. It never changes the selection, and it is off until you press `a`.
 
 Run the repeatable terminal check:
