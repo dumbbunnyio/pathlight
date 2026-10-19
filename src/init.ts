@@ -6,7 +6,6 @@ import { acquireModel } from "./catalog";
 import { hasCode, io, json, failure } from "./effects";
 
 const pluginRoot = fileURLToPath(new URL("../plugins", import.meta.url));
-const cli = fileURLToPath(new URL("./cli.ts", import.meta.url));
 const hookEvents = ["PreToolUse", "PostToolUse", "PostToolUseFailure"] as const;
 
 const kebab = (text: string) => text.replace(/([a-z\d])([A-Z])/g, "$1-$2").toLowerCase().replace(/[^a-z\d]+/g, "-").replace(/^-|-$/g, "");
@@ -70,20 +69,6 @@ const listFiles = Effect.fn("Init.files")(function* (workspace: string) {
   return found;
 });
 
-const slashCommand = `---
-description: Open the live architecture diagram beside this conversation
-argument-hint: [view-id]
-allowed-tools: Bash(bun ${cli}:*)
----
-Open the live architecture viewer in the user's tmux window. It follows this session's tool activity.
-
-- If a view ID was given ($ARGUMENTS), run:
-  \`bun '${cli}' show $ARGUMENTS --workspace "$CLAUDE_PROJECT_DIR" --follow\`
-- Otherwise run \`bun '${cli}' list --workspace "$CLAUDE_PROJECT_DIR"\`, choose the most useful overview view, and show that one.
-
-Report only whether the viewer opened. Do not describe the diagram from memory.
-`;
-
 export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string, options: { claudeHooks: boolean } = { claudeHooks: true }) {
   const workspace = yield* io("Init.workspace", () => realpath(path));
   const notes: string[] = [];
@@ -95,8 +80,6 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
     yield* writeText(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
     notes.push("Claude Code: hooks added to .claude/settings.local.json (per-user, not shared).");
 
-    yield* writeText(join(workspace, ".claude", "commands", "pathlight.md"), slashCommand);
-    notes.push("Claude Code: /pathlight [view] opens the live viewer in your tmux window.");
   } else notes.push("Claude Code: no local hooks written (using the plugin).");
 
   // One skill file for both hosts. Claude Code reads .claude/skills; with the plugin installed it supplies the skill itself,

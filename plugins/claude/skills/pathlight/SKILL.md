@@ -1,6 +1,6 @@
 ---
 name: pathlight
-description: Use when the user wants to see the architecture beside the conversation (open the live viewer), or needs a LikeC4 architecture model of a codebase and its pathlight.activity.json file mapping created, extended or checked. Covers pathlight list, show, scan, check and init.
+description: Use when the user wants to open, show or draw the architecture diagram of a codebase, see which components the agent is touching as it works, or have a LikeC4 architecture model and its pathlight.activity.json file mapping created, extended or checked. Invoke as /pathlight, optionally with a view id. Covers pathlight list, show, scan, check and init.
 ---
 
 # pathlight
@@ -27,7 +27,7 @@ Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask th
 ## Show the architecture
 
 1. `pathlight list --workspace .` and pick the overview view.
-2. `pathlight show VIEW --workspace . --follow`.
+2. `pathlight show VIEW --workspace . --follow`. If the user named a view (for example `/pathlight services`), show that one.
 3. Report only whether it opened.
 
 If `list` returns no views the workspace has no model yet. Say so, and offer to draft one. Name the files you would write before writing them (`likec4.config.json`, `model.c4`, `views.c4` or similar, and `pathlight.activity.json`), and where. Prefer the repository root unless the project already keeps documentation elsewhere. Write nothing until the user agrees, then follow the draft workflow below.

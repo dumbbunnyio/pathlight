@@ -29,7 +29,7 @@ claude plugin marketplace add /path/to/pathlight
 claude plugin install pathlight@pathlight
 ```
 
-The plugin adds the recording hooks and `/pathlight`. Hooks do nothing in a project without `pathlight.activity.json`, so enabling the plugin globally is safe. Create the mapping with `pathlight init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
+The plugin adds the recording hooks and the `/pathlight` skill. Hooks do nothing in a project without `pathlight.activity.json`, so enabling the plugin globally is safe. Create the mapping with `pathlight init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
 Use either this route or the project-local route below, not both.
 
 ## Quick start (Claude Code and OpenCode)
@@ -40,7 +40,7 @@ From the project you work in, with its LikeC4 model:
 bun run --cwd /path/to/pathlight pathlight init --workspace /path/to/project
 ```
 
-`init` adds the Claude Code hooks to `.claude/settings.local.json` (per-user), writes a `/pathlight` slash command,
+`init` adds the Claude Code hooks to `.claude/settings.local.json` (per-user), copies the `pathlight` skill (the `/pathlight` command),
 registers the OpenCode plugin, and creates `pathlight.activity.json` if absent. It maps only elements whose name matches
 a directory or file that exists; review it and add globs for the rest. Re-running `init` is safe and never overwrites an existing mapping.
 

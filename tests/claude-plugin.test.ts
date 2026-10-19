@@ -48,9 +48,3 @@ test("the plugin's hook records an event through the pathlight command, and cost
     await delay(50);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
-
-test("the slash command calls the pathlight command with the project directory", async () => {
-  const text = await readFile("plugins/claude/commands/pathlight.md", "utf8");
-  expect(text).toContain("allowed-tools: Bash(pathlight:*)");
-  expect(text).toContain('pathlight show $ARGUMENTS --workspace "$CLAUDE_PROJECT_DIR" --follow');
-});
