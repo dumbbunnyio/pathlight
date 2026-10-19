@@ -89,7 +89,8 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await delay(250);
     const narrow = await tmux("capture-pane", "-p", "-t", pane);
     expect(narrow).toContain("Selected: activity");
-    expect(narrow).not.toMatch(/out \d+ · in \d+/);
+    // With a session attached the Activity card is the last to fold, so the work stays visible on a short pane.
+    expect(narrow).toContain("read activity.ts");
     await tmux("send-keys", "-t", pane, "f");
     await delay(700);
     await writeFile(resolve(".cache/native-check/capture-narrow.ansi"), await tmux("capture-pane", "-e", "-p", "-t", pane));

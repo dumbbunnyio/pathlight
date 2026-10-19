@@ -17,4 +17,4 @@ else
     reason=$(printf '%s' "$output" | tail -n 1 | tr -d '"\\' | cut -c1-300)
   fi
 fi
-printf '{"decision":"block","reason":"%s"}\n' "$reason"
+printf '{"continue":false,"stopReason":"%s"}\n' "$reason"

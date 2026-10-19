@@ -216,7 +216,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let events: ActivityEvent[] = [];
   let byElement = new Map<string, ActivityEvent[]>();
   let byPath = new Map<string, ActivityEvent>();
-  let followCamera = false, focusedCall = "", lastSignature = "", lastPaint = 0;
+  let followCamera = false, followPaused = false, followSelecting = false, focusedCall = "", followSince = 0, lastSignature = "", lastPaint = 0;
+  // Anything the user does to the selection or camera while follow is on pauses it, so the viewer never fights them.
+  const pauseFollow = () => { if (followCamera && !followPaused && !followSelecting) { followPaused = true; message = "Follow paused · a to resume"; } };
   // Which key family moves the selection; the other family pans. `v` swaps them.
   let vimTraverses = true;
   const selectKeys = () => vimTraverses ? "h j k l" : "Arrows";
@@ -230,7 +232,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"]] },
       { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a section"], ["j k", "move / scroll"], ["space", "fold section"],
         ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files"], ["esc", "back to diagram"]] },
-      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "camera follows the work"]] },
+      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"]] },
       { name: "Global", active: false, rows: [["/", "search this view"], ["?", "this help"], ["q", "quit"]] },
     ];
     const wide = renderer.width >= 100;
@@ -412,7 +414,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       });
       return { result, remaining };
     };
-    for (const drop of ["overview", "activity", "files", "connections"] as SectionKey[]) {
+    // With a session attached the work is what is being watched, so activity is the last card to fold.
+    for (const drop of (binding || following ? ["files", "connections", "overview", "activity"] : ["overview", "activity", "files", "connections"]) as SectionKey[]) {
       if (active.length <= 1 || [...allot(active, false).result.values()].every(rows => rows >= 4)) break;
       if (active.includes(drop) && !touched.has(drop)) { active = active.filter(key => key !== drop); autoFolded.add(drop); }
     }
@@ -846,14 +849,25 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     targetY = target.children.length ? target.y + viewport.height * targetScale / cellAspect() / 2 - targetScale / cellAspect() : target.y + target.height / 2;
     animating = true;
   };
-  // Opt-in only (key `a`): glide to the node of the newest running call without changing the selection.
+  // Opt-in only (key `a`): select the node of the newest call, running or finished (reads end in milliseconds), and glide to it.
+  // Only calls after follow was turned on (or resumed) count, so it shows work as it happens and never replays history. A component that is not in this view
+  // falls back to the nearest ancestor that is. The user's own selection or camera movement pauses it.
   const followActivity = () => {
-    const latest = events.find(isActive);
-    if (!followCamera || !latest || latest.call === focusedCall) return;
+    const latest = events[0];
+    if (!followCamera || followPaused || !latest || latest.call === focusedCall || latest.time < followSince) return;
     const elements = new Set(rules.filter(rule => latest.paths.some(path => rule.match.match(path))).map(rule => rule.element));
-    const target = diagram.nodes.filter(node => elements.has(String(node.modelRef))).sort((a, b) => a.children.length - b.children.length)[0];
+    const inView = (element: string): typeof selected => {
+      for (let id = element; id; id = id.includes(".") ? id.slice(0, id.lastIndexOf(".")) : "") {
+        const node = nodeForElement(id);
+        if (node) return node;
+      }
+      return undefined;
+    };
+    const target = [...elements].map(inView).filter((node): node is NonNullable<typeof selected> => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
     focusedCall = latest.call;
-    if (target) reveal(target);
+    if (!target) return;
+    followSelecting = true;
+    try { message = ""; selectNode(target, true); } finally { followSelecting = false; }
   };
   type Direction = "left" | "right" | "up" | "down";
   const ensureVisible = (node: NonNullable<typeof selected>) => {
@@ -889,6 +903,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   const selectNode = (node: typeof selected, show: boolean) => {
     if (!node) return;
+    pauseFollow();
     selected = node; fileCursor = 0; cursor.connections = 0; resetInspectorScroll();
     if (show) reveal();
     update();
@@ -1201,7 +1216,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!fileMode && key.name === "w" && !key.ctrl) {
       key.preventDefault();
       const target = newestWorkNode();
-      if (target) { message = ""; selectNode(target, true); } else { message = binding || following ? "No recent activity maps to a node in this view" : "Camera jump needs a bound session"; update(); }
+      if (target) { message = ""; followSelecting = true; try { selectNode(target, true); } finally { followSelecting = false; } } else { message = binding || following ? "No recent activity maps to a node in this view" : "Camera jump needs a bound session"; update(); }
       return;
     }
     if (!fileMode && key.name === "v" && !key.ctrl) {
@@ -1251,23 +1266,25 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       (card ?? inspectorScroll).scrollBy(key.name === "pageup" ? -5 : 5);
     }
     else if (key.name === "a") {
-      followCamera = !followCamera; focusedCall = "";
-      message = followCamera ? (binding || following ? "Camera follows running tools (a to stop)" : "Camera follow needs a bound session") : "Camera follow off";
+      if (followCamera && followPaused) { followPaused = false; message = "Following the work (a to stop)"; }
+      else { followCamera = !followCamera; followPaused = false; message = followCamera ? (binding || following ? "Following the work (a to stop)" : "Follow needs a bound session") : "Follow off"; }
+      focusedCall = ""; followSince = Date.now();
       if (followCamera) followActivity();
     }
     else if (key.name === "e") beginFiles();
     else if (key.name === "tab") {
       const index = diagram.nodes.findIndex(node => node.id === selected?.id);
+      pauseFollow();
       selected = diagram.nodes[(index + (key.shift ? -1 : 1) + diagram.nodes.length) % diagram.nodes.length];
       fileCursor = 0; resetInspectorScroll();
-    } else if (key.name === "+" || key.name === "=" || key.sequence === "+") { autoFit = false; scale = Math.max(2, scale / 1.25); }
-    else if (key.name === "-" || key.sequence === "-") { autoFit = false; scale = Math.min(128, scale * 1.25); }
-    else if (direction === "left") { autoFit = false; centerX -= scale * 6; }
-    else if (direction === "right") { autoFit = false; centerX += scale * 6; }
-    else if (direction === "down") { autoFit = false; centerY += scale * 3 / cellAspect(); }
-    else if (direction === "up") { autoFit = false; centerY -= scale * 3 / cellAspect(); }
+    } else if (key.name === "+" || key.name === "=" || key.sequence === "+") { autoFit = false; pauseFollow(); scale = Math.max(2, scale / 1.25); }
+    else if (key.name === "-" || key.sequence === "-") { autoFit = false; pauseFollow(); scale = Math.min(128, scale * 1.25); }
+    else if (direction === "left") { autoFit = false; pauseFollow(); centerX -= scale * 6; }
+    else if (direction === "right") { autoFit = false; pauseFollow(); centerX += scale * 6; }
+    else if (direction === "down") { autoFit = false; pauseFollow(); centerY += scale * 3 / cellAspect(); }
+    else if (direction === "up") { autoFit = false; pauseFollow(); centerY -= scale * 3 / cellAspect(); }
     else if (key.name === "f") { autoFit = true; fit(); }
-    else if (key.name === "0") { autoFit = false; scale = 16; }
+    else if (key.name === "0") { autoFit = false; pauseFollow(); scale = 16; }
     else if (key.name === "r" && selected) { autoFit = false; centerX = selected.x + selected.width / 2; centerY = selected.y + selected.height / 2; }
     if (centerX !== before.x || centerY !== before.y || scale !== before.scale) {
       animateTo(); centerX = before.x; centerY = before.y; scale = before.scale;

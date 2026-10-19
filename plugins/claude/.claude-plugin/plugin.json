@@ -1,6 +1,6 @@
 {
   "name": "pathlight",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Show your LikeC4 architecture beside the conversation and light up the components the agent touches. Requires the pathlight command (bun link in the pathlight repository).",
   "keywords": [
     "architecture",

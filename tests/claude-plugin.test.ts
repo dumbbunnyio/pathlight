@@ -67,10 +67,10 @@ test("/pathlight:open is handled by a hook that blocks the prompt, so the model 
     expect(await hook("/pathlight:openly")).toEqual({ out: "", code: 0 });
 
     const plain = await hook("/pathlight:open");
-    expect(JSON.parse(plain.out)).toEqual({ decision: "block", reason: "Opened the pathlight viewer." });
+    expect(JSON.parse(plain.out)).toEqual({ continue: false, stopReason: "Opened the pathlight viewer." });
     expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open --workspace /work/project");
 
-    expect(JSON.parse((await hook("/pathlight:open services")).out).decision).toBe("block");
+    expect(JSON.parse((await hook("/pathlight:open services")).out).continue).toBe(false);
     expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open services --workspace /work/project");
 
     // Anything but a plain view id never reaches the command line.

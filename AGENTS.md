@@ -38,7 +38,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 | Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/check.ts` |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
-| Agent integrations | `plugins/` (`plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). `plugins/claude/skills/pathlight/SKILL.md` is the one skill for both hosts: `pathlight init` copies it, and `tests/skill.test.ts` checks every command and flag it names against the CLI help, so update it with the CLI. `plugins/claude/open-hook.sh` handles `/pathlight:open` as a `UserPromptSubmit` hook that blocks the prompt (no model turn); `commands/open.md` is only the picker entry and fallback. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
+| Agent integrations | `plugins/` (`plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). `plugins/claude/skills/pathlight/SKILL.md` is the one skill for both hosts: `pathlight init` copies it, and `tests/skill.test.ts` checks every command and flag it names against the CLI help, so update it with the CLI. `plugins/claude/open-hook.sh` handles `/pathlight:open` as a `UserPromptSubmit` hook that stops the prompt with `continue: false` (no model turn); `commands/open.md` is only the picker entry and fallback. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
 | Flat and nested fixtures | `tests/fixtures/viewer/` (frozen test layout), `examples/parcel/` |
 | This repo's own architecture diagram | `examples/viewer/`, mapped by `pathlight.activity.json` |
 
@@ -51,7 +51,7 @@ intentional redesigns separately; do not quietly substitute another camera.
    titles after projection, pan, zoom and resize.
 3. **State survives workflows.** Search cancellation and Back restore camera and
    selection. Linked-view navigation stays in one process. Editor return retains
-   the diagram and file selection. Activity updates must not move the camera unless the user turned on camera follow (`a`, off by default).
+   the diagram and file selection. Activity updates must not move the camera or the selection unless the user turned on follow (`a`, off by default); the user's own selection or camera movement pauses it.
 4. **Observation is truthful and isolated.** Bind events to workspace, project,
    source and session. Show only observed tool lifecycle states; never infer
    service traffic, test success, or parent activity from a child's event.
