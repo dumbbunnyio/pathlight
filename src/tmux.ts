@@ -10,6 +10,17 @@ import { validateActivityMapping, type View } from "./catalog";
 import { readActivityConfig, type ActivityBinding } from "./activity";
 import { Ready } from "./ready";
 
+/**
+ * True when this process was typed at a shell prompt in `pane`, so that pane holds nothing but the shell and can become
+ * the viewer. A command run by an agent (`! pathlight open` inside Claude Code, a tool call) has the agent between the
+ * pane's shell and itself, so it is not the shell's direct child. Anything unclear answers false, which means "split".
+ */
+export const atShellPrompt = Effect.fn("Tmux.atShellPrompt")(function* (pane: string, socket?: string) {
+  if (!/^%\d+$/.test(pane)) return false;
+  const pid = yield* run("tmux", [...(socket ? ["-S", socket] : []), "display-message", "-p", "-t", pane, "#{pane_pid}"]).pipe(Effect.catch(() => Effect.succeed("")));
+  return pid.trim() === String(process.ppid);
+});
+
 export const showView = Effect.fn("Tmux.show")(function* (options: {
   view: View; pane: string; socket?: string; activity?: ActivityBinding; follow?: boolean;
 }) {

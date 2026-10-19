@@ -32,6 +32,16 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/open-hook.sh\""
+          }
+        ]
+      }
     ]
   }
 }

@@ -44,7 +44,15 @@ bun run --cwd /path/to/pathlight pathlight init --workspace /path/to/project
 registers the OpenCode plugin, and creates `pathlight.activity.json` if absent. It maps only elements whose name matches
 a directory or file that exists; review it and add globs for the rest. Re-running `init` is safe and never overwrites an existing mapping.
 
-To reopen the viewer yourself, with no agent involved, run `pathlight open` in a shell in the same tmux window (or `! pathlight open` from inside Claude Code). It is `show --follow` for the `index` view, or the first view if there is none, and takes an optional view id.
+To reopen the viewer yourself, with no agent involved:
+
+| Where you are | Command | Result | Inference |
+| --- | --- | --- | --- |
+| A shell prompt in a tmux pane | `pathlight open [VIEW]` | That pane becomes the viewer | none |
+| Inside Claude Code | `/pathlight:open [VIEW]` | A viewer pane is split beside the conversation | none (a plugin hook handles it and blocks the prompt, so the model is never called) |
+| Inside Claude Code or OpenCode | `! pathlight open [VIEW]` | The same split | none (a shell escape) |
+
+`open` follows the most recent recorded session and shows `VIEW`, else the view named `index`, else the first view. Typed at a prompt it takes over that pane; run by an agent (anything between the pane's shell and the command) it splits beside it. `--here` always uses the current terminal and `--split` always splits. Without a `pathlight.activity.json` it still opens, but cannot follow an agent. The hook needs the Claude plugin; `/pathlight:open` is not installed by `pathlight init`.
 
 Then, in tmux, run `/pathlight` in Claude Code (or `/pathlight VIEW_ID`). The viewer opens beside the conversation and
 follows the most recently active recorded session with `--follow`, so you need no pane or session IDs. You can also run it yourself:

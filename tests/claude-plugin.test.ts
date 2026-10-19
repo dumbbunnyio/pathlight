@@ -7,8 +7,9 @@ import { readActivity } from "./effects";
 
 const hookCommand = async () => {
   const manifest = JSON.parse(await readFile("plugins/claude/hooks/hooks.json", "utf8")) as { hooks: Record<string, { hooks: { command: string; async?: boolean }[] }[]> };
-  expect(Object.keys(manifest.hooks).sort()).toEqual(["PostToolUse", "PostToolUseFailure", "PreToolUse"]);
-  const commands = new Set(Object.values(manifest.hooks).flat().flatMap(entry => entry.hooks.map(hook => hook.command)));
+  expect(Object.keys(manifest.hooks).sort()).toEqual(["PostToolUse", "PostToolUseFailure", "PreToolUse", "UserPromptSubmit"]);
+  const { UserPromptSubmit: _prompt, ...recording } = manifest.hooks;
+  const commands = new Set(Object.values(recording).flat().flatMap(entry => entry.hooks.map(hook => hook.command)));
   expect(commands.size).toBe(1);
   return [...commands][0] ?? "";
 };
@@ -46,5 +47,34 @@ test("the plugin's hook records an event through the pathlight command, and cost
     missing.stdin.write(payload); missing.stdin.end();
     expect(await missing.exited).toBe(0);
     await delay(50);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("/pathlight:open is handled by a hook that blocks the prompt, so the model is never called, and other prompts pass", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-open-hook-"));
+  try {
+    await mkdir(join(directory, "bin"));
+    await writeFile(join(directory, "bin", "pathlight"), `#!/bin/sh\necho "$@" > "${directory}/args"\n`);
+    await chmod(join(directory, "bin", "pathlight"), 0o755);
+    const hook = async (prompt: string) => {
+      const child = Bun.spawn(["sh", resolve("plugins/claude/open-hook.sh")], { stdin: "pipe", stdout: "pipe", stderr: "pipe",
+        env: { PATH: `${join(directory, "bin")}:/usr/bin:/bin`, CLAUDE_PROJECT_DIR: "/work/project" } });
+      child.stdin.write(JSON.stringify({ session_id: "s", prompt })); child.stdin.end();
+      return { out: await new Response(child.stdout).text(), code: await child.exited };
+    };
+    expect(await hook("explain this function")).toEqual({ out: "", code: 0 });
+    expect(await hook("please /pathlight:open")).toEqual({ out: "", code: 0 });
+    expect(await hook("/pathlight:openly")).toEqual({ out: "", code: 0 });
+
+    const plain = await hook("/pathlight:open");
+    expect(JSON.parse(plain.out)).toEqual({ decision: "block", reason: "Opened the pathlight viewer." });
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open --workspace /work/project");
+
+    expect(JSON.parse((await hook("/pathlight:open services")).out).decision).toBe("block");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open services --workspace /work/project");
+
+    // Anything but a plain view id never reaches the command line.
+    await hook("/pathlight:open $(touch pwned)");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open --workspace /work/project");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

@@ -6,7 +6,7 @@ import { listViews, overviewId, selectView } from "./catalog";
 import { Config, Effect, Schema } from "effect";
 import { io, json, failure } from "./effects";
 import { writeReady } from "./ready";
-import { showView } from "./tmux";
+import { atShellPrompt, showView } from "./tmux";
 import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
 import { claudeActivity } from "./claude";
 import { initWorkspace } from "./init";
@@ -19,7 +19,7 @@ pathlight check [--workspace PATH] [--json] [--strict]
 pathlight init [--workspace PATH] [--no-claude-hooks]
 pathlight show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
 pathlight view VIEW [--workspace PATH] [--project NAME]
-pathlight open [VIEW] [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
+pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--pane %ID] [--socket PATH]
 pathlight record --workspace PATH < claude-hook.json
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
@@ -27,7 +27,9 @@ check compares the LikeC4 model and pathlight.activity.json with that scan: unma
 relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found.
 init wires Claude Code hooks, the pathlight skill and the OpenCode plugin into a workspace.
 show opens or updates an owned tmux pane. view runs in the current terminal.
-open is show --follow for the overview: VIEW if given, else the view named index, else the first view.
+open follows the most recent session and shows VIEW if given, else the view named index, else the first view.
+Typed at a shell prompt in tmux it turns that pane into the viewer; run by an agent it splits a pane beside it.
+--here always uses the current terminal and --split always splits.
 Use --pane explicitly when launching from a background agent service.
 Add --follow to watch the most recently active recorded session, or
 --session ID --source opencode|claude to bind to one session.
@@ -58,7 +60,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, here: { type: "boolean" }, split: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -94,18 +96,24 @@ try {
     } else if (command === "show" || command === "view" || command === "open") {
       if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));
-      if (command !== "view" && !pane) {
-        return yield* invalid("No tmux pane. Run inside tmux, pass --pane %ID, or use pathlight view in a terminal.");
+      if (command === "open" && values.here && values.split) return yield* invalid("Use either --here or --split, not both.");
+      const here = command === "view" || (command === "open" && !values.split && (values.here === true || (yield* atShellPrompt(pane, values.socket))));
+      if (!here && !pane) {
+        return yield* invalid("No tmux pane. Run inside tmux, pass --pane %ID, or use pathlight open --here in a terminal.");
       }
-      if (command === "view" && process.stdout.isTTY) process.stdout.write("\x1b[2m  pathlight · loading the architecture…\x1b[0m\n");
+      if (here && process.stdout.isTTY) process.stdout.write("\x1b[2m  pathlight · loading the architecture…\x1b[0m\n");
+      // `open` follows the agent when the workspace maps files to components; without a mapping there is nothing to follow.
+      const mapped = command !== "open" || (yield* io("CLI.mapping", () => Bun.file(resolve(values.workspace, "pathlight.activity.json")).exists()));
+      if (!mapped) process.stderr.write("No pathlight.activity.json here, so the viewer will not follow an agent. Ask the agent to map the model (/pathlight).\n");
+      const following = follow || (command === "open" && !activity && mapped);
       const overview = command === "open" && !id ? yield* overviewId(values.workspace, values.project) : id;
       const view = yield* selectView(values.workspace, overview!, values.project);
-      if (command !== "view") {
-        const result = yield* showView({ view, pane, socket: values.socket, activity, follow: follow || (command === "open" && !activity) });
+      if (!here) {
+        const result = yield* showView({ view, pane, socket: values.socket, activity, follow: following });
         process.stdout.write(`${JSON.stringify(result)}\n`);
       } else {
         const { viewNative } = yield* io("CLI.viewer", () => import("./native-viewer"));
-        yield* viewNative({ view, activity, follow, parent: values.parent, ready: values.ready });
+        yield* viewNative({ view, activity, follow: following, parent: values.parent, ready: values.ready });
       }
     } else return yield* invalid(`Unknown command '${command}'. Use --help.`);
   }), { signal: abort.signal });
