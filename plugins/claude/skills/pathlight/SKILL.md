@@ -44,7 +44,14 @@ Aim for a diagram a person can read in one glance: roughly 8 to 25 elements, gro
    - *no import between the mapped files*: the relationship may really run through a network call, an event or a file. Keep it if you can say how; otherwise remove it. Either import direction counts as evidence.
    - *imports with no relationship*: add a relationship when the dependency matters at this level; leave small shared helpers alone.
    - *not checkable*: an end has no mapped files; map it or accept that nothing can be checked.
-6. **Show it** with `pathlight show`, and tell the user what was left out: the `check` line "N source files ignored on purpose" with the kinds of file in `ignore` (tests, tooling, examples), so they can decide whether any belongs in the diagram.
+6. **Show it** with `pathlight show`.
+7. **Report plainly**, without asking the user to request it:
+   - what the scan covered: files, imports, and anything under `unscanned` or `unresolved` (languages or imports it could not read);
+   - what the model contains: elements, and the views you made;
+   - what was left out: the "N source files ignored on purpose" line and the kinds of file in `ignore` (tests, tooling, examples), so they can decide whether any belongs in the diagram;
+   - what `check` could not verify: relationships marked "not checkable", and relationships you kept with no import behind them, each with the reason you kept it.
+
+On a large codebase do not stop at one flat diagram. Make an overview, then a view for each component that has several parts inside, and say which parts you did not open up.
 
 Run `pathlight check` again after any later change to the code or the model, and report what it says without softening it.
 
