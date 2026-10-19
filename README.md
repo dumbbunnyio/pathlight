@@ -138,9 +138,12 @@ Mappings use workspace-relative path globs and exact LikeC4 element IDs:
   "version": 1,
   "project": "my-project",
   "mappings": [{ "glob": "services/payments/**", "element": "platform.payments" }],
-  "ignore": ["tests/**", "vendor/**"]
+  "ignore": ["tests/**", "vendor/**"],
+  "shared": ["platform.types"]
 }
 ```
+
+`ignore` lists files deliberately outside the model, and `shared` lists elements anything may import (so `pathlight check` expects no relationship to them). Only `check` reads either.
 
 In OpenCode, ask the agent to show the `viewer` project's `live` view with `live: true` and your current pane ID.
 The plugin binds the panel to the calling session. It records that session's subsequent tool starts, completions, and failures automatically.

@@ -22,6 +22,8 @@ export const ActivityConfig = Schema.Struct({
   mappings: Schema.Array(Schema.Struct({ glob: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)), element: Label })).check(Schema.isMaxLength(256)),
   // Files that are deliberately outside the model (tests, vendored code, generated output). Only `pathlight check` reads this.
   ignore: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024))).check(Schema.isMaxLength(256))),
+  // Elements anything may import (shared types, utilities). `pathlight check` does not ask for a relationship to them.
+  shared: Schema.optionalKey(Schema.Array(Label).check(Schema.isMaxLength(256))),
 });
 export interface ActivityConfig extends Schema.Schema.Type<typeof ActivityConfig> {}
 

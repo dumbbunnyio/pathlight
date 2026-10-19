@@ -3,6 +3,7 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, Schema } from "effect";
+import { overviewId } from "../src/catalog";
 import { Check, checkWorkspace, formatCheck, hasFindings } from "../src/check";
 import { run } from "./effects";
 
@@ -32,7 +33,7 @@ test("check compares the model and mapping with the scan: evidence either way, u
       "src/stray.ts": `export const s = 1;\n`,
     });
     const check = await Effect.runPromise(checkWorkspace(directory));
-    expect(check.mappings).toEqual({ total: 6, ignored: 0, unmatched: [{ glob: "src/exporter.ts", element: "exporter" }], unmappedFiles: ["src/stray.ts"] });
+    expect(check.mappings).toEqual({ total: 6, ignored: 0, shared: [], sharedImports: 0, unmatched: [{ glob: "src/exporter.ts", element: "exporter" }], unmappedFiles: ["src/stray.ts"] });
     expect(summarize(check)).toEqual([
       "activity>viewer supported opposite 1",
       "catalog>exporter unverifiable none 0",
@@ -44,7 +45,7 @@ test("check compares the model and mapping with the scan: evidence either way, u
     ]);
     expect(check.relationships.find(item => item.source === "activity")!.examples).toEqual([{ from: "src/viewer.ts", line: 1, to: "src/activity.ts", kind: "import" }]);
     expect(check.undeclared).toEqual([{ source: "catalog", target: "launcher", imports: 1, examples: [{ from: "src/catalog.ts", line: 1, to: "src/launcher.ts", kind: "import" }] }]);
-    expect(check.summary).toEqual({ unmatchedMappings: 1, unmappedFiles: 1, unsupported: 1, unverifiable: 3, undeclared: 1 });
+    expect(check.summary).toEqual({ unmatchedMappings: 1, unmappedFiles: 1, unsupported: 1, unverifiable: 3, undeclared: 1, largeElements: 0, unlinkedViews: 0 });
     expect(hasFindings(check)).toBe(true);
 
     const text = formatCheck(check);
@@ -98,6 +99,63 @@ views { view live { include * autoLayout LeftRight } }
     // An unknown element in the mapping is an error, not a finding.
     await write(directory, { "pathlight.activity.json": mapping([["src/auth.ts", "api.missing"]]) });
     await expect(Effect.runPromise(checkWorkspace(directory))).rejects.toThrow("Unknown activity element 'api.missing'");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("shared elements need no relationship, a big element shows what is inside it, and views nothing links to are reported", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-check-health-"));
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    const big = Object.fromEntries(Array.from({ length: 16 }, (_, index) => [`src/big/${index < 10 ? "core" : "extra"}/f${index}.ts`, `export const f${index} = 1;\n`]));
+    await write(directory, {
+      "model.c4": `specification { element component }
+model {
+  big = component 'Big'
+  small = component 'Small'
+  types = component 'Types'
+}
+views {
+  view overview { include big, small, types
+    include big with { navigateTo detail }
+    autoLayout LeftRight }
+  view detail { include big, small autoLayout LeftRight }
+  view orphan { include types autoLayout LeftRight }
+}
+`,
+      "pathlight.activity.json": mapping([["src/big/**", "big"], ["src/small.ts", "small"], ["src/types.ts", "types"]]),
+      ...big,
+      "src/small.ts": `import { T } from "./types";\nexport const s: T = 1;\n`,
+      "src/types.ts": `export type T = number;\n`,
+      "src/big/core/f0.ts": `import type { T } from "../../types";\nexport const f0: T = 1;\n`,
+    });
+    // Without `shared`, the imports into types are undeclared relationships.
+    let check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.undeclared.map(item => `${item.source}>${item.target}`)).toEqual(["big>types", "small>types"]);
+    expect(check.mappings.sharedImports).toBe(0);
+    // 16 of the 18 mapped files sit in one element, and the report says where inside it.
+    expect(check.size.map(item => `${item.element} ${item.files} ${item.large}`)).toEqual(["big 16 true", "small 1 false", "types 1 false"]);
+    expect(check.size[0]!.folders).toEqual([{ folder: "src/big/core", files: 10 }, { folder: "src/big/extra", files: 6 }]);
+    expect(check.summary.largeElements).toBe(1);
+    expect(formatCheck(check)).toContain("▲ big holds 16 of the mapped files; inside it: src/big/core 10, src/big/extra 6");
+    // overview links to detail; nothing links to overview or orphan, so two entries and one view too many.
+    expect(check.views).toEqual({ total: 3, entries: ["orphan", "overview"] });
+    expect(check.summary.unlinkedViews).toBe(1);
+    expect(hasFindings(check)).toBe(true);
+    // LikeC4's generated "Landscape" index is not one of the author's views, and `open` prefers a written view to it.
+    expect(String(await Effect.runPromise(overviewId(directory)))).toBe("overview");
+    expect(formatCheck(check)).toContain("2 of 3 views have no navigateTo pointing to them: orphan, overview");
+
+    await write(directory, { "pathlight.activity.json": JSON.stringify({ version: 1, project: "viewer", shared: ["types"], mappings: [
+      { glob: "src/big/**", element: "big" }, { glob: "src/small.ts", element: "small" }, { glob: "src/types.ts", element: "types" }] }) });
+    check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.undeclared).toEqual([]);
+    expect(check.mappings).toMatchObject({ shared: ["types"], sharedImports: 2 });
+    expect(formatCheck(check)).toContain("2 imports into shared types are not listed");
+
+    await write(directory, { "pathlight.activity.json": JSON.stringify({ version: 1, project: "viewer", shared: ["nope"], mappings: [{ glob: "src/types.ts", element: "types" }] }) });
+    await expect(Effect.runPromise(checkWorkspace(directory))).rejects.toThrow("Unknown shared element 'nope'");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -22,6 +22,8 @@ export const Check = Schema.Struct({
     total: Count,
     // Files the config's `ignore` list leaves out of "unmapped".
     ignored: Count,
+    // Elements the config names as shared, and how many imports into them were left out of "imports with no relationship".
+    shared: Schema.Array(Schema.String), sharedImports: Count,
     // Mappings whose glob matches no file in the workspace.
     unmatched: Schema.Array(Schema.Struct({ glob: Schema.String, element: Schema.String })),
     // Scanned source files that no mapping claims.
@@ -37,9 +39,15 @@ export const Check = Schema.Struct({
     direction: Schema.Literals(["same", "opposite", "both", "none"]),
     imports: Count, examples: Schema.Array(Example),
   })),
+  // Files per element, largest first. `large` marks an element holding a quarter or more of the mapped files (at least 15),
+  // with the folders inside it, as a hint that it may be several things.
+  size: Schema.Array(Schema.Struct({ element: Schema.String, files: Count, large: Schema.Boolean, folders: Schema.Array(Schema.Struct({ folder: Schema.String, files: Count })) })),
+
+  // `entries` are the views no navigateTo points to. A diagram normally has one, the overview.
+  views: Schema.Struct({ total: Count, entries: Schema.Array(Schema.String) }),
   // Imports between two mapped elements that no relationship at that level, or above it, declares (in either direction).
   undeclared: Schema.Array(Schema.Struct({ source: Schema.String, target: Schema.String, imports: Count, examples: Schema.Array(Example) })),
-  summary: Schema.Struct({ unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count }),
+  summary: Schema.Struct({ unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count, largeElements: Count, unlinkedViews: Count }),
 });
 export interface Check extends Schema.Schema.Type<typeof Check> {}
 
@@ -59,6 +67,12 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   for (const mapping of config.mappings) {
     if (!elements.has(mapping.element)) return yield* Effect.fail(failure("Check.mapping", `Unknown activity element '${mapping.element}'.`));
   }
+
+  for (const id of config.shared ?? []) {
+    if (!elements.has(id)) return yield* Effect.fail(failure("Check.shared", `Unknown shared element '${id}'.`));
+  }
+  const shared = config.shared ?? [];
+  const isShared = (element: string) => shared.some(id => within(element, id));
 
   // The files each element is mapped to directly, and (for judging relationships) with those of everything inside it.
   const direct = new Map<string, Set<string>>(), claimed = new Map<string, Set<string>>(), unmatched: { glob: string; element: string }[] = [];
@@ -94,7 +108,9 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
 
   const covered = (a: string, b: string) => declared.some(relationship => (within(a, relationship.source) && within(b, relationship.target)) || (within(b, relationship.source) && within(a, relationship.target)));
   const pairs = new Map<string, { source: string; target: string; edges: Scan["imports"][number][] }>();
+  let sharedImports = 0;
   for (const edge of scan.imports) {
+    if ([...claimed.get(edge.to) ?? []].some(isShared) && edge.from !== edge.to) { sharedImports++; continue; }
     for (const a of claimed.get(edge.from) ?? []) for (const b of claimed.get(edge.to) ?? []) {
       if (related(a, b) || covered(a, b)) continue;
       const key = `${a}\0${b}`, entry = pairs.get(key) ?? { source: a, target: b, edges: [] };
@@ -105,20 +121,48 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   const undeclared = [...pairs.values()].sort((a, b) => order(a.source, b.source) || order(a.target, b.target))
     .map(({ source, target, edges }) => ({ source, target, imports: edges.length, examples: edges.slice(0, 3).map(example) }));
 
+  // How the mapped files are spread over the elements.
+  const mappedCount = claimed.size;
+  const folderOf = (files: string[]) => {
+    const parts = files.map(path => path.split("/").slice(0, -1));
+    let common = parts[0] ?? [];
+    for (const dir of parts) { let n = 0; while (n < common.length && n < dir.length && common[n] === dir[n]) n++; common = common.slice(0, n); }
+    const counts = new Map<string, number>();
+    for (const dir of parts) { const key = dir.length > common.length ? [...common, dir[common.length]].join("/") : common.join("/") || "."; counts.set(key, (counts.get(key) ?? 0) + 1); }
+    return [...counts].sort((a, b) => b[1] - a[1] || order(a[0], b[0])).map(([folder, files]) => ({ folder, files }));
+  };
+  const size = [...direct].map(([element, owned]) => {
+    const large = owned.size >= 15 && owned.size / mappedCount >= 0.25;
+    return { element, files: owned.size, large, folders: large ? folderOf([...owned]) : [] };
+  }).sort((a, b) => b.files - a.files || order(a.element, b.element));
+
+  // Which views a person can reach by following navigateTo.
+  const viewLinks = new Map<string, Set<string>>();
+  for (const view of model.views()) {
+    // The "Landscape" index LikeC4 adds when none is written is not part of the author's diagram.
+    if (!view.$view.sourcePath) continue;
+    const targets = new Set<string>();
+    for (const node of view.$view.nodes) if (node.navigateTo && String(node.navigateTo) !== String(view.id)) targets.add(String(node.navigateTo));
+    viewLinks.set(String(view.id), targets);
+  }
+  const linkedTo = new Set([...viewLinks.values()].flatMap(targets => [...targets]));
+  const entries = [...viewLinks.keys()].filter(id => !linkedTo.has(id)).sort(order);
+
   const ignores = (config.ignore ?? []).map(glob => new Bun.Glob(glob));
   const ignoredFiles = scan.files.map(file => file.path).filter(path => !claimed.has(path) && ignores.some(glob => glob.match(path)));
   const unmappedFiles = scan.files.map(file => file.path).filter(path => !claimed.has(path) && !ignoredFiles.includes(path));
   return Check.make({
     version: 1, basis: "static", project: config.project,
-    mappings: { total: config.mappings.length, ignored: ignoredFiles.length, unmatched, unmappedFiles },
-    relationships, undeclared,
+    mappings: { total: config.mappings.length, ignored: ignoredFiles.length, shared, sharedImports, unmatched, unmappedFiles },
+    relationships, size, views: { total: viewLinks.size, entries }, undeclared,
     summary: { unmatchedMappings: unmatched.length, unmappedFiles: unmappedFiles.length, unsupported: relationships.filter(item => item.status === "unsupported").length,
-      unverifiable: relationships.filter(item => item.status === "unverifiable").length, undeclared: undeclared.length },
+      unverifiable: relationships.filter(item => item.status === "unverifiable").length, undeclared: undeclared.length,
+      largeElements: size.filter(item => item.large).length, unlinkedViews: Math.max(0, entries.length - 1) },
   });
 }, Effect.scoped);
 
-/** The findings that deserve a look (everything except relationships that could not be checked). */
-export const hasFindings = (check: Check) => check.summary.unmatchedMappings + check.summary.unmappedFiles + check.summary.unsupported + check.summary.undeclared > 0;
+/** The findings that deserve a look (everything except relationships that could not be checked, and the size notes). */
+export const hasFindings = (check: Check) => check.summary.unmatchedMappings + check.summary.unmappedFiles + check.summary.unsupported + check.summary.undeclared + check.summary.unlinkedViews > 0;
 
 /** A readable report: what agrees with the code first, then what to look at, with the evidence it rests on. */
 export function formatCheck(check: Check) {
@@ -142,5 +186,15 @@ export function formatCheck(check: Check) {
   lines.push("", "Imports with no relationship");
   if (!check.undeclared.length) lines.push("  ✓ none");
   for (const item of check.undeclared) lines.push(`  ▲ ${item.source} → ${item.target}  ${item.imports} import${item.imports === 1 ? "" : "s"}, e.g. ${where(item.examples[0]!)}`);
+  if (check.mappings.sharedImports) lines.push(`  · ${check.mappings.sharedImports} imports into shared ${check.mappings.shared.join(", ")} are not listed`);
+
+  lines.push("", "Views");
+  if (check.views.entries.length <= 1) lines.push(`  ✓ ${check.views.total} view${check.views.total === 1 ? "" : "s"}${check.views.entries[0] ? `, entered at ${check.views.entries[0]}` : ""}`);
+  else lines.push(`  ▲ ${check.views.entries.length} of ${check.views.total} views have no navigateTo pointing to them: ${check.views.entries.join(", ")}. A diagram usually has one entry; link the others from it.`);
+
+  lines.push("", "Mapping spread (hints, not verdicts)");
+  const top = check.size.slice(0, 5).map(item => `${item.element} ${item.files}`).join(", ");
+  lines.push(`  files per element, largest first: ${top || "none"}`);
+  for (const item of check.size.filter(entry => entry.large)) lines.push(`  ▲ ${item.element} holds ${item.files} of the mapped files; inside it: ${item.folders.slice(0, 6).map(entry => `${entry.folder} ${entry.files}`).join(", ")}`);
   return `${lines.join("\n")}\n`;
 }
