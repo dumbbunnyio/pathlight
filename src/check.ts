@@ -1,0 +1,146 @@
+import { realpath } from "node:fs/promises";
+import { Effect, Schema } from "effect";
+import { readActivityConfig } from "./activity";
+import { acquireModel } from "./catalog";
+import { failure, io } from "./effects";
+import { listFiles, scanWorkspace } from "./scan";
+
+const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
+const Line = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1));
+const Example = Schema.Struct({ from: Schema.String, line: Line, to: Schema.String, kind: Schema.String });
+
+/**
+ * How a LikeC4 model and its file mapping compare with the imports a static scan found. Every statement is about
+ * static evidence only: a relationship with no import behind it may still be real (a network call, an event, a file
+ * read), and an import between two elements may be incidental. These are questions to look at, never verdicts.
+ */
+export const Check = Schema.Struct({
+  version: Schema.Literal(1),
+  basis: Schema.Literal("static"),
+  project: Schema.String,
+  mappings: Schema.Struct({
+    total: Count,
+    // Files the config's `ignore` list leaves out of "unmapped".
+    ignored: Count,
+    // Mappings whose glob matches no file in the workspace.
+    unmatched: Schema.Array(Schema.Struct({ glob: Schema.String, element: Schema.String })),
+    // Scanned source files that no mapping claims.
+    unmappedFiles: Schema.Array(Schema.String),
+  }),
+  relationships: Schema.Array(Schema.Struct({
+    source: Schema.String, target: Schema.String, title: Schema.NullOr(Schema.String),
+    // supported: an import connects the two elements' files. unsupported: none was found.
+    // unverifiable: the source or the target has no mapped files, so there is nothing to look at.
+    status: Schema.Literals(["supported", "unsupported", "unverifiable"]),
+    // A relationship describes flow or use, while an import points from the user to what it uses, so either direction
+    // is evidence: "same" runs source to target, "opposite" target to source.
+    direction: Schema.Literals(["same", "opposite", "both", "none"]),
+    imports: Count, examples: Schema.Array(Example),
+  })),
+  // Imports between two mapped elements that no relationship at that level, or above it, declares (in either direction).
+  undeclared: Schema.Array(Schema.Struct({ source: Schema.String, target: Schema.String, imports: Count, examples: Schema.Array(Example) })),
+  summary: Schema.Struct({ unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count }),
+});
+export interface Check extends Schema.Schema.Type<typeof Check> {}
+
+const within = (element: string, ancestor: string) => element === ancestor || element.startsWith(`${ancestor}.`);
+const related = (a: string, b: string) => within(a, b) || within(b, a);
+const order = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+
+export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace: string) {
+  const root = yield* io("Check.workspace", () => realpath(workspace));
+  const config = yield* readActivityConfig(root);
+  const scan = yield* scanWorkspace(root);
+  const { paths } = yield* listFiles(root);
+  const source = yield* acquireModel(root);
+  if (source.hasErrors()) return yield* Effect.fail(failure("Check.model", "Invalid LikeC4 model. Run likec4 validate in the workspace first."));
+  const model = yield* io("LikeC4.compute", () => source.computedModel(config.project));
+  const elements = new Set([...model.elements()].map(element => String(element.id)));
+  for (const mapping of config.mappings) {
+    if (!elements.has(mapping.element)) return yield* Effect.fail(failure("Check.mapping", `Unknown activity element '${mapping.element}'.`));
+  }
+
+  // The files each element is mapped to directly, and (for judging relationships) with those of everything inside it.
+  const direct = new Map<string, Set<string>>(), claimed = new Map<string, Set<string>>(), unmatched: { glob: string; element: string }[] = [];
+  for (const mapping of config.mappings) {
+    const glob = new Bun.Glob(mapping.glob), matches = paths.filter(path => glob.match(path));
+    if (!matches.length) unmatched.push({ glob: mapping.glob, element: mapping.element });
+    for (const path of matches) {
+      direct.set(mapping.element, (direct.get(mapping.element) ?? new Set()).add(path));
+      claimed.set(path, (claimed.get(path) ?? new Set()).add(mapping.element));
+    }
+  }
+  const filesWithin = (element: string) => {
+    const files = new Set<string>();
+    for (const [owner, owned] of direct) if (within(owner, element)) for (const path of owned) files.add(path);
+    return files;
+  };
+  const example = (edge: Scan["imports"][number]) => ({ from: edge.from, line: edge.line, to: edge.to, kind: edge.kind });
+  type Scan = typeof scan;
+  const edgesBetween = (from: ReadonlySet<string>, to: ReadonlySet<string>) =>
+    scan.imports.filter(edge => from.has(edge.from) && to.has(edge.to) && edge.from !== edge.to);
+
+  const declared = [...model.relationships()].map(relationship => ({
+    source: String(relationship.source.id), target: String(relationship.target.id), title: relationship.title ?? null,
+  }));
+  const relationships = declared.map(({ source, target, title }) => {
+    const from = filesWithin(source), to = filesWithin(target);
+    if (!from.size || !to.size) return { source, target, title, status: "unverifiable" as const, direction: "none" as const, imports: 0, examples: [] };
+    const forward = edgesBetween(from, to), backward = edgesBetween(to, from);
+    const direction = forward.length && backward.length ? "both" as const : forward.length ? "same" as const : backward.length ? "opposite" as const : "none" as const;
+    return { source, target, title, status: direction === "none" ? "unsupported" as const : "supported" as const, direction, imports: forward.length + backward.length,
+      examples: [...forward, ...backward].slice(0, 3).map(example) };
+  }).sort((a, b) => order(a.source, b.source) || order(a.target, b.target));
+
+  const covered = (a: string, b: string) => declared.some(relationship => (within(a, relationship.source) && within(b, relationship.target)) || (within(b, relationship.source) && within(a, relationship.target)));
+  const pairs = new Map<string, { source: string; target: string; edges: Scan["imports"][number][] }>();
+  for (const edge of scan.imports) {
+    for (const a of claimed.get(edge.from) ?? []) for (const b of claimed.get(edge.to) ?? []) {
+      if (related(a, b) || covered(a, b)) continue;
+      const key = `${a}\0${b}`, entry = pairs.get(key) ?? { source: a, target: b, edges: [] };
+      entry.edges.push(edge);
+      pairs.set(key, entry);
+    }
+  }
+  const undeclared = [...pairs.values()].sort((a, b) => order(a.source, b.source) || order(a.target, b.target))
+    .map(({ source, target, edges }) => ({ source, target, imports: edges.length, examples: edges.slice(0, 3).map(example) }));
+
+  const ignores = (config.ignore ?? []).map(glob => new Bun.Glob(glob));
+  const ignoredFiles = scan.files.map(file => file.path).filter(path => !claimed.has(path) && ignores.some(glob => glob.match(path)));
+  const unmappedFiles = scan.files.map(file => file.path).filter(path => !claimed.has(path) && !ignoredFiles.includes(path));
+  return Check.make({
+    version: 1, basis: "static", project: config.project,
+    mappings: { total: config.mappings.length, ignored: ignoredFiles.length, unmatched, unmappedFiles },
+    relationships, undeclared,
+    summary: { unmatchedMappings: unmatched.length, unmappedFiles: unmappedFiles.length, unsupported: relationships.filter(item => item.status === "unsupported").length,
+      unverifiable: relationships.filter(item => item.status === "unverifiable").length, undeclared: undeclared.length },
+  });
+}, Effect.scoped);
+
+/** The findings that deserve a look (everything except relationships that could not be checked). */
+export const hasFindings = (check: Check) => check.summary.unmatchedMappings + check.summary.unmappedFiles + check.summary.unsupported + check.summary.undeclared > 0;
+
+/** A readable report: what agrees with the code first, then what to look at, with the evidence it rests on. */
+export function formatCheck(check: Check) {
+  const where = (item: typeof check.undeclared[number]["examples"][number]) => `${item.from}:${item.line} → ${item.to}`;
+  const lines = [`pathlight check · project ${check.project} · static evidence: imports in TypeScript and JavaScript only`, ""];
+  lines.push("Mapping", `  ${check.mappings.total} mappings${check.mappings.ignored ? `, ${check.mappings.ignored} source files ignored on purpose` : ""}`);
+  for (const item of check.mappings.unmatched) lines.push(`  ▲ ${item.glob} (${item.element}) matches no files`);
+  if (check.mappings.unmappedFiles.length) {
+    const folders = new Map<string, number>();
+    for (const path of check.mappings.unmappedFiles) { const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "."; folders.set(folder, (folders.get(folder) ?? 0) + 1); }
+    lines.push(`  ▲ ${check.mappings.unmappedFiles.length} source files map to no element:`);
+    for (const [folder, count] of [...folders].sort((a, b) => b[1] - a[1] || order(a[0], b[0])).slice(0, 8)) lines.push(`      ${folder}/  ${count}`);
+  } else lines.push("  ✓ every scanned source file is mapped");
+  lines.push("", `Relationships (${check.relationships.length} in the model)`);
+  const label = (item: typeof check.relationships[number]) => `${item.source} → ${item.target}${item.title ? `  “${item.title}”` : ""}`;
+  for (const item of check.relationships) {
+    if (item.status === "supported") lines.push(`  ✓ ${label(item)}  ${item.imports} import${item.imports === 1 ? "" : "s"}${item.direction === "opposite" ? " (pointing from the target)" : item.direction === "both" ? " (both ways)" : ""}, e.g. ${where(item.examples[0]!)}`);
+    else if (item.status === "unsupported") lines.push(`  ▲ ${label(item)}  no import between the mapped files (it may run through a network call, an event or a file)`);
+    else lines.push(`  · ${label(item)}  not checkable: an end has no mapped files`);
+  }
+  lines.push("", "Imports with no relationship");
+  if (!check.undeclared.length) lines.push("  ✓ none");
+  for (const item of check.undeclared) lines.push(`  ▲ ${item.source} → ${item.target}  ${item.imports} import${item.imports === 1 ? "" : "s"}, e.g. ${where(item.examples[0]!)}`);
+  return `${lines.join("\n")}\n`;
+}

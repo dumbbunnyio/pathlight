@@ -15,7 +15,7 @@ const cli = resolve("src/cli.ts");
 const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
 
 beforeAll(async () => {
-  directory = await mkdtemp(join(tmpdir(), "c4view-tmux-"));
+  directory = await mkdtemp(join(tmpdir(), "pathlight-tmux-"));
   workspace = join(directory, "parcel's workspace");
   socket = join(directory, "tmux.sock");
   await cp("examples/parcel", workspace, { recursive: true, filter: source => !source.includes(".cache") });
@@ -100,7 +100,7 @@ exit "$status"
 }, 120_000);
 
 test("a live viewer observes Claude hook metadata without restart and reloads retained state", async () => {
-  await writeFile(join(workspace, "c4view.activity.json"), JSON.stringify({ version: 1, project: "parcel",
+  await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel",
     mappings: [{ glob: "src/orders.ts", element: "parcel.commerce.orders" }] }));
   const liveParent = await tmux("new-window", "-d", "-t", "viewer-test", "-P", "-F", "#{pane_id}", "sleep", "120");
   const pane = await show("services", "live-session", liveParent);
@@ -133,7 +133,7 @@ test("a live viewer observes Claude hook metadata without restart and reloads re
 test("default native show records activity, and replaces during search in the owned pane", async () => {
   const nativeWorkspace = join(directory, "native-workspace");
   await cp("examples/parcel", nativeWorkspace, { recursive: true, filter: path => !path.includes(".cache") });
-  await writeFile(join(nativeWorkspace, "c4view.activity.json"), JSON.stringify({ version: 1, project: "parcel",
+  await writeFile(join(nativeWorkspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel",
     mappings: [{ glob: "src/orders.ts", element: "parcel.commerce.orders" }] }));
   const nativeParent = await tmux("new-window", "-d", "-t", "viewer-test", "-P", "-F", "#{pane_id}", "sleep", "120");
   const native = async (view: string) => {
@@ -149,7 +149,7 @@ test("default native show records activity, and replaces during search in the ow
   };
   const first = await native("services");
   const pane = first.pane;
-  expect((await readdir(join(nativeWorkspace, ".cache", "c4view"))).filter(file => file.startsWith("render-"))).toEqual([]);
+  expect((await readdir(join(nativeWorkspace, ".cache", "pathlight"))).filter(file => file.startsWith("render-"))).toEqual([]);
   await capture(pane, "Service architecture");
   await tmux("send-keys", "-t", pane, "/");
   await tmux("send-keys", "-t", pane, "-l", "Orders");

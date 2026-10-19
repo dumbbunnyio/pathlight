@@ -4,10 +4,12 @@
   "mappings": [
     { "glob": "plugins/**", "element": "plugin" },
     { "glob": "src/claude.ts", "element": "plugin" },
-    { "glob": "src/activity.ts", "element": "activity" },
+    { "glob": "src/{activity,activity-subscriptions}.ts", "element": "activity" },
     { "glob": "src/ask.ts", "element": "ask" },
     { "glob": "src/catalog.ts", "element": "catalog" },
     { "glob": "src/{cli,init,tmux,process,ready}.ts", "element": "launcher" },
-    { "glob": "src/{native-viewer,connectors,node-files,editor}.ts", "element": "viewer" }
-  ]
+    { "glob": "src/{native-viewer,routes,ui,node-files,editor}.ts", "element": "viewer" },
+    { "glob": "src/{scan,scan-imports,check}.ts", "element": "scanner" }
+  ],
+  "ignore": ["tests/**", ".agents/**", "src/effects.ts"]
 }

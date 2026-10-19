@@ -9,8 +9,8 @@ import { claudeSettings, proposeMappings } from "../src/init";
 import { run, toolActivity, writeActivity } from "./effects";
 
 test("follow picks the most recently active session in this workspace only", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-latest-"));
-  const other = await mkdtemp(join(tmpdir(), "c4view-latest-other-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-latest-"));
+  const other = await mkdtemp(join(tmpdir(), "pathlight-latest-other-"));
   try {
     expect(await Effect.runPromise(latestBinding(directory))).toBeUndefined();
     const at = (session: string, time: number, workspace = directory) => writeActivity(workspace,
@@ -34,13 +34,13 @@ test("init merges hooks without touching other settings and proposes only mappin
 }, 30_000);
 
 test("a viewer started with --follow shows the live badge, then switches to a newer session", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-follow-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-follow-"));
   const socket = join("/tmp", `c4f-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await mkdir(join(directory, "src"));
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/activity.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "follow-test", "-x", "130", "-y", "42", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory, "--follow");

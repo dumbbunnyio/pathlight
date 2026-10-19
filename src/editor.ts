@@ -10,7 +10,7 @@ export const openEditor = Effect.fn("Editor.open")(function* (options: { workspa
   const editor = visual.trim() || fallback.trim();
   if (!editor) return yield* Effect.fail(failure("Editor.config", "Set VISUAL or EDITOR before starting the viewer. For GUI editors, include a wait flag."));
   const child = yield* Effect.acquireRelease(attempt("Editor.spawn", () => {
-    const child = spawn("sh", ["-c", `exec ${editor} "$1"`, "c4view-editor", file], {
+    const child = spawn("sh", ["-c", `exec ${editor} "$1"`, "pathlight-editor", file], {
       cwd: options.workspace, stdio: "inherit", detached: true,
     });
     const exited = new Promise<void>((resolve, reject) => {

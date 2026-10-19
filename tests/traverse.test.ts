@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./effects";
 
 test("hjkl select the neighbouring node, arrows pan without selecting, and v swaps the roles", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-traverse-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-traverse-"));
   const socket = join("/tmp", `c4t-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {

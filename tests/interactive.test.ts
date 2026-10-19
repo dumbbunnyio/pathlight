@@ -7,7 +7,7 @@ import { run } from "./effects";
 import { activityDirectory, toolActivity, writeActivity } from "./effects";
 
 test("mapped files filter without live recording and round-trip through a real terminal editor", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-editor-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-editor-"));
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
@@ -16,7 +16,7 @@ test("mapped files filter without live recording and round-trip through a real t
     const filename = "src/it's a file.ts";
     await writeFile(join(directory, filename), "initial\n");
     for (const name of ["b", "c", "d", "e", "f"]) await writeFile(join(directory, "src", `${name}.ts`), "initial\n");
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/**", element: "plugin" }, { glob: "src/b.ts", element: "plugin" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "editor-test", "-x", "100", "-y", "36",
       "-P", "-F", "#{pane_id}", "env", "VISUAL=nvim -u NONE -i NONE -n", "EDITOR=nonexistent-editor",
@@ -109,12 +109,12 @@ test("mapped files filter without live recording and round-trip through a real t
 }, 30_000);
 
 test("native diagram supports keyboard, mouse after pan/resize, and live node activity", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-native-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-native-"));
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/activity.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "native-test", "-x", "100", "-y", "42",
       "-P", "-F", "#{pane_id}", "sleep", "120");
@@ -205,7 +205,7 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
 }, 30_000);
 
 test("search isolates typing, cycles matches, accepts without navigation, and cancels to the original viewport", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-search-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-search-"));
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
@@ -306,7 +306,7 @@ test("search isolates typing, cycles matches, accepts without navigation, and ca
 }, 30_000);
 
 test("linked views keep one process and restore selection, scroll, and live activity on back", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-navigation-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-navigation-"));
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
@@ -314,7 +314,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     const viewsFile = join(directory, "views.c4");
     await writeFile(viewsFile, (await readFile(viewsFile, "utf8")).replace("include customer, parcel, payments, carrier, email",
       "include customer, parcel, payments, carrier, email\n include email with { navigateTo empty }") + "\nviews { view empty { title 'Empty' } }\n");
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "parcel",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel",
       mappings: [{ glob: "src/api.ts", element: "parcel.commerce.api" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "navigation-test", "-x", "90", "-y", "36",
       "-P", "-F", "#{pane_id}", "sleep", "120");
@@ -394,12 +394,12 @@ test.each([
   { view: "checkout", initial: "parcel", rootChildren: 2, commerceChildren: 4 },
   { view: "services", initial: "customer", rootChildren: 3, commerceChildren: 5 },
 ])("Parcel $view groups remain selectable through pan, resize, and activity", async scenario => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-groups-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-groups-"));
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "parcel", mappings: [
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel", mappings: [
       { glob: "src/api.ts", element: "parcel.commerce.api" },
       { glob: "src/system.ts", element: "parcel.commerce" },
     ] }));

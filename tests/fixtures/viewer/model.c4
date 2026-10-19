@@ -21,7 +21,7 @@ model {
 
 views {
   view live {
-    title 'Visualize work implementation'
+    title 'Pathlight implementation'
     include *
     autoLayout LeftRight
   }

@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./effects";
 
 test("the diagram stays fitted through resize until panned or zoomed; narrow terminals overlay the inspector and under 80 columns list the nodes", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-responsive-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-responsive-"));
   const socket = join("/tmp", `c4r-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
@@ -79,7 +79,7 @@ test("the diagram stays fitted through resize until panned or zoomed; narrow ter
 }, 60_000);
 
 test("the first click on an inspector header focuses the section and the second folds it", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-header-click-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-header-click-"));
   const socket = join("/tmp", `c4h-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {

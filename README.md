@@ -1,4 +1,4 @@
-# Visualize work
+# Pathlight
 
 Show LikeC4 architecture diagrams beside an agent conversation in tmux.
 LikeC4 owns the model and layout. OpenTUI renders interactive terminal nodes, groups, and connectors by default.
@@ -24,12 +24,12 @@ Only open trusted LikeC4 workspaces. LikeC4 can load executable JavaScript or Ty
 Put the command on your PATH once, then install the plugin from this repository:
 
 ```sh
-bun install && bun link          # provides the c4view command
-claude plugin marketplace add /path/to/visualize-work
-claude plugin install visualize-work@visualize-work
+bun install && bun link          # provides the pathlight command
+claude plugin marketplace add /path/to/pathlight
+claude plugin install pathlight@pathlight
 ```
 
-The plugin adds the recording hooks and `/c4view`. Hooks do nothing in a project without `c4view.activity.json`, so enabling the plugin globally is safe. Create the mapping with `c4view init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
+The plugin adds the recording hooks and `/pathlight`. Hooks do nothing in a project without `pathlight.activity.json`, so enabling the plugin globally is safe. Create the mapping with `pathlight init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
 Use either this route or the project-local route below, not both.
 
 ## Quick start (Claude Code and OpenCode)
@@ -37,18 +37,18 @@ Use either this route or the project-local route below, not both.
 From the project you work in, with its LikeC4 model:
 
 ```sh
-bun run --cwd /path/to/visualize-work c4view init --workspace /path/to/project
+bun run --cwd /path/to/pathlight pathlight init --workspace /path/to/project
 ```
 
-`init` adds the Claude Code hooks to `.claude/settings.local.json` (per-user), writes a `/c4view` slash command,
-registers the OpenCode plugin, and creates `c4view.activity.json` if absent. It maps only elements whose name matches
+`init` adds the Claude Code hooks to `.claude/settings.local.json` (per-user), writes a `/pathlight` slash command,
+registers the OpenCode plugin, and creates `pathlight.activity.json` if absent. It maps only elements whose name matches
 a directory or file that exists; review it and add globs for the rest. Re-running `init` is safe and never overwrites an existing mapping.
 
-Then, in tmux, run `/c4view` in Claude Code (or `/c4view VIEW_ID`). The viewer opens beside the conversation and
+Then, in tmux, run `/pathlight` in Claude Code (or `/pathlight VIEW_ID`). The viewer opens beside the conversation and
 follows the most recently active recorded session with `--follow`, so you need no pane or session IDs. You can also run it yourself:
 
 ```sh
-bun run c4view show VIEW --workspace /path/to/project --follow
+bun run pathlight show VIEW --workspace /path/to/project --follow
 ```
 
 Installing the Claude hooks is the opt-in for Claude recording; remove them to stop. OpenCode still records only after a `live: true` request.
@@ -61,8 +61,8 @@ Nodes show `r`/`e` counts of retained reads and edits. Press `t` to ask the agen
 Inside tmux, list the example diagrams, then show one:
 
 ```sh
-bun run c4view list --workspace examples/parcel
-bun run c4view show services --workspace examples/parcel
+bun run pathlight list --workspace examples/parcel
+bun run pathlight show services --workspace examples/parcel
 ```
 
 Select nodes with the mouse, Tab, or `h` `j` `k` `l`, which move to the nearest node in that direction. Arrow keys pan the Three camera (press `v` to swap the two). Connections are orthogonal thin lines with rounded bends. Press `/` to search the current view by name or ID.
@@ -70,14 +70,22 @@ The selected node's connections are solid, cyan for incoming and amber for outgo
 Press `e` to browse the selected node's mapped files, then Enter to open one in your external editor.
 Set `VISUAL` or `EDITOR` before starting the viewer. File browsing does not require live recording.
 Enter selects a group's first child or opens a leaf's linked view. Press `o` to open a group's linked view, `b` for view history, or Backspace for the parent group.
-Use `f` to fit, `r` to center the selection, and `q` to quit. Press `i` to show or hide the inspector (docked from 120 columns, an overlay below that; under 80 columns the nodes are a list) or `?` for help. The diagram refits on resize until you pan or zoom; `f` fits again. Set `C4VIEW_COLORS=256` if your terminal lacks 24-bit colour and is not detected. Ctrl+C quits even while search is active.
+Use `f` to fit, `r` to center the selection, and `q` to quit. Press `i` to show or hide the inspector (docked from 120 columns, an overlay below that; under 80 columns the nodes are a list) or `?` for help. The diagram refits on resize until you pan or zoom; `f` fits again. Set `PATHLIGHT_COLORS=256` if your terminal lacks 24-bit colour and is not detected. Ctrl+C quits even while search is active.
 See [native viewer controls and limits](docs/native-viewer.md) for search, activity, and navigation details.
 
 To run in the current terminal instead of opening a pane:
 
 ```sh
-bun run c4view view services --workspace examples/parcel
+bun run pathlight view services --workspace examples/parcel
 ```
+
+## Scan a codebase
+
+`pathlight scan --workspace . --out scan.json` reads the TypeScript and JavaScript source statically and writes the files, the imports between them, the packages they use, and what it could not read. It is a fact sheet for an agent (or you) drafting a LikeC4 model of a codebase that has none; it never writes the model itself. See [scan format](docs/scan.md).
+
+The `pathlight` skill (`plugins/claude/skills/pathlight/SKILL.md`) teaches an agent this workflow: scan, draft the model and mapping, check until clean, show. The Claude plugin ships it, and `pathlight init` copies it into the workspace (`.claude/skills/pathlight`, or `.agents/skills/pathlight` with `--no-claude-hooks`); OpenCode documents reading both locations.
+
+`pathlight check --workspace .` compares that scan with your LikeC4 model and `pathlight.activity.json`: mapping globs that match no files, source files no mapping claims, relationships with no import between their mapped files, and imports between elements that no relationship declares. These are questions, not verdicts (a relationship can run over a network call that no import shows); `--json` gives the same facts as data and `--strict` exits 1 when anything is found.
 
 ## Outside tmux
 
@@ -93,7 +101,7 @@ Restart the OpenCode background service after adding the plugin if its tools do 
 opencode service restart
 ```
 
-This briefly disconnects active clients. The plugin provides `c4view_list` and `c4view_show`.
+This briefly disconnects active clients. The plugin provides `pathlight_list` and `pathlight_show`.
 Each tool requests permission before loading a workspace or opening a pane.
 Ask the agent to list the views, then show the selected view in your tmux pane.
 
@@ -112,20 +120,21 @@ OpenCode status: `opencode plugin list` shows this plugin loading from the repos
 
 ## Observe live activity
 
-Place `c4view.activity.json` in the agent's workspace. This repository includes a mapping to its own `viewer` LikeC4 project.
+Place `pathlight.activity.json` in the agent's workspace. This repository includes a mapping to its own `viewer` LikeC4 project.
 Mappings use workspace-relative path globs and exact LikeC4 element IDs:
 
 ```json
 {
   "version": 1,
   "project": "my-project",
-  "mappings": [{ "glob": "services/payments/**", "element": "platform.payments" }]
+  "mappings": [{ "glob": "services/payments/**", "element": "platform.payments" }],
+  "ignore": ["tests/**", "vendor/**"]
 }
 ```
 
 In OpenCode, ask the agent to show the `viewer` project's `live` view with `live: true` and your current pane ID.
 The plugin binds the panel to the calling session. It records that session's subsequent tool starts, completions, and failures automatically.
-Call `c4view.stop` to stop recording. Closing the viewer alone does not stop recording.
+Call `pathlight.stop` to stop recording. Closing the viewer alone does not stop recording.
 Plugin reloads stop recording; call `show` with `live: true` again to resume.
 Subagent sessions are separate and are not automatically included.
 
@@ -136,19 +145,19 @@ Unmapped paths remain visible as `unmapped`. Long-running calls become `unconfir
 This is an observation-age indicator, not proof that the agent disconnected or the tool stopped.
 Selection, pan and zoom remain unchanged as activity arrives. Reopening the viewer reads retained activity.
 
-For Claude Code, `c4view init` installs these hooks. To do it by hand, copy the hooks from `plugins/claude/hooks.example.json` into your project settings and replace the absolute plugin path.
+For Claude Code, `pathlight init` installs these hooks. To do it by hand, copy the hooks from `plugins/claude/hooks.example.json` into your project settings and replace the absolute plugin path.
 Merge the hooks with existing settings; do not replace unrelated configuration.
 The hook runs asynchronously and exits successfully even if observation fails.
 The adapter accepts `PreToolUse`, `PostToolUse`, and `PostToolUseFailure`; it has been tested with hook payloads, not an interactive Claude session.
 With the Claude session ID, open a bound viewer:
 
 ```sh
-bun run c4view show VIEW --workspace /path/to/project --project PROJECT --pane %ID --source claude --session SESSION_ID
+bun run pathlight show VIEW --workspace /path/to/project --project PROJECT --pane %ID --source claude --session SESSION_ID
 ```
 
 Only tool names, call/session IDs, workspace-relative paths, operation categories, timestamps, and lifecycle states are retained.
 Tool arguments, command strings, source contents, tool results, and error text are not stored.
-Records live under `.cache/c4view/activity` in directories created with private permissions.
+Records live under `.cache/pathlight/activity` in directories created with private permissions.
 Each source/session retains at most 256 event files after writers settle; readers reduce these to the latest 128 calls.
 The OpenCode observer uses a bounded 128-event queue and supports eight opted-in sessions per plugin instance.
 Collection is best-effort: overload or disk failures may lose events, and old history is pruned. It is not an audit log.
@@ -164,5 +173,5 @@ bun run test
 They exercise the real CLI, native interaction, and isolated tmux servers; the file-browser test needs Neovim.
 They cover pane reuse, protecting a repurposed pane, zoom, fit, quit and activity isolation. Appearance still needs a check in your actual terminal.
 
-Per-request readiness files remain under the selected workspace's `.cache/c4view` directory. Close viewers before removing old cache directories.
+Per-request readiness files remain under the selected workspace's `.cache/pathlight` directory. Close viewers before removing old cache directories.
 Concurrent requests for the same parent pane and workspace return a busy error. Retry after the active request finishes.

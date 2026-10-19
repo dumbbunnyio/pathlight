@@ -6,12 +6,12 @@ import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./effects";
 
 test("editing the model reloads the diagram in place, keeps selection and zoom, and survives a broken model", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-reload-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-reload-"));
   const socket = join("/tmp", `c4r-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "plugins/**", element: "plugin" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "reload-test", "-x", "170", "-y", "44", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory);
@@ -50,7 +50,7 @@ test("editing the model reloads the diagram in place, keeps selection and zoom, 
     // The activity mapping reloads too: a new glob changes the selected node's file list.
     await tmux("send-keys", "-t", pane, "e");
     await until(text => /Files[─\s]+0\/0/.test(text), "no mapped files yet");
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "model.c4", element: "plugin" }] }));
     await until(text => text.includes("model.c4"), "new mapping applied");
   } finally {

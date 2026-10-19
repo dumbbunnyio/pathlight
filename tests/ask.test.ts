@@ -14,12 +14,12 @@ test("an ask message leads with the question, adds the component's context, and 
 });
 
 test("t types a question about the selected node into the harness pane; Enter submits it and Alt+Enter adds a line", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-ask-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-ask-"));
   const socket = join("/tmp", `c4a-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "plugins/**", element: "plugin" }] }));
     // `cat` stands in for the agent harness: it echoes whatever is typed into its pane.
     const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "ask-test", "-x", "170", "-y", "44", "-P", "-F", "#{pane_id}", "cat");

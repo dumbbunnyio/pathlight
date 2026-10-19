@@ -10,7 +10,7 @@ export const palette = {
 
 /** Terminals that do not advertise 24-bit colour get every palette entry snapped to the nearest xterm-256 colour, so what is drawn is what the terminal shows. */
 export const trueColor = (env: Record<string, string | undefined> = process.env) => {
-  const override = env.C4VIEW_COLORS;
+  const override = env.PATHLIGHT_COLORS;
   if (override) return override !== "256";
   return /truecolor|24bit/i.test(env.COLORTERM ?? "") || /direct|truecolor/i.test(env.TERM ?? "");
 };

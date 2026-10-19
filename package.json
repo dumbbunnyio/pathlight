@@ -1,13 +1,13 @@
 {
-  "name": "visualize-work",
+  "name": "pathlight",
   "private": true,
   "type": "module",
   "bin": {
-    "c4view": "src/cli.ts"
+    "pathlight": "src/cli.ts"
   },
   "version": "0.1.0",
   "scripts": {
-    "c4view": "bun src/cli.ts",
+    "pathlight": "bun src/cli.ts",
     "check": "tsc --noEmit",
     "test": "bun test tests"
   },

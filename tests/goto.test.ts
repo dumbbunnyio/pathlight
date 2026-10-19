@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./effects";
 
 test("g lists every view in the project and jumps by number or Enter, keeping Back history", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-goto-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-goto-"));
   const socket = join("/tmp", `c4g-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {

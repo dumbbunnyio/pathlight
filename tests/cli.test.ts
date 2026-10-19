@@ -8,7 +8,7 @@ let workspace: string;
 const cli = resolve("src/cli.ts");
 
 beforeAll(async () => {
-  directory = await mkdtemp(join(tmpdir(), "c4view-cli-"));
+  directory = await mkdtemp(join(tmpdir(), "pathlight-cli-"));
   workspace = join(directory, "parcel's workspace");
   await cp("examples/parcel", workspace, {
     recursive: true,
@@ -59,7 +59,7 @@ test("follow and a bound session are mutually exclusive", async () => {
 });
 
 test("rejects activity mappings to nonexistent architecture elements before opening a pane", async () => {
-  await writeFile(join(workspace, "c4view.activity.json"), JSON.stringify({ version: 1, project: "parcel",
+  await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel",
     mappings: [{ glob: "src/**", element: "parcel.nonexistent" }] }));
   const result = await invoke("show", "index", "--workspace", workspace, "--pane", "%0",
     "--socket", join(directory, "no-server.sock"), "--session", "test-session");
@@ -67,7 +67,7 @@ test("rejects activity mappings to nonexistent architecture elements before open
   expect(result.stderr).toContain("Unknown activity element 'parcel.nonexistent'");
   const foreground = await invoke("view", "index", "--workspace", workspace, "--session", "test-session");
   expect(foreground.stderr).toContain("Unknown activity element 'parcel.nonexistent'");
-  await writeFile(join(workspace, "c4view.activity.json"), JSON.stringify({ version: 1, project: "wrong-project", mappings: [] }));
+  await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "wrong-project", mappings: [] }));
   expect((await invoke("view", "index", "--workspace", workspace, "--session", "test-session")).stderr)
     .toContain("Activity mapping project must match");
 });
@@ -79,5 +79,22 @@ test("init can skip the project-local Claude hooks for plugin users", async () =
   expect(result.code).toBe(0);
   expect(result.stdout).toContain("no local hooks written");
   expect(await Bun.file(join(project, ".claude", "settings.local.json")).exists()).toBe(false);
-  expect(await Bun.file(join(project, "c4view.activity.json")).exists()).toBe(true);
+  expect(await Bun.file(join(project, "pathlight.activity.json")).exists()).toBe(true);
+  // The plugin supplies the skill to Claude Code, so only the cross-agent location gets a copy.
+  expect(await Bun.file(join(project, ".claude", "skills", "pathlight", "SKILL.md")).exists()).toBe(false);
+  expect(await Bun.file(join(project, ".agents", "skills", "pathlight", "SKILL.md")).text()).toBe(await Bun.file("plugins/claude/skills/pathlight/SKILL.md").text());
+});
+
+test("init writes the pathlight skill next to the Claude hooks and replaces it on a rerun", async () => {
+  const project = join(directory, "init-skill");
+  await cp("examples/parcel", project, { recursive: true, filter: path => !path.includes(".cache") });
+  const result = await invoke("init", "--workspace", project);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("Skill: pathlight written to .claude/skills/pathlight");
+  const written = join(project, ".claude", "skills", "pathlight", "SKILL.md");
+  expect(await Bun.file(written).text()).toBe(await Bun.file("plugins/claude/skills/pathlight/SKILL.md").text());
+  expect(await Bun.file(join(project, ".agents")).exists()).toBe(false);
+  await writeFile(written, "stale");
+  expect((await invoke("init", "--workspace", project)).code).toBe(0);
+  expect(await Bun.file(written).text()).toContain("name: pathlight");
 });

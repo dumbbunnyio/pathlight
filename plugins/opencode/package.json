@@ -1,5 +1,5 @@
 {
-  "name": "visualize-work-opencode",
+  "name": "pathlight-opencode",
   "private": true,
   "type": "module",
   "exports": "./index.ts"

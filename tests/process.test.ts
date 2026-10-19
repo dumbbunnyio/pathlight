@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { run } from "../src/process";
 
 test("cancelling a command terminates descendants that keep stdout open and ignore TERM", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-process-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-process-"));
   const marker = join(directory, "child");
   const fiber = Effect.runFork(run("sh", ["-c", 'trap "" TERM; sleep 60 & echo $! > "$1"; wait', "test", marker]));
   try {

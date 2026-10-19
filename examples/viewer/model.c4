@@ -29,17 +29,29 @@ model {
     description 'Types a question about a component, with its files and connections, into the agent pane the viewer was opened beside. Typed, not sent, unless you ask.'
   }
 
+  scanner = component 'Scanner and checker' {
+    technology 'Bun, Effect'
+    description 'Reads TypeScript and JavaScript statically (files, imports, what it could not read) and checks the model and file mapping against that scan. Static evidence only: it never claims anything about what runs.'
+  }
+
   viewer -> ask 'Hands a question over'
   plugin -> activity 'Records tool lifecycle'
   plugin -> launcher 'Opens a view'
   catalog -> launcher 'Selects diagram'
+  launcher -> scanner 'Runs scan and check'
+  scanner -> catalog 'Reads the model'
+  scanner -> activity 'Reads the file mapping'
+  catalog -> activity 'Validates the mapping against the model'
+  launcher -> activity 'Reads and writes the journal'
+  viewer -> catalog 'Reloads the model'
+  ask -> launcher 'Runs tmux through its process runner'
   launcher -> viewer 'Starts owned pane'
   activity -> viewer 'Updates component activity'
 }
 
 views {
   view live {
-    title 'Visualize work implementation'
+    title 'Pathlight implementation'
     include *
     autoLayout LeftRight
   }

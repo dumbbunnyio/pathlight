@@ -20,7 +20,7 @@ test("tool observation keeps only metadata and maps explicit paths without expos
 });
 
 test("a shell command contributes only existing workspace files it names, never its text", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-command-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-command-"));
   try {
     await mkdir(join(directory, "src"));
     await writeFile(join(directory, "src/a.ts"), "");
@@ -33,8 +33,8 @@ test("a shell command contributes only existing workspace files it names, never 
 });
 
 test("concurrent writers preserve tool outcomes and isolate sessions and workspaces", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-activity-"));
-  const other = await mkdtemp(join(tmpdir(), "c4view-other-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-activity-"));
+  const other = await mkdtemp(join(tmpdir(), "pathlight-other-"));
   const binding = { source: "claude", session: "session-a" } satisfies Parameters<typeof readActivity>[1];
   try {
     const finished = toolActivity(directory, binding, "call-a", "Read", { file_path: join(directory, "src/a.ts") }, "completed");
@@ -57,7 +57,7 @@ test("concurrent writers preserve tool outcomes and isolate sessions and workspa
 });
 
 test("the activity journal is bounded and Claude failure payloads exclude tool results", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-retention-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-retention-"));
   try {
     const event = await claudeActivity(directory, { hook_event_name: "PostToolUseFailure", cwd: directory,
       session_id: "session-c", tool_use_id: "call-c", tool_name: "Bash", tool_input: { command: "echo SECRET" }, error: "SECRET" });
@@ -76,7 +76,7 @@ test("the activity journal is bounded and Claude failure payloads exclude tool r
 });
 
 test("a Claude session that cd'd into a workspace subdirectory is still recorded, with paths resolved from there", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-subdir-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-subdir-"));
   try {
     await mkdir(join(directory, "src/deep"), { recursive: true });
     await writeFile(join(directory, "src/deep/a.ts"), "");
@@ -115,7 +115,7 @@ test("stop cancels an outstanding attachment and concurrent reservations respect
 });
 
 test("cancelling journal publication waits for a pending write before temporary-file cleanup", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-write-cancel-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-write-cancel-"));
   try {
     const output = await run(process.execPath, [resolve("tests/fixtures/activity-cancellation.ts"), directory]);
     expect(JSON.parse(output)).toEqual({ operations: ["written", "cleanup"], temporary: [] });

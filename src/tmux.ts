@@ -20,7 +20,7 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
   if (options.activity || options.follow) yield* validateActivityMapping(options.view, yield* readActivityConfig(options.view.workspace));
   const socket = yield* tmux("display-message", "-p", "-t", options.pane, "#{socket_path}");
   const owner = createHash("sha256").update(`${socket}\0${options.pane}\0${options.view.workspace}`).digest("hex");
-  const cache = join(options.view.workspace, ".cache", "c4view");
+  const cache = join(options.view.workspace, ".cache", "pathlight");
   yield* io("Tmux.cache", () => mkdir(cache, { recursive: true }));
   const lock = yield* Effect.acquireRelease(io("Tmux.openLock", () => open(join(cache, `${owner}.lock`), "a", 0o600)),
     handle => io("Tmux.closeLock", () => handle.close()).pipe(Effect.orDie));
@@ -48,7 +48,7 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
       args.push("--session", options.activity.session, "--source", options.activity.source);
     }
     if (options.follow) args.push("--follow");
-    const panes = yield* tmux("list-panes", "-a", "-F", "#{pane_id}\t#{@c4view-owner}\t#{pane_current_command}\t#{pane_dead}\t#{pane_start_command}\t#{@c4view-command}");
+    const panes = yield* tmux("list-panes", "-a", "-F", "#{pane_id}\t#{@pathlight-owner}\t#{pane_current_command}\t#{pane_dead}\t#{pane_start_command}\t#{@pathlight-command}");
     const existing = panes.split("\n").map(line => line.split("\t"))
       .find(([, tag, command, dead, started, expected]) =>
         tag === owner && started === expected && !!expected && (command === "bun" || dead === "1"));
@@ -70,10 +70,10 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
       pane = yield* tmux("split-window", "-h", "-d", "-l", "50%", "-t", options.pane,
         "-P", "-F", "#{pane_id}", ...editorEnvironment, ...args).pipe(
           Effect.tap(value => Effect.sync(() => { createdPane = value; })), Effect.uninterruptible);
-      yield* tmux("set-option", "-p", "-t", pane, "@c4view-owner", owner);
+      yield* tmux("set-option", "-p", "-t", pane, "@pathlight-owner", owner);
     }
     const started = yield* tmux("display-message", "-p", "-t", pane, "#{pane_start_command}");
-    yield* tmux("set-option", "-p", "-t", pane, "@c4view-command", started);
+    yield* tmux("set-option", "-p", "-t", pane, "@pathlight-command", started);
     const text = yield* io("Tmux.ready", () => readFile(ready, "utf8")).pipe(
       Effect.catchIf(error => hasCode(error, "ENOENT"), () => Effect.succeed(undefined)),
       Effect.repeat({ schedule: Schedule.spaced("100 millis").pipe(Schedule.upTo({ times: 99 })), while: value => !value }));

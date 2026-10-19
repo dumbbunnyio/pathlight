@@ -21,7 +21,7 @@ const writeText = (path: string, text: string) => io("Init.write", async () => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Adds the c4view hooks to Claude's per-user project settings, keeping every other setting. */
+/** Adds the pathlight hooks to Claude's per-user project settings, keeping every other setting. */
 export const claudeSettings = (current: unknown, hook: string): Record<string, unknown> & { hooks: Record<string, unknown[]> } => {
   const settings = isRecord(current) ? { ...current } : {};
   const hooks: Record<string, unknown[]> = {};
@@ -95,12 +95,20 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
     yield* writeText(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
     notes.push("Claude Code: hooks added to .claude/settings.local.json (per-user, not shared).");
 
-    yield* writeText(join(workspace, ".claude", "commands", "c4view.md"), slashCommand);
-    notes.push("Claude Code: /c4view [view] opens the live viewer in your tmux window.");
+    yield* writeText(join(workspace, ".claude", "commands", "pathlight.md"), slashCommand);
+    notes.push("Claude Code: /pathlight [view] opens the live viewer in your tmux window.");
   } else notes.push("Claude Code: no local hooks written (using the plugin).");
 
-  const configPath = join(workspace, "c4view.activity.json");
-  if (yield* readOptional(configPath)) notes.push("Activity: kept existing c4view.activity.json.");
+  // One skill file for both hosts. Claude Code reads .claude/skills; with the plugin installed it supplies the skill itself,
+  // so only OpenCode needs a copy, and its documentation lists .agents/skills (and .claude/skills) as places it looks.
+  const skill = yield* io("Init.skill", () => readFile(join(pluginRoot, "claude", "skills", "pathlight", "SKILL.md"), "utf8"));
+  const skillRoot = options.claudeHooks ? ".claude" : ".agents";
+  yield* writeText(join(workspace, skillRoot, "skills", "pathlight", "SKILL.md"), skill);
+  notes.push(options.claudeHooks ? "Skill: pathlight written to .claude/skills/pathlight (Claude Code; OpenCode documents reading it too)."
+    : "Skill: pathlight written to .agents/skills/pathlight for OpenCode (the Claude plugin supplies it to Claude Code).");
+
+  const configPath = join(workspace, "pathlight.activity.json");
+  if (yield* readOptional(configPath)) notes.push("Activity: kept existing pathlight.activity.json.");
   else {
     const proposal = yield* Effect.gen(function* () {
       const source = yield* acquireModel(workspace);
@@ -110,10 +118,10 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
       const elements = [...model.elements()].map(element => ({ id: String(element.id), title: element.title }));
       return { project, mappings: proposeMappings(elements, yield* listFiles(workspace)), elements: elements.length };
     }).pipe(Effect.scoped, Effect.catch(() => Effect.succeed(undefined)));
-    if (!proposal) notes.push("Activity: no LikeC4 project found, so c4view.activity.json was not created.");
+    if (!proposal) notes.push("Activity: no LikeC4 project found, so pathlight.activity.json was not created.");
     else {
       yield* writeText(configPath, `${JSON.stringify({ version: 1, project: proposal.project, mappings: proposal.mappings }, null, 2)}\n`);
-      notes.push(`Activity: mapped ${proposal.mappings.length} of ${proposal.elements} elements by matching names on disk. Review c4view.activity.json and add globs for the rest.`);
+      notes.push(`Activity: mapped ${proposal.mappings.length} of ${proposal.elements} elements by matching names on disk. Review pathlight.activity.json and add globs for the rest.`);
     }
   }
 

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { editorFile, nodeFiles } from "./effects";
 
 test("mapped files are direct, deduplicated, and bounded to regular workspace files", async () => {
-  const root = await mkdtemp(join(tmpdir(), "c4view-files-"));
+  const root = await mkdtemp(join(tmpdir(), "pathlight-files-"));
   const workspace = join(root, "workspace");
   try {
     for (const directory of ["src", ".hidden", ".git", ".cache", "node_modules"]) {

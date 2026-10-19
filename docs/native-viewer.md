@@ -1,11 +1,11 @@
 # Use the native diagram viewer
 
-The native renderer is the default for `c4view show` and `c4view view`. It is the only renderer and draws interactive nodes without images.
+The native renderer is the default for `pathlight show` and `pathlight view`. It is the only renderer and draws interactive nodes without images.
 
 From the repository root, run this command in a terminal:
 
 ```sh
-bun run c4view view live --project viewer
+bun run pathlight view live --project viewer
 ```
 
 Click a node. Its border becomes white, and the details panel lists its incoming and outgoing relationships.
@@ -27,7 +27,7 @@ Under 80 columns a diagram does not fit, so the nodes are listed instead: one ro
 
 Click an inspector section header once to focus it and again to fold it.
 
-Colours are 24-bit. When `COLORTERM` does not say `truecolor` or `24bit` (and `TERM` is not a direct-colour type), every colour is snapped to the nearest xterm-256 colour; set `C4VIEW_COLORS=256` or `C4VIEW_COLORS=truecolor` to force either. The viewer paints its own dark background and does not follow the terminal's theme yet.
+Colours are 24-bit. When `COLORTERM` does not say `truecolor` or `24bit` (and `TERM` is not a direct-colour type), every colour is snapped to the nearest xterm-256 colour; set `PATHLIGHT_COLORS=256` or `PATHLIGHT_COLORS=truecolor` to force either. The viewer paints its own dark background and does not follow the terminal's theme yet.
 Resize the terminal, then click another visible node to check that mouse targets stay aligned.
 
 Press `/` to search the current view by node name or full ID. Matching ignores case and finds literal substrings, not regular expressions.
@@ -42,7 +42,7 @@ Ctrl+C still quits. Search does not include nodes that are absent from the curre
 ## Open a node's files
 
 Set `VISUAL` or `EDITOR` before starting the viewer. The viewer prefers a nonempty `VISUAL` value.
-For example, use `EDITOR=nvim bun run c4view view live --project viewer`.
+For example, use `EDITOR=nvim bun run pathlight view live --project viewer`.
 For a GUI editor, include its wait flag, such as `VISUAL='code --wait'`.
 These variables are trusted shell commands. Never populate them from untrusted model content.
 When an agent starts the viewer, the viewer inherits that agent process's environment.
@@ -54,7 +54,7 @@ Exit the editor to return to the same file selection and diagram position.
 Press Escape to return to diagram controls, or Ctrl+C to quit the viewer while browsing files.
 While the editor runs, it owns terminal input and handles its own shortcuts.
 
-The list uses direct mappings in `c4view.activity.json`, including overlapping glob patterns.
+The list uses direct mappings in `pathlight.activity.json`, including overlapping glob patterns.
 It works without an activity session. A group does not inherit its children's files.
 Mappings must name the selected project. Files are sorted and deduplicated, not inferred from recent activity.
 Press Ctrl+R in the file list to find added, removed, or renamed files.
@@ -70,7 +70,7 @@ Missing editors, deleted files, and nonzero editor exits leave an error in the f
 Try the nested Parcel architecture:
 
 ```sh
-bun run c4view view services --workspace examples/parcel --project parcel
+bun run pathlight view services --workspace examples/parcel --project parcel
 ```
 
 Select the Parcel group, then the Commerce or Fulfillment group inside it. Click a child node to select it independently.
@@ -85,7 +85,7 @@ Changing views replaces only the diagram widgets. The viewer process, activity b
 To observe an already-recording OpenCode session, supply its session ID:
 
 ```sh
-bun run c4view view live --project viewer --session SESSION_ID
+bun run pathlight view live --project viewer --session SESSION_ID
 ```
 
 This command only reads activity. It does not enable recording in the agent plugin.
@@ -112,7 +112,7 @@ Each card carries a faint tint of its LikeC4 `color`, so databases, queues, serv
 
 ## Interface
 
-The look is quiet: no bold, no all-caps, three text levels (bright for the selection and titles, normal for body, dim for everything else), and the only filled block on screen is the mode badge. The header reads `◆ c4view / <view title>` with `● live source:session` on the right (cyan; a spinner while a tool runs) and a dim line with the workspace, project/view, node and relationship counts and the Back depth. The latest call, while recent, sits at the right of that line.
+The look is quiet: no bold, no all-caps, three text levels (bright for the selection and titles, normal for body, dim for everything else), and the only filled block on screen is the mode badge. The header reads `◆ pathlight / <view title>` with `● live source:session` on the right (cyan; a spinner while a tool runs) and a dim line with the workspace, project/view, node and relationship counts and the Back depth. The latest call, while recent, sits at the right of that line.
 
 Cards have one rounded border, a dim kind line and the title; the selected card's border is amber, its neighbours' borders are a step brighter, and the card chosen by the Connections cursor gets a dashed amber border. Connectors are thin orthogonal lines: each leaves the vertical middle of the source's right side, runs horizontally, turns vertically at the middle of the gap (edges leaving the same node share that trunk) and enters the vertical middle of the target's left side, with rounded corners and an arrowhead. The selected node's edges are solid amber (outgoing) or cyan (incoming); all others are dim and dotted. Cards are kept inside their group's frame so group titles stay readable at low zoom.
 
@@ -125,7 +125,7 @@ Press `g` for a numbered list of every view in the project; `1`–`9` jumps, arr
 
 ## Live reload
 
-The viewer watches the workspace for changes to `.c4`/`.likec4` files, LikeC4 configuration and `c4view.activity.json`, and rebuilds the diagram about half a second after the last change. Your selection, pan and zoom stay where they are, and a short notice lists added and removed nodes (`Model reloaded: + Billing service`).
+The viewer watches the workspace for changes to `.c4`/`.likec4` files, LikeC4 configuration and `pathlight.activity.json`, and rebuilds the diagram about half a second after the last change. Your selection, pan and zoom stay where they are, and a short notice lists added and removed nodes (`Model reloaded: + Billing service`).
 If the new model has errors (for example an agent is mid-edit), the viewer keeps the last good diagram and says so; it recovers on the next valid save. A new or removed view you are looking at is reported rather than dropped. Mapped files refresh with the mapping. `node_modules`, `.git` and `.cache` are ignored.
 
 ## Follow mode and the live display
@@ -138,7 +138,7 @@ Nodes that saw work in the last 90 seconds carry a faint tint (warm for edits, c
 Shell commands (`Bash`) are tracked too: the journal keeps only the existing workspace files the command names, never its text. A running command shows `[run]` on those nodes and counts as `c`. That means "a command referred to this file", not that it read or edited it.
 Click a component's row in the activity list, or press `w`, to select the node the agent is working on (the newest observed call that maps to this view). Press `c` for a summary of the session: components touched with read, edit and command counts and recency, and the files edited with their owning component. Both are computed from the retained journal and make no claim beyond what was observed.
 Press `t` to ask the agent about the selected node. The dialog shows what it is about and an include row of three toggles: files, connections (both on) and recent activity (off). Type a question and press Enter: the viewer types it into your agent's tmux pane (the one it was opened beside), with the chosen context, and submits it, for example `About the "Orders" component (parcel.orders): why is this slow? [files: ...; connects: ...]`. An empty question is not sent. Alt+Enter adds a line (the field grows to four rows, then scrolls). Tab moves to the include row (← → or h l choose, Space toggles, or click an item) and back. A confirmation replaces the key hints in the status row for about three and a half seconds.
-This needs the viewer to have been opened with `c4view show` (which records the parent pane); text is sent literally and the pane is checked to still exist.
+This needs the viewer to have been opened with `pathlight show` (which records the parent pane); text is sent literally and the pane is checked to still exist.
 Press `a` to let the camera glide to the node of the newest running tool. It never changes the selection, and it is off until you press `a`.
 
 Run the repeatable terminal check:

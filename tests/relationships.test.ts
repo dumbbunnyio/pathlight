@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./effects";
 
 test("native relationship emphasis follows selection and long labels wrap and scroll without panning the diagram", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-relations-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-relations-"));
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {

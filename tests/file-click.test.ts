@@ -6,14 +6,14 @@ import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./effects";
 
 test("clicking a file row highlights it, and clicking the diagram leaves file mode instead of trapping input", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-file-click-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-file-click-"));
   const socket = join("/tmp", `c4c-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await mkdir(join(directory, "src"));
     for (const name of ["a", "b"]) await writeFile(join(directory, "src", `${name}.ts`), "x\n");
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/**", element: "plugin" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "file-click", "-x", "150", "-y", "44", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory);

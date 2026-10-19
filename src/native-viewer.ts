@@ -40,7 +40,7 @@ const getDiagram = (id: string) => {
 };
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
 let rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
-if (!process.stdin.isTTY || !process.stdout.isTTY) return yield* Effect.fail(failure("Native.terminal", "The native viewer needs a terminal. Use c4view show to open a tmux pane."));
+if (!process.stdin.isTTY || !process.stdout.isTTY) return yield* Effect.fail(failure("Native.terminal", "The native viewer needs a terminal. Use pathlight show to open a tmux pane."));
 const renderer = yield* Effect.acquireRelease(io("Native.renderer", () => createCliRenderer({ exitOnCtrlC: false, exitSignals: [], consoleMode: "disabled", targetFps: 30, backgroundColor: palette.background })),
   renderer => io("Native.close", async () => { renderer.destroy(); await renderer.closed; }).pipe(Effect.orDie));
 const stopped = Promise.withResolvers<void>();
@@ -298,7 +298,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
   };
   const liveLabel = () => binding ? `${binding.source}:${binding.session.slice(0, 8)}` : "waiting for a session";
-  const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("c4view"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id))]);
+  const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id))]);
   // Right-hand: the live session when there is one (a spinner replaces the dot while a tool runs), otherwise nothing.
   const badgeContent = () => {
     if (!binding && !following) return "";
@@ -440,8 +440,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     activityTargets = []; activityItems = [];
     const note = (text: string, tone: string = palette.border) => { contentRows.activity = 1; return new StyledText([fg(tone)(text)]); };
     if (activityError) return note(activityError, palette.failure);
-    if (!binding && !following) return note("No session attached — run /c4view in your agent");
-    if (!config) return note(`No activity mappings for ${view.project} — run c4view init`);
+    if (!binding && !following) return note("No session attached — run /pathlight in your agent");
+    if (!config) return note(`No activity mappings for ${view.project} — run pathlight init`);
     if (!binding) return note("No activity yet");
     const now = Date.now();
     const rows = activityRows(events, config, now, 64);
@@ -759,7 +759,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       });
     };
     walk(root, "", true);
-    if (!paths.length) fileChunks.push(fg(palette.border)(fileError || (config ? "No files mapped" : "Map files in c4view.activity.json")));
+    if (!paths.length) fileChunks.push(fg(palette.border)(fileError || (config ? "No files mapped" : "Map files in pathlight.activity.json")));
     else if (touchedAny) fileChunks.push(fg(palette.border)("● touched this session"));
     contentRows.files = fileChunks.filter(chunk => chunk.text.includes("\n")).length + (paths.length && touchedAny ? 1 : 0) + (paths.length ? 0 : 1);
     filesText.content = new StyledText(fileChunks);
@@ -791,8 +791,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (summary.visible) summary.content.content = summaryContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
     const mode = fileMode ? "files" : focusSection ? sections[focusSection].name.toLowerCase() : search ? "search" : "diagram";
-    const rightWidth = 14 + pkg.version.length + (hidden ? `${hidden} labels hidden  ·  `.length : 0);
-    const rightContent = new StyledText([...(hidden ? [fg(palette.border)(`${hidden} labels hidden  ·  `)] : []), fg(palette.muted)(`zoom ${Math.round(16 / scale * 100)}%`), fg(palette.border)(" │ "), fg(palette.muted)(`c4view ${pkg.version}`)]);
+    // A notice has the room: the hidden-label count waits until it goes.
+    const labelNote = message ? 0 : hidden;
+    const rightWidth = 17 + pkg.version.length + (labelNote ? `${labelNote} labels hidden  ·  `.length : 0);
+    const rightContent = new StyledText([...(labelNote ? [fg(palette.border)(`${labelNote} labels hidden  ·  `)] : []), fg(palette.muted)(`zoom ${Math.round(16 / scale * 100)}%`), fg(palette.border)(" │ "), fg(palette.muted)(`pathlight ${pkg.version}`)]);
     const navigation: Hint[] = listMode ? [["↑↓", "select"], ["enter", "into / open"], ["backspace", "up"], ["i", "panel"], ["/", "search"], ["t", "ask"], ["?", "help"]] : [[selectKeys(), "select"], [vimTraverses ? "←↑↓→" : "h j k l", "pan"], ["+ -", "zoom"], ["/", "search"], ["f", "fit"], ["e", "files"], ["i", "panel"], ["t", "ask"], ["c", "session"], ["?", "help"]];
     const sectionHints: Record<SectionKey, Hint[]> = {
       overview: [["↑↓", "scroll"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
@@ -815,9 +817,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     statusLeft.content = new StyledText([pill(mode, palette.accent), fg(palette.muted)("  Selected: "), fg(palette.body)(String(selected?.id ?? "")), fg(palette.muted)("  "),
       ...(style ? [fg(style.color)(`${style.glyph} `), fg(palette.body)(message)] : hints)]);
     const leftWidth = statusLeft.content instanceof StyledText ? statusLeft.content.chunks.reduce((sum, chunk) => sum + chunk.text.length, 0) : 0;
-    const zoomWidth = 14 + pkg.version.length;
+    const zoomWidth = 17 + pkg.version.length;
     statusRight.content = leftWidth + rightWidth + 2 <= renderer.width ? rightContent
-      : leftWidth + zoomWidth + 2 <= renderer.width ? new StyledText([fg(palette.muted)(`zoom ${Math.round(16 / scale * 100)}%`), fg(palette.border)(" │ "), fg(palette.muted)(`c4view ${pkg.version}`)])
+      : leftWidth + zoomWidth + 2 <= renderer.width ? new StyledText([fg(palette.muted)(`zoom ${Math.round(16 / scale * 100)}%`), fg(palette.border)(" │ "), fg(palette.muted)(`pathlight ${pkg.version}`)])
       : new StyledText([]);
     crumbHint.content = new StyledText(ticker && !(recentCall && room < 70) ? ticker : []);
     dirty = true; renderer.requestRender();
@@ -999,7 +1001,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (index >= 0) { askInclude[index] = !askInclude[index]; focusAsk(index); }
   };
   const beginAsk = () => {
-    if (!options.parent) { message = "Ask needs the viewer opened with c4view show, which knows your agent's pane"; update(); return; }
+    if (!options.parent) { message = "Ask needs the viewer opened with pathlight show, which knows your agent's pane"; update(); return; }
     if (!selected) return;
     asking = selected; animating = false;
     askInput.setText(""); askInput.height = 1; askRow.height = 3;
@@ -1389,7 +1391,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   const scheduleReload = () => { clearTimeout(reloadTimer); reloadTimer = setTimeout(triggerReload, 500); };
   const relevant = (name: string) => !/(^|\/)(node_modules|\.git|\.cache)(\/|$)/.test(name)
-    && /\.(c4|likec4)$|(^|\/)(likec4\.config\.(json|js|ts)|\.likec4rc|c4view\.activity\.json)$/.test(name);
+    && /\.(c4|likec4)$|(^|\/)(likec4\.config\.(json|js|ts)|\.likec4rc|pathlight\.activity\.json)$/.test(name);
   yield* Effect.acquireRelease(Effect.try({ try: () => watch(view.workspace, { recursive: true }, (_event, name) => { if (name && relevant(String(name))) scheduleReload(); }), catch: cause => failure("Native.watch", cause) }).pipe(
     Effect.catch(() => Effect.sync(() => { message = "Live reload unavailable: the model will not update until the viewer is reopened"; return undefined; }))),
     watcher => Effect.sync(() => { clearTimeout(reloadTimer); watcher?.close(); }));

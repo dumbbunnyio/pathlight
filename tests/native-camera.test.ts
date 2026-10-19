@@ -13,7 +13,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await mkdir(join(directory, "src"));
     await writeFile(join(directory, "src/activity.ts"), "export const example = true;\n");
     for (let index = 1; index <= 6; index++) await writeFile(join(directory, `src/z${index}.ts`), "export {};\n");
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/*.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "three", "-x", "180", "-y", "45",
       "-e", "VISUAL=nvim -u NONE -i NONE -n", "-P", "-F", "#{pane_id}", process.execPath, resolve("src/cli.ts"), "view", "live",

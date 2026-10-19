@@ -19,7 +19,7 @@ export function askMessage(target: { title: string; id: string; files: readonly 
  * Enter themselves, so a half-written prompt is never sent by surprise.
  */
 export const sendToPane = Effect.fn("Ask.send")(function* (pane: string, text: string, submit: boolean) {
-  if (!/^%\d+$/.test(pane)) return yield* Effect.fail(failure("Ask.pane", "Ask needs the viewer opened with c4view show, which records your agent's pane."));
+  if (!/^%\d+$/.test(pane)) return yield* Effect.fail(failure("Ask.pane", "Ask needs the viewer opened with pathlight show, which records your agent's pane."));
   const [id, command] = (yield* run("tmux", ["display-message", "-p", "-t", pane, "#{pane_id}\t#{pane_current_command}"])).trim().split("\t");
   if (id !== pane) return yield* Effect.fail(failure("Ask.pane", `Pane ${pane} no longer exists.`));
   yield* run("tmux", ["send-keys", "-t", pane, "-l", "--", text]);

@@ -13,15 +13,15 @@ const hookCommand = async () => {
   return [...commands][0] ?? "";
 };
 
-test("the plugin's hook records an event through the c4view command, and costs nothing without a mapping", async () => {
+test("the plugin's hook records an event through the pathlight command, and costs nothing without a mapping", async () => {
   const command = await hookCommand();
-  const directory = await mkdtemp(join(tmpdir(), "c4view-plugin-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-plugin-"));
   const bin = join(directory, "bin");
   try {
     await mkdir(bin);
-    // `c4view` as `bun link` would provide it: a command on PATH that runs this checkout's CLI.
-    await writeFile(join(bin, "c4view"), `#!/bin/sh\nexec "${process.execPath}" "${resolve("src/cli.ts")}" "$@"\n`);
-    await chmod(join(bin, "c4view"), 0o755);
+    // `pathlight` as `bun link` would provide it: a command on PATH that runs this checkout's CLI.
+    await writeFile(join(bin, "pathlight"), `#!/bin/sh\nexec "${process.execPath}" "${resolve("src/cli.ts")}" "$@"\n`);
+    await chmod(join(bin, "pathlight"), 0o755);
     const workspace = join(directory, "project");
     await mkdir(join(workspace, "src"), { recursive: true });
     await writeFile(join(workspace, "src/a.ts"), "");
@@ -33,10 +33,10 @@ test("the plugin's hook records an event through the c4view command, and costs n
       child.stdin.write(payload); child.stdin.end();
       expect(await child.exited).toBe(0);
     };
-    // No c4view.activity.json: the hook exits successfully and records nothing.
+    // No pathlight.activity.json: the hook exits successfully and records nothing.
     await fire();
     expect(await readActivity(workspace, { source: "claude", session: "plugin-session" })).toEqual([]);
-    await writeFile(join(workspace, "c4view.activity.json"), JSON.stringify({ version: 1, project: "p", mappings: [] }));
+    await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "p", mappings: [] }));
     await fire();
     expect((await readActivity(workspace, { source: "claude", session: "plugin-session" })).map(event => [event.tool, event.phase, [...event.paths]]))
       .toEqual([["Read", "completed", ["src/a.ts"]]]);
@@ -49,8 +49,8 @@ test("the plugin's hook records an event through the c4view command, and costs n
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test("the slash command calls the c4view command with the project directory", async () => {
-  const text = await readFile("plugins/claude/commands/c4view.md", "utf8");
-  expect(text).toContain("allowed-tools: Bash(c4view:*)");
-  expect(text).toContain('c4view show $ARGUMENTS --workspace "$CLAUDE_PROJECT_DIR" --follow');
+test("the slash command calls the pathlight command with the project directory", async () => {
+  const text = await readFile("plugins/claude/commands/pathlight.md", "utf8");
+  expect(text).toContain("allowed-tools: Bash(pathlight:*)");
+  expect(text).toContain('pathlight show $ARGUMENTS --workspace "$CLAUDE_PROJECT_DIR" --follow');
 });

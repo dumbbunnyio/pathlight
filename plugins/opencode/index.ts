@@ -13,11 +13,11 @@ const Show = z.object({
   project: z.string().optional(),
   pane: z.string().regex(/^%\d+$/).describe("The user's tmux pane ID. Obtain it from their terminal context, not the background server environment."),
   socket: z.string().optional().describe("tmux server socket path, if not using the default server."),
-  live: z.boolean().default(false).describe("Observe this session's tool activity. Requires c4view.activity.json in the workspace."),
+  live: z.boolean().default(false).describe("Observe this session's tool activity. Requires pathlight.activity.json in the workspace."),
 }).strict();
 
 export default Plugin.define({
-  id: "visualize-work",
+  id: "pathlight",
   async setup(ctx) {
     const cli = fileURLToPath(new URL("../../src/cli.ts", import.meta.url));
     const workspace = ctx.location.directory;
@@ -35,7 +35,7 @@ export default Plugin.define({
       }
     }).pipe(Effect.ignore))));
     const observe = (event: { sessionID: SessionID; id: string; tool: string; input: unknown }, phase: ActivityEvent["phase"]) => {
-      if (disposed || !subscriptions.watching(event.sessionID) || event.tool.startsWith("c4view")) return;
+      if (disposed || !subscriptions.watching(event.sessionID) || event.tool.startsWith("pathlight")) return;
       try {
         const activity = Effect.runSync(toolActivity(workspace, { source: "opencode", session: event.sessionID }, event.id, event.tool, event.input, phase));
         let recording = recordings.get(event.sessionID);
@@ -51,12 +51,12 @@ export default Plugin.define({
     await ctx.tool.hook("execute.before", event => observe(event, "started"));
     await ctx.tool.hook("execute.after", event => observe(event, event.status === "completed" ? "completed" : "failed"));
     await ctx.tool.transform(editor => {
-      editor.namespace({ name: "c4view", description: "List and open LikeC4 architecture diagrams in a tmux viewer." });
+      editor.namespace({ name: "pathlight", description: "List and open LikeC4 architecture diagrams in a tmux viewer." });
       editor.add({
         name: "stop",
         description: "Stop recording activity for this agent session. Keeps the viewer and its retained history open.",
         input: { type: "object", properties: {}, additionalProperties: false },
-        options: { namespace: "c4view", codemode: true },
+        options: { namespace: "pathlight", codemode: true },
         execute: async (_input, context) => {
           subscriptions.stop(context.sessionID);
           const recording = recordings.get(context.sessionID);
@@ -69,12 +69,12 @@ export default Plugin.define({
         name: "list",
         description: "List LikeC4 projects and view IDs in this workspace before choosing a diagram to show.",
         input: { type: "object", properties: {}, additionalProperties: false },
-        options: { namespace: "c4view", codemode: true },
+        options: { namespace: "pathlight", codemode: true },
         execute: async (_input, context) => {
           await ctx.permission.assert({
             sessionID: context.sessionID, agent: context.agent,
             source: { type: "tool", messageID: context.messageID, id: context.id },
-            action: "c4view_list", resources: [workspace], save: [workspace],
+            action: "pathlight_list", resources: [workspace], save: [workspace],
           });
           return { content: await Effect.runPromise(run("bun", [cli, "list", "--workspace", workspace]), { signal: context.signal }) };
         },
@@ -83,7 +83,7 @@ export default Plugin.define({
         name: "show",
         description: "Open an interactive LikeC4 diagram beside the user's tmux pane. Native nodes support mouse, keyboard, search, nested groups, and linked views. Requires an explicit parent pane ID. Set live=true to record this session's tool activity. Reuses only owned viewer panes.",
         input: z.toJSONSchema(Show),
-        options: { namespace: "c4view", codemode: true },
+        options: { namespace: "pathlight", codemode: true },
         execute: async (input, context) => {
           const request = Show.parse(input);
           const ticket = request.live ? subscriptions.begin(context.sessionID) : undefined;
@@ -97,7 +97,7 @@ export default Plugin.define({
             await ctx.permission.assert({
               sessionID: context.sessionID, agent: context.agent,
               source: { type: "tool", messageID: context.messageID, id: context.id },
-              action: "c4view_show",
+              action: "pathlight_show",
               resources: [`${workspace}:${request.socket ?? "default"}:${request.pane}:${request.view}`],
               save: [`${workspace}:*`],
             });

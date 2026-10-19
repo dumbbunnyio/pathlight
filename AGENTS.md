@@ -2,7 +2,7 @@
 
 ## Purpose and reading order
 
-Visualize Work puts an interactive architecture explorer beside an AI coding
+Pathlight puts an interactive architecture explorer beside an AI coding
 conversation in tmux. It connects architecture, mapped source files, and observed
 agent tool activity without pretending to observe runtime traffic.
 
@@ -35,11 +35,12 @@ intentional redesigns separately; do not quietly substitute another camera.
 | Owned tmux pane launch/replacement, readiness | `src/tmux.ts`, `src/ready.ts` |
 | Native UI and camera | `src/native-viewer.ts` |
 | Orthogonal connector routing and rasterization | `src/routes.ts` |
+| Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/check.ts` |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
-| Agent integrations | `plugins/` (`plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it) |
+| Agent integrations | `plugins/` (`plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). `plugins/claude/skills/pathlight/SKILL.md` is the one skill for both hosts: `pathlight init` copies it, and `tests/skill.test.ts` checks every command and flag it names against the CLI help, so update it with the CLI. |
 | Flat and nested fixtures | `tests/fixtures/viewer/` (frozen test layout), `examples/parcel/` |
-| This repo's own architecture diagram | `examples/viewer/`, mapped by `c4view.activity.json` |
+| This repo's own architecture diagram | `examples/viewer/`, mapped by `pathlight.activity.json` |
 
 ## Contracts to preserve
 
@@ -57,14 +58,14 @@ intentional redesigns separately; do not quietly substitute another camera.
    Only actual active operations pulse; connectors do not imply live traffic.
 5. **Recording and viewing are separate.** A bound CLI viewer consumes journals.
    OpenCode recording requires opt-in; closing a viewer does not stop recording.
-   Do not silently enable recording or aggregate subagent sessions. `--follow` is an explicit viewing choice: it tracks only the single most recently active recorded session and never starts recording. Claude hook installation by `c4view init` is the Claude opt-in.
+   Do not silently enable recording or aggregate subagent sessions. `--follow` is an explicit viewing choice: it tracks only the single most recently active recorded session and never starts recording. Claude hook installation by `pathlight init` is the Claude opt-in.
 6. **Resource ownership is scoped.** Use Effect-returning module functions and
    scoped acquisition/finalization for renderers, polling and processes. Preserve
    signal cancellation, editor process-group cleanup, initialization/draw ordering,
    and readiness only after usable rendering. Zod remains at the OpenCode schema
    boundary; follow existing Effect schema/error conventions elsewhere.
 7. **Respect the terminal and filesystem.** Never replace a repurposed pane or
-   guess the user's pane from a background service. Ask-about-node types only into the pane `c4view show` was given (`--parent`), verifies it exists, and sends literal text. Validate mapped file paths
+   guess the user's pane from a background service. Ask-about-node types only into the pane `pathlight show` was given (`--parent`), verifies it exists, and sends literal text. Validate mapped file paths
    before editing. Treat editor commands and executable LikeC4 configuration as
    trusted-workspace inputs.
 8. **Keep activity minimal.** Do not store source contents, tool arguments,
@@ -96,7 +97,7 @@ preservation separately from zoom preservation. Avoid test-only production seams
 For a manual check, use a real terminal:
 
 ```sh
-bun run c4view view services --workspace examples/parcel --project parcel
+bun run pathlight view services --workspace examples/parcel --project parcel
 ```
 
 For a pane beside the user, obtain their actual tmux pane ID and use `show` with

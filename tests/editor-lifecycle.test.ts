@@ -7,14 +7,14 @@ import { z } from "zod";
 import { run } from "./effects";
 
 test("show forwards editor configuration and shutdown stops a non-exec editor wrapper's process group", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "c4view-editor-stop-"));
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-editor-stop-"));
   const socket = join(directory, "tmux.sock");
   const wrapper = join(directory, "editor.sh");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await writeFile(join(directory, "code.txt"), "example\n");
-    await writeFile(join(directory, "c4view.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "code.txt", element: "plugin" }] }));
     await writeFile(wrapper, `printf '%s' "$$" > "$0.group"
 trap '' TERM

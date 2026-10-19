@@ -20,11 +20,13 @@ export interface ActivityEvent extends Schema.Schema.Type<typeof ActivityEvent> 
 export const ActivityConfig = Schema.Struct({
   version: Schema.Literal(1), project: Schema.NonEmptyString,
   mappings: Schema.Array(Schema.Struct({ glob: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)), element: Label })).check(Schema.isMaxLength(256)),
+  // Files that are deliberately outside the model (tests, vendored code, generated output). Only `pathlight check` reads this.
+  ignore: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024))).check(Schema.isMaxLength(256))),
 });
 export interface ActivityConfig extends Schema.Schema.Type<typeof ActivityConfig> {}
 
 export const readActivityConfig = Effect.fn("Activity.config")(function* (workspace: string) {
-  const text = yield* io("Activity.readConfig", () => readFile(join(workspace, "c4view.activity.json"), "utf8"));
+  const text = yield* io("Activity.readConfig", () => readFile(join(workspace, "pathlight.activity.json"), "utf8"));
   return yield* Schema.decodeUnknownEffect(ActivityConfig, { onExcessProperty: "error" })(yield* json(text));
 });
 
@@ -32,7 +34,7 @@ export const activityDirectory = Effect.fn("Activity.directory")(function* (work
   const root = yield* io("Activity.root", () => realpath(workspace));
   const parsed = yield* Schema.decodeUnknownEffect(ActivityBinding)(binding);
   const id = createHash("sha256").update(JSON.stringify(parsed)).digest("hex");
-  return join(root, ".cache", "c4view", "activity", id);
+  return join(root, ".cache", "pathlight", "activity", id);
 });
 
 /**
@@ -108,7 +110,7 @@ export const readActivity = Effect.fn("Activity.read")(function* (workspace: str
   return [...calls.values()].sort((a, b) => b.time - a.time).slice(0, 128);
 });
 
-const activityRoot = (root: string) => join(root, ".cache", "c4view", "activity");
+const activityRoot = (root: string) => join(root, ".cache", "pathlight", "activity");
 
 /** The session that most recently wrote an event for this workspace, for `--follow`. */
 export const latestBinding = Effect.fn("Activity.latest")(function* (workspace: string) {

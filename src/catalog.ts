@@ -25,7 +25,7 @@ export const selectView = Effect.fn("Catalog.select")(function* (workspace: stri
   const catalog = yield* listViews(workspace);
   const matches = catalog.views.filter(view => view.id === id && (!project || view.project === project));
   const view = matches[0];
-  if (!view) return yield* Effect.fail(failure("Catalog.select", `Unknown view '${id}'. Run c4view list --workspace ${workspace}.`));
+  if (!view) return yield* Effect.fail(failure("Catalog.select", `Unknown view '${id}'. Run pathlight list --workspace ${workspace}.`));
   if (matches.length !== 1) return yield* Effect.fail(failure("Catalog.select", `View '${id}' exists in multiple projects. Specify --project.`));
   return { workspace: catalog.workspace, ...view };
 });

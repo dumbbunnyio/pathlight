@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { listViews, selectView } from "./catalog";
 import { Config, Effect, Schema } from "effect";
@@ -9,14 +10,21 @@ import { showView } from "./tmux";
 import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
 import { claudeActivity } from "./claude";
 import { initWorkspace } from "./init";
+import { scanWorkspace } from "./scan";
+import { checkWorkspace, formatCheck, hasFindings } from "./check";
 
-const help = `c4view list [--workspace PATH]
-c4view init [--workspace PATH] [--no-claude-hooks]
-c4view show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
-c4view view VIEW [--workspace PATH] [--project NAME]
-c4view record --workspace PATH < claude-hook.json
+const help = `pathlight list [--workspace PATH]
+pathlight scan [--workspace PATH] [--out FILE]
+pathlight check [--workspace PATH] [--json] [--strict]
+pathlight init [--workspace PATH] [--no-claude-hooks]
+pathlight show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
+pathlight view VIEW [--workspace PATH] [--project NAME]
+pathlight record --workspace PATH < claude-hook.json
 
-init wires Claude Code hooks, a /c4view command and the OpenCode plugin into a workspace.
+scan reads the source statically and prints files, imports and what it could not read as JSON.
+check compares the LikeC4 model and pathlight.activity.json with that scan: unmatched globs, unmapped files,
+relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found.
+init wires Claude Code hooks, a /pathlight command and the OpenCode plugin into a workspace.
 show opens or updates an owned tmux pane. view runs in the current terminal.
 Use --pane explicitly when launching from a background agent service.
 Add --follow to watch the most recently active recorded session, or
@@ -48,7 +56,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -64,6 +72,16 @@ try {
     if (command === "list") {
       if (id) return yield* invalid("list takes no view ID. Use --workspace PATH.");
       process.stdout.write(`${JSON.stringify(yield* listViews(values.workspace), null, 2)}\n`);
+    } else if (command === "scan") {
+      if (id) return yield* invalid("scan takes no argument. Use --workspace PATH.");
+      const text = `${JSON.stringify(yield* scanWorkspace(values.workspace), null, 2)}\n`;
+      if (values.out) yield* io("CLI.writeScan", () => writeFile(values.out!, text));
+      else process.stdout.write(text);
+    } else if (command === "check") {
+      if (id) return yield* invalid("check takes no argument. Use --workspace PATH.");
+      const check = yield* checkWorkspace(values.workspace);
+      process.stdout.write(values.json ? `${JSON.stringify(check, null, 2)}\n` : formatCheck(check));
+      if (values.strict && hasFindings(check)) process.exitCode = 1;
     } else if (command === "init") {
       if (id) return yield* invalid("init takes no argument. Use --workspace PATH.");
       process.stdout.write(`${(yield* initWorkspace(values.workspace, { claudeHooks: !values["no-claude-hooks"] })).join("\n")}\n`);
@@ -72,12 +90,12 @@ try {
       const event = yield* claudeActivity(resolve(values.workspace), yield* json(yield* readStdin));
       yield* writeActivity(values.workspace, event);
     } else if (command === "show" || command === "view") {
-      if (!id) return yield* invalid("Missing view ID. Use c4view list.");
+      if (!id) return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));
       if (command === "show" && !pane) {
-        return yield* invalid("No tmux pane. Run inside tmux, pass --pane %ID, or use c4view view in a terminal.");
+        return yield* invalid("No tmux pane. Run inside tmux, pass --pane %ID, or use pathlight view in a terminal.");
       }
-      if (command === "view" && process.stdout.isTTY) process.stdout.write("\x1b[2m  c4view · loading the architecture…\x1b[0m\n");
+      if (command === "view" && process.stdout.isTTY) process.stdout.write("\x1b[2m  pathlight · loading the architecture…\x1b[0m\n");
       const view = yield* selectView(values.workspace, id, values.project);
       if (command === "show") {
         const result = yield* showView({ view, pane, socket: values.socket, activity, follow });
