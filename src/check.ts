@@ -43,11 +43,13 @@ export const Check = Schema.Struct({
   // with the folders inside it, as a hint that it may be several things.
   size: Schema.Array(Schema.Struct({ element: Schema.String, files: Count, large: Schema.Boolean, folders: Schema.Array(Schema.Struct({ folder: Schema.String, files: Count })) })),
 
+  // Elements with many direct children, which a reader meets side by side. A hint to group them, not a verdict.
+  wide: Schema.Array(Schema.Struct({ parent: Schema.String, children: Count })),
   // `entries` are the views no navigateTo points to. A diagram normally has one, the overview.
   views: Schema.Struct({ total: Count, entries: Schema.Array(Schema.String) }),
   // Imports between two mapped elements that no relationship at that level, or above it, declares (in either direction).
   undeclared: Schema.Array(Schema.Struct({ source: Schema.String, target: Schema.String, imports: Count, examples: Schema.Array(Example) })),
-  summary: Schema.Struct({ unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count, largeElements: Count, unlinkedViews: Count }),
+  summary: Schema.Struct({ unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count, largeElements: Count, wideGroups: Count, unlinkedViews: Count }),
 });
 export interface Check extends Schema.Schema.Type<typeof Check> {}
 
@@ -136,6 +138,11 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
     return { element, files: owned.size, large, folders: large ? folderOf([...owned]) : [] };
   }).sort((a, b) => b.files - a.files || order(a.element, b.element));
 
+  // Direct children per parent over all model elements ("" is the top level).
+  const children = new Map<string, number>();
+  for (const id of elements) { const parent = id.includes(".") ? id.slice(0, id.lastIndexOf(".")) : ""; children.set(parent, (children.get(parent) ?? 0) + 1); }
+  const wide = [...children].filter(([, count]) => count > 9).map(([parent, count]) => ({ parent, children: count })).sort((a, b) => b.children - a.children || order(a.parent, b.parent));
+
   // Which views a person can reach by following navigateTo.
   const viewLinks = new Map<string, Set<string>>();
   for (const view of model.views()) {
@@ -154,10 +161,10 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   return Check.make({
     version: 1, basis: "static", project: config.project,
     mappings: { total: config.mappings.length, ignored: ignoredFiles.length, shared, sharedImports, unmatched, unmappedFiles },
-    relationships, size, views: { total: viewLinks.size, entries }, undeclared,
+    relationships, size, wide, views: { total: viewLinks.size, entries }, undeclared,
     summary: { unmatchedMappings: unmatched.length, unmappedFiles: unmappedFiles.length, unsupported: relationships.filter(item => item.status === "unsupported").length,
       unverifiable: relationships.filter(item => item.status === "unverifiable").length, undeclared: undeclared.length,
-      largeElements: size.filter(item => item.large).length, unlinkedViews: Math.max(0, entries.length - 1) },
+      largeElements: size.filter(item => item.large).length, wideGroups: wide.length, unlinkedViews: Math.max(0, entries.length - 1) },
   });
 }, Effect.scoped);
 
@@ -195,6 +202,7 @@ export function formatCheck(check: Check) {
   lines.push("", "Mapping spread (hints, not verdicts)");
   const top = check.size.slice(0, 5).map(item => `${item.element} ${item.files}`).join(", ");
   lines.push(`  files per element, largest first: ${top || "none"}`);
+  for (const item of check.wide) lines.push(`  ▲ ${item.parent || "the top level"} has ${item.children} elements side by side; 3 to 7 per level reads better. Group related ones and give each group its own view.`);
   for (const item of check.size.filter(entry => entry.large)) lines.push(`  ▲ ${item.element} holds ${item.files} of the mapped files; inside it: ${item.folders.slice(0, 6).map(entry => `${entry.folder} ${entry.files}`).join(", ")}`);
   return `${lines.join("\n")}\n`;
 }

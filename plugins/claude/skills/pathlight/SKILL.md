@@ -34,7 +34,7 @@ If `list` returns no views the workspace has no model yet. Say so, and offer to 
 
 ## Draft a model for a codebase that has none
 
-Aim for a diagram a person can read in one glance: roughly 8 to 25 elements, grouped by what the code is for, not by every folder. A small codebase gives a small diagram; do not pad it. For a large component, add a second view that opens it up (a view per component beats one crowded view), and link them: in the overview write `include camenae.app with { navigateTo application }` so the element opens its view.
+Aim for a diagram a person can read in one glance. Build it in levels: a few groups (3 to 7) that say what the code is for, and inside each group its parts. A flat row of 14 boxes is not a readable diagram. A small codebase gives a small diagram; do not pad it. Give every group its own view that opens it up, and link the overview to each: in the overview write `include camenae.web with { navigateTo web }` so the group opens its view (press `o` in the viewer).
 
 1. **Scan.** `pathlight scan --workspace . --out scan.json`. Read `coverage` first: `unscanned` lists languages the scan does not read (their dependencies are missing, so read those parts of the code yourself), and `unresolved` lists imports it could not follow.
 2. **Find the boundaries.** Use the import edges to see which files belong together and which depend on which. Read a few entry points and the files at the centre of the graph; do not read everything. Filename families (`chat-*`, `auth-*`), package directories and `external` packages are all hints, not answers.
@@ -47,6 +47,7 @@ Aim for a diagram a person can read in one glance: roughly 8 to 25 elements, gro
    - *imports with no relationship*: add a relationship when the dependency matters at this level; leave small shared helpers alone.
    - *not checkable*: an end has no mapped files; map it or accept that nothing can be checked.
    - *views with no navigateTo pointing to them*: a diagram has one entry, the overview. Link the others from it, as above.
+   - *an element has many elements side by side*: group related ones under a parent and give each group its own view (see below). Do not leave more than about 7 elements at one level.
    - *an element holds many of the mapped files*: the report lists the folders inside it. Split it along them if they are different parts of the system; otherwise leave it and say so.
    - *shared types and utilities that everything imports*: list the element in `"shared": ["<element id>"]` in `pathlight.activity.json`, so `check` stops asking for a relationship to it. Only do this for code that is genuinely used everywhere.
 6. **Show it** with `pathlight show`.

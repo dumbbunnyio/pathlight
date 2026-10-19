@@ -45,7 +45,7 @@ test("check compares the model and mapping with the scan: evidence either way, u
     ]);
     expect(check.relationships.find(item => item.source === "activity")!.examples).toEqual([{ from: "src/viewer.ts", line: 1, to: "src/activity.ts", kind: "import" }]);
     expect(check.undeclared).toEqual([{ source: "catalog", target: "launcher", imports: 1, examples: [{ from: "src/catalog.ts", line: 1, to: "src/launcher.ts", kind: "import" }] }]);
-    expect(check.summary).toEqual({ unmatchedMappings: 1, unmappedFiles: 1, unsupported: 1, unverifiable: 3, undeclared: 1, largeElements: 0, unlinkedViews: 0 });
+    expect(check.summary).toEqual({ unmatchedMappings: 1, unmappedFiles: 1, unsupported: 1, unverifiable: 3, undeclared: 1, largeElements: 0, wideGroups: 0, unlinkedViews: 0 });
     expect(hasFindings(check)).toBe(true);
 
     const text = formatCheck(check);
@@ -156,6 +156,26 @@ views {
 
     await write(directory, { "pathlight.activity.json": JSON.stringify({ version: 1, project: "viewer", shared: ["nope"], mappings: [{ glob: "src/types.ts", element: "types" }] }) });
     await expect(Effect.runPromise(checkWorkspace(directory))).rejects.toThrow("Unknown shared element 'nope'");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("an element with many direct children is reported as wide, and grouping them clears it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-check-wide-"));
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    const flat = Array.from({ length: 10 }, (_, index) => `  part${index} = component 'Part ${index}'`).join("\n");
+    const grouped = ["a", "b"].map(name => `  ${name} = component '${name}' {\n${Array.from({ length: 5 }, (_, index) => `    p${index} = component 'P${index}'`).join("\n")}\n  }`).join("\n");
+    const model = (body: string) => `specification { element component }\nmodel {\n  system = component 'System' {\n${body}\n  }\n}\nviews { view live { include system.* autoLayout LeftRight } }\n`;
+    await write(directory, { "model.c4": model(flat), "pathlight.activity.json": mapping([]) });
+    let check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.wide).toEqual([{ parent: "system", children: 10 }]);
+    expect(check.summary.wideGroups).toBe(1);
+    expect(formatCheck(check)).toContain("▲ system has 10 elements side by side; 3 to 7 per level reads better.");
+    await write(directory, { "model.c4": model(grouped) });
+    check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.wide).toEqual([]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
