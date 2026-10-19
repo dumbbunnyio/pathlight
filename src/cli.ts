@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { listViews, selectView } from "./catalog";
+import { listViews, overviewId, selectView } from "./catalog";
 import { Config, Effect, Schema } from "effect";
 import { io, json, failure } from "./effects";
 import { writeReady } from "./ready";
@@ -19,13 +19,15 @@ pathlight check [--workspace PATH] [--json] [--strict]
 pathlight init [--workspace PATH] [--no-claude-hooks]
 pathlight show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
 pathlight view VIEW [--workspace PATH] [--project NAME]
+pathlight open [VIEW] [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
 pathlight record --workspace PATH < claude-hook.json
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
 check compares the LikeC4 model and pathlight.activity.json with that scan: unmatched globs, unmapped files,
 relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found.
-init wires Claude Code hooks, a /pathlight command and the OpenCode plugin into a workspace.
+init wires Claude Code hooks, the pathlight skill and the OpenCode plugin into a workspace.
 show opens or updates an owned tmux pane. view runs in the current terminal.
+open is show --follow for the overview: VIEW if given, else the view named index, else the first view.
 Use --pane explicitly when launching from a background agent service.
 Add --follow to watch the most recently active recorded session, or
 --session ID --source opencode|claude to bind to one session.
@@ -89,16 +91,17 @@ try {
       yield* readActivityConfig(values.workspace);
       const event = yield* claudeActivity(resolve(values.workspace), yield* json(yield* readStdin));
       yield* writeActivity(values.workspace, event);
-    } else if (command === "show" || command === "view") {
-      if (!id) return yield* invalid("Missing view ID. Use pathlight list.");
+    } else if (command === "show" || command === "view" || command === "open") {
+      if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));
-      if (command === "show" && !pane) {
+      if (command !== "view" && !pane) {
         return yield* invalid("No tmux pane. Run inside tmux, pass --pane %ID, or use pathlight view in a terminal.");
       }
       if (command === "view" && process.stdout.isTTY) process.stdout.write("\x1b[2m  pathlight · loading the architecture…\x1b[0m\n");
-      const view = yield* selectView(values.workspace, id, values.project);
-      if (command === "show") {
-        const result = yield* showView({ view, pane, socket: values.socket, activity, follow });
+      const overview = command === "open" && !id ? yield* overviewId(values.workspace, values.project) : id;
+      const view = yield* selectView(values.workspace, overview!, values.project);
+      if (command !== "view") {
+        const result = yield* showView({ view, pane, socket: values.socket, activity, follow: follow || (command === "open" && !activity) });
         process.stdout.write(`${JSON.stringify(result)}\n`);
       } else {
         const { viewNative } = yield* io("CLI.viewer", () => import("./native-viewer"));

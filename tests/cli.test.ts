@@ -98,3 +98,14 @@ test("init writes the pathlight skill next to the Claude hooks and replaces it o
   expect((await invoke("init", "--workspace", project)).code).toBe(0);
   expect(await Bun.file(written).text()).toContain("name: pathlight");
 });
+
+test("open picks the overview view itself, and without tmux says so rather than guessing a pane", async () => {
+  const { overviewId } = await import("../src/catalog");
+  const { Effect } = await import("effect");
+  expect(String(await Effect.runPromise(overviewId(workspace)))).toBe("index");
+  expect(String(await Effect.runPromise(overviewId(workspace, "parcel")))).toBe("index");
+  const child = Bun.spawn([process.execPath, cli, "open", "--workspace", workspace], { stdout: "pipe", stderr: "pipe", env: { ...process.env, TMUX_PANE: "" } });
+  const [stderr, code] = [await new Response(child.stderr).text(), await child.exited];
+  expect(code).toBe(1);
+  expect(stderr).toContain("No tmux pane");
+});

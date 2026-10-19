@@ -21,6 +21,14 @@ export const listViews = Effect.fn("Catalog.list")(function* (workspace: string)
   return { workspace: directory, views };
 }, Effect.scoped);
 
+/** The view `open` shows when none is named: the one called `index`, else the first the model declares. */
+export const overviewId = Effect.fn("Catalog.overview")(function* (workspace: string, project?: string) {
+  const views = (yield* listViews(workspace)).views.filter(view => !project || view.project === project);
+  const chosen = views.find(view => view.id === "index") ?? views[0];
+  if (!chosen) return yield* Effect.fail(failure("Catalog.overview", "This workspace has no views. Ask the agent to draft a model (/pathlight) or add one."));
+  return chosen.id;
+});
+
 export const selectView = Effect.fn("Catalog.select")(function* (workspace: string, id: string, project?: string) {
   const catalog = yield* listViews(workspace);
   const matches = catalog.views.filter(view => view.id === id && (!project || view.project === project));

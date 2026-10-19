@@ -44,6 +44,8 @@ bun run --cwd /path/to/pathlight pathlight init --workspace /path/to/project
 registers the OpenCode plugin, and creates `pathlight.activity.json` if absent. It maps only elements whose name matches
 a directory or file that exists; review it and add globs for the rest. Re-running `init` is safe and never overwrites an existing mapping.
 
+To reopen the viewer yourself, with no agent involved, run `pathlight open` in a shell in the same tmux window (or `! pathlight open` from inside Claude Code). It is `show --follow` for the `index` view, or the first view if there is none, and takes an optional view id.
+
 Then, in tmux, run `/pathlight` in Claude Code (or `/pathlight VIEW_ID`). The viewer opens beside the conversation and
 follows the most recently active recorded session with `--follow`, so you need no pane or session IDs. You can also run it yourself:
 
