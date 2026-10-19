@@ -38,7 +38,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 | Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/check.ts` |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
-| Agent integrations | `plugins/` (`plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). `plugins/claude/skills/pathlight/SKILL.md` is the one skill for both hosts: `pathlight init` copies it, and `tests/skill.test.ts` checks every command and flag it names against the CLI help, so update it with the CLI. |
+| Agent integrations | `plugins/` (`plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). `plugins/claude/skills/pathlight/SKILL.md` is the one skill for both hosts: `pathlight init` copies it, and `tests/skill.test.ts` checks every command and flag it names against the CLI help, so update it with the CLI. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
 | Flat and nested fixtures | `tests/fixtures/viewer/` (frozen test layout), `examples/parcel/` |
 | This repo's own architecture diagram | `examples/viewer/`, mapped by `pathlight.activity.json` |
 

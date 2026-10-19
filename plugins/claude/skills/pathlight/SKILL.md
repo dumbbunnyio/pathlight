@@ -30,6 +30,8 @@ Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask th
 2. `pathlight show VIEW --workspace . --follow`.
 3. Report only whether it opened.
 
+If `list` returns no views the workspace has no model yet. Say so, and offer to draft one. Name the files you would write before writing them (`likec4.config.json`, `model.c4`, `views.c4` or similar, and `pathlight.activity.json`), and where. Prefer the repository root unless the project already keeps documentation elsewhere. Write nothing until the user agrees, then follow the draft workflow below.
+
 ## Draft a model for a codebase that has none
 
 Aim for a diagram a person can read in one glance: roughly 8 to 25 elements, grouped by what the code is for, not by every folder. A small codebase gives a small diagram; do not pad it. For a large component, add a second view that opens it up (a view per component beats one crowded view), and link the two with `navigateTo`.
@@ -45,13 +47,15 @@ Aim for a diagram a person can read in one glance: roughly 8 to 25 elements, gro
    - *imports with no relationship*: add a relationship when the dependency matters at this level; leave small shared helpers alone.
    - *not checkable*: an end has no mapped files; map it or accept that nothing can be checked.
 6. **Show it** with `pathlight show`.
-7. **Report plainly**, without asking the user to request it:
+7. **Report plainly**, every time and without being asked, as this checklist (say "none" rather than leaving an item out):
    - what the scan covered: files, imports, and anything under `unscanned` or `unresolved` (languages or imports it could not read);
    - what the model contains: elements, and the views you made;
    - what was left out: the "N source files ignored on purpose" line and the kinds of file in `ignore` (tests, tooling, examples), so they can decide whether any belongs in the diagram;
    - what `check` could not verify: relationships marked "not checkable", and relationships you kept with no import behind them, each with the reason you kept it.
 
 On a large codebase do not stop at one flat diagram. Make an overview, then a view for each component that has several parts inside, and say which parts you did not open up.
+
+When you create, move or delete files later in the session, add or fix their mapping in `pathlight.activity.json` in the same change, so the viewer lights the right component instead of listing the file as `no component`.
 
 Run `pathlight check` again after any later change to the code or the model, and report what it says without softening it.
 
