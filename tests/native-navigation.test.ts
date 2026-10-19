@@ -46,7 +46,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Down");
     await capture("Search 1/6");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("parcel/services")).toContain("back 0");
+    expect(await capture("parcel/services")).not.toContain("back ");
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("Selected: parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "BSpace");

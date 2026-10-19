@@ -34,6 +34,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 | CLI, model/view selection, workspace setup | `src/cli.ts`, `src/catalog.ts`, `src/init.ts` |
 | Owned tmux pane launch/replacement, readiness | `src/tmux.ts`, `src/ready.ts` |
 | Native UI and camera | `src/native-viewer.ts` |
+| Themes: OpenCode-format JSON, derived palette, live recolouring | `src/theme.ts`, `src/retheme.ts`, `src/themes/` (vendored OpenCode themes, see `NOTICE.md`), palette in `src/ui.ts` |
 | Orthogonal connector routing and rasterization | `src/routes.ts` |
 | Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/check.ts` |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |

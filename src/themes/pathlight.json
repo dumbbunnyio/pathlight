@@ -1,0 +1,13 @@
+{
+  "defs": {
+    "ink": "#0e1116", "panel": "#11151b", "text": "#eef1f5", "body": "#c9d0da", "muted": "#7d8796", "border": "#4f5866", "rule": "#2b3441",
+    "amber": "#e8b45a", "cyan": "#6fcad6", "purple": "#7466b0", "green": "#86c48b", "red": "#e07a7a"
+  },
+  "theme": {
+    "background": "ink", "backgroundPanel": "panel", "backgroundElement": "#26323f",
+    "text": "text", "textMuted": "muted", "body": "body",
+    "border": "rule", "borderActive": "border", "borderSubtle": "rule",
+    "primary": "amber", "secondary": "purple", "accent": "amber", "info": "cyan", "warning": "amber", "success": "green", "error": "red",
+    "grid": "#1a2029", "hot": "#1a212b", "pick": "#294052", "edgeDim": "#3a4352", "cardEdge": "rule", "keycap": "#26323f", "scrim": "#080b10"
+  }
+}

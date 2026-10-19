@@ -24,11 +24,25 @@ export const nearest256 = (hex: string) => {
   const pick = distance([grey, grey, grey]) < distance(cubed) ? [grey, grey, grey] : cubed;
   return `#${pick.map(value => value.toString(16).padStart(2, "0")).join("")}`;
 };
-if (!trueColor()) {
-  for (const key of Object.keys(palette) as (keyof typeof palette)[]) palette[key] = nearest256(palette[key]);
-  // The panel must still read one step above the canvas.
-  if (palette.panel === palette.background) palette.panel = "#1c1c1c";
-}
+export type Palette = { -readonly [Key in keyof typeof palette]: string };
+
+/**
+ * Installs a palette in place (the object is shared, so everything that reads it sees the change). Without 24-bit colour every entry is
+ * snapped to xterm-256, and the panel must still read one step above the canvas. Entries are then made distinct (a blue step of one is
+ * invisible) so a drawn colour maps back to exactly one role when the theme changes again.
+ */
+export const setPalette = (next: Palette, snap = !trueColor()) => {
+  const keys = Object.keys(palette) as (keyof Palette)[];
+  const used = new Set<string>();
+  for (const key of keys) {
+    let value = snap ? nearest256(next[key]) : next[key].toLowerCase();
+    if (snap && key === "panel" && value === palette.background) value = "#1c1c1c";
+    while (used.has(value)) value = `${value.slice(0, 5)}${(parseInt(value.slice(5), 16) + (parseInt(value.slice(5), 16) === 255 ? -1 : 1)).toString(16).padStart(2, "0")}`;
+    used.add(value);
+    palette[key] = value;
+  }
+};
+setPalette({ ...palette });
 
 export type Hint = readonly [key: string, label: string];
 

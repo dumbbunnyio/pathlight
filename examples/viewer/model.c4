@@ -34,7 +34,13 @@ model {
     description 'Reads TypeScript and JavaScript statically (files, imports, what it could not read) and checks the model and file mapping against that scan. Static evidence only: it never claims anything about what runs.'
   }
 
+  themes = component 'Themes' {
+    technology 'JSON, Effect Schema'
+    description 'Colour themes in OpenCode format (bundled, yours, or taken from the terminal), resolved to the palette the viewer draws with and applied live.'
+  }
+
   viewer -> ask 'Hands a question over'
+  viewer -> themes 'Applies the palette'
   plugin -> activity 'Records tool lifecycle'
   plugin -> launcher 'Opens a view'
   catalog -> launcher 'Selects diagram'

@@ -283,12 +283,12 @@ test("search isolates typing, cycles matches, accepts without navigation, and ca
     await tmux("send-keys", "-t", pane, "-l", "\x1b[200~cHeCkOuT aPi\x1b[201~");
     expect(await capture("Search 1/1")).toContain("Selected: parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("back 0")).toContain("Selected: parcel.commerce.api");
+    expect(await capture(" nodes")).toContain("Selected: parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "/");
     await tmux("send-keys", "-t", pane, "-l", "commerce");
     await capture("Search 1/6");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("back 0")).toContain("Selected: parcel.commerce");
+    expect(await capture(" nodes")).toContain("Selected: parcel.commerce");
     await tmux("send-keys", "-t", pane, "o");
     await capture("back 1");
     await delay(100);
@@ -340,7 +340,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await capture("Selected: email");
     await tmux("send-keys", "-t", pane, "Enter");
     const rejected = await capture("View 'empty' has no nodes.");
-    expect(rejected).toContain("back 0");
+    expect(rejected).not.toContain("back ");
     expect(rejected).toContain("Selected: email");
     await tmux("send-keys", "-t", pane, "Tab");
     await tmux("send-keys", "-t", pane, "Tab", "Enter");

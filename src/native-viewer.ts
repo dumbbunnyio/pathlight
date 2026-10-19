@@ -9,8 +9,9 @@ import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
 import { askMessage, sendToPane } from "./ask";
 import pkg from "../package.json" with { type: "json" };
-import { basename } from "node:path";
-import { type Hint, borderHints, hintChunks, noticeStyle, palette, pill } from "./ui";
+import { type Hint, borderHints, hintChunks, noticeStyle, palette, pill, setPalette } from "./ui";
+import { type Mode, loadThemes, modeOf, paletteOf, saveTheme, savedTheme, systemTheme, themeFromEnvironment } from "./theme";
+import { retheme } from "./retheme";
 import { rasterize, routeEdges, type Route } from "./routes";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
@@ -40,6 +41,15 @@ const getDiagram = (id: string) => {
 };
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
 let rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
+// The theme is chosen before anything is drawn: PATHLIGHT_THEME, then the saved choice, then the built-in look. A theme that does not resolve falls back to it.
+const themes = yield* loadThemes(view.workspace);
+const environment = yield* themeFromEnvironment();
+const themeOrder = (a: string, b: string) => a === "pathlight" ? -1 : b === "pathlight" ? 1 : a === "system" ? -1 : b === "system" ? 1 : a.localeCompare(b);
+const themeNames = [...themes.keys()].sort(themeOrder);
+const wantedTheme = environment.name || (yield* savedTheme().pipe(Effect.catch(() => Effect.succeed(undefined)))) || "pathlight";
+let themeName = [wantedTheme, "pathlight"].find(name => themes.has(name))!;
+let themeMode: Mode = environment.mode ?? "dark";
+try { setPalette(paletteOf(themes.get(themeName)!, themeMode)); } catch { themeName = "pathlight"; setPalette(paletteOf(themes.get("pathlight")!, themeMode)); }
 if (!process.stdin.isTTY || !process.stdout.isTTY) return yield* Effect.fail(failure("Native.terminal", "The native viewer needs a terminal. Use pathlight show to open a tmux pane."));
 const renderer = yield* Effect.acquireRelease(io("Native.renderer", () => createCliRenderer({ exitOnCtrlC: false, exitSignals: [], consoleMode: "disabled", targetFps: 30, backgroundColor: palette.background })),
   renderer => io("Native.close", async () => { renderer.destroy(); await renderer.closed; }).pipe(Effect.orDie));
@@ -126,10 +136,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   footer.add(statusLeft); footer.add(statusRight);
   // A modal is one 1-column rounded frame over a dimmed backdrop. Its title, metadata and key hints are set into the border rows
   // (small panel-coloured texts laid over the border), so there is no separate header or footer.
-  const makeModal = (color: string, titleChunks: TextChunk[]) => {
+  const makeModal = (color: string, titleChunks: TextChunk[], dim = 0.8) => {
     const modal = { dismiss: () => {}, get visible() { return panel.visible; } };
     const scrim = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", zIndex: 19000, visible: false,
-      backgroundColor: RGBA.fromValues(0.02, 0.03, 0.04, 0.8), onMouse(event) { event.preventDefault(); event.stopPropagation(); if (event.type === "down") modal.dismiss(); } });
+      backgroundColor: RGBA.fromValues(0.02, 0.03, 0.04, dim), onMouse(event) { event.preventDefault(); event.stopPropagation(); if (event.type === "down") modal.dismiss(); } });
     const panel = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: 60, height: 10, border: true, borderStyle: "rounded", borderColor: color,
       backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2, paddingTop: 1, paddingBottom: 1, zIndex: 20000, visible: false, flexDirection: "column" });
     const onBorder = (options: { left?: number; right?: number; top?: number; bottom?: number }, initial?: TextChunk[]) => {
@@ -157,6 +167,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const summary = makeModal(palette.edgeDim, [fg(palette.text)("This session")]);
   const ask = makeModal(palette.accent, [fg(palette.text)("Ask the agent")]);
   const goto = makeModal(palette.edgeDim, [fg(palette.text)("Go to view")]);
+  // No backdrop dimming: the diagram behind is the preview.
+  const picker = makeModal(palette.edgeDim, [fg(palette.accent)("◆ "), fg(palette.text)("Theme")], 0);
   // The question: a field one step darker than the modal that grows to four rows, then scrolls. Enter sends, Alt+Enter adds a line.
   const askRows = () => Math.min(4, Math.max(1, askInput.virtualLineCount));
   const askInput = new TextareaRenderable(renderer, { flexGrow: 1, height: 1, wrapMode: "word", placeholder: "What do you want to know about it?", placeholderColor: palette.border,
@@ -186,7 +198,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   nodeList.add(nodeListText);
   viewport.add(canvas); viewport.add(nodeList); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
-  for (const child of [topBar, body, footer, searchShield, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel, goto.scrim, goto.panel]) renderer.root.add(child);
+  for (const child of [topBar, body, footer, searchShield, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel, goto.scrim, goto.panel, picker.scrim, picker.panel]) renderer.root.add(child);
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
   let centerX = diagram.bounds.x + diagram.bounds.width / 2;
   let centerY = diagram.bounds.y + diagram.bounds.height / 2;
@@ -195,7 +207,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   type Visit = { view: string; selected: string | undefined; x: number; y: number; scale: number };
   const history: Visit[] = [];
   let pendingReload: { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; notice: string } | undefined;
-  let pendingVisit: { diagram: ReturnType<typeof getDiagram>; restore?: Visit } | undefined;
+  let pendingVisit: { diagram: ReturnType<typeof getDiagram>; restore?: Visit; select?: string } | undefined;
   let search: { before: Visit; matches: typeof diagram.nodes; index: number } | undefined;
   let dirty = true;
   let redrawAfterResize = false;
@@ -233,7 +245,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a section"], ["j k", "move / scroll"], ["space", "fold section"],
         ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files"], ["esc", "back to diagram"]] },
       { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"]] },
-      { name: "Global", active: false, rows: [["/", "search this view"], ["?", "this help"], ["q", "quit"]] },
+      { name: "Global", active: false, rows: [["/", "search this view"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
     ];
     const wide = renderer.width >= 100;
     const width = Math.min(96, renderer.width - 4), inner = width - 6, column = wide ? Math.floor((inner - 4) / 2) : inner, keyWidth = 12;
@@ -258,7 +270,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     chunks.pop();
     return { content: new StyledText(chunks), height, width,
-      meta: new StyledText([fg(palette.muted)(" in "), fg(palette.accent)(focusSection ? "inspector" : "diagram"), fg(palette.muted)(" ")]) };
+      meta: new StyledText([fg(palette.muted)(" in "), fg(palette.accent)(focusSection ? "inspector" : "diagram"), fg(palette.muted)(` · pathlight ${pkg.version} `)]) };
   };
   const showHelp = () => {
     const guide = helpContent();
@@ -611,7 +623,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
     breadcrumb.content = search ? new StyledText([fg(palette.accent)(`Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length}`), fg(palette.muted)(" · Enter keep · Esc cancel")])
-      : `${renderer.width >= 100 ? `${basename(view.workspace)} · ` : ""}${view.project}/${diagram.id} · ${diagram.nodes.length} nodes · ${diagram.edges.length} relationships · back ${history.length}`;
+      : `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${history.length ? ` · back ${history.length}` : ""}`;
     crumbHint.visible = true;
     searchShield.visible = !!search;
     searchShield.height = Math.max(1, renderer.height - 5);
@@ -796,22 +808,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const mode = fileMode ? "files" : focusSection ? sections[focusSection].name.toLowerCase() : search ? "search" : "diagram";
     // A notice has the room: the hidden-label count waits until it goes.
     const labelNote = message ? 0 : hidden;
-    const rightWidth = 17 + pkg.version.length + (labelNote ? `${labelNote} labels hidden  ·  `.length : 0);
-    const rightContent = new StyledText([...(labelNote ? [fg(palette.border)(`${labelNote} labels hidden  ·  `)] : []), fg(palette.muted)(`zoom ${Math.round(16 / scale * 100)}%`), fg(palette.border)(" │ "), fg(palette.muted)(`pathlight ${pkg.version}`)]);
-    const navigation: Hint[] = listMode ? [["↑↓", "select"], ["enter", "into / open"], ["backspace", "up"], ["i", "panel"], ["/", "search"], ["t", "ask"], ["?", "help"]] : [[selectKeys(), "select"], [vimTraverses ? "←↑↓→" : "h j k l", "pan"], ["+ -", "zoom"], ["/", "search"], ["f", "fit"], ["e", "files"], ["i", "panel"], ["t", "ask"], ["c", "session"], ["?", "help"]];
+    const work = binding || following ? newestWork() : undefined;
     const sectionHints: Record<SectionKey, Hint[]> = {
       overview: [["↑↓", "scroll"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
       connections: [["↑↓", "move"], ["enter", "show in diagram"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
       files: [["↑↓", "move"], ["enter", "open"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
       activity: [["↑↓", "move"], ["enter", "show component"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
     };
-    const room = Math.max(10, renderer.width - rightWidth - 16 - mode.length - String(selected?.id ?? "").length - 4);
-    const ticker = tickerContent();
-    const recentCall = ticker && events.length && Date.now() - (events[0]?.time ?? 0) < 8000;
+    // The footer says where you are and how to ask for help; keys are named only inside a mode that needs them.
+    const rightText = `${labelNote ? `${labelNote} labels hidden  ·  ` : ""}zoom ${Math.round(16 / scale * 100)}%  │  ? help`;
+    const room = Math.max(10, renderer.width - rightText.length - 16 - mode.length - String(selected?.id ?? "").length - 4);
     const hints = focusSection && !fileMode && !search ? hintChunks(sectionHints[focusSection], room)
       : search ? [fg(palette.muted)("type a name or id  "), ...hintChunks([["↑↓", "matches"], ["enter", "keep"], ["esc", "restore"]], room - 20)]
       : fileMode ? [fg(palette.accent)(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`), fg(palette.muted)("  type to filter  "), ...hintChunks([["enter", "open"], ["ctrl+r", "refresh"], ["esc", "back"]], room - 30)]
-      : recentCall && room < 70 ? ticker : hintChunks(navigation, room);
+      : [];
     if (message !== lastToast) {
       lastToast = message;
       if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^Asked /.test(shown) ? 3500 : 2000); }
@@ -820,11 +830,22 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     statusLeft.content = new StyledText([pill(mode, palette.accent), fg(palette.muted)("  Selected: "), fg(palette.body)(String(selected?.id ?? "")), fg(palette.muted)("  "),
       ...(style ? [fg(style.color)(`${style.glyph} `), fg(palette.body)(message)] : hints)]);
     const leftWidth = statusLeft.content instanceof StyledText ? statusLeft.content.chunks.reduce((sum, chunk) => sum + chunk.text.length, 0) : 0;
-    const zoomWidth = 17 + pkg.version.length;
-    statusRight.content = leftWidth + rightWidth + 2 <= renderer.width ? rightContent
-      : leftWidth + zoomWidth + 2 <= renderer.width ? new StyledText([fg(palette.muted)(`zoom ${Math.round(16 / scale * 100)}%`), fg(palette.border)(" │ "), fg(palette.muted)(`pathlight ${pkg.version}`)])
+    statusRight.content = leftWidth + rightText.length + 2 <= renderer.width
+      ? new StyledText([...(labelNote ? [fg(palette.border)(`${labelNote} labels hidden  ·  `)] : []), fg(palette.muted)(`zoom ${Math.round(16 / scale * 100)}%`), fg(palette.border)("  │  "), fg(palette.muted)("? help")])
       : new StyledText([]);
-    crumbHint.content = new StyledText(ticker && !(recentCall && room < 70) ? ticker : []);
+    // One activity line, top right: an offer when the work is in another view, else the latest call. It is dropped when it would not fit.
+    const ticker = tickerContent();
+    const activity: TextChunk[] | undefined = work && "view" in work ? [fg(palette.accent)("● "), fg(palette.text)(`working in ${work.title}`), fg(palette.muted)("  ·  "), fg(palette.accent)("w"), fg(palette.muted)(" to go")] : ticker;
+    const crumbText: unknown = breadcrumb.content, crumbWidth = typeof crumbText === "string" ? crumbText.length : 40;
+    const activityWidth = activity?.reduce((sum, chunk) => sum + chunk.text.length, 0) ?? 0;
+    const available = renderer.width - 2 - crumbWidth - 3;
+    const fitted: TextChunk[] = [];
+    if (activity && !search && available >= 24) {
+      let left = activityWidth > available ? available - 1 : available;
+      for (const chunk of activity) { if (left <= 0) break; fitted.push(chunk.text.length <= left ? chunk : { ...chunk, text: chunk.text.slice(0, left) }); left -= chunk.text.length; }
+      if (activityWidth > available) fitted.push(fg(palette.muted)("…"));
+    }
+    crumbHint.content = new StyledText(fitted);
     dirty = true; renderer.requestRender();
   };
   const fit = () => {
@@ -910,13 +931,25 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // The node for the newest observed call that maps to something in this view.
   const nodeForElement = (element: string) => diagram.nodes.filter(node => String(node.modelRef) === element).sort((a, b) => a.children.length - b.children.length)[0];
-  const newestWorkNode = () => {
+  // The newest call that maps to any element. In this view (or via an ancestor that is) it is a node; otherwise it names the view to go to:
+  // one this view links to with navigateTo first, else the smallest view that contains the element. Never switches by itself.
+  const newestWork = (): { node: NonNullable<typeof selected> } | { view: string; element: string; title: string } | undefined => {
     for (const event of events) {
-      for (const rule of rules) {
-        if (!event.paths.some(path => rule.match.match(path))) continue;
-        const node = nodeForElement(rule.element);
-        if (node) return node;
-      }
+      const elements = [...new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element))];
+      if (!elements.length) continue;
+      const exact = elements.map(nodeForElement).filter((node): node is NonNullable<typeof selected> => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
+      if (exact) return { node: exact };
+      // Another view that shows the exact component beats an enclosing group here (a group is not where the work happened).
+      const linked = new Set(diagram.nodes.map(node => node.navigateTo && String(node.navigateTo)).filter(Boolean));
+      const candidates = [...diagrams].flatMap(([id, entry]) => entry.nodes.some(node => elements.includes(String(node.modelRef))) ? [{ id, entry, element: elements.find(element => entry.nodes.some(node => String(node.modelRef) === element)) ?? elements[0]! }] : [])
+        .sort((a, b) => Number(linked.has(b.id)) - Number(linked.has(a.id)) || a.entry.nodes.length - b.entry.nodes.length || Number(a.id === "index") - Number(b.id === "index"));
+      const best = candidates[0];
+      const enclosing = elements.map(element => {
+        for (let id = element; id.includes("."); ) { id = id.slice(0, id.lastIndexOf(".")); const node = nodeForElement(id); if (node) return node; }
+        return undefined;
+      }).filter((node): node is NonNullable<typeof selected> => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
+      if (!best && enclosing) return { node: enclosing };
+      return best ? { view: best.id, element: best.element, title: String(best.entry.title ?? best.id) } : undefined;
     }
     return undefined;
   };
@@ -954,6 +987,66 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     goto.foot.content = new StyledText(borderHints([["1-9", "jump"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]]));
     goto.place(Math.min(80, renderer.width - 4), entries.length + 4);
   };
+  // Themes: the palette is swapped in place and every widget recoloured, so moving through the picker previews each one live.
+  const applyTheme = (name: string) => {
+    const entry = themes.get(name);
+    if (!entry) return false;
+    let next: ReturnType<typeof paletteOf>;
+    try { next = paletteOf(entry, themeMode); } catch (error) { message = `Theme ${name} cannot be used: ${error instanceof Error ? error.message : String(error)}`; update(); return false; }
+    const before = { ...palette };
+    setPalette(next);
+    retheme([renderer.root, inspector], before, palette);
+    renderer.setBackgroundColor(palette.background);
+    themeName = name; dirty = true; update();
+    return true;
+  };
+  let themeIndex = 0, themeBase = themeName, themeTop = 0;
+  const themeRows = () => Math.max(3, Math.min(themeNames.length, renderer.height - 8));
+  const renderThemes = () => {
+    const rows = themeRows();
+    if (themeIndex < themeTop) themeTop = themeIndex;
+    if (themeIndex >= themeTop + rows) themeTop = themeIndex - rows + 1;
+    const chunks: TextChunk[] = [];
+    themeNames.slice(themeTop, themeTop + rows).forEach((name, offset) => {
+      const index = themeTop + offset, cursor = index === themeIndex, current = name === themeBase, base = cursor ? palette.pick : palette.panel;
+      const preview = themes.get(name) && (() => { try { return paletteOf(themes.get(name)!, themeMode); } catch { return undefined; } })();
+      chunks.push(bg(base)(fg(current ? palette.accent : palette.muted)(current ? " ● " : "   ")), bg(base)(fg(palette.text)(` ${name.padEnd(24).slice(0, 24)}`)),
+        bg(base)(fg(palette.muted)(` ${{ user: "yours   ", terminal: "terminal", bundled: "        " }[themes.get(name)?.source ?? "bundled"]} `)),
+        ...(preview ? [preview.accent, preview.incoming, preview.green, preview.failure, preview.purple].map(color => bg(base)(fg(color)("██"))) : []), bg(base)(fg(palette.muted)(" ")), nl);
+    });
+    chunks.pop();
+    picker.content.content = new StyledText(chunks);
+    picker.meta.content = new StyledText([fg(palette.muted)(` ${themeIndex + 1}/${themeNames.length} · ${themeMode} `)]);
+    picker.foot.content = new StyledText(borderHints([["↑↓", "preview"], ["enter", "keep"], ["esc", "cancel"]]));
+    picker.place(Math.min(64, renderer.width - 4), rows + 4);
+  };
+  const beginThemes = () => {
+    themeBase = themeName; themeIndex = Math.max(0, themeNames.indexOf(themeName)); themeTop = 0;
+    picker.open(Math.min(64, renderer.width - 4), themeRows() + 4); renderThemes(); update();
+  };
+  const moveTheme = (to: number) => {
+    themeIndex = (to + themeNames.length) % themeNames.length;
+    applyTheme(themeNames[themeIndex]!); renderThemes();
+  };
+  const cancelThemes = () => { picker.close(); if (themeName !== themeBase) applyTheme(themeBase); update(); };
+  const keepTheme = () => {
+    picker.close(); themeBase = themeName; message = `Theme: ${themeName}`;
+    runTask(saveTheme(themeName).pipe(Effect.catch(error => Effect.sync(() => { message = `Theme ${themeName} is in use but was not saved: ${error.message}`; update(); }))));
+    update();
+  };
+  // The terminal's own colours are asked for once, in the background (OSC queries; tmux must pass them through). Until they arrive, or if they never
+  // do, `system` is simply absent from the picker. They also decide light or dark for themes with both, unless PATHLIGHT_MODE says otherwise.
+  runTask(io("Native.terminalColors", () => renderer.getPalette({ timeout: 1000 })).pipe(
+    Effect.flatMap(colors => Effect.sync(() => {
+      if (closing || !colors.defaultBackground) return;
+      themes.set("system", systemTheme(colors));
+      themeNames.splice(0, themeNames.length, ...[...themes.keys()].sort(themeOrder));
+      const detected = environment.mode ? undefined : modeOf(colors.defaultBackground);
+      if (detected && detected !== themeMode) themeMode = detected;
+      if (picker.visible) { renderThemes(); return; }
+      if (wantedTheme === "system" || detected) applyTheme(wantedTheme === "system" ? "system" : themeName);
+    })),
+    Effect.catch(() => Effect.void)));
   const beginGoto = () => {
     const entries = viewEntries();
     gotoIndex = Math.max(0, entries.findIndex(([id]) => id === String(diagram.id)));
@@ -1027,6 +1120,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   help.dismiss = () => help.close();
   summary.dismiss = () => { summary.close(); update(); };
   goto.dismiss = () => { goto.close(); update(); };
+  picker.dismiss = () => cancelThemes();
   function finishAsk() { asking = undefined; askInput.blur(); ask.close(); update(); }
   // The question and the chosen context go to the agent's pane and are submitted there; an empty question sends nothing.
   const sendAsk = () => {
@@ -1088,12 +1182,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     else { restore(search.before); update(); }
   });
   nodeListText.onMouseDown = event => {
-    if (help.visible || summary.visible || goto.visible || search || asking || pendingVisit) return;
+    if (help.visible || summary.visible || goto.visible || picker.visible || search || asking || pendingVisit) return;
     const node = diagram.nodes[event.y - nodeListText.y];
     if (node) selectNode(node, false);
   };
   viewport.onMouseDown = event => {
-    if (editorActive || help.visible || summary.visible || goto.visible || search || asking || pendingVisit) return;
+    if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || search || asking || pendingVisit) return;
     focusSection = undefined;
     if (fileMode) { endFiles(); message = ""; }
     // Hit the displayed cell bounds, not the fractional world-space plane:
@@ -1129,6 +1223,19 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         else if (key.name === "space" || key.sequence === " ") { askInclude[askFocus] = !askInclude[askFocus]; renderAsk(); }
       }
       else if (key.name === "return" && !key.meta && !key.option && !key.shift) { key.preventDefault(); sendAsk(); }
+      return;
+    }
+    if (picker.visible) {
+      key.preventDefault();
+      if (key.name === "escape" || key.sequence === "T") cancelThemes();
+      else if (key.name === "return") keepTheme();
+      else if (key.name === "up" || key.name === "k") moveTheme(themeIndex - 1);
+      else if (key.name === "down" || key.name === "j") moveTheme(themeIndex + 1);
+      else if (key.name === "pageup") moveTheme(Math.max(0, themeIndex - themeRows()));
+      else if (key.name === "pagedown") moveTheme(Math.min(themeNames.length - 1, themeIndex + themeRows()));
+      else if (key.name === "home") moveTheme(0);
+      else if (key.name === "end") moveTheme(themeNames.length - 1);
+      else if (key.ctrl && key.name === "c") stop();
       return;
     }
     if (goto.visible) {
@@ -1209,14 +1316,19 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const direction = ({ h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" } as const)[key.name as "h"];
     const vimKey = key.name.length === 1;
     if (!fileMode && key.name === "g" && !key.ctrl && !key.shift) { key.preventDefault(); beginGoto(); return; }
+    if (!fileMode && key.name === "t" && !key.ctrl && key.sequence === "T") { key.preventDefault(); beginThemes(); return; }
     if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
     if (!fileMode && key.name === "c" && !key.ctrl) {
       key.preventDefault(); summary.foot.content = new StyledText(borderHints([["esc", "close"]])); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
     }
     if (!fileMode && key.name === "w" && !key.ctrl) {
       key.preventDefault();
-      const target = newestWorkNode();
-      if (target) { message = ""; followSelecting = true; try { selectNode(target, true); } finally { followSelecting = false; } } else { message = binding || following ? "No recent activity maps to a node in this view" : "Camera jump needs a bound session"; update(); }
+      const work = newestWork();
+      if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } }
+      else if (work) {
+        history.push(visit()); if (history.length > 32) history.shift();
+        animating = false; pendingVisit = { diagram: getDiagram(work.view), select: work.element }; message = `Went to ${work.title}`; update();
+      } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
       return;
     }
     if (!fileMode && key.name === "v" && !key.ctrl) {
@@ -1333,6 +1445,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       initialFit = false; animating = false;
       if (next.restore) restore(next.restore);
       else { autoFit = true; fit(); targetX = centerX; targetY = centerY; targetScale = scale; }
+      if (next.select) selected = nodeForElement(next.select) ?? selected;
       update();
     }
     layout();

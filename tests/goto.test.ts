@@ -23,7 +23,7 @@ test("g lists every view in the project and jumps by number or Enter, keeping Ba
       }
       throw new Error(`Missing ${label}:\n${output}`);
     };
-    await until(text => text.includes("parcel/index") && text.includes("back 0"), "index view");
+    await until(text => text.includes("parcel/index") && text.includes(" nodes"), "index view");
     await delay(800);
     await tmux("send-keys", "-t", pane, "g");
     const listing = await until(text => text.includes("Go to view"), "view list");
