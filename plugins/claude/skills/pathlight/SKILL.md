@@ -32,11 +32,11 @@ Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask th
 
 ## Draft a model for a codebase that has none
 
-Aim for a diagram a person can read in one glance: roughly 8 to 25 elements, grouped by what the code is for, not by every folder.
+Aim for a diagram a person can read in one glance: roughly 8 to 25 elements, grouped by what the code is for, not by every folder. A small codebase gives a small diagram; do not pad it. For a large component, add a second view that opens it up (a view per component beats one crowded view), and link the two with `navigateTo`.
 
 1. **Scan.** `pathlight scan --workspace . --out scan.json`. Read `coverage` first: `unscanned` lists languages the scan does not read (their dependencies are missing, so read those parts of the code yourself), and `unresolved` lists imports it could not follow.
 2. **Find the boundaries.** Use the import edges to see which files belong together and which depend on which. Read a few entry points and the files at the centre of the graph; do not read everything. Filename families (`chat-*`, `auth-*`), package directories and `external` packages are all hints, not answers.
-3. **Write the model.** Use `.c4` files with a `likec4.config.json`. If a `likec4-dsl` skill is available, follow it for syntax. Give each element a title, technology and a one-sentence description taken from code you read. Name each relationship for what the dependency is ("Reads the model"), not for something you did not see. A relationship on a group is supported by imports between its children. Validate with `likec4 validate`.
+3. **Write the model.** Use `.c4` files with a `likec4.config.json`. If a `likec4-dsl` skill is available, follow it for syntax. Give each element a title, technology and a one-sentence description taken from code you read. Name each relationship for what the dependency is ("Reads the model"), not for something you did not see. A relationship on a group is supported by imports between its children. Do not install or run `likec4`: `pathlight check` loads the model itself and fails with "Invalid LikeC4 model" and the parser errors if it is wrong, so a clean check also means the model is valid.
 4. **Write `pathlight.activity.json`.** `{ "version": 1, "project": "<likec4 project name>", "mappings": [{ "glob": "src/auth/**", "element": "<exact element id>" }], "ignore": ["tests/**"] }`. Globs are workspace-relative. Element ids are the full dotted ids (`backend.auth`). Use `ignore` for tests, vendored or generated code that is deliberately outside the model.
 5. **Check, then adjust.** `pathlight check --workspace .` and work through it:
    - *glob matches no files*: fix the glob.
@@ -44,7 +44,7 @@ Aim for a diagram a person can read in one glance: roughly 8 to 25 elements, gro
    - *no import between the mapped files*: the relationship may really run through a network call, an event or a file. Keep it if you can say how; otherwise remove it. Either import direction counts as evidence.
    - *imports with no relationship*: add a relationship when the dependency matters at this level; leave small shared helpers alone.
    - *not checkable*: an end has no mapped files; map it or accept that nothing can be checked.
-6. **Show it** with `pathlight show`.
+6. **Show it** with `pathlight show`, and tell the user what was left out: the `check` line "N source files ignored on purpose" with the kinds of file in `ignore` (tests, tooling, examples), so they can decide whether any belongs in the diagram.
 
 Run `pathlight check` again after any later change to the code or the model, and report what it says without softening it.
 
