@@ -2,7 +2,7 @@ import { Plugin } from "@opencode/plugin";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { run } from "../../src/process";
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, readdir, realpath } from "node:fs/promises";
 import { toolActivity, turnActivity, writeActivity, type ActivityEvent } from "../../src/activity";
 import { ActivitySubscriptions } from "../../src/activity-subscriptions";
 import { Effect, Fiber, Queue, Stream } from "effect";
@@ -73,14 +73,18 @@ export default Plugin.define({
       await Effect.runPromise(Fiber.interrupt(worker));
     };
     try {
-    // The pathlight skill (shared with the Claude plugin) is offered to the agent unless the workspace already has one (`pathlight init` copies it for hosts without this plugin).
+    // The pathlight skills (shared with the Claude plugin) are offered to the agent unless the workspace already has one of the same name (`pathlight init` copies them for hosts without this plugin).
     try {
-      const file = fileURLToPath(new URL("../claude/skills/pathlight/SKILL.md", import.meta.url));
-      const text = await readFile(file, "utf8");
-      const description = /^description:\s*(.+)$/m.exec(text)?.[1]?.trim();
-      const present = (await ctx.skill.list()).data.some(skill => skill.id === "pathlight" || skill.name === "pathlight");
-      if (!present) await ctx.skill.transform(editor => editor.add({ id: "pathlight", name: "pathlight", ...(description ? { description } : {}), path: file, content: text.replace(/^---\n[\s\S]*?\n---\n/, "") } as SkillInfo));
-    } catch { /* The skill is a convenience; the tools and recording do not depend on it. */ }
+      const folder = fileURLToPath(new URL("../claude/skills/", import.meta.url));
+      const present = (await ctx.skill.list()).data;
+      for (const name of await readdir(folder)) {
+        const file = `${folder}${name}/SKILL.md`;
+        const text = await readFile(file, "utf8").catch(() => undefined);
+        if (text === undefined || present.some(skill => skill.id === name || skill.name === name)) continue;
+        const description = /^description:\s*(.+)$/m.exec(text)?.[1]?.trim();
+        await ctx.skill.transform(editor => editor.add({ id: name, name, ...(description ? { description } : {}), path: file, content: text.replace(/^---\n[\s\S]*?\n---\n/, "") } as SkillInfo));
+      }
+    } catch { /* The skills are a convenience; the tools and recording do not depend on them. */ }
     await ctx.tool.hook("execute.before", event => observe(event, "started"));
     await ctx.tool.hook("execute.after", event => observe(event, event.status === "completed" ? "completed" : "failed"));
     await ctx.tool.transform(editor => {

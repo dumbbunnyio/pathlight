@@ -16,6 +16,7 @@ import { checkAndRecord } from "./stale";
 import { setPlan } from "./plan";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
+import { doctor, formatDoctor, hasFailures } from "./doctor";
 
 const help = `pathlight list [--workspace PATH]
 pathlight scan [--workspace PATH] [--out FILE]
@@ -28,6 +29,7 @@ pathlight show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket P
 pathlight view VIEW [--workspace PATH] [--project NAME]
 pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--pane %ID] [--socket PATH]
 pathlight record --workspace PATH < claude-hook.json
+pathlight doctor [--workspace PATH]
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
 check compares the LikeC4 model and pathlight.activity.json with that scan: unmatched globs, unmapped files,
@@ -98,6 +100,8 @@ try {
       process.stdout.write(`Drew ${made.elements} elements (${made.packages ? `${made.packages} packages, ` : ""}${made.components} components${made.collections ? `, ${made.collections} collections` : ""}) and ${made.relationships} relationships from the imports.\n`
         + `${made.mappings} file mappings; ${made.ignored} test files left out.\nWrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in ${made.target}.\n`
         + (made.overlay ? `Applied ${made.overlay} names or notes from pathlight.overlay.json.\n` : "")
+        + made.problems.map(text => `Overlay skipped: ${text}\n`).join("")
+        + made.pins.map(text => `Check: ${text}\n`).join("")
         + (made.unknown.length ? `Overlay keys that match nothing in the code now (remove or fix them): ${made.unknown.join(", ")}\n` : ""));
     } else if (command === "check") {
       if (id) return yield* invalid("check takes no argument. Use --workspace PATH.");
@@ -112,6 +116,11 @@ try {
       const diff = yield* diffWorkspace(values.workspace, values.base);
       yield* recordDiff(values.workspace, diff);
       if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(diff, null, 2)}\n` : formatDiff(diff));
+    } else if (command === "doctor") {
+      if (id) return yield* invalid("doctor takes no argument. Use --workspace PATH.");
+      const findings = yield* doctor(values.workspace);
+      process.stdout.write(formatDoctor(findings));
+      if (hasFailures(findings)) process.exitCode = 1;
     } else if (command === "init") {
       if (id) return yield* invalid("init takes no argument. Use --workspace PATH.");
       process.stdout.write(`${(yield* initWorkspace(values.workspace, { claudeHooks: !values["no-claude-hooks"] })).join("\n")}\n`);

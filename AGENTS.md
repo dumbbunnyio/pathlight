@@ -27,6 +27,10 @@ The inspector is docked from 120 columns and an overlay below that; under 80 col
 Preserve the approved camera and visual design during maintenance. Propose
 intentional redesigns separately; do not quietly substitute another camera.
 
+## Design principle: informative, not a data dump
+
+Pathlight lets an engineer follow what an AI harness is doing, understand their app, and trust an accurate picture of the code and its architecture, simply and intuitively. Show the few things that matter at a glance and keep the rest one deliberate step away (a key, a section, a command). Every new signal (badges, counts, tags, panels) must justify the space it takes, say nothing when there is nothing to say, and never crowd the line or panel it shares. The sidebar's sections, their behaviour and where each piece of information lives are due a deliberate redesign (not started, requested by the user on 2026-10-21): do not add more sections or lines to the current layout in the meantime unless a feature cannot work without it, and treat anything added now as provisional.
+
 ## Code ownership
 
 | Area | Files |
@@ -39,7 +43,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 | Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/check.ts` (`compareImports`, shared with `src/diff.ts`: changes since a git commit), `src/draft.ts`, `src/stale.ts` (the out-of-date stamp), `src/plan.ts` (the agent's plan, ids only) |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
-| Agent integrations | `plugins/` (`plugins/opencode` targets OpenCode V2: `index.ts` is the server plugin (hooks, recording, tools, the skill), `tui.ts` the CLI plugin that holds the slash commands because only the terminal process knows the tmux pane; `tests/opencode-live.test.ts` drives the real binary; `plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). `plugins/claude/skills/pathlight/SKILL.md` is the one skill for both hosts: `pathlight init` copies it, and `tests/skill.test.ts` checks every command and flag it names against the CLI help, so update it with the CLI. `plugins/claude/open-hook.sh` handles `/pathlight:open` as a `UserPromptSubmit` hook that stops the prompt with `continue: false` (no model turn); `commands/open.md` is only the picker entry and fallback. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
+| Agent integrations | `plugins/` (`plugins/opencode` targets OpenCode V2: `index.ts` is the server plugin (hooks, recording, tools, the skill), `tui.ts` the CLI plugin that holds the slash commands because only the terminal process knows the tmux pane; `tests/opencode-live.test.ts` drives the real binary; `plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). Every folder in `plugins/claude/skills/` is a skill for both hosts (`pathlight` and `pathlight-behavior`): `pathlight init` copies them all, the OpenCode plugin registers them all, and `tests/skill.test.ts` checks every command and flag the main one names against the CLI help (and that the behavior skill's example compiles), so update them with the CLI. `plugins/claude/open-hook.sh` handles `/pathlight:open` as a `UserPromptSubmit` hook that stops the prompt with `continue: false` (no model turn); `commands/open.md` is only the picker entry and fallback. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
 | Flat and nested fixtures | `tests/fixtures/viewer/` (frozen test layout), `examples/parcel/` |
 | This repo's own architecture diagram | `examples/viewer/`, mapped by `pathlight.activity.json` |
 
@@ -77,8 +81,8 @@ intentional redesigns separately; do not quietly substitute another camera.
 ## Development and validation
 
 Dependencies are pinned in `package.json` and `bun.lock`; use Bun. See README
-for prerequisites. Full verification needs Linux `flock`, tmux and Neovim.
-Native checks need a working OpenTUI/Three backend but no browser or terminal image protocol.
+for prerequisites. Full verification needs tmux and Neovim.
+Native checks need a working OpenTUI/Three backend but no browser or terminal image protocol. `src/doctor.ts` is `pathlight doctor`; `scripts/build.sh` compiles the single binary, which `tests/binary.test.ts` builds and drives. Anything read from the repository at run time (skills, themes) must be compiled in, because the binary has no checkout beside it.
 
 ```sh
 bun install
@@ -113,5 +117,7 @@ Map quality is measured, not judged: see [docs/eval.md](docs/eval.md) for the in
 
 Keep README and the native controls document aligned with shipped behavior.
 Update project intent when an approved product decision changes, distinguishing
-implemented behavior from desired or unverified behavior. Do not commit or push
+implemented behavior from desired or unverified behavior. Bump `scanRevision` in `src/scan.ts` whenever a scanner change can alter its output for the same files: `pathlight diff` caches the base commit's scan and trusts it only for the same revision.
+
+Do not commit or push
 unless the governing session instructions explicitly permit it.

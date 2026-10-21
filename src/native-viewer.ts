@@ -10,7 +10,8 @@ import { type Plan, readPlan } from "./plan";
 import { readStale, type Stale, staleText } from "./stale";
 import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
-import { askMessage, sendToPane } from "./ask";
+import { askMessage, mapMessage, sendToPane } from "./ask";
+import { readEntry, readKeys, saveElement } from "./edit";
 import pkg from "../package.json" with { type: "json" };
 import { type Hint, borderHints, hintChunks, noticeStyle, palette, pill, setPalette } from "./ui";
 import { type Mode, loadThemes, modeOf, paletteOf, saveTheme, savedTheme, systemTheme, themeFromEnvironment } from "./theme";
@@ -162,7 +163,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       panel.width = w; panel.height = h;
       panel.left = Math.floor((renderer.width - w) / 2); panel.top = Math.max(0, Math.floor((renderer.height - h) / 2));
     };
-    return Object.assign(modal, { scrim, panel, content, meta, foot, place,
+    return Object.assign(modal, { scrim, panel, content, title, meta, foot, place,
       open(width: number, height: number) { place(width, height); scrim.visible = panel.visible = true; },
       close() { scrim.visible = panel.visible = false; } });
   };
@@ -262,7 +263,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"]] },
       { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a section"], ["j k", "move / scroll"], ["space", "fold section"],
         ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files"], ["esc", "back to diagram"]] },
-      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
+      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["n", "name and note it yourself"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
       { name: "Global", active: false, rows: [["/", "search this view"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
     ];
     const wide = renderer.width >= 100;
@@ -356,13 +357,17 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const diffText = () => {
     if (!diff) return "";
     const added = diff.relationships.filter(item => item.change === "added").length, lost = diff.relationships.length - added;
-    const parts = [added ? `+${added} dependencies` : "", lost ? `−${lost} lost` : "", diff.undeclared.length ? `${diff.undeclared.length} new with no relationship` : ""].filter(Boolean);
-    return parts.length ? ` · since ${diff.base} (static): ${parts.join(", ")}` : "";
+    // Nothing changed, nothing said: the check badge on the right already shows the hooks are running.
+    const parts = [added ? `+${added}` : "", lost ? `−${lost}` : "", diff.undeclared.length ? `${diff.undeclared.length} undeclared` : ""].filter(Boolean);
+    return parts.length ? ` · vs ${diff.base} (static) ${parts.join(" ")}` : "";
   };
+  const ago = (time: number) => { const age = formatAge(Date.now() - time); return age === "now" ? "just now" : `${age} ago`; };
   const staleBadge = (room: number) => {
     const detail = staleText(stale);
-    if (!stale || !detail) return [];
-    const full = `▲ out of date: ${detail} · checked ${formatAge(Date.now() - stale.time)} ago `;
+    if (!stale) return [];
+    // A clean check says so, quietly: silence would look the same as a hook that never ran.
+    if (!detail) { const text = `✓ in sync · checked ${ago(stale.time)} `; return text.length <= room ? [fg(palette.muted)(text)] : []; }
+    const full = `▲ out of date: ${detail} · checked ${ago(stale.time)} `;
     const text = full.length <= room ? full : room >= 16 ? "▲ out of date " : "";
     return text ? [fg(palette.accent)(text)] : [];
   };
@@ -671,13 +676,16 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (index < top) nodeList.scrollTo(index); else if (index >= top + height) nodeList.scrollTo(index - height + 1);
     }
   };
+  // The breadcrumb as plain text: the room the activity ticker has beside it depends on its real width.
+  let crumbPlain = "";
   const update = () => {
     layout();
     canvas.visible = !listMode; nodeList.visible = listMode;
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
+    crumbPlain = `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${history.length ? ` · back ${history.length}` : ""}${diffText()}${plan ? ` · plan ${plan.elements.length}` : ""}`;
     breadcrumb.content = search ? new StyledText([fg(palette.accent)(`Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length}`), fg(palette.muted)(" · Enter keep · Esc cancel")])
-      : `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${history.length ? ` · back ${history.length}` : ""}${diffText()}${plan ? ` · plan ${plan.elements.length}` : ""}`;
+      : crumbPlain;
     crumbHint.visible = true;
     searchShield.visible = !!search;
     searchShield.height = Math.max(1, renderer.height - 5);
@@ -709,6 +717,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       let border: string | RGBA = group ? palette.rule : palette.cardEdge;
       if (neighbour) border = group ? palette.border : palette.edgeDim;
       if (plan && inPlan(String(entry.node.modelRef))) border = palette.purple;
+      // A behaviour view marks a state the agent found broken (#bug) or since repaired (#fixed).
+      const marks = (entry.node as { tags?: readonly string[] }).tags ?? [];
+      if (marks.includes("bug")) border = palette.failure; else if (marks.includes("fixed")) border = palette.green;
       if (state === "failed") border = palette.failure;
       if (previewed === id || isSelected || flashing) border = palette.accent;
       if (active.length && !isSelected) {
@@ -756,7 +767,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     const paths = selectedPaths();
     inspectorTitle.content = new StyledText([fg(palette.text)(selected?.title ?? "No selection")]);
-    const what = [selected?.kind, selected?.technology, selected && waiting(String(selected.modelRef)) ? "planned: no files yet" : ""].filter(Boolean).join(" · ");
+    const what = [selected?.kind, selected?.technology, selected && waiting(String(selected.modelRef)) ? "planned: no files yet" : "", ...((selected as { tags?: readonly string[] } | undefined)?.tags ?? []).filter(tag => tag === "bug" || tag === "fixed")].filter(Boolean).join(" · ");
     inspectorHead.content = new StyledText([fg(palette.muted)(what || " ")]);
     headRows = 2;
     const parent = diagram.nodes.find(node => node.id === selected?.parent);
@@ -895,7 +906,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // One activity line, top right: an offer when the work is in another view, else the latest call. It is dropped when it would not fit.
     const ticker = tickerContent();
     const activity: TextChunk[] | undefined = work && "view" in work ? [fg(palette.accent)("● "), fg(palette.text)(`working in ${work.title}`), fg(palette.muted)("  ·  "), fg(palette.accent)("w"), fg(palette.muted)(" to go")] : ticker;
-    const crumbText: unknown = breadcrumb.content, crumbWidth = typeof crumbText === "string" ? crumbText.length : 40;
+    const crumbWidth = search ? 40 : crumbPlain.length;
     const activityWidth = activity?.reduce((sum, chunk) => sum + chunk.text.length, 0) ?? 0;
     const available = renderer.width - 2 - crumbWidth - 3;
     const fitted: TextChunk[] = [];
@@ -976,6 +987,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     });
     const pool = scored.some(entry => entry.cone) ? scored.filter(entry => entry.cone) : scored;
     const best = pool.sort((a, b) => a.score - b.score)[0]?.node;
+    // Past the last node on the right, the inspector is the next thing: `h` (or left) comes back.
+    if (!best && direction === "right") { message = ""; focusOn("overview"); return; }
     if (!best) { message = `Nothing ${direction === "up" ? "above" : direction === "down" ? "below" : `to the ${direction} of`} ${current.title}`; update(); return; }
     message = "";
     selectNode(best, false);
@@ -1191,9 +1204,22 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // What to send with the question: files, connections, activity. Tab moves between the question and these toggles.
   const askInclude = [true, true, false];
+  // `t` asks a question; `m` asks the agent to improve the map; `n` is the person's own name and note (two steps, no agent).
+  let askMode: "ask" | "map" | "name" | "note" = "ask", editKey = "", editTitle = "";
   let askFocus = -1, askSpans: { from: number; to: number }[] = [];
   const renderAsk = () => {
     if (!asking) return;
+    if (askMode !== "ask") {
+      const names = { map: "Ask the agent to improve the map", name: "Name", note: "Note" } as const;
+      ask.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(names[askMode]), fg(palette.muted)(" ")]);
+      ask.content.content = new StyledText([fg(palette.muted)("about".padEnd(8)), fg(palette.text)(asking.title), fg(palette.purple)(`  ${asking.id}`), nl, fg(palette.muted)(askMode === "map" ? "it reads the files, then edits the overlay" : askMode === "name" ? "step 1 of 2" : "step 2 of 2 · empty clears it")]);
+      askPrompt.fg = palette.accent;
+      ask.foot.content = new StyledText(borderHints(askMode === "map" ? [["enter", "send"], ["alt+enter", "new line"], ["esc", "cancel"]] : [["enter", askMode === "name" ? "next" : "save"], ["esc", "cancel"]]));
+      ask.meta.content = new StyledText([fg(palette.muted)(" ")]);
+      renderer.requestRender();
+      return;
+    }
+    ask.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)("Ask the agent"), fg(palette.muted)(" ")]);
     const context = askContext(asking), counts = [context.files.length, context.links.length, context.activity.length], names = ["files", "connections", "activity"];
     const chunks: TextChunk[] = [fg(palette.muted)("about".padEnd(8)), fg(palette.text)(asking.title), fg(palette.purple)(`  ${asking.id}`), nl, fg(palette.muted)("include".padEnd(8))];
     let column = 8;
@@ -1221,25 +1247,67 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const index = askSpans.findIndex(span => column >= span.from && column < span.to);
     if (index >= 0) { askInclude[index] = !askInclude[index]; focusAsk(index); }
   };
-  const beginAsk = () => {
-    if (!options.parent) { message = "Ask needs the viewer opened with pathlight show, which knows your agent's pane"; update(); return; }
-    if (!selected) return;
-    asking = selected; animating = false;
-    askInput.setText(""); askInput.height = 1; askRow.height = 3;
+  const openAsk = (target: NonNullable<typeof selected>, mode: typeof askMode, text: string, placeholder: string) => {
+    asking = target; askMode = mode; animating = false;
+    askInput.placeholder = placeholder;
+    askInput.setText(text); askInput.gotoBufferEnd(); askInput.height = 1; askRow.height = 3;
     ask.open(Math.min(76, renderer.width - 4), 10);
     focusAsk(-1); message = ""; update();
   };
+  const beginAsk = () => {
+    if (!options.parent) { message = "Ask needs the viewer opened with pathlight show, which knows your agent's pane"; update(); return; }
+    if (!selected) return;
+    openAsk(selected, "ask", "", "What do you want to know about it?");
+  };
+  // Map editing needs the element's overlay key, which `pathlight draft` records; a hand-written model has none.
+  const withKey = (target: NonNullable<typeof selected>, then: (key: string) => Effect.Effect<void>) =>
+    runTask(readKeys(view.workspace).pipe(
+      Effect.flatMap(keys => {
+        const key = keys.get(String(target.modelRef ?? "")) ?? keys.get(String(target.id));
+        return key ? then(key) : Effect.sync(() => { message = "Only a model made by pathlight draft can be edited here; edit your model file instead"; update(); });
+      }),
+      Effect.catch(() => Effect.void)));
+  const beginMap = () => {
+    if (!options.parent) { message = "Changing the map needs the viewer opened with pathlight show, which knows your agent's pane"; update(); return; }
+    const target = selected;
+    if (target) withKey(target, key => Effect.sync(() => { editKey = key; openAsk(target, "map", "", "What should it work out, or what should it be called?"); }));
+  };
+  const beginName = () => {
+    const target = selected;
+    if (target) withKey(target, key => readEntry(view.workspace, key).pipe(Effect.flatMap(entry => Effect.sync(() => {
+      editKey = key; editTitle = target.title; noteDraft = entry?.note ?? "";
+      openAsk(target, "name", entry?.title ?? target.title, "Name");
+    })), Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
+  };
+  let noteDraft = "";
   ask.dismiss = () => finishAsk();
   help.dismiss = () => help.close();
   summary.dismiss = () => { summary.close(); update(); };
   goto.dismiss = () => { goto.close(); update(); };
   picker.dismiss = () => cancelThemes();
-  function finishAsk() { asking = undefined; askInput.blur(); ask.close(); update(); }
+  function finishAsk() { asking = undefined; askMode = "ask"; askInput.blur(); ask.close(); update(); }
   // The question and the chosen context go to the agent's pane and are submitted there; an empty question sends nothing.
   const sendAsk = () => {
     const target = asking, parent = options.parent, question = askInput.plainText.trim();
+    if (target && askMode === "name") { editTitle = question; askMode = "note"; askInput.setText(noteDraft); askInput.gotoBufferEnd(); askInput.placeholder = "A line about what it is for"; renderAsk(); return; }
+    if (target && askMode === "note") {
+      const key = editKey, entry = { title: editTitle, note: question }, generated = target.title;
+      finishAsk(); message = "Saving the name and rebuilding the map…"; update();
+      runTask(saveElement(view.workspace, key, entry, generated).pipe(
+        Effect.tap(() => Effect.sync(() => { message = "Saved as yours · the map is rebuilding"; update(); })),
+        Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
+      return;
+    }
     if (!target || !parent || !question) return;
     const context = askContext(target);
+    if (askMode === "map") {
+      const text = mapMessage({ title: target.title, id: String(target.id), key: editKey, files: context.files, links: context.links }, question);
+      finishAsk();
+      runTask(sendToPane(parent, text, true).pipe(
+        Effect.tap(() => Effect.sync(() => { message = `Asked the agent to improve ${target.title} · it replies in the agent pane`; update(); })),
+        Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
+      return;
+    }
     const text = askMessage({ title: target.title, id: String(target.id), files: askInclude[0] ? context.files : [], links: askInclude[1] ? context.links : [], activity: askInclude[2] ? context.activity : [] }, question);
     const about = target.title, session = binding ? liveLabel() : "the agent";
     finishAsk();
@@ -1328,7 +1396,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     if (asking) {
       if (key.name === "escape") { key.preventDefault(); finishAsk(); }
-      else if (key.name === "tab") { key.preventDefault(); focusAsk(askFocus < 0 ? 0 : -1); }
+      else if (key.name === "tab") { key.preventDefault(); if (askMode === "ask") focusAsk(askFocus < 0 ? 0 : -1); }
       else if (askFocus >= 0) {
         key.preventDefault();
         if (key.name === "left" || key.name === "h") focusAsk((askFocus + 2) % 3);
@@ -1390,7 +1458,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (key.name === "space" || key.sequence === " ") { key.preventDefault(); entry.open = !entry.open; touched.add(key_); update(); return; }
       if (key.name === "up" || key.name === "k") { key.preventDefault(); move(-1); return; }
       if (key.name === "down" || key.name === "j") { key.preventDefault(); move(1); return; }
-      if (["left", "right", "h", "l"].includes(key.name) && !key.shift) { key.preventDefault(); return; }
+      if ((key.name === "left" || key.name === "h") && !key.shift) { key.preventDefault(); focusSection = undefined; update(); return; }
+      if ((key.name === "right" || key.name === "l") && !key.shift) { key.preventDefault(); return; }
       if (key.name === "return") {
         key.preventDefault();
         if (key_ === "connections") {
@@ -1432,6 +1501,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!fileMode && key.name === "g" && !key.ctrl && !key.shift) { key.preventDefault(); beginGoto(); return; }
     if (!fileMode && key.name === "t" && !key.ctrl && key.sequence === "T") { key.preventDefault(); beginThemes(); return; }
     if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
+    if (!fileMode && key.name === "m" && !key.ctrl) { key.preventDefault(); beginMap(); return; }
+    if (!fileMode && key.name === "n" && !key.ctrl) { key.preventDefault(); beginName(); return; }
     if (!fileMode && key.name === "c" && !key.ctrl) {
       key.preventDefault(); summary.foot.content = new StyledText(borderHints([["esc", "close"]])); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
     }

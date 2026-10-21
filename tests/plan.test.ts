@@ -48,6 +48,9 @@ test("the viewer outlines the plan in its breadcrumb and marks activity on an el
     let screen = "";
     for (let attempt = 0; attempt < 200 && !(screen.includes("plan 1") && screen.includes("off plan")); attempt++) { screen = await tmux("capture-pane", "-p", "-t", pane); await delay(50); }
     expect(screen).toContain("plan 1");
+    // The breadcrumb and the latest-call ticker share one line and must not run together.
+    const second = screen.split("\n")[1] ?? "";
+    expect(second).toMatch(/plan 1(\s{3,}\S.*)?\s*$/);
     // Only Gamma (c, outside the plan) is marked; Alpha was touched but is in the plan.
     expect((screen.match(/off plan/g) ?? []).length).toBe(1);
   } finally {

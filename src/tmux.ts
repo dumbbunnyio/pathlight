@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdir, mkdtemp, open, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, unlink } from "node:fs/promises";
 import { Config, Effect, Schedule, Schema } from "effect";
 import { io, failure, hasCode, json } from "./effects";
 import { run } from "./process";
@@ -21,6 +20,32 @@ export const atShellPrompt = Effect.fn("Tmux.atShellPrompt")(function* (pane: st
   return pid.trim() === String(process.ppid);
 });
 
+/**
+ * One viewer request per pane at a time. The lock is a file created exclusively and holding the owner's process id, released when the
+ * scope closes; a file left by a process that no longer exists is replaced. Plain filesystem calls, so it works on macOS and Linux alike.
+ */
+export const acquireLock = (path: string) => Effect.acquireRelease(
+  Effect.gen(function* () {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const created = yield* io("Tmux.lock", async () => {
+        const handle = await open(path, "wx", 0o600).catch(error => hasCode(error, "EEXIST") ? undefined : Promise.reject(error));
+        if (!handle) return false;
+        await handle.writeFile(`${process.pid}\n`);
+        await handle.close();
+        return true;
+      });
+      if (created) return;
+      const holder = Number((yield* io("Tmux.lockOwner", () => readFile(path, "utf8")).pipe(Effect.catch(() => Effect.succeed("")))).trim());
+      const alive = Number.isInteger(holder) && holder > 0 && (() => { try { process.kill(holder, 0); return true; } catch (error) { return hasCode(error, "EPERM"); } })();
+      if (alive) return yield* Effect.fail(failure("Tmux.lock", "Another diagram request is in progress for this pane. Retry after it finishes."));
+      yield* io("Tmux.lockStale", () => unlink(path)).pipe(Effect.ignore);
+    }
+    return yield* Effect.fail(failure("Tmux.lock", "Could not acquire the viewer lock."));
+  }).pipe(Effect.uninterruptible),
+  () => io("Tmux.unlock", () => unlink(path)).pipe(Effect.ignore));
+
+const compiled = Bun.main.startsWith("/$bunfs/") || Bun.main.includes("~BUN");
+
 export const showView = Effect.fn("Tmux.show")(function* (options: {
   view: View; pane: string; socket?: string; activity?: ActivityBinding; follow?: boolean;
 }) {
@@ -33,22 +58,14 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
   const owner = createHash("sha256").update(`${socket}\0${options.pane}\0${options.view.workspace}`).digest("hex");
   const cache = join(options.view.workspace, ".cache", "pathlight");
   yield* io("Tmux.cache", () => mkdir(cache, { recursive: true }));
-  const lock = yield* Effect.acquireRelease(io("Tmux.openLock", () => open(join(cache, `${owner}.lock`), "a", 0o600)),
-    handle => io("Tmux.closeLock", () => handle.close()).pipe(Effect.orDie));
   let createdPane: string | undefined;
   let readyPane = false;
   yield* Effect.addFinalizer(() => createdPane && !readyPane ? tmux("kill-pane", "-t", createdPane).pipe(Effect.ignore) : Effect.void);
-    yield* io("Tmux.lock", () => new Promise<void>((resolve, reject) => {
-      const child = spawn("flock", ["--nonblock", "3"], { stdio: ["ignore", "ignore", "pipe", lock.fd] });
-      child.once("error", reject);
-      child.once("exit", code => code === 0 ? resolve() : reject(new Error(
-        code === 1 ? "Another diagram request is in progress for this pane. Retry after it finishes."
-          : "Could not acquire the viewer lock. Linux flock is required.",
-      )));
-    })).pipe(Effect.uninterruptible);
+    yield* acquireLock(join(cache, `${owner}.lock`));
     const directory = yield* io("Tmux.directory", () => mkdtemp(join(cache, "native-")));
     const ready = join(directory, "ready.json");
-    const args = [process.execPath, fileURLToPath(new URL("./cli.ts", import.meta.url)),
+    // Run from source the viewer is `bun src/cli.ts view ...`; in a compiled binary the executable is the program and has no script to name.
+    const args = [process.execPath, ...(compiled ? [] : [fileURLToPath(new URL("./cli.ts", import.meta.url))]),
       "view", options.view.id, "--workspace", options.view.workspace, "--project", options.view.project, "--parent", options.pane, "--ready", ready];
     const editorEnvironment: string[] = [];
     for (const key of ["VISUAL", "EDITOR"]) {

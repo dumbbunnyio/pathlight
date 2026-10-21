@@ -26,3 +26,19 @@ export const sendToPane = Effect.fn("Ask.send")(function* (pane: string, text: s
   if (submit) yield* run("tmux", ["send-keys", "-t", pane, "Enter"]);
   return command ?? pane;
 });
+
+/**
+ * A request to change the map, not only to answer: the same context as a question plus the element's overlay key, and the rules the
+ * agent follows (names and notes are applied, merges and splits are proposed first, a human pin is never changed).
+ */
+export function mapMessage(target: { title: string; id: string; key: string; files: readonly string[]; links: readonly string[] }, request: string) {
+  const clean = (text: string) => text.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim();
+  const context = [
+    `overlay key: ${clean(target.key)}`,
+    target.files.length ? `files: ${target.files.slice(0, 8).map(clean).join(", ")}` : "",
+    target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
+  ].filter(Boolean).join("; ");
+  return `Improve the pathlight map for the "${clean(target.title)}" component (${clean(target.id)}): ${clean(request).slice(0, 600)} [${context}] `
+    + `Read the files, answer me here, then set its name and note in pathlight.overlay.json with "by":"agent" and run pathlight draft. Never change an entry marked "by":"human". `
+    + `If it should be merged or split, tell me and wait for my yes before editing.`;
+}

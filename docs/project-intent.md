@@ -4,6 +4,10 @@ Status: the approved native explorer is integrated as the production default.
 This document records the product direction and accepted design as of
 2026-10-18; it is not a claim that all platforms or future capabilities are done.
 
+## Design principle (user decision, 2026-10-21)
+
+The viewer must be informative, not a data dump: an engineer following a harness's work should see an elegant, intuitive picture with the detail available on request. The inspector sidebar, its sections and the placement of information are to be redesigned deliberately (not yet started). The out-of-date badge, diff marks, plan outline and `off plan` tags added on 2026-10-21 are provisional and may move or merge in that redesign.
+
 ## What we are trying to achieve
 
 Give a developer working with an AI coding agent a persistent, navigable view of
@@ -114,7 +118,7 @@ These are scope boundaries, not promises of later implementation.
 ## Current limits and remaining validation
 
 - Linux/tmux is verified. macOS and broader terminal compatibility remain open;
-  locking currently relies on Linux `flock`.
+  locking is a plain lockfile, so it is not Linux-specific, but nothing has been run on macOS. A compiled single binary works on Linux x64 only so far.
 - Connectors are routed by a simple grid search; in very dense diagrams two routes can share a lane or pass close to a node.
 - Labels may clip or hide at small scales; boxes move on terminal-cell boundaries.
   Dot and diamond markers are drawn as plain arrowheads.

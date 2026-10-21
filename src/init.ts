@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,7 +6,14 @@ import { Effect } from "effect";
 import { acquireModel } from "./catalog";
 import { hasCode, io, json, failure } from "./effects";
 
+import pathlightSkill from "../plugins/claude/skills/pathlight/SKILL.md" with { type: "text" };
+import behaviorSkill from "../plugins/claude/skills/pathlight-behavior/SKILL.md" with { type: "text" };
+
 const pluginRoot = fileURLToPath(new URL("../plugins", import.meta.url));
+/** The skills are compiled in, so `init` works from the single binary as well as from a checkout. */
+const skillFiles: Record<string, string> = { pathlight: pathlightSkill, "pathlight-behavior": behaviorSkill };
+/** Hook scripts and the OpenCode plugin are files in a checkout; a compiled binary has none, and the plugins supply them instead. */
+const hasCheckout = (path: string) => existsSync(join(pluginRoot, path));
 const hookEvents = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit"] as const;
 
 const kebab = (text: string) => text.replace(/([a-z\d])([A-Z])/g, "$1-$2").toLowerCase().replace(/[^a-z\d]+/g, "-").replace(/^-|-$/g, "");
@@ -77,7 +85,8 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
   const workspace = yield* io("Init.workspace", () => realpath(path));
   const notes: string[] = [];
 
-  if (options.claudeHooks) {
+  if (options.claudeHooks && !hasCheckout("claude/hook.sh")) notes.push("Claude Code: install the pathlight plugin for the hooks (none were written from this binary).");
+  else if (options.claudeHooks) {
     const settingsPath = join(workspace, ".claude", "settings.local.json");
     const existing = yield* readOptional(settingsPath);
     const settings = claudeSettings(existing ? yield* json(existing) : {}, join(pluginRoot, "claude", "hook.sh"));
@@ -86,13 +95,13 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
 
   } else notes.push("Claude Code: no local hooks written (using the plugin).");
 
-  // One skill file for both hosts. Claude Code reads .claude/skills; with the plugin installed it supplies the skill itself,
+  // The skills are the same files for both hosts. Claude Code reads .claude/skills; with the plugin installed it supplies them itself,
   // so only OpenCode needs a copy, and its documentation lists .agents/skills (and .claude/skills) as places it looks.
-  const skill = yield* io("Init.skill", () => readFile(join(pluginRoot, "claude", "skills", "pathlight", "SKILL.md"), "utf8"));
   const skillRoot = options.claudeHooks ? ".claude" : ".agents";
-  yield* writeText(join(workspace, skillRoot, "skills", "pathlight", "SKILL.md"), skill);
-  notes.push(options.claudeHooks ? "Skill: pathlight written to .claude/skills/pathlight (Claude Code; OpenCode documents reading it too)."
-    : "Skill: pathlight written to .agents/skills/pathlight for OpenCode (the Claude plugin supplies it to Claude Code).");
+  const skills = Object.keys(skillFiles).sort();
+  for (const name of skills) yield* writeText(join(workspace, skillRoot, "skills", name, "SKILL.md"), skillFiles[name]!);
+  notes.push(options.claudeHooks ? `Skills: ${skills.join(", ")} written to .claude/skills (Claude Code; OpenCode documents reading it too).`
+    : `Skills: ${skills.join(", ")} written to .agents/skills for OpenCode (the Claude plugin supplies them to Claude Code).`);
 
   const configPath = join(workspace, "pathlight.activity.json");
   if (yield* readOptional(configPath)) notes.push("Activity: kept existing pathlight.activity.json.");
@@ -115,7 +124,8 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
   const opencodePath = join(workspace, "opencode.json");
   const opencode = yield* readOptional(opencodePath);
   const config = opencode ? yield* json(opencode) : { $schema: "https://opencode.ai/config.json" };
-  if (isRecord(config)) {
+  if (isRecord(config) && !hasCheckout("opencode/index.ts")) notes.push("OpenCode: add the pathlight plugin to opencode.json (none was registered from this binary).");
+  else if (isRecord(config)) {
     const plugin = join(pluginRoot, "opencode");
     const plugins: unknown[] = Array.isArray(config.plugins) ? [...config.plugins] : [];
     // `record: true` is the OpenCode counterpart of installing the Claude hooks: running init is the opt-in to record this workspace's root sessions.

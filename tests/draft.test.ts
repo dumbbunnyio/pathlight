@@ -383,3 +383,106 @@ test("an invalid overlay stops the draft instead of being half applied", async (
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+const withOverlay = async (files: Record<string, string>, overlay: unknown) => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-structure-"));
+  await write(directory, files);
+  await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify(overlay));
+  return directory;
+};
+
+test("an overlay merge makes several folders one top-level component, and the model still agrees with the code", async () => {
+  const directory = await withOverlay(monorepo, { version: 1, elements: {}, merges: [{ title: "Data store", keys: ["packages/core/src/database", "packages/core/src/style"], by: "human" }] });
+  try {
+    const made = await Effect.runPromise(draftWorkspace(directory));
+    expect(made.problems).toEqual([]);
+    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    expect(model).toContain("data_store = component 'Data store'");
+    expect(model).not.toContain("= component 'database'");
+    const config = JSON.parse(await readFile(join(directory, "pathlight.activity.json"), "utf8")) as { mappings: { glob: string; element: string }[] };
+    expect(config.mappings.filter(item => item.element === "core.data_store").map(item => item.glob).sort()).toEqual(["packages/core/src/database/**", "packages/core/src/style/**"]);
+    // session imports database: the arrow now ends at the merged component.
+    expect(model).toContain("core.session -> core.data_store");
+    const check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("an overlay split gives each subfolder its own component and every file exactly one owner", async () => {
+  const files = {
+    "package.json": JSON.stringify({ name: "solo" }),
+    "src/big/a/one.ts": "export const one = 1;\n", "src/big/a/two.ts": "export const two = 1;\n", "src/big/a/three.ts": "export const three = 1;\n",
+    "src/big/b/four.ts": "import { one } from '../a/one';\nexport const four = one;\n", "src/big/b/five.ts": "export const five = 1;\n", "src/big/b/six.ts": "export const six = 1;\n",
+    "src/big/top.ts": "import { four } from './b/four';\nexport const top = four;\n",
+    "src/other/x.ts": "import { top } from '../big/top';\nexport const x = top;\n", "src/other/y.ts": "export const y = 1;\n", "src/other/z.ts": "export const z = 1;\n",
+  };
+  const directory = await withOverlay(files, { version: 1, elements: {}, splits: [{ key: "src/big", by: "agent" }] });
+  try {
+    const made = await Effect.runPromise(draftWorkspace(directory));
+    expect(made.problems).toEqual([]);
+    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    for (const title of ["big/a", "big/b", "big (files)"]) expect(model).toContain(`component '${title}'`);
+    const config = JSON.parse(await readFile(join(directory, "pathlight.activity.json"), "utf8")) as { mappings: { glob: string; element: string }[] };
+    expect(config.mappings.map(item => item.element)).toContain("big_b");
+    for (const path of Object.keys(files).filter(name => name.startsWith("src/"))) {
+      const owners = new Set(config.mappings.filter(item => new Bun.Glob(item.glob).match(path)).map(item => item.element));
+      expect([path, owners.size]).toEqual([path, 1]);
+    }
+    const check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
+    // The imports across the split are real relationships now: b uses a, the loose file uses b.
+    expect(model).toContain("big_b -> big_a");
+    expect(model).toContain("big_files -> big_b");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("a pinned relationship title labels an arrow imports support, and the count moves to its description", async () => {
+  const directory = await withOverlay(monorepo, { version: 1, elements: {}, relationships: [{ from: "packages/core#loose", to: "packages/core/src/database", title: "reads and writes rows", by: "human" }] });
+  try {
+    const made = await Effect.runPromise(draftWorkspace(directory));
+    expect(made.problems).toEqual([]);
+    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    expect(model).toMatch(/core\.root -> core\.small\.database 'reads and writes rows' \{\n    #lt2[^\n]*\n    description '1 import'/);
+    expect((await Effect.runPromise(checkWorkspace(directory))).summary).toMatchObject({ unsupported: 0, undeclared: 0 });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("overlay entries that contradict the code are skipped and reported, never drawn", async () => {
+  const directory = await withOverlay(monorepo, { version: 1, elements: {},
+    merges: [{ title: "Ghosts", keys: ["packages/core/src/database", "packages/core/src/nowhere"] }, { title: "Once", keys: ["packages/core/src/database", "packages/core/src/style"] }, { title: "Twice", keys: ["packages/core/src/style", "packages/core/src/database"] }],
+    splits: [{ key: "packages/core/src/session" }, { key: "packages/core/src/missing" }],
+    relationships: [{ from: "packages/core/src/style", to: "packages/core/src/database", title: "invented" }, { from: "packages/core/src/database", to: "packages/ghost", title: "nope" }] });
+  try {
+    const made = await Effect.runPromise(draftWorkspace(directory));
+    expect(made.problems.filter(text => text.startsWith("merge 'Ghosts'")).length).toBe(1);
+    expect(made.problems.filter(text => text.startsWith("merge 'Twice'")).length).toBe(1);
+    expect(made.problems.filter(text => text.startsWith("merge 'Once'")).length).toBe(0);
+    expect(made.problems.some(text => text.startsWith("split 'packages/core/src/missing'"))).toBe(true);
+    expect(made.problems.some(text => text.startsWith("split 'packages/core/src/session'") && text.includes("no subfolders"))).toBe(true);
+    expect(made.problems.some(text => text.includes("no import runs from the first to the second"))).toBe(true);
+    expect(made.problems.some(text => text.includes("is not a component of the draft"))).toBe(true);
+    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    expect(model).not.toContain("invented");
+    expect(model).not.toContain("Ghosts");
+    expect(model).not.toContain("Twice");
+    expect(model).toContain("component 'Once'");
+    expect((await Effect.runPromise(checkWorkspace(directory))).summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, undeclared: 0 });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("draft reports a human pin that differs from the last commit, and says nothing about agent entries", async () => {
+  const pinned = { version: 1, elements: {}, merges: [{ title: "Data store", keys: ["packages/core/src/database", "packages/core/src/style"], by: "human" }], splits: [{ key: "packages/core/src/session", by: "agent" }] };
+  const directory = await withOverlay(monorepo, pinned);
+  const git = (...args: string[]) => Effect.runPromise(Effect.promise(async () => { const child = Bun.spawn(["git", "-C", directory, "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { stdout: "ignore", stderr: "ignore" }); await child.exited; }));
+  try {
+    await git("init", "-q"); await git("add", "-A"); await git("commit", "-q", "-m", "pins");
+    expect((await Effect.runPromise(draftWorkspace(directory))).pins).toEqual([]);
+    // The agent's entry can change freely; the human one cannot be altered or dropped unnoticed.
+    await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify({ ...pinned, splits: [] }));
+    expect((await Effect.runPromise(draftWorkspace(directory))).pins).toEqual([]);
+    await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify({ ...pinned, merges: [{ title: "Data store", keys: ["packages/core/src/database", "packages/core/src/style"] }] }));
+    expect((await Effect.runPromise(draftWorkspace(directory))).pins).toEqual(["merge 'Data store' (pinned by a human) differs from the last commit or is gone"]);
+    await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify({ version: 1, elements: {} }));
+    expect((await Effect.runPromise(draftWorkspace(directory))).pins.length).toBe(1);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 30_000);

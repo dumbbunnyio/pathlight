@@ -90,7 +90,8 @@ test("init writes the pathlight skill next to the Claude hooks and replaces it o
   await cp("examples/parcel", project, { recursive: true, filter: path => !path.includes(".cache") });
   const result = await invoke("init", "--workspace", project);
   expect(result.code).toBe(0);
-  expect(result.stdout).toContain("Skill: pathlight written to .claude/skills/pathlight");
+  expect(result.stdout).toContain("Skills: pathlight, pathlight-behavior written to .claude/skills");
+  expect(await Bun.file(join(project, ".claude", "skills", "pathlight-behavior", "SKILL.md")).text()).toBe(await Bun.file("plugins/claude/skills/pathlight-behavior/SKILL.md").text());
   const written = join(project, ".claude", "skills", "pathlight", "SKILL.md");
   expect(await Bun.file(written).text()).toBe(await Bun.file("plugins/claude/skills/pathlight/SKILL.md").text());
   expect(await Bun.file(join(project, ".agents")).exists()).toBe(false);

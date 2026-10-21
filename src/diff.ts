@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
@@ -7,7 +7,7 @@ import { acquireModel } from "./catalog";
 import { compareImports } from "./check";
 import { failure, io, json } from "./effects";
 import { run } from "./process";
-import { listFiles, scanWorkspace } from "./scan";
+import { listFiles, Scan, scanRevision, scanWorkspace } from "./scan";
 
 /**
  * What changed in the architecture between a git commit (default HEAD) and the working tree: the model's relationships that an import
@@ -24,6 +24,7 @@ export const Diff = Schema.Struct({
 export interface Diff extends Schema.Schema.Type<typeof Diff> {}
 
 const stampPath = (root: string) => join(root, ".cache", "pathlight", "diff.json");
+const baseDirectory = (root: string) => join(root, ".cache", "pathlight", "base");
 const order = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 /** The files of one commit, unpacked into a fresh temporary directory that is removed afterwards. */
@@ -35,6 +36,28 @@ const withCommit = <A, E>(root: string, sha: string, use: (directory: string) =>
     if ((await child.exited) !== 0) throw new Error((await new Response(child.stderr).text()).trim() || "git archive failed");
   }).pipe(Effect.flatMap(() => use(directory))),
   directory => Effect.promise(() => rm(directory, { recursive: true, force: true })));
+
+/**
+ * The base commit's scan and file list, kept under `.cache/pathlight/base` so the Stop hook does not unpack and scan the same commit every turn. Only the
+ * latest commit is kept; an entry is used only if it names this commit and this scanner revision and still decodes as a scan, and anything else is recomputed.
+ */
+const Cached = Schema.Struct({ revision: Schema.Number, sha: Schema.String, paths: Schema.Array(Schema.String), scan: Scan });
+const baseFacts = (root: string, sha: string) => Effect.gen(function* () {
+  const file = join(baseDirectory(root), `${sha}.json`);
+  const hit = yield* io("Diff.cache", () => readFile(file, "utf8")).pipe(
+    Effect.flatMap(json), Effect.flatMap(Schema.decodeUnknownEffect(Cached)),
+    Effect.filterOrFail(entry => entry.revision === scanRevision && entry.sha === sha, () => "stale"), Effect.option);
+  if (hit._tag === "Some") return { scan: hit.value.scan, paths: hit.value.paths, cached: true };
+  const fresh = yield* withCommit(root, sha, directory => Effect.gen(function* () { return { scan: yield* scanWorkspace(directory), paths: (yield* listFiles(directory)).paths }; }));
+  yield* io("Diff.cacheWrite", async () => {
+    await mkdir(baseDirectory(root), { recursive: true });
+    for (const name of await readdir(baseDirectory(root))) if (name !== `${sha}.json`) await rm(join(baseDirectory(root), name), { force: true });
+    const temporary = `${file}.${process.pid}`;
+    await writeFile(temporary, JSON.stringify({ revision: scanRevision, sha, paths: fresh.paths, scan: fresh.scan }));
+    await rename(temporary, file);
+  }).pipe(Effect.ignore);
+  return { ...fresh, cached: false };
+});
 
 export const diffWorkspace = Effect.fn("Diff.workspace")(function* (workspace: string, base = "HEAD") {
   const root = yield* io("Diff.root", () => realpath(workspace));
@@ -48,9 +71,8 @@ export const diffWorkspace = Effect.fn("Diff.workspace")(function* (workspace: s
   const declared = [...model.relationships()].map(item => ({ source: String(item.source.id), target: String(item.target.id), title: item.title ?? null }));
 
   const now = compareImports(config, yield* scanWorkspace(root), (yield* listFiles(root)).paths, declared);
-  const before = yield* withCommit(root, sha, directory => Effect.gen(function* () {
-    return compareImports(config, yield* scanWorkspace(directory), (yield* listFiles(directory)).paths, declared);
-  }));
+  const baseline = yield* baseFacts(root, sha);
+  const before = compareImports(config, baseline.scan, baseline.paths, declared);
 
   const key = (item: { source: string; target: string }) => `${item.source}\0${item.target}`;
   const wasSupported = new Map(before.relationships.map(item => [key(item), item.status === "supported"]));

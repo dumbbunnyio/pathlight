@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -53,7 +53,7 @@ test("diff reports relationships an import backs now and did not at the base, on
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
-test("the viewer says what changed since the base commit, labelled static, once a diff has been recorded", async () => {
+test("the viewer says what changed against the base commit, labelled static, and says nothing when nothing did", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-diff-view-"));
   const socket = join("/tmp", `c4d-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
@@ -74,10 +74,57 @@ test("the viewer says what changed since the base commit, labelled static, once 
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "diff", "-x", "160", "-y", "40", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "index", "--workspace", directory);
     let screen = "";
-    for (let attempt = 0; attempt < 200 && !screen.includes("since HEAD"); attempt++) { screen = await tmux("capture-pane", "-p", "-t", pane); await delay(50); }
-    expect(screen).toContain("since HEAD (static): +1 dependencies, 1 new with no relationship");
+    for (let attempt = 0; attempt < 200 && !screen.includes("vs HEAD"); attempt++) { screen = await tmux("capture-pane", "-p", "-t", pane); await delay(50); }
+    expect(screen).toContain("vs HEAD (static) +1 1 undeclared");
+    // Committing everything leaves nothing to show, and the line goes quiet again.
+    await git(directory, "add", "-A"); await git(directory, "commit", "-q", "-m", "now");
+    await run(process.execPath, [resolve("src/cli.ts"), "diff", "--workspace", directory, "--quiet"]);
+    for (let attempt = 0; attempt < 200 && screen.includes("vs HEAD"); attempt++) { screen = await tmux("capture-pane", "-p", "-t", pane); await delay(50); }
+    expect(screen).not.toContain("vs HEAD");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });
   }
+}, 60_000);
+
+test("the base commit's scan is kept, used only for the same commit and scanner revision, and replaced when the commit moves", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-diff-cache-"));
+  const cacheDirectory = join(directory, ".cache/pathlight/base");
+  try {
+    await mkdir(join(directory, "src"), { recursive: true });
+    await writeFile(join(directory, "likec4.config.json"), JSON.stringify({ name: "d" }));
+    await writeFile(join(directory, "model.c4"), model);
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "d", mappings: [
+      { glob: "src/a.ts", element: "a" }, { glob: "src/b.ts", element: "b" }, { glob: "src/c.ts", element: "c" }] }));
+    await writeFile(join(directory, "src/a.ts"), "export const a = 1;\n");
+    await writeFile(join(directory, "src/b.ts"), "import { c } from './c';\nexport const b = c;\n");
+    await writeFile(join(directory, "src/c.ts"), "export const c = 1;\n");
+    await run("git", ["-C", directory, "init", "-q"]);
+    await git(directory, "add", "-A"); await git(directory, "commit", "-q", "-m", "base");
+    // Working tree: b stops importing c, so b -> c is lost relative to the base.
+    await writeFile(join(directory, "src/b.ts"), "export const b = 1;\n");
+    const lost = [{ source: "b", target: "c", change: "removed" as const }];
+    expect((await Effect.runPromise(diffWorkspace(directory))).relationships).toEqual(lost);
+    const [name] = await readdir(cacheDirectory);
+    const file = join(cacheDirectory, name!);
+    const entry = JSON.parse(await readFile(file, "utf8")) as { revision: number; scan: { imports: unknown[] } };
+    expect(entry.scan.imports.length).toBe(1);
+
+    // A matching entry is trusted: with its import removed, nothing was lost, so there is no change to report.
+    await writeFile(file, JSON.stringify({ ...entry, scan: { ...entry.scan, imports: [] } }));
+    expect((await Effect.runPromise(diffWorkspace(directory))).relationships).toEqual([]);
+    // One from another scanner revision, or one that is not a scan, is ignored and rebuilt from the commit.
+    await writeFile(file, JSON.stringify({ ...entry, revision: entry.revision + 1, scan: { ...entry.scan, imports: [] } }));
+    expect((await Effect.runPromise(diffWorkspace(directory))).relationships).toEqual(lost);
+    await writeFile(file, "{ not json");
+    expect((await Effect.runPromise(diffWorkspace(directory))).relationships).toEqual(lost);
+    expect((JSON.parse(await readFile(file, "utf8")) as { scan: { imports: unknown[] } }).scan.imports.length).toBe(1);
+
+    // A new commit makes a new entry and removes the old one.
+    await git(directory, "add", "-A"); await git(directory, "commit", "-q", "-m", "next");
+    await Effect.runPromise(diffWorkspace(directory));
+    const after = await readdir(cacheDirectory);
+    expect(after.length).toBe(1);
+    expect(after[0]).not.toBe(name);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);

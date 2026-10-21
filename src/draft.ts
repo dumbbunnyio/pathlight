@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, join, posix, resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import { failure, io, json } from "./effects";
+import { run } from "./process";
 import { listFiles, scanWorkspace, type Scan } from "./scan";
 
 /**
@@ -27,7 +28,9 @@ export interface Draft {
   readonly packages: readonly DraftPackage[];
   /** True when the workspace is one package: components are then the top level. */
   readonly flat: boolean;
-  readonly relationships: readonly { readonly from: string; readonly to: string; readonly imports: number }[];
+  readonly relationships: readonly { readonly from: string; readonly to: string; readonly imports: number; readonly title?: string }[];
+  /** Overlay entries that contradict the code (a merge of folders that are gone, a pinned arrow no import supports): skipped, never drawn. */
+  readonly problems: readonly string[];
   readonly ignore: readonly string[];
   readonly ignored: number;
 }
@@ -77,7 +80,13 @@ const escapeGlob = (text: string) => text.replace(/[\\*?[\]{}()!]/g, "\\$&");
 const braces = (names: readonly string[]) => names.length === 1 ? escapeGlob(names[0]!) : `{${names.map(escapeGlob).join(",")}}`;
 const byText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
-export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readonly { directory: string; name: string }[]): Draft {
+export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readonly { directory: string; name: string }[], overlay?: Overlay): Draft {
+  const problems: string[] = [];
+  const splits = new Set((overlay?.splits ?? []).map(item => item.key));
+  const splitSubfolders = new Map<string, Set<string>>();
+  const splitSeen = new Set<string>();
+  const merges = (overlay?.merges ?? []).map((item, index) => ({ ...item, index, applied: false }));
+  const mergedKeys = new Set<string>();
   const ignoredBy = (path: string) => outside.find(item => item.pattern.test(path));
   const kept = scan.files.map(file => file.path).filter(path => !ignoredBy(path));
   const ignore = outside.filter(item => scan.files.some(file => item.pattern.test(file.path))).map(item => item.glob);
@@ -109,9 +118,19 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
     const sourceRoot = files.filter(path => inside(path).startsWith("src/")).length * 2 >= files.length ? "src/" : "";
     const segment = (path: string) => { const rel = inside(path); const stripped = rel.startsWith(sourceRoot) ? rel.slice(sourceRoot.length) : rel; return stripped.includes("/") ? stripped.slice(0, stripped.indexOf("/")) : ""; };
     const folders = new Set(files.map(segment).filter(Boolean));
+    const folderPath = (top: string) => [directory, sourceRoot.replace(/\/$/, ""), top].filter(Boolean).join("/");
+    // A folder the overlay splits becomes one component per subfolder, and one for the files directly in it.
+    const splitKey = (path: string) => {
+      const top = segment(path);
+      if (!top || !splits.has(folderPath(top))) return undefined;
+      splitSeen.add(folderPath(top));
+      const rel = inside(path), stripped = rel.startsWith(sourceRoot) ? rel.slice(sourceRoot.length) : rel, parts = stripped.split("/");
+      if (parts.length > 2) { splitSubfolders.set(folderPath(top), (splitSubfolders.get(folderPath(top)) ?? new Set()).add(parts[1]!)); return `${top}/${parts[1]}`; }
+      return `${top}/_files`;
+    };
     const stem = (path: string) => posix.basename(path).replace(/\.[^.]+$/, "").replace(/\.(d|config|test|spec)$/, "");
     // `session.ts` beside a `session/` folder is one module; every other loose file is a loose file.
-    const keyOf = (path: string) => segment(path) || (folders.has(stem(path)) && sourceRoot && inside(path).startsWith(sourceRoot) ? stem(path) : "");
+    const keyOf = (path: string) => splitKey(path) ?? (segment(path) || (folders.has(stem(path)) && sourceRoot && inside(path).startsWith(sourceRoot) ? stem(path) : ""));
     const groups = new Map<string, string[]>();
     for (const path of files) groups.set(keyOf(path), [...groups.get(keyOf(path)) ?? [], path]);
 
@@ -127,15 +146,27 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
       const owned = new Set(members);
       const out = new Set<string>(), explicit: string[] = [];
       for (const path of members) {
-        const folder = segment(path);
+        const folder = splitKey(path) ?? segment(path);
         if (!folder) continue;
+        if (folder.endsWith("/_files")) { explicit.push(path); continue; }
         const prefix = `${[directory, inside(path).startsWith(sourceRoot) ? sourceRoot.replace(/\/$/, "") : ""].filter(Boolean).join("/")}/${folder}`.replace(/^\//, "");
         if (kept.some(other => other.startsWith(`${prefix}/`) && !owned.has(other))) explicit.push(path);
         else out.add(`${prefix.split("/").map(escapeGlob).join("/")}/**`);
       }
       return [...[...out].sort(), ...fileGlobs(explicit)];
     };
-    const folderKeys = [...groups.keys()].filter(Boolean).sort();
+    const globsOf = (key: string) => { const members = groups.get(key)!; return [...folderGlobs(members), ...fileGlobs(members.filter(path => !segment(path)))]; };
+    // A merge applies in a package only when every folder it names is there; the folders then become one top-level component.
+    const mergedUnits: { title: string; key: string; files: string[]; globs: string[] }[] = [];
+    for (const item of merges) {
+      const here = item.keys.map(key => [...groups.keys()].find(candidate => candidate && folderPath(candidate) === key));
+      if (item.applied || here.some(found => found === undefined) || here.some(found => mergedKeys.has(found!))) continue;
+      item.applied = true;
+      const names = here as string[];
+      for (const name of names) mergedKeys.add(name);
+      mergedUnits.push({ title: item.title, key: `merge:${item.title}`, files: names.flatMap(name => groups.get(name)!), globs: [...new Set(names.flatMap(globsOf))].sort() });
+    }
+    const folderKeys = [...groups.keys()].filter(key => key && !mergedKeys.has(key)).sort();
     const small = folderKeys.filter(key => groups.get(key)!.length < smallFolder);
     const loose = (groups.get("") ?? []).sort();
     // A collection only exists when it would hold several things; one small folder or a few loose files stay ordinary components.
@@ -155,8 +186,9 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
     for (const key of folderKeys) {
       const members = groups.get(key)!;
       const inSmall = smallGroup && small.includes(key);
-      add(unique(slug(key), inSmall ? smallTaken : componentTaken), [directory, sourceRoot.replace(/\/$/, ""), key].filter(Boolean).join("/"), key, members, [...folderGlobs(members), ...fileGlobs(members.filter(path => !segment(path)))], inSmall ? qualify("small") : undefined);
+      add(unique(slug(key), inSmall ? smallTaken : componentTaken), folderPath(key), key.endsWith("/_files") ? `${key.slice(0, -7)} (files)` : key, members, globsOf(key), inSmall ? qualify("small") : undefined);
     }
+    for (const unit of mergedUnits) add(unique(slug(unit.title), componentTaken), unit.key, unit.title, unit.files, unit.globs);
     if (loose.length) {
       if (looseGroup) {
         const leaves = new Set<string>();
@@ -182,7 +214,24 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
   }
   const relationships = [...counts].map(([key, imports]) => { const [from, to] = key.split("\0") as [string, string]; return { from, to, imports }; })
     .sort((a, b) => byText(a.from, b.from) || byText(a.to, b.to));
-  return { packages, flat, relationships, ignore, ignored: scan.files.length - kept.length };
+
+  for (const item of merges) if (!item.applied) problems.push(`merge '${item.title}': every folder it names must exist in one package and be in no other merge (${item.keys.join(", ")}).`);
+  for (const key of splits) {
+    if (!splitSeen.has(key)) problems.push(`split '${key}': no folder of the draft has that path.`);
+    else if (!splitSubfolders.get(key)?.size) problems.push(`split '${key}': the folder has no subfolders with source files.`);
+  }
+  // Pinned relationship titles only label an arrow that imports already support; they never create one.
+  const idOf = new Map(packages.flatMap(item => item.components.map(entry => [entry.key, entry.id] as const)));
+  for (const item of merges.filter(entry => entry.applied)) for (const key of item.keys) idOf.set(key, idOf.get(`merge:${item.title}`)!);
+  const titled = new Map<string, string>();
+  for (const pin of overlay?.relationships ?? []) {
+    const from = idOf.get(pin.from), to = idOf.get(pin.to);
+    if (!from || !to) problems.push(`relationship '${pin.from}' → '${pin.to}': ${!from ? pin.from : pin.to} is not a component of the draft.`);
+    else if (!relationships.some(edge => edge.from === from && edge.to === to)) problems.push(`relationship '${pin.from}' → '${pin.to}': no import runs from the first to the second, so there is no arrow to title.`);
+    else titled.set(`${from}\0${to}`, pin.title);
+  }
+  const labelled = relationships.map(edge => titled.has(`${edge.from}\0${edge.to}`) ? { ...edge, title: titled.get(`${edge.from}\0${edge.to}`)! } : edge);
+  return { packages, flat, relationships: labelled, problems, ignore, ignored: scan.files.length - kept.length };
 }
 
 const quote = (text: string) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
@@ -320,7 +369,9 @@ const allView = (id: string) => `${viewName(id)}_all_components`;
 const nearView = (id: string) => `${viewName(id)}_near`;
 const cyclesView = (id: string) => `${viewName(id)}_cycles`;
 
-export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = new Map()) {
+/** `behavior`: a `*.behavior.c4` file sits beside the draft, so the views that list every top-level element leave out what it tags `#behavior`. */
+export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = new Map(), behavior = false) {
+  const notBehavior = behavior ? ["    exclude * where tag is #behavior"] : [];
   const analysis = analyse(draft);
   const { minor } = analysis;
   const inCycle = new Set([...analysis.componentCycles.values()].flatMap(found => found.flat()));
@@ -350,7 +401,8 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   out.push("");
   for (const edge of draft.relationships) {
     const weak = tiers.filter(tier => edge.imports < tier).map(tier => `#lt${tier}`);
-    out.push(`  ${edge.from} -> ${edge.to} ${quote(plural(edge.imports, "import"))}${weak.length ? ` {\n    ${weak.join(" ")}\n  }` : ""}`);
+    const inner = [...(weak.length ? [weak.join(" ")] : []), ...(edge.title ? [`description ${quote(plural(edge.imports, "import"))}`] : [])];
+    out.push(`  ${edge.from} -> ${edge.to} ${quote(edge.title ?? plural(edge.imports, "import"))}${inner.length ? ` {\n${inner.map(line => `    ${line}`).join("\n")}\n  }` : ""}`);
   }
   out.push("}", "", "views {");
 
@@ -423,11 +475,11 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     const shown = top.filter(id => !minor.has(id)), groups = item.groups.map(group => group.id);
     const drawnShown = (id: string) => minor.has(id) ? undefined : drawn(id);
     const minimum = thinned(() => true, drawnShown, [...shown, ...groups]);
-    out.push("  view index {", "    title 'Components'", ...describe(hidden(top.length - shown.length, "all_components"), thinNote(minimum)), "    include *", ...links(shown, new Set()), ...links(groups, new Set(groups)), ...(top.length > shown.length ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }");
+    out.push("  view index {", "    title 'Components'", ...describe(hidden(top.length - shown.length, "all_components"), thinNote(minimum)), "    include *", ...links(shown, new Set()), ...links(groups, new Set(groups)), ...(top.length > shown.length ? ["    exclude * where tag is #minor"] : []), ...notBehavior, ...hide(minimum), "    autoLayout LeftRight", "  }");
     if (top.length > shown.length) {
       entries.push("all_components");
       const all = thinned(() => true, drawn, [...top, ...groups]);
-      out.push("", "  view all_components {", "    title 'All components'", ...describe(thinNote(all)), "    include *", ...links(top, new Set()), ...links(groups, new Set(groups)), ...hide(all), "    autoLayout LeftRight", "  }");
+      out.push("", "  view all_components {", "    title 'All components'", ...describe(thinNote(all)), "    include *", ...links(top, new Set()), ...links(groups, new Set(groups)), ...notBehavior, ...hide(all), "    autoLayout LeftRight", "  }");
     }
     for (const group of item.groups) out.push(...groupView(item, group, drawn));
     if (analysis.componentCycles.size) {
@@ -484,8 +536,24 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   return { text: out.join("\n"), entries };
 }
 
+/** The human decisions in an overlay, one comparable line each. */
+const pinsOf = (overlay: Overlay | undefined) => new Map<string, string>([
+  ...Object.entries(overlay?.elements ?? {}).filter(([, entry]) => entry.by === "human").map(([key, entry]) => [`element '${key}'`, JSON.stringify(entry)] as const),
+  ...(overlay?.merges ?? []).filter(item => item.by === "human").map(item => [`merge '${item.title}'`, JSON.stringify(item)] as const),
+  ...(overlay?.splits ?? []).filter(item => item.by === "human").map(item => [`split '${item.key}'`, JSON.stringify(item)] as const),
+  ...(overlay?.relationships ?? []).filter(item => item.by === "human").map(item => [`relationship '${item.from}' → '${item.to}'`, JSON.stringify(item)] as const),
+]);
+
+/** Human pins that were in the last commit's overlay and are now different or gone. Nothing is enforced: the person decides whether the change is theirs. */
+export const changedPins = (committed: Overlay | undefined, current: Overlay | undefined) => {
+  const now = pinsOf(current);
+  return [...pinsOf(committed)].filter(([name, text]) => now.get(name) !== text).map(([name]) => `${name} (pinned by a human) differs from the last commit or is gone`);
+};
+
 const modelFile = "pathlight.model.c4";
 export const overlayFile = "pathlight.overlay.json";
+/** Where `draft` records each element's overlay key (id → key), for the viewer's name and map editing. */
+export const keysPath = join(".cache", "pathlight", "keys.json");
 
 /**
  * Names and notes for a draft, kept apart from the generated model so a rerun never loses them. Each entry is keyed by what the code is (the
@@ -493,11 +561,18 @@ export const overlayFile = "pathlight.overlay.json";
  * it keeps applying when an id changes. An entry whose key matches nothing is reported, never silently kept.
  */
 const Words = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max), Schema.isPattern(/^[^\x00-\x1f\x7f]+$/));
+const Key = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024), Schema.isPattern(/^[^\x00-\x1f\x7f]+$/));
+/** Who made the decision. A `human` entry is a pin: tools and agents leave it alone, and `draft` reports one that differs from the last commit. */
+const By = Schema.optionalKey(Schema.Literals(["human", "agent"]));
 export const Overlay = Schema.Struct({
   version: Schema.Literal(1),
-  elements: Schema.Record(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)), Schema.Struct({
-    title: Schema.optionalKey(Words(60)), note: Schema.optionalKey(Words(300)),
-  })).check(Schema.isMaxProperties(4096)),
+  elements: Schema.Record(Key, Schema.Struct({ title: Schema.optionalKey(Words(60)), note: Schema.optionalKey(Words(300)), by: By })).check(Schema.isMaxProperties(4096)),
+  /** Folders (by path) that are really one component, drawn as one top-level component with this title. */
+  merges: Schema.optionalKey(Schema.Array(Schema.Struct({ title: Words(60), keys: Schema.Array(Key).check(Schema.isMinLength(2), Schema.isMaxLength(32)), by: By })).check(Schema.isMaxLength(256))),
+  /** A folder (by path) that is several: one component per subfolder, and one for the files directly in it. */
+  splits: Schema.optionalKey(Schema.Array(Schema.Struct({ key: Key, by: By })).check(Schema.isMaxLength(256))),
+  /** A label for a relationship that imports already support (the count stays in its description). */
+  relationships: Schema.optionalKey(Schema.Array(Schema.Struct({ from: Key, to: Key, title: Words(60), by: By })).check(Schema.isMaxLength(1024))),
 });
 export interface Overlay extends Schema.Schema.Type<typeof Overlay> {}
 
@@ -527,13 +602,16 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   }
   const overlayText = yield* io("Draft.overlay", () => readFile(join(target, overlayFile), "utf8")).pipe(Effect.option);
   const overlay = overlayText._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(yield* json(overlayText.value)) : undefined;
-  const base = draftOf(scan, manifests);
+  const committedText = overlay ? yield* run("git", ["-C", target, "show", `HEAD:./${overlayFile}`]).pipe(Effect.option) : undefined;
+  const committed = committedText?._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay)(yield* json(committedText.value)).pipe(Effect.option) : undefined;
+  const base = draftOf(scan, manifests, overlay);
   const { draft, unknown } = overlay ? applyOverlay(base, overlay) : { draft: base, unknown: [] as string[] };
   if (!draft.packages.some(item => item.components.length)) return yield* Effect.fail(failure("Draft.empty", "No TypeScript or JavaScript source was found to draw."));
 
   // A model you wrote is never rewritten: only a previous draft (marked as generated) is replaced.
   const existing = yield* io("Draft.existing", () => readdir(target)).pipe(Effect.catch(() => Effect.succeed([] as string[])));
-  const others = existing.filter(name => /\.(c4|likec4)$/.test(name) && name !== modelFile);
+  // `*.behavior.c4` files are state diagrams an agent wrote beside the draft; a rerun leaves them alone.
+  const others = existing.filter(name => /\.(c4|likec4)$/.test(name) && name !== modelFile && !/\.behavior\.(c4|likec4)$/.test(name));
   const previous = yield* io("Draft.previous", () => readFile(join(target, modelFile), "utf8")).pipe(Effect.option);
   const hasMapping = existing.includes("pathlight.activity.json");
   if (!options.force && (others.length || (previous._tag === "Some" && !previous.value.startsWith(generatedMarker)) || (hasMapping && previous._tag === "None"))) {
@@ -541,15 +619,18 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   }
   const name = slug(basename(target));
   const lines = new Map(scan.files.map(file => [file.path, file.lines] as const));
-  const rendered = renderDraft(draft, lines);
+  const rendered = renderDraft(draft, lines, existing.some(name => /\.behavior\.(c4|likec4)$/.test(name)));
   const mappings = draft.packages.flatMap(item => item.components.flatMap(entry => entry.globs.map(glob => ({ glob, element: entry.id }))));
   yield* io("Draft.write", async () => {
     await mkdir(target, { recursive: true });
     await writeFile(join(target, modelFile), rendered.text);
     await writeFile(join(target, "pathlight.activity.json"), `${JSON.stringify({ version: 1, project: name, mappings, ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}) }, null, 2)}\n`);
+    await mkdir(join(target, ".cache", "pathlight"), { recursive: true });
+    await writeFile(join(target, keysPath), `${JSON.stringify({ version: 1, keys: Object.fromEntries(draft.packages.flatMap(item => [...(draft.flat ? [] : [[item.id, item.key] as const]), ...item.groups.map(group => [group.id, group.key] as const), ...item.components.map(entry => [entry.id, entry.key] as const)])) })}\n`);
     if (!existing.includes("likec4.config.json")) await writeFile(join(target, "likec4.config.json"), `${JSON.stringify({ $schema: "https://likec4.dev/schemas/config.json", name, title: basename(target) }, null, 2)}\n`);
   });
   const components = draft.packages.reduce((sum, item) => sum + item.components.length, 0), collections = draft.packages.reduce((sum, item) => sum + item.groups.length, 0);
   return { target, project: name, packages: draft.flat ? 0 : draft.packages.length, components, collections, elements: components + collections + (draft.flat ? 0 : draft.packages.length),
-    relationships: draft.relationships.length, mappings: mappings.length, ignored: draft.ignored, overlay: overlay ? Object.keys(overlay.elements).length - unknown.length : 0, unknown };
+    relationships: draft.relationships.length, mappings: mappings.length, ignored: draft.ignored, overlay: overlay ? Object.keys(overlay.elements).length - unknown.length : 0, unknown,
+    problems: draft.problems, pins: overlay && committed?._tag === "Some" ? changedPins(committed.value, overlay) : [] };
 });

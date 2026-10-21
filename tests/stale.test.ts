@@ -77,10 +77,11 @@ test("the viewer shows an out-of-date badge from the last check and drops it onc
     };
     const screen = await until(text => text.includes("out of date"), "badge");
     expect(screen).toContain("1 file not in the model");
-    expect(screen).toMatch(/checked (now|<1m) ago/);
+    expect(screen).toMatch(/checked (just now|<1m ago)/);
     await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "launcher" }] }));
     await cli("check", "--workspace", directory, "--quiet");
-    await until(text => !text.includes("out of date"), "badge gone");
+    const clean = await until(text => !text.includes("out of date") && text.includes("in sync"), "badge gone");
+    expect(clean).toMatch(/in sync · checked (just now|<1m ago)/);
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

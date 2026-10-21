@@ -8,6 +8,7 @@
   "version": "0.1.0",
   "scripts": {
     "pathlight": "bun src/cli.ts",
+    "build": "./scripts/build.sh",
     "check": "tsc --noEmit",
     "test": "bun test tests"
   },

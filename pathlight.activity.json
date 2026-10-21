@@ -7,11 +7,11 @@
     { "glob": "src/{activity,activity-subscriptions}.ts", "element": "activity" },
     { "glob": "src/ask.ts", "element": "ask" },
     { "glob": "src/catalog.ts", "element": "catalog" },
-    { "glob": "src/{cli,init,tmux,process,ready}.ts", "element": "launcher" },
+    { "glob": "src/{cli,init,doctor,tmux,process,ready}.ts", "element": "launcher" },
     { "glob": "src/{native-viewer,routes,ui,node-files,editor}.ts", "element": "viewer" },
-    { "glob": "src/{scan,scan-imports,check,draft,stale,diff,plan}.ts", "element": "scanner" },
+    { "glob": "src/{scan,scan-imports,check,draft,stale,diff,plan,edit}.ts", "element": "scanner" },
     { "glob": "src/{theme,retheme}.ts", "element": "themes" },
     { "glob": "src/themes/**", "element": "themes" }
   ],
-  "ignore": ["tests/**", ".agents/**", "src/effects.ts"]
+  "ignore": ["tests/**", ".agents/**", "src/effects.ts", "src/assets.d.ts"]
 }
