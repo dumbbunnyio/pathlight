@@ -9,7 +9,7 @@
     { "glob": "src/catalog.ts", "element": "catalog" },
     { "glob": "src/{cli,init,tmux,process,ready}.ts", "element": "launcher" },
     { "glob": "src/{native-viewer,routes,ui,node-files,editor}.ts", "element": "viewer" },
-    { "glob": "src/{scan,scan-imports,check}.ts", "element": "scanner" },
+    { "glob": "src/{scan,scan-imports,check,draft,stale,diff,plan}.ts", "element": "scanner" },
     { "glob": "src/{theme,retheme}.ts", "element": "themes" },
     { "glob": "src/themes/**", "element": "themes" }
   ],

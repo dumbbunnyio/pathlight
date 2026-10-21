@@ -25,6 +25,7 @@ test("init merges hooks without touching other settings and proposes only mappin
   expect(first.model).toBe("x");
   expect(first.hooks.PreToolUse).toHaveLength(2);
   expect(first.hooks.PostToolUseFailure).toHaveLength(1);
+  expect(JSON.stringify(first.hooks.Stop)).toContain("/p/plugins/claude/stop-hook.sh");
   expect(claudeSettings(first, "/p/plugins/claude/hook.sh")).toEqual(first);
   expect(proposeMappings([
     { id: "app.orders", title: "Orders" }, { id: "app.billingApi", title: "Billing API" }, { id: "app.ghost", title: "Ghost" },

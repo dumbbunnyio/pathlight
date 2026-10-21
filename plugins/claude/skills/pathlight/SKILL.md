@@ -22,6 +22,7 @@ Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask th
 - `pathlight show VIEW --workspace . --follow` opens the viewer in the user's tmux window and follows this session. Inside tmux it finds the pane itself; from a background service pass the user's actual pane with `--pane %ID` (and `--socket PATH` for a non-default tmux server). Never guess a pane.
 - `pathlight scan --workspace . --out scan.json` writes the static facts: files, imports (with lines), external packages, what could not be resolved, and `coverage`.
 - `pathlight check --workspace .` compares the model and mapping with a fresh scan. `--json` gives data; `--strict` exits 1 when anything is found.
+- `pathlight draft --workspace .` writes a first picture made from the code alone (packages, folders, the imports between them, several views); see the next section. `--out DIR` writes it elsewhere.
 - `pathlight init --workspace .` wires Claude Code hooks (`.claude/settings.local.json`, per user), the OpenCode plugin, this skill, and proposes a mapping by matching element names to files on disk. It turns on recording, so tell the user what it will write and get their agreement first. `--no-claude-hooks` skips the project-local hooks when the Claude plugin is installed.
 
 ## Show the architecture
@@ -31,6 +32,12 @@ Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask th
 3. Report only whether it opened.
 
 If `list` returns no views the workspace has no model yet. Say so, and offer to draft one. Name the files you would write before writing them (`likec4.config.json`, `model.c4`, `views.c4` or similar, and `pathlight.activity.json`), and where. Prefer the repository root unless the project already keeps documentation elsewhere. Write nothing until the user agrees, then follow the draft workflow below.
+
+## A quick draft from the code
+
+When the code already exists and the user wants something to look at straight away, `pathlight draft --workspace .` writes `pathlight.model.c4`, `pathlight.activity.json` and `likec4.config.json` with no judgement involved: each package is a box, top-level folders are components (small folders and loose files share a collection each), and a relationship exists wherever files in one component import files in another, labelled with the import count. It also writes views for the landscape, the inside of each package, each component's neighbourhood, and import cycles. Every name is a folder or file name and every description is a count. Say that plainly: it shows what the code does, not what it is for.
+
+It never rewrites a model the user wrote (use `--out DIR`), and what it writes is generated: rerun it instead of editing those files by hand. To give a draft better names or a note on what a part is for, write `pathlight.overlay.json` next to it and rerun `pathlight draft`: `{"version":1,"elements":{"packages/core/src/session":{"title":"Sessions","note":"Runs one conversation turn"}}}`. Keys are what the code is (a package directory, a folder path, a file path, or `<directory>#small` / `<directory>#loose` for a collection), not the generated ids, so a name survives when an id moves. A title is at most 60 characters and a note 300; only read the code you are naming. Keys that match nothing are listed after the run: fix or remove them. The overlay changes names and notes only, never files or relationships. If the user wants different groupings, write a model yourself as below.
 
 ## Draft a model for a codebase that has none
 
@@ -50,6 +57,9 @@ Aim for a diagram a person can read in one glance. Build it in levels: a few gro
    - *an element has many elements side by side*: group related ones under a parent and give each group its own view (see below). Do not leave more than about 7 elements at one level.
    - *an element holds many of the mapped files*: the report lists the folders inside it. Split it along them if they are different parts of the system; otherwise leave it and say so.
    - *shared types and utilities that everything imports*: list the element in `"shared": ["<element id>"]` in `pathlight.activity.json`, so `check` stops asking for a relationship to it. Only do this for code that is genuinely used everywhere.
+   - *two elements import each other* (`check` says "both ways"): draw one relationship in the direction the stronger dependency runs, say in its description that the other direction exists, and do not hide it by moving files unless the user asked for a restructure.
+   - *one file does two jobs*: put it with the element that most of its importers belong to, and name the second job in that element's description.
+   - *the model needs `specification` kinds*: declare the element kinds you use once, in a `specification` block (a separate `spec.c4` is fine).
 6. **Show it** with `pathlight show`.
 7. **Report plainly**, every time and without being asked, as this checklist (say "none" rather than leaving an item out):
    - what the scan covered: files, imports, and anything under `unscanned` or `unresolved` (languages or imports it could not read);
@@ -57,11 +67,25 @@ Aim for a diagram a person can read in one glance. Build it in levels: a few gro
    - what was left out: the "N source files ignored on purpose" line and the kinds of file in `ignore` (tests, tooling, examples), so they can decide whether any belongs in the diagram;
    - what `check` could not verify: relationships marked "not checkable", and relationships you kept with no import behind them, each with the reason you kept it.
 
+## Design the architecture before the code exists
+
+When there is little or no code yet, the model is the plan, and writing it with the user is the work. Agree the components and relationships with them, write the model, and map each component to the files you expect to create. Then list the components that do not exist yet in `"planned": ["<element id>", ...]` in `pathlight.activity.json` (an element covers everything inside it). `pathlight check` then reports the plan and how much of it exists instead of calling those globs mistakes, and the viewer draws unbuilt ones dashed with a `[planned]` tag.
+
+As files appear, `check` says "<id> now has files: remove it from planned"; do that. From then on its relationships are checked against the code, so a relationship the plan drew that the code does not have is reported as unsupported: that is the plan and the code disagreeing, and the user decides which to change. Never add an element to `planned` to hide a glob that is simply wrong.
+
 On a large codebase do not stop at one flat diagram. Make an overview, then a view for each component that has several parts inside, and say which parts you did not open up.
 
 When you create, move or delete files later in the session, add or fix their mapping in `pathlight.activity.json` in the same change, so the viewer lights the right component instead of listing the file as `no component`.
 
 Run `pathlight check` again after any later change to the code or the model, and report what it says without softening it.
+
+## Say where you are about to work
+
+Before a change that spans several parts, run `pathlight plan <element id> [...]` with the ids from the model you expect to touch (ids only, no text), and `pathlight plan` with none when you finish. The viewer outlines those elements in purple and marks activity on any other element `off plan`, so the user sees at once when the work wandered. Unknown ids are refused. It is a statement of intent, not a record: if the plan turns out wrong, set a new one.
+
+## What changed since the last commit
+
+`pathlight diff --workspace .` lists the model's relationships that an import backs now and did not at `HEAD` (or `--base REV`), the ones that lost their imports, and new pairs of elements that import each other with no relationship. Use it before reporting a change that touched structure: an added import between two elements is either a missing relationship to declare or a dependency to question. It is static imports only; say so.
 
 ## Keep the model honest
 

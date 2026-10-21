@@ -155,6 +155,10 @@ Press `t` to ask the agent about the selected node. The dialog shows what it is 
 This needs the viewer to have been opened with `pathlight show` (which records the parent pane); text is sent literally and the pane is checked to still exist.
 Press `a` to follow the work: while a tool runs, the viewer selects the node it belongs to (or the nearest enclosing component that is in this view) and glides the camera there, so the inspector shows that component's activity and files. It is off until you press `a`. Selecting something yourself, or panning or zooming, pauses it ("Follow paused · a to resume"); `a` again resumes, and once more turns it off. It never switches views. When the newest work is in a component this view does not show, the header offers "working in VIEW · w to go"; pressing `w` goes to the view that has it (one this view links to via `navigateTo` first, else the smallest containing view) and selects the component, and Back returns. When the inspector is short, the Activity card is the last to fold.
 
+An element the mapping lists under `planned` that has no files yet (nor anything inside it) is designed but not built: its border is dashed, its box carries a `[planned]` tag, the header counts the planned elements in the view (`3 nodes · 1 planned`), and the inspector says "planned: no files yet" under its title. It looks like any other element as soon as it has files. `pathlight check` reports the same plan.
+
+A view written by `pathlight draft` for one component (`<component>_near`, reached with enter on that component) opens with that component selected, so the picture says what it is about.
+
 Calls made inside a Claude subagent carry its type and show it after the file name in the Activity card (`·Explore`) and in the header line (`[Explore]`). Press `s` to hide them and leave only the conversation's own calls, and again to show them; the choice lasts for the viewer's run and applies to replay too.
 
 Run the repeatable terminal check:
@@ -162,6 +166,18 @@ Run the repeatable terminal check:
 ```sh
 TMPDIR=/tmp/opencode bun test tests/interactive.test.ts
 ```
+
+## Out-of-date badge
+
+Every `pathlight check` records its counts in `.cache/pathlight/stale.json`, and the Claude plugin's `Stop` hook runs `pathlight check --quiet` at the end of each agent turn. The viewer reads that file every few seconds (it never scans itself) and, when the model and the code disagree, shows `▲ out of date: 3 files not in the model · 2 imports no relationship covers · checked 4m ago` at the right of the heading (shortened to `▲ out of date` in a narrow pane). The counts are `check`'s: source files no mapping claims, imports between mapped elements with no relationship, relationships no import backs, and mappings matching no file. They are static evidence that the two disagree, not which one is wrong, and they are as old as the last check: edits since then are not counted until the next turn ends or `pathlight check` runs. No stamp, or a clean one, shows nothing.
+
+## Changes since a commit
+
+`pathlight diff [--base REV]` (default `HEAD`) compares the relationships the imports support in the working tree with those at a git commit, using the current model and mapping on both, and records the result in `.cache/pathlight/diff.json` (the `Stop` hook runs it after `check`). The viewer reads it like the out-of-date stamp. Connectors whose imports were added since the base are solid green; ones that lost every import behind them are dotted red; the selected node's connectors keep their own tints and win. The breadcrumb says `since HEAD (static): +2 dependencies, −1 lost, 1 new with no relationship`. The last count is pairs of elements that now import each other with no relationship in the model: they have no connector to colour, so run `pathlight diff` to list them. Everything here is a change in static imports, not in what the program does, and it is as old as the last diff.
+
+## Plan
+
+`pathlight plan ELEMENT ...` records the elements an agent is about to work on in `.cache/pathlight/plan.json` (ids only, at most 64, each checked against the model; no ids clears it). The viewer outlines those nodes (and their containers) in purple, adds `plan N` to the breadcrumb, and tags any node with observed activity that is outside the plan `off plan`. It is intent, not observation: it never changes what the activity shows, and a stale plan stays until replaced or cleared.
 
 ## Rendering limits
 

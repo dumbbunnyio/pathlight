@@ -46,6 +46,13 @@ const obj = { import: 1, require: 2 }; obj.require("./method");
 `)).toEqual(["import ./real @6"]);
 });
 
+test("importsOf reads an import whose list of names runs to hundreds of lines (generated code does this)", () => {
+  const names = Array.from({ length: 1500 }, (_, n) => `  Name${n},`).join("\n");
+  expect(kinds(`import { Effect } from "effect";\nimport type {\n${names}\n} from "../api/api.js";\nimport { Next } from "./next";\n`)).toEqual([
+    "import effect @1", "type ../api/api.js @2", "import ./next @1504",
+  ]);
+});
+
 test("importsOf agrees with Bun's own scanner on this repository's value imports", async () => {
   const files = (await run("git", ["ls-files", "src", "plugins", "tests"])).split("\n").filter((path: string) => /\.(ts|tsx|js|mjs)$/.test(path));
   expect(files.length).toBeGreaterThan(30);
@@ -116,6 +123,62 @@ const lazy = import("./a.js?raw");
     expect(scan.unresolved.map(item => `${item.line} ${item.specifier} ${item.reason}`)).toEqual(["8 ./missing not-found", "11 @/not-configured alias-not-configured"]);
     // The same tree gives the same text.
     expect(JSON.stringify(await Effect.runPromise(scanWorkspace(directory)))).toBe(JSON.stringify(scan));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("scan follows package.json `imports` (#name) to every runtime variant a package names and keeps the rest unresolved", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-scan-imports-"));
+  try {
+    await write(directory, {
+      "package.json": JSON.stringify({ name: "app", imports: {
+        "#db": { bun: "./src/db.bun.ts", node: "./src/db.node.ts", default: "./src/db.default.ts" },
+        "#plain": "./src/plain.ts",
+        "#lib/*": "./src/lib/*.ts",
+      } }),
+      "src/main.ts": `import { db } from "#db";\nimport { plain } from "#plain";\nimport { x } from "#lib/x";\nimport { nope } from "#nowhere";\nimport { fs } from "node:fs";\n`,
+      "src/db.bun.ts": "export const db = 1;\n", "src/db.node.ts": "export const db = 2;\n", "src/db.default.ts": "export const db = 3;\n",
+      "src/plain.ts": "export const plain = 1;\n", "src/lib/x.ts": "export const x = 1;\n",
+      // A nested package.json with no `imports` governs its own files: the root mapping does not reach it.
+      "inner/package.json": JSON.stringify({ name: "inner" }),
+      "inner/main.ts": `import { plain } from "#plain";\n`,
+    });
+    const scan = await Effect.runPromise(scanWorkspace(directory));
+    expect(scan.imports.filter(item => item.from === "src/main.ts").map(item => `${item.line} ${item.to}`)).toEqual([
+      "1 src/db.bun.ts", "1 src/db.default.ts", "1 src/db.node.ts", "2 src/plain.ts", "3 src/lib/x.ts",
+    ]);
+    expect(scan.unresolved.map(item => `${item.from}:${item.line} ${item.specifier} ${item.reason}`)).toEqual([
+      "inner/main.ts:1 #plain alias-not-configured", "src/main.ts:4 #nowhere alias-not-configured"]);
+    expect(JSON.stringify(await Effect.runPromise(scanWorkspace(directory)))).toBe(JSON.stringify(scan));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("scan follows a workspace package's exports map, explicit entries before `*` patterns, and every runtime condition it names", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-scan-exports-"));
+  try {
+    await write(directory, {
+      "packages/ui/package.json": JSON.stringify({ name: "@acme/ui", exports: {
+        "./button": "./src/actions/button/button.tsx",
+        "./*": "./src/components/*.tsx",
+        "./i18n/*": "./src/i18n/*.ts",
+        "./store": { bun: "./src/store.bun.ts", node: "./src/store.node.ts", default: "./src/store.ts" },
+      } }),
+      "packages/ui/src/actions/button/button.tsx": "export const Button = 1;\n",
+      "packages/ui/src/components/button.tsx": "export const Wrong = 1;\n",
+      "packages/ui/src/components/card.tsx": "export const Card = 1;\n",
+      "packages/ui/src/i18n/en.ts": "export const en = 1;\n",
+      "packages/ui/src/store.bun.ts": "export const s = 1;\n", "packages/ui/src/store.node.ts": "export const s = 2;\n", "packages/ui/src/store.ts": "export const s = 3;\n",
+      "app/main.ts": `import { Button } from "@acme/ui/button";\nimport { Card } from "@acme/ui/card";\nimport { en } from "@acme/ui/i18n/en";\nimport { s } from "@acme/ui/store";\nimport { gone } from "@acme/ui/gone";\n`,
+    });
+    const scan = await Effect.runPromise(scanWorkspace(directory));
+    expect(scan.imports.filter(item => item.from === "app/main.ts").map(item => `${item.line} ${item.to}`)).toEqual([
+      "1 packages/ui/src/actions/button/button.tsx", "2 packages/ui/src/components/card.tsx", "3 packages/ui/src/i18n/en.ts",
+      "4 packages/ui/src/store.bun.ts", "4 packages/ui/src/store.node.ts", "4 packages/ui/src/store.ts",
+    ]);
+    expect(scan.unresolved.map(item => `${item.line} ${item.specifier} ${item.reason}`)).toEqual(["5 @acme/ui/gone package-entry-not-found"]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -7,8 +7,8 @@ import { readActivity } from "./effects";
 
 const hookCommand = async () => {
   const manifest = JSON.parse(await readFile("plugins/claude/hooks/hooks.json", "utf8")) as { hooks: Record<string, { hooks: { command: string; async?: boolean }[] }[]> };
-  expect(Object.keys(manifest.hooks).sort()).toEqual(["PostToolUse", "PostToolUseFailure", "PreToolUse", "UserPromptSubmit"]);
-  const { UserPromptSubmit: _prompt, ...recording } = manifest.hooks;
+  expect(Object.keys(manifest.hooks).sort()).toEqual(["PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit"]);
+  const { UserPromptSubmit: _prompt, Stop: _stop, ...recording } = manifest.hooks;
   const commands = new Set(Object.values(recording).flat().flatMap(entry => entry.hooks.map(hook => hook.command)));
   expect(commands.size).toBe(1);
   return [...commands][0] ?? "";

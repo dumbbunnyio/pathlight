@@ -11,11 +11,18 @@ import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
 import { claudeActivity, claudeIgnores } from "./claude";
 import { initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
-import { checkWorkspace, formatCheck, hasFindings } from "./check";
+import { draftWorkspace } from "./draft";
+import { checkAndRecord } from "./stale";
+import { setPlan } from "./plan";
+import { diffWorkspace, formatDiff, recordDiff } from "./diff";
+import { formatCheck, hasFindings } from "./check";
 
 const help = `pathlight list [--workspace PATH]
 pathlight scan [--workspace PATH] [--out FILE]
-pathlight check [--workspace PATH] [--json] [--strict]
+pathlight check [--workspace PATH] [--json] [--strict] [--quiet]
+pathlight diff [--workspace PATH] [--base REV] [--json] [--quiet]
+pathlight plan [ELEMENT ...] [--workspace PATH]
+pathlight draft [--workspace PATH] [--out DIR] [--force]
 pathlight init [--workspace PATH] [--no-claude-hooks]
 pathlight show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
 pathlight view VIEW [--workspace PATH] [--project NAME]
@@ -24,7 +31,11 @@ pathlight record --workspace PATH < claude-hook.json
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
 check compares the LikeC4 model and pathlight.activity.json with that scan: unmatched globs, unmapped files,
-relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found.
+relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found. --quiet prints nothing (the Stop hook uses it); every check records its counts for the viewer's out-of-date badge.
+diff compares the relationships the imports support now with those at a git commit (default HEAD): which the working tree added or lost, and new imports with no relationship. The viewer draws them; static evidence only.
+plan says which elements you are about to work on (ids from the model); the viewer outlines them and marks activity outside them. No ids clears the plan.
+draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
+in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
 init wires Claude Code hooks, the pathlight skill and the OpenCode plugin into a workspace.
 show opens or updates an owned tmux pane. view runs in the current terminal.
 open follows the most recent session and shows VIEW if given, else the view named index, else the first view.
@@ -60,7 +71,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, here: { type: "boolean" }, split: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, here: { type: "boolean" }, split: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -70,7 +81,7 @@ try {
     const follow = values.follow === true;
     const invalid = (message: string) => Effect.fail(failure("CLI.arguments", message));
     if (values.help || !command) return void process.stdout.write(help);
-    if (extra.length) return yield* invalid("Too many arguments. Use --help.");
+    if (extra.length && command !== "plan") return yield* invalid("Too many arguments. Use --help.");
     if (follow && activity) return yield* invalid("Use either --follow or --session, not both.");
 
     if (command === "list") {
@@ -81,11 +92,26 @@ try {
       const text = `${JSON.stringify(yield* scanWorkspace(values.workspace), null, 2)}\n`;
       if (values.out) yield* io("CLI.writeScan", () => writeFile(values.out!, text));
       else process.stdout.write(text);
+    } else if (command === "draft") {
+      if (id) return yield* invalid("draft takes no argument. Use --workspace PATH.");
+      const made = yield* draftWorkspace(values.workspace, { out: values.out, force: values.force });
+      process.stdout.write(`Drew ${made.elements} elements (${made.packages ? `${made.packages} packages, ` : ""}${made.components} components${made.collections ? `, ${made.collections} collections` : ""}) and ${made.relationships} relationships from the imports.\n`
+        + `${made.mappings} file mappings; ${made.ignored} test files left out.\nWrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in ${made.target}.\n`
+        + (made.overlay ? `Applied ${made.overlay} names or notes from pathlight.overlay.json.\n` : "")
+        + (made.unknown.length ? `Overlay keys that match nothing in the code now (remove or fix them): ${made.unknown.join(", ")}\n` : ""));
     } else if (command === "check") {
       if (id) return yield* invalid("check takes no argument. Use --workspace PATH.");
-      const check = yield* checkWorkspace(values.workspace);
-      process.stdout.write(values.json ? `${JSON.stringify(check, null, 2)}\n` : formatCheck(check));
+      const check = yield* checkAndRecord(values.workspace);
+      if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(check, null, 2)}\n` : formatCheck(check));
       if (values.strict && hasFindings(check)) process.exitCode = 1;
+    } else if (command === "plan") {
+      const made = yield* setPlan(values.workspace, [...(id ? [id] : []), ...extra]);
+      process.stdout.write(made ? `Plan: ${made.elements.join(", ")}\n` : "Plan cleared.\n");
+    } else if (command === "diff") {
+      if (id) return yield* invalid("diff takes no argument. Use --base REV and --workspace PATH.");
+      const diff = yield* diffWorkspace(values.workspace, values.base);
+      yield* recordDiff(values.workspace, diff);
+      if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(diff, null, 2)}\n` : formatDiff(diff));
     } else if (command === "init") {
       if (id) return yield* invalid("init takes no argument. Use --workspace PATH.");
       process.stdout.write(`${(yield* initWorkspace(values.workspace, { claudeHooks: !values["no-claude-hooks"] })).join("\n")}\n`);

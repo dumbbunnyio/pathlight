@@ -88,3 +88,18 @@ test("two connectors that share a run merge into a junction", () => {
   expect(cells.find(cell => cell.x === 4 && cell.y === 0)?.glyph).toBe("┬");
   expect(cells.find(cell => cell.x === 4 && cell.y === 4)?.glyph).toBe("├");
 });
+
+test("connectors marked added or lost keep their own tints, and the selection still wins", () => {
+  const route = { source: "a", target: "b", entry: "W" as const, points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 8, y: 3 }] };
+  const project = (point: { x: number; y: number }) => point;
+  const target = (x: number, y: number) => x >= 8 && y === 3;
+  const toneAt = (cells: ReturnType<typeof rasterize>, x: number, y: number) => cells.find(cell => cell.x === x && cell.y === y);
+  const added = rasterize([route], project, target, undefined, new Map([["a\0b", "added" as const]]));
+  expect(toneAt(added, 2, 0)).toMatchObject({ tone: "added", glyph: "─" });
+  const lost = rasterize([route], project, target, undefined, new Map([["a\0b", "lost" as const]]));
+  expect(toneAt(lost, 2, 0)).toMatchObject({ tone: "lost", glyph: "┈" });
+  expect(toneAt(rasterize([route], project, target, "a", new Map([["a\0b", "added" as const]])), 2, 0)?.tone).toBe("out");
+  // An unmarked connector crossing a marked one does not repaint it.
+  const other = { source: "c", target: "d", entry: "W" as const, points: [{ x: 4, y: -2 }, { x: 4, y: 2 }] };
+  expect(toneAt(rasterize([route, other], project, target, undefined, new Map([["a\0b", "added" as const]])), 4, 0)?.tone).toBe("added");
+});

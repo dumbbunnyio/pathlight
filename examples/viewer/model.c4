@@ -31,7 +31,7 @@ model {
 
   scanner = component 'Scanner and checker' {
     technology 'Bun, Effect'
-    description 'Reads TypeScript and JavaScript statically (files, imports, what it could not read) and checks the model and file mapping against that scan. Static evidence only: it never claims anything about what runs.'
+    description 'Reads TypeScript and JavaScript statically (files, imports, what it could not read), checks the model and file mapping against that scan, compares the relationships it supports with a git commit, and draws a first picture from it. Static evidence only: it never claims anything about what runs.'
   }
 
   themes = component 'Themes' {
@@ -50,6 +50,7 @@ model {
   catalog -> activity 'Validates the mapping against the model'
   launcher -> activity 'Reads and writes the journal'
   viewer -> catalog 'Reloads the model'
+  viewer -> scanner 'Shows the last check and diff'
   ask -> launcher 'Runs tmux through its process runner'
   launcher -> viewer 'Starts owned pane'
   activity -> viewer 'Updates component activity'

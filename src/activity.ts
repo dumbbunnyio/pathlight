@@ -21,9 +21,15 @@ export const ActivityEvent = Schema.Struct({
 export interface ActivityEvent extends Schema.Schema.Type<typeof ActivityEvent> {}
 export const ActivityConfig = Schema.Struct({
   version: Schema.Literal(1), project: Schema.NonEmptyString,
-  mappings: Schema.Array(Schema.Struct({ glob: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)), element: Label })).check(Schema.isMaxLength(256)),
+  mappings: Schema.Array(Schema.Struct({ glob: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)), element: Label })).check(Schema.isMaxLength(4096)),
   // Files that are deliberately outside the model (tests, vendored code, generated output). Only `pathlight check` reads this.
   ignore: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024))).check(Schema.isMaxLength(256))),
+  // Elements (and everything inside them) designed but not built yet. Their mappings may match no files without being a mistake: `pathlight check`
+  // reports them as the plan and how much of it exists, and the viewer draws them dashed until they have files.
+  planned: Schema.optionalKey(Schema.Array(Label).check(Schema.isMaxLength(4096))),
+  // Views meant to be opened directly instead of being linked from another (a list of every package, a report of cycles). `pathlight check`
+  // expects one entry view, and does not count these.
+  entries: Schema.optionalKey(Schema.Array(Label).check(Schema.isMaxLength(4096))),
   // Elements anything may import (shared types, utilities). `pathlight check` does not ask for a relationship to them.
   shared: Schema.optionalKey(Schema.Array(Label).check(Schema.isMaxLength(256))),
 });

@@ -5,6 +5,9 @@ import { Effect, FiberSet, Schedule } from "effect";
 import { watch } from "node:fs";
 import { type View, acquireModel, validateActivityMapping } from "./catalog";
 import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, latestBinding, readActivity, readActivityConfig, readReplay, type Replay } from "./activity";
+import { type Diff, readDiff } from "./diff";
+import { type Plan, readPlan } from "./plan";
+import { readStale, type Stale, staleText } from "./stale";
 import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
 import { askMessage, sendToPane } from "./ask";
@@ -203,7 +206,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let centerX = diagram.bounds.x + diagram.bounds.width / 2;
   let centerY = diagram.bounds.y + diagram.bounds.height / 2;
   let scale = 16;
-  let selected = diagram.nodes[0];
+  // A view about one element (a neighbourhood) opens with that element selected; any other opens on its first node.
+  // `pathlight draft` names a component's neighbourhood `<component>_near`, scoped to it when it can be, which is how the subject is found when it cannot.
+  const firstNode = (scene: typeof diagram) => {
+    const subject = "viewOf" in scene ? scene.viewOf : undefined;
+    return scene.nodes.find(node => subject !== undefined && String(node.modelRef) === String(subject))
+      ?? scene.nodes.find(node => `${String(node.modelRef).replace(/\./g, "_")}_near` === String(scene.id)) ?? scene.nodes[0];
+  };
+  let selected = firstNode(diagram);
   type Visit = { view: string; selected: string | undefined; x: number; y: number; scale: number };
   const history: Visit[] = [];
   let pendingReload: { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; notice: string } | undefined;
@@ -215,6 +225,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let animating = false;
   let fileMode = false, fileCursor = 0, editorActive = false;
   let fileQuery = "";
+  // An element the mapping names as planned and that has no files yet (nor does anything inside it): designed, not built.
+  const waiting = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`))
+    && !(files.get(ref)?.length) && ![...files].some(([element, paths]) => element.startsWith(`${ref}.`) && paths.length);
   const selectedPaths = () => {
     const dirOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
     const paths = [...files.get(String(selected?.modelRef ?? "")) ?? []].sort((a, b) => dirOf(a).localeCompare(dirOf(b)) || a.localeCompare(b));
@@ -319,11 +332,47 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const liveLabel = () => binding ? `${binding.source}:${binding.session.slice(0, 8)}` : "waiting for a session";
   const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id))]);
   // Right-hand: the live session when there is one (a spinner replaces the dot while a tool runs), otherwise nothing.
+  // The last `pathlight check` (the Stop hook runs one at the end of each turn): shown only when the model and the code disagree, with how old that check is.
+  let stale: Stale | undefined;
+  // What the last `pathlight diff` found against a git commit: connectors whose imports were added or lost are marked, and pairs that import each other with no relationship are counted.
+  let diff: Diff | undefined;
+  // The elements the agent said it is about to work on (`pathlight plan`): outlined, and activity on anything else is marked off-plan.
+  let plan: Plan | undefined;
+  const inPlan = (ref: string) => (plan?.elements ?? []).some(id => ref === id || ref.startsWith(`${id}.`) || id.startsWith(`${ref}.`));
+  const within = (id: string, ancestor: string) => id === ancestor || id.startsWith(`${ancestor}.`);
+  const edgeMarks = () => {
+    const marks = new Map<string, "added" | "lost">();
+    if (!diff) return marks;
+    const ref = new Map(diagram.nodes.map(node => [String(node.id), String(node.modelRef)] as const));
+    for (const edge of diagram.edges) {
+      const from = ref.get(String(edge.source)), to = ref.get(String(edge.target));
+      if (!from || !to) continue;
+      const hits = diff.relationships.filter(item => within(item.source, from) && within(item.target, to));
+      if (hits.some(item => item.change === "added")) marks.set(`${edge.source}\0${edge.target}`, "added");
+      else if (hits.length) marks.set(`${edge.source}\0${edge.target}`, "lost");
+    }
+    return marks;
+  };
+  const diffText = () => {
+    if (!diff) return "";
+    const added = diff.relationships.filter(item => item.change === "added").length, lost = diff.relationships.length - added;
+    const parts = [added ? `+${added} dependencies` : "", lost ? `−${lost} lost` : "", diff.undeclared.length ? `${diff.undeclared.length} new with no relationship` : ""].filter(Boolean);
+    return parts.length ? ` · since ${diff.base} (static): ${parts.join(", ")}` : "";
+  };
+  const staleBadge = (room: number) => {
+    const detail = staleText(stale);
+    if (!stale || !detail) return [];
+    const full = `▲ out of date: ${detail} · checked ${formatAge(Date.now() - stale.time)} ago `;
+    const text = full.length <= room ? full : room >= 16 ? "▲ out of date " : "";
+    return text ? [fg(palette.accent)(text)] : [];
+  };
   const badgeContent = () => {
+    const room = Math.max(0, renderer.width - 40);
     if (replay) return new StyledText([fg(palette.accent)("◀ replay"), fg(palette.border)(` ${liveLabel()} `)]);
-    if (!binding && !following) return "";
+    if (!binding && !following) { const only = staleBadge(room); return only.length ? new StyledText(only) : ""; }
     const busy = events.some(isActive);
-    return new StyledText([fg(binding ? palette.incoming : palette.muted)(`${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} live`), fg(palette.border)(` ${liveLabel()} `)]);
+    const live = [fg(binding ? palette.incoming : palette.muted)(`${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} live`), fg(palette.border)(` ${liveLabel()} `)];
+    return new StyledText([...staleBadge(room - 8 - liveLabel().length), ...live]);
   };
   let activityError = "";
   const layout = () => {
@@ -628,7 +677,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
     breadcrumb.content = search ? new StyledText([fg(palette.accent)(`Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length}`), fg(palette.muted)(" · Enter keep · Esc cancel")])
-      : `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${history.length ? ` · back ${history.length}` : ""}`;
+      : `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${history.length ? ` · back ${history.length}` : ""}${diffText()}${plan ? ` · plan ${plan.elements.length}` : ""}`;
     crumbHint.visible = true;
     searchShield.visible = !!search;
     searchShield.height = Math.max(1, renderer.height - 5);
@@ -647,16 +696,19 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const related = byElement.get(String(entry.node.modelRef)) ?? [];
       const reads = related.filter(event => event.operation === "read").length, edits = related.filter(event => event.operation === "edit").length;
       const runs = related.filter(event => event.operation === "command").length;
-      const counts = [reads && `r${reads}`, edits && `e${edits}`, runs && `c${runs}`].filter(Boolean).join(" ");
+      const offPlan = !!plan && related.length > 0 && !inPlan(String(entry.node.modelRef));
+      const counts = [reads && `r${reads}`, edits && `e${edits}`, runs && `c${runs}`, offPlan && "off plan"].filter(Boolean).join(" ");
       const active = related.filter(isActive);
       const recent = related.find(event => now - event.time <= 5000);
       const state = operationState(active, recent);
       const isSelected = id === String(selected?.id);
+      const unbuilt = waiting(String(entry.node.modelRef));
       const neighbour = diagram.edges.some(edge => (edge.target === selected?.id && edge.source === entry.node.id) || (edge.source === selected?.id && edge.target === entry.node.id));
       const flashing = (flashes.get(String(entry.node.modelRef)) ?? 0) > now;
       // Selection and the panel cursor's target take the accent; neighbours are a step brighter; a running call or a fresh update pulses the accent.
       let border: string | RGBA = group ? palette.rule : palette.cardEdge;
       if (neighbour) border = group ? palette.border : palette.edgeDim;
+      if (plan && inPlan(String(entry.node.modelRef))) border = palette.purple;
       if (state === "failed") border = palette.failure;
       if (previewed === id || isSelected || flashing) border = palette.accent;
       if (active.length && !isSelected) {
@@ -665,7 +717,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         border = pulse;
       }
       entry.box.borderColor = border;
-      entry.box.customBorderChars = previewed === id && !isSelected ? dashed : undefined;
+      entry.box.customBorderChars = (previewed === id && !isSelected) || unbuilt ? dashed : undefined;
       entry.box.backgroundColor = palette.background;
       const origin = projected(entry.node.x, entry.node.y);
       const end = projected(entry.node.x + entry.node.width, entry.node.y + entry.node.height);
@@ -682,11 +734,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       entry.box.width = width; entry.box.height = height;
       entry.rect = { x: left, y: top, width, height };
       const bright = isSelected || neighbour || previewed === id;
-      if (group) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : ""}${counts ? ` ·${counts}` : ""}`;
+      if (group) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : unbuilt ? " [planned]" : ""}${counts ? ` ·${counts}` : ""}`;
       else {
         // First line: the kind (dim) on the left and observed activity (dim) on the right; then the title.
         const rows = height - 2, textWidth = Math.max(4, width - 4);
-        const stateText = state ? `[${state}]` : "";
+        const stateText = state ? `[${state}]` : unbuilt ? "[planned]" : "";
         const statusText = [stateText, counts].filter(Boolean).join(" ");
         const kindFull = entry.node.kind ? String(entry.node.kind) : "";
         const kindText = kindFull.length + (statusText ? statusText.length + 1 : 0) < textWidth ? kindFull : "";
@@ -704,7 +756,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     const paths = selectedPaths();
     inspectorTitle.content = new StyledText([fg(palette.text)(selected?.title ?? "No selection")]);
-    const what = [selected?.kind, selected?.technology].filter(Boolean).join(" · ");
+    const what = [selected?.kind, selected?.technology, selected && waiting(String(selected.modelRef)) ? "planned: no files yet" : ""].filter(Boolean).join(" · ");
     inspectorHead.content = new StyledText([fg(palette.muted)(what || " ")]);
     headRows = 2;
     const parent = diagram.nodes.find(node => node.id === selected?.parent);
@@ -1510,7 +1562,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
       diagram = next.diagram;
       nodeObjects = mountNodes(); routes = computeRoutes();
-      selected = diagram.nodes[0]; fileCursor = 0; resetInspectorScroll(); message = "";
+      selected = firstNode(diagram); fileCursor = 0; resetInspectorScroll(); message = "";
       initialFit = false; animating = false;
       if (next.restore) restore(next.restore);
       else { autoFit = true; fit(); targetX = centerX; targetY = centerY; targetScale = scale; }
@@ -1551,9 +1603,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const left = rect.x, top = rect.y, right = rect.x + rect.width - 1, bottom = rect.y + rect.height - 1;
         return x >= left && x <= right && y >= top && y <= bottom && (!node.children.length || x === left || x === right || y === top || y === bottom);
       });
-      for (const cell of rasterize(routes, point => projected(point.x, point.y), isCovered, selected ? String(selected.id) : undefined)) {
+      for (const cell of rasterize(routes, point => projected(point.x, point.y), isCovered, selected ? String(selected.id) : undefined, edgeMarks())) {
         if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width || cell.y >= viewport.height) continue;
-        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : palette.edgeDim;
+        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : palette.edgeDim;
         canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(fg), bg);
       }
     })();
@@ -1594,6 +1646,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   yield* Effect.acquireRelease(Effect.try({ try: () => watch(view.workspace, { recursive: true }, (_event, name) => { if (name && relevant(String(name))) scheduleReload(); }), catch: cause => failure("Native.watch", cause) }).pipe(
     Effect.catch(() => Effect.sync(() => { message = "Live reload unavailable: the model will not update until the viewer is reopened"; return undefined; }))),
     watcher => Effect.sync(() => { clearTimeout(reloadTimer); watcher?.close(); }));
+  yield* Effect.gen(function* () {
+    const next = yield* readStale(view.workspace), nextDiff = yield* readDiff(view.workspace), nextPlan = yield* readPlan(view.workspace);
+    if (JSON.stringify(next) !== JSON.stringify(stale) || JSON.stringify(nextDiff) !== JSON.stringify(diff) || JSON.stringify(nextPlan) !== JSON.stringify(plan)) { stale = next; diff = nextDiff; plan = nextPlan; dirty = true; if (!editorActive) update(); }
+  }).pipe(Effect.repeat(Schedule.spaced("3 seconds")), Effect.forkScoped);
   if (binding || following) yield* Effect.gen(function* () {
     if (replay) {
       if (replay.playing && Date.now() >= replay.next) {

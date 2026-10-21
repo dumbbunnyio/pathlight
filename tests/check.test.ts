@@ -181,6 +181,45 @@ test("an element with many direct children is reported as wide, and grouping the
   }
 }, 60_000);
 
+test("a planned element with no files yet is the plan, not a broken mapping, and check says how much of it exists", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-planned-"));
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    const config = (planned: string[]) => JSON.stringify({ version: 1, project: "viewer", planned, mappings: [
+      { glob: "src/launcher.ts", element: "launcher" }, { glob: "src/viewer.ts", element: "viewer" }, { glob: "src/activity.ts", element: "activity" }] });
+    await write(directory, {
+      "pathlight.activity.json": config(["activity"]),
+      "src/launcher.ts": `import { v } from "./viewer";\nexport const l = v;\n`, "src/viewer.ts": `export const v = 1;\n`,
+    });
+    // `activity` is designed but not written: its glob matches nothing, and that is not a finding.
+    const planned = await Effect.runPromise(checkWorkspace(directory));
+    expect(planned.mappings.unmatched).toEqual([]);
+    expect(planned.plan).toEqual({ planned: 1, waiting: ["activity"], built: [] });
+    expect(planned.summary.unmatchedMappings).toBe(0);
+    expect(planned.relationships.filter(item => item.source === "activity" || item.target === "activity").every(item => item.status === "unverifiable")).toBe(true);
+    expect(hasFindings(planned)).toBe(false);
+    expect(formatCheck(planned)).toContain("0 of 1 planned elements have files; not yet: activity");
+    // Without the plan marker the same mapping is reported as pointing nowhere.
+    await write(directory, { "pathlight.activity.json": config([]) });
+    const unplanned = await Effect.runPromise(checkWorkspace(directory));
+    expect(unplanned.mappings.unmatched).toEqual([{ glob: "src/activity.ts", element: "activity" }]);
+    expect(hasFindings(unplanned)).toBe(true);
+    // Once it is built the marker is stale, and check says so without calling it an error.
+    await write(directory, { "pathlight.activity.json": config(["activity"]), "src/activity.ts": `export const a = 1;\n` });
+    const built = await Effect.runPromise(checkWorkspace(directory));
+    expect(built.plan).toEqual({ planned: 1, waiting: [], built: ["activity"] });
+    expect(formatCheck(built)).toContain("activity now has files: remove it from planned");
+    // Now its planned relationships can be checked against the code: the model says activity -> viewer and the code has no such import, which is the plan disagreeing with what was built.
+    expect(built.relationships.find(item => item.source === "activity" && item.target === "viewer")?.status).toBe("unsupported");
+    expect(hasFindings(built)).toBe(true);
+    // A planned element that is not in the model is a mistake.
+    await write(directory, { "pathlight.activity.json": config(["nonsense"]) });
+    await expect(Effect.runPromise(checkWorkspace(directory))).rejects.toThrow("Unknown planned element 'nonsense'");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("this repository's own model and mapping stay consistent with its code", async () => {
   // A new source file must be mapped to a component (or ignored on purpose), and a dependency between components must be declared.
   const output = await run(process.execPath, [resolve("src/cli.ts"), "check", "--workspace", ".", "--strict"]);

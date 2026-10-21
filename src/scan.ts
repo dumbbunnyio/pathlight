@@ -1,6 +1,7 @@
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { basename, join, posix } from "node:path";
 import { Effect, Schema } from "effect";
+import { exports as packageExports, imports as packageImports } from "resolve.exports";
 import { failure, io, json, type OperationError } from "./effects";
 import { run } from "./process";
 import { importsOf, type ImportKind } from "./scan-imports";
@@ -84,7 +85,7 @@ const relaxedJson = (text: string) => {
 };
 
 interface Alias { readonly directory: string; readonly baseUrl: string | undefined; readonly paths: Record<string, readonly string[]> }
-interface WorkspacePackage { readonly name: string; readonly directory: string; readonly entries: readonly string[]; readonly subpaths: ReadonlyMap<string, readonly string[]> }
+interface WorkspacePackage { readonly name: string; readonly directory: string; readonly manifest: Record<string, unknown>; readonly entries: readonly string[] }
 
 // The files a package.json `exports` value (or `main`, `module`, `types`) points at, whatever condition names it nests them under.
 const targetsOf = (value: unknown): string[] => typeof value === "string" ? [value]
@@ -95,10 +96,6 @@ const packageEntries = (manifest: Record<string, unknown>) => {
   const root = exported && typeof exported === "object" && "." in exported ? (exported as Record<string, unknown>)["."] : exported;
   return [...targetsOf(root), ...["module", "main", "types"].flatMap(key => targetsOf(manifest[key]))];
 };
-
-const packageSubpaths = (manifest: Record<string, unknown>) => new Map(
-  Object.entries(manifest.exports && typeof manifest.exports === "object" ? manifest.exports : {})
-    .filter(([key]) => key.startsWith("./") && !key.includes("*")).map(([key, value]) => [key.slice(2), targetsOf(value)] as const));
 
 export const listFiles = Effect.fn("Scan.list")(function* (root: string) {
   const ignoredPath = (path: string) => /[\x00-\x1f\x7f]/.test(path);
@@ -129,13 +126,33 @@ const readText = (root: string, path: string) => io("Scan.read", async () => {
   return await readFile(join(root, path), "utf8");
 }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
+/**
+ * `exports` and `imports` (`#name`) in a package.json map a specifier, per runtime condition, to files in that package, including
+ * `*` patterns. A static scan cannot know the runtime, so every condition the manifest names is followed and each variant is
+ * reported (a platform file next to its siblings is one module in several forms). Resolution itself is `resolve.exports`.
+ */
+const conditionsOf = (value: unknown): string[] => value && typeof value === "object"
+  ? Object.entries(value).flatMap(([key, nested]) => [key, ...conditionsOf(nested)]) : [];
+const mapped = (manifest: Record<string, unknown>, field: "exports" | "imports", specifier: string) => {
+  const named = [...new Set(conditionsOf(manifest[field]))].filter(key => !/^(#|\.\/|types|require|default|import)/.test(key));
+  const targets = new Set<string>();
+  for (const condition of ["import", ...named]) {
+    try {
+      const found = field === "exports" ? packageExports(manifest, specifier, { unsafe: true, conditions: [condition, "import", "default"] })
+        : packageImports(manifest, specifier, { unsafe: true, conditions: [condition, "import", "default"] });
+      for (const target of found ?? []) if (target.startsWith("./")) targets.add(target.slice(2));
+    } catch { /* the manifest does not map this specifier */ }
+  }
+  return [...targets];
+};
+
 const packageName = (specifier: string) => specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0]!;
 
 /**
  * Reads every TypeScript and JavaScript file under the workspace and reports the imports between them. A file is
  * listed with `git ls-files` (so ignored files are left out) or, outside a repository, by walking the tree.
  * Aliases from the nearest tsconfig `baseUrl` and `paths`, and workspace packages named in a package.json, are
- * followed; `extends` chains, `exports` patterns and bundler plugins are not, and what that leaves behind is listed
+ * followed, as are `exports` and `imports` maps (patterns and runtime conditions included); `extends` chains and bundler aliases are not, and what that leaves behind is listed
  * as unresolved rather than guessed.
  */
 export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: string) {
@@ -145,6 +162,8 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
 
   const aliases = new Map<string, Alias>();
   const packages: WorkspacePackage[] = [];
+  // Every package.json by directory, for `#` specifiers (the nearest one governs a file).
+  const manifests = new Map<string, Record<string, unknown>>();
   yield* Effect.forEach(paths.filter(path => /(^|\/)(tsconfig|jsconfig)\.json$/.test(path) || (/(^|\/)package\.json$/.test(path) && !path.includes("node_modules/"))), path =>
     Effect.gen(function* () {
       const text = yield* readText(root, path);
@@ -153,7 +172,8 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
       if (!value) return;
       const directory = posix.dirname(path) === "." ? "" : posix.dirname(path);
       if (basename(path) === "package.json") {
-        if (typeof value.name === "string") packages.push({ name: value.name, directory, entries: packageEntries(value), subpaths: packageSubpaths(value) });
+        manifests.set(directory, value);
+        if (typeof value.name === "string") packages.push({ name: value.name, directory, manifest: value, entries: packageEntries(value) });
         return;
       }
       const options = value.compilerOptions && typeof value.compilerOptions === "object" ? value.compilerOptions as Record<string, unknown> : {};
@@ -187,6 +207,13 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
       if (!directory) return undefined;
     }
   };
+  const fromSubpathImport = (from: string, specifier: string) => {
+    let directory = posix.dirname(from) === "." ? "" : posix.dirname(from);
+    while (!manifests.has(directory) && directory) directory = posix.dirname(directory) === "." ? "" : posix.dirname(directory);
+    const manifest = manifests.get(directory);
+    if (!manifest) return [];
+    return [...new Set(mapped(manifest, "imports", specifier).flatMap(target => resolveFile(files, join_(directory, target)) ?? []))].filter(target => target !== from).sort();
+  };
   const fromPackage = (specifier: string) => {
     const owner = packages.find(item => specifier === item.name || specifier.startsWith(`${item.name}/`));
     if (!owner) return undefined;
@@ -196,9 +223,13 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
       const target = join_(owner.directory, entry), source = target.replace(/(^|\/)(dist|build|lib|out)\//, "$1src/");
       return [target, source, source.slice(0, source.length - extension(source).length)];
     };
-    const candidates = rest ? [...(owner.subpaths.get(rest) ?? []).flatMap(sourcesOf), join_(owner.directory, rest), join_(owner.directory, `src/${rest}`)]
+    // The manifest's `exports` map first (every runtime variant it names); a package without a usable one falls back to the conventional layout.
+    const declared = owner.manifest.exports === undefined ? [] : [...new Set(mapped(owner.manifest, "exports", specifier).flatMap(entry =>
+      sourcesOf(entry).flatMap(candidate => resolveFile(files, candidate) ?? []).slice(0, 1)))].sort();
+    if (declared.length) return { files: declared };
+    const candidates = rest ? [join_(owner.directory, rest), join_(owner.directory, `src/${rest}`)]
       : [...owner.entries.flatMap(sourcesOf), join_(owner.directory, "src/index"), join_(owner.directory, "index")];
-    for (const candidate of candidates) { const found = resolveFile(files, candidate); if (found) return { file: found }; }
+    for (const candidate of candidates) { const found = resolveFile(files, candidate); if (found) return { files: [found] }; }
     return { missing: true as const };
   };
 
@@ -225,9 +256,14 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
       const aliased = fromAlias(path, specifier);
       if (aliased) { imports.push({ from: path, to: aliased, line, kind, specifier: raw }); continue; }
       const workspacePackage = fromPackage(specifier);
-      if (workspacePackage?.file) { imports.push({ from: path, to: workspacePackage.file, line, kind, specifier: raw }); continue; }
+      if (workspacePackage?.files) { for (const to of workspacePackage.files) imports.push({ from: path, to, line, kind, specifier: raw }); continue; }
       if (workspacePackage) { note("package-entry-not-found"); continue; }
-      if (/^(@\/|~\/|#)/.test(specifier)) { note("alias-not-configured"); continue; }
+      if (specifier.startsWith("#")) {
+        const targets = fromSubpathImport(path, specifier);
+        if (targets.length) { for (const to of targets) imports.push({ from: path, to, line, kind, specifier: raw }); } else note("alias-not-configured");
+        continue;
+      }
+      if (/^(@\/|~\/)/.test(specifier)) { note("alias-not-configured"); continue; }
       const name = specifier.includes(":") ? specifier : packageName(specifier);
       const key = `${path}\0${name}`;
       if (!external.has(key)) external.set(key, { from: path, package: name, line, kind });

@@ -36,7 +36,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 | Native UI and camera | `src/native-viewer.ts` |
 | Themes: OpenCode-format JSON, derived palette, live recolouring | `src/theme.ts`, `src/retheme.ts`, `src/themes/` (vendored OpenCode themes, see `NOTICE.md`), palette in `src/ui.ts` |
 | Orthogonal connector routing and rasterization | `src/routes.ts` |
-| Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/check.ts` |
+| Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/check.ts` (`compareImports`, shared with `src/diff.ts`: changes since a git commit), `src/draft.ts`, `src/stale.ts` (the out-of-date stamp), `src/plan.ts` (the agent's plan, ids only) |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
 | Agent integrations | `plugins/` (`plugins/opencode` targets OpenCode V2: `index.ts` is the server plugin (hooks, recording, tools, the skill), `tui.ts` the CLI plugin that holds the slash commands because only the terminal process knows the tmux pane; `tests/opencode-live.test.ts` drives the real binary; `plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). `plugins/claude/skills/pathlight/SKILL.md` is the one skill for both hosts: `pathlight init` copies it, and `tests/skill.test.ts` checks every command and flag it names against the CLI help, so update it with the CLI. `plugins/claude/open-hook.sh` handles `/pathlight:open` as a `UserPromptSubmit` hook that stops the prompt with `continue: false` (no model turn); `commands/open.md` is only the picker entry and fallback. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
@@ -108,6 +108,8 @@ views, wide/narrow layouts, search/Back, editor return and activity isolation.
 ANSI reconstructions are useful diagnostics, not screenshots of the user's terminal.
 
 `scripts/ansi2png.py` renders `tmux capture-pane -e -p -N` output to a PNG so appearance changes can be inspected; it approximates your terminal's font.
+
+Map quality is measured, not judged: see [docs/eval.md](docs/eval.md) for the independent scan comparison (`tests/eval/facts.ts`), the model scorer and the authors' rules (`tests/eval/run.ts`). Any change to the scanner, the draft or the skill should be re-scored.
 
 Keep README and the native controls document aligned with shipped behavior.
 Update project intent when an approved product decision changes, distinguishing

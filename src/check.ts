@@ -1,9 +1,9 @@
 import { realpath } from "node:fs/promises";
 import { Effect, Schema } from "effect";
-import { readActivityConfig } from "./activity";
+import { type ActivityConfig, readActivityConfig } from "./activity";
 import { acquireModel } from "./catalog";
 import { failure, io } from "./effects";
-import { listFiles, scanWorkspace } from "./scan";
+import { listFiles, scanWorkspace, type Scan } from "./scan";
 
 const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
 const Line = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1));
@@ -45,6 +45,8 @@ export const Check = Schema.Struct({
 
   // Elements with many direct children, which a reader meets side by side. A hint to group them, not a verdict.
   wide: Schema.Array(Schema.Struct({ parent: Schema.String, children: Count })),
+  // The plan: elements the mapping names as designed but not built. `waiting` have no files yet; `built` now have files, so their marker can go.
+  plan: Schema.Struct({ planned: Count, waiting: Schema.Array(Schema.String), built: Schema.Array(Schema.String) }),
   // `entries` are the views no navigateTo points to. A diagram normally has one, the overview.
   views: Schema.Struct({ total: Count, entries: Schema.Array(Schema.String) }),
   // Imports between two mapped elements that no relationship at that level, or above it, declares (in either direction).
@@ -56,6 +58,66 @@ export interface Check extends Schema.Schema.Type<typeof Check> {}
 const within = (element: string, ancestor: string) => element === ancestor || element.startsWith(`${ancestor}.`);
 const related = (a: string, b: string) => within(a, b) || within(b, a);
 const order = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+
+/**
+ * Compares a model's declared relationships and a file mapping with the imports of one tree of files (the working tree, or an older commit).
+ * `check` runs it on the workspace; `diff` runs it on two trees and reports what changed.
+ */
+export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" | "imports">, paths: readonly string[], declared: readonly { source: string; target: string; title: string | null }[]) {
+  const shared = config.shared ?? [];
+  const planned = config.planned ?? [];
+  const isPlanned = (element: string) => planned.some(id => within(element, id));
+  const isShared = (element: string) => shared.some(id => within(element, id));
+  // The files each element is mapped to directly, and (for judging relationships) with those of everything inside it.
+  const direct = new Map<string, Set<string>>(), claimed = new Map<string, Set<string>>(), unmatched: { glob: string; element: string }[] = [];
+  for (const mapping of config.mappings) {
+    const glob = new Bun.Glob(mapping.glob), matches = paths.filter(path => glob.match(path));
+    // A planned element has no files until it is built; that is the plan, not a mapping that points nowhere.
+    if (!matches.length && !isPlanned(mapping.element)) unmatched.push({ glob: mapping.glob, element: mapping.element });
+    for (const path of matches) {
+      direct.set(mapping.element, (direct.get(mapping.element) ?? new Set()).add(path));
+      claimed.set(path, (claimed.get(path) ?? new Set()).add(mapping.element));
+    }
+  }
+  const filesWithin = (element: string) => {
+    const files = new Set<string>();
+    for (const [owner, owned] of direct) if (within(owner, element)) for (const path of owned) files.add(path);
+    return files;
+  };
+  const example = (edge: Scan["imports"][number]) => ({ from: edge.from, line: edge.line, to: edge.to, kind: edge.kind });
+  type Scan = typeof scan;
+  // A file the config ignores is deliberately outside the model, so what it imports is not evidence either way (a folder claimed whole also claims its tests).
+  const ignores = (config.ignore ?? []).map(glob => new Bun.Glob(glob));
+  const ignoredPath = (path: string) => ignores.some(glob => glob.match(path));
+  const evidence = scan.imports.filter(edge => !ignoredPath(edge.from) && !ignoredPath(edge.to));
+  const edgesBetween = (from: ReadonlySet<string>, to: ReadonlySet<string>) =>
+    evidence.filter(edge => from.has(edge.from) && to.has(edge.to) && edge.from !== edge.to);
+
+  const relationships = declared.map(({ source, target, title }) => {
+    const from = filesWithin(source), to = filesWithin(target);
+    if (!from.size || !to.size) return { source, target, title, status: "unverifiable" as const, direction: "none" as const, imports: 0, examples: [] };
+    const forward = edgesBetween(from, to), backward = edgesBetween(to, from);
+    const direction = forward.length && backward.length ? "both" as const : forward.length ? "same" as const : backward.length ? "opposite" as const : "none" as const;
+    return { source, target, title, status: direction === "none" ? "unsupported" as const : "supported" as const, direction, imports: forward.length + backward.length,
+      examples: [...forward, ...backward].slice(0, 3).map(example) };
+  }).sort((a, b) => order(a.source, b.source) || order(a.target, b.target));
+
+  const covered = (a: string, b: string) => declared.some(relationship => (within(a, relationship.source) && within(b, relationship.target)) || (within(b, relationship.source) && within(a, relationship.target)));
+  const pairs = new Map<string, { source: string; target: string; edges: Scan["imports"][number][] }>();
+  let sharedImports = 0;
+  for (const edge of evidence) {
+    if ([...claimed.get(edge.to) ?? []].some(isShared) && edge.from !== edge.to) { sharedImports++; continue; }
+    for (const a of claimed.get(edge.from) ?? []) for (const b of claimed.get(edge.to) ?? []) {
+      if (related(a, b) || covered(a, b)) continue;
+      const key = `${a}\0${b}`, entry = pairs.get(key) ?? { source: a, target: b, edges: [] };
+      entry.edges.push(edge);
+      pairs.set(key, entry);
+    }
+  }
+  const undeclared = [...pairs.values()].sort((a, b) => order(a.source, b.source) || order(a.target, b.target))
+    .map(({ source, target, edges }) => ({ source, target, imports: edges.length, examples: edges.slice(0, 3).map(example) }));
+  return { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports };
+}
 
 export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace: string) {
   const root = yield* io("Check.workspace", () => realpath(workspace));
@@ -73,55 +135,18 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   for (const id of config.shared ?? []) {
     if (!elements.has(id)) return yield* Effect.fail(failure("Check.shared", `Unknown shared element '${id}'.`));
   }
-  const shared = config.shared ?? [];
-  const isShared = (element: string) => shared.some(id => within(element, id));
-
-  // The files each element is mapped to directly, and (for judging relationships) with those of everything inside it.
-  const direct = new Map<string, Set<string>>(), claimed = new Map<string, Set<string>>(), unmatched: { glob: string; element: string }[] = [];
-  for (const mapping of config.mappings) {
-    const glob = new Bun.Glob(mapping.glob), matches = paths.filter(path => glob.match(path));
-    if (!matches.length) unmatched.push({ glob: mapping.glob, element: mapping.element });
-    for (const path of matches) {
-      direct.set(mapping.element, (direct.get(mapping.element) ?? new Set()).add(path));
-      claimed.set(path, (claimed.get(path) ?? new Set()).add(mapping.element));
-    }
+  for (const id of config.planned ?? []) {
+    if (!elements.has(id)) return yield* Effect.fail(failure("Check.planned", `Unknown planned element '${id}'.`));
   }
-  const filesWithin = (element: string) => {
-    const files = new Set<string>();
-    for (const [owner, owned] of direct) if (within(owner, element)) for (const path of owned) files.add(path);
-    return files;
-  };
-  const example = (edge: Scan["imports"][number]) => ({ from: edge.from, line: edge.line, to: edge.to, kind: edge.kind });
-  type Scan = typeof scan;
-  const edgesBetween = (from: ReadonlySet<string>, to: ReadonlySet<string>) =>
-    scan.imports.filter(edge => from.has(edge.from) && to.has(edge.to) && edge.from !== edge.to);
+  const shared = config.shared ?? [];
+  const planned = config.planned ?? [];
+  const isPlanned = (element: string) => planned.some(id => within(element, id));
+  const isShared = (element: string) => shared.some(id => within(element, id));
 
   const declared = [...model.relationships()].map(relationship => ({
     source: String(relationship.source.id), target: String(relationship.target.id), title: relationship.title ?? null,
   }));
-  const relationships = declared.map(({ source, target, title }) => {
-    const from = filesWithin(source), to = filesWithin(target);
-    if (!from.size || !to.size) return { source, target, title, status: "unverifiable" as const, direction: "none" as const, imports: 0, examples: [] };
-    const forward = edgesBetween(from, to), backward = edgesBetween(to, from);
-    const direction = forward.length && backward.length ? "both" as const : forward.length ? "same" as const : backward.length ? "opposite" as const : "none" as const;
-    return { source, target, title, status: direction === "none" ? "unsupported" as const : "supported" as const, direction, imports: forward.length + backward.length,
-      examples: [...forward, ...backward].slice(0, 3).map(example) };
-  }).sort((a, b) => order(a.source, b.source) || order(a.target, b.target));
-
-  const covered = (a: string, b: string) => declared.some(relationship => (within(a, relationship.source) && within(b, relationship.target)) || (within(b, relationship.source) && within(a, relationship.target)));
-  const pairs = new Map<string, { source: string; target: string; edges: Scan["imports"][number][] }>();
-  let sharedImports = 0;
-  for (const edge of scan.imports) {
-    if ([...claimed.get(edge.to) ?? []].some(isShared) && edge.from !== edge.to) { sharedImports++; continue; }
-    for (const a of claimed.get(edge.from) ?? []) for (const b of claimed.get(edge.to) ?? []) {
-      if (related(a, b) || covered(a, b)) continue;
-      const key = `${a}\0${b}`, entry = pairs.get(key) ?? { source: a, target: b, edges: [] };
-      entry.edges.push(edge);
-      pairs.set(key, entry);
-    }
-  }
-  const undeclared = [...pairs.values()].sort((a, b) => order(a.source, b.source) || order(a.target, b.target))
-    .map(({ source, target, edges }) => ({ source, target, imports: edges.length, examples: edges.slice(0, 3).map(example) }));
+  const { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports } = compareImports(config, scan, paths, declared);
 
   // How the mapped files are spread over the elements.
   const mappedCount = claimed.size;
@@ -153,15 +178,17 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
     viewLinks.set(String(view.id), targets);
   }
   const linkedTo = new Set([...viewLinks.values()].flatMap(targets => [...targets]));
-  const entries = [...viewLinks.keys()].filter(id => !linkedTo.has(id)).sort(order);
+  const declaredEntries = new Set(config.entries ?? []);
+  const entries = [...viewLinks.keys()].filter(id => !linkedTo.has(id) && !declaredEntries.has(id)).sort(order);
 
-  const ignores = (config.ignore ?? []).map(glob => new Bun.Glob(glob));
-  const ignoredFiles = scan.files.map(file => file.path).filter(path => !claimed.has(path) && ignores.some(glob => glob.match(path)));
+  const hasFiles = (id: string) => filesWithin(id).size > 0;
+  const plan = { planned: planned.length, waiting: planned.filter(id => !hasFiles(id)).sort(order), built: planned.filter(hasFiles).sort(order) };
+  const ignoredFiles = scan.files.map(file => file.path).filter(path => !claimed.has(path) && ignoredPath(path));
   const unmappedFiles = scan.files.map(file => file.path).filter(path => !claimed.has(path) && !ignoredFiles.includes(path));
   return Check.make({
     version: 1, basis: "static", project: config.project,
     mappings: { total: config.mappings.length, ignored: ignoredFiles.length, shared, sharedImports, unmatched, unmappedFiles },
-    relationships, size, wide, views: { total: viewLinks.size, entries }, undeclared,
+    relationships, size, wide, plan, views: { total: viewLinks.size, entries }, undeclared,
     summary: { unmatchedMappings: unmatched.length, unmappedFiles: unmappedFiles.length, unsupported: relationships.filter(item => item.status === "unsupported").length,
       unverifiable: relationships.filter(item => item.status === "unverifiable").length, undeclared: undeclared.length,
       largeElements: size.filter(item => item.large).length, wideGroups: wide.length, unlinkedViews: Math.max(0, entries.length - 1) },
@@ -183,6 +210,11 @@ export function formatCheck(check: Check) {
     lines.push(`  ▲ ${check.mappings.unmappedFiles.length} source files map to no element:`);
     for (const [folder, count] of [...folders].sort((a, b) => b[1] - a[1] || order(a[0], b[0])).slice(0, 8)) lines.push(`      ${folder}/  ${count}`);
   } else lines.push("  ✓ every scanned source file is mapped");
+  if (check.plan.planned) {
+    lines.push("", "Plan");
+    lines.push(`  ${check.plan.waiting.length ? "·" : "✓"} ${check.plan.built.length} of ${check.plan.planned} planned elements have files${check.plan.waiting.length ? `; not yet: ${check.plan.waiting.join(", ")}` : ""}`);
+    for (const id of check.plan.built) lines.push(`  ▲ ${id} now has files: remove it from planned`);
+  }
   lines.push("", `Relationships (${check.relationships.length} in the model)`);
   const label = (item: typeof check.relationships[number]) => `${item.source} → ${item.target}${item.title ? `  “${item.title}”` : ""}`;
   for (const item of check.relationships) {

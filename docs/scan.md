@@ -12,7 +12,7 @@ Everything in it is a **static** reading of source text (`"basis": "static"`). I
 | `files` | Every scanned file: `path`, `language`, `lines`. |
 | `imports` | Imports that resolve to a file in the workspace: `from`, `to`, the `line` where the statement starts, its `kind` and the original `specifier`. |
 | `external` | Packages outside the workspace (and `node:`/`bun:` built-ins), once per importing file. |
-| `unresolved` | Imports that look like they point into the workspace but did not resolve, each with a `reason`: `not-found`, `alias-not-configured` or `package-entry-not-found`. |
+| `unresolved` | Imports that look like they point into the workspace but did not resolve, each with a `reason`: `not-found`, `alias-not-configured` or `package-entry-not-found`. Workspace-package imports follow the target package's `exports` map the same way, including `*` patterns (an explicit entry wins over a pattern). `#name` imports are Node subpath imports: the scan follows the nearest `package.json` `imports` field (resolved with [resolve.exports](https://github.com/lukeed/resolve.exports)) to every runtime variant it names (`bun`, `node`, `workerd`, `default`...), since a static scan cannot know which runtime applies; one that maps to nothing is `alias-not-configured`. |
 | `coverage` | How the files were listed (`git` or `walk`), counts, how many files were `skipped`, and `unscanned` languages that are present but not read. |
 
 `kind` is `import`, `type` (an `import type`, `export type … from`, or an import whose every binding is `type`), `reexport`, `dynamic` (`import("x")` with a literal) or `require`.

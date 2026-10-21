@@ -171,7 +171,7 @@ export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdg
   });
 }
 
-export interface RasterCell { x: number; y: number; glyph: string; tone: "out" | "in" | "dim"; t: number }
+export interface RasterCell { x: number; y: number; glyph: string; tone: "out" | "in" | "dim" | "added" | "lost"; t: number }
 
 const N = 1, E = 2, S = 4, W = 8;
 const solid: Record<number, string> = { [E | W]: "─", [N | S]: "│", [S | E]: "╭", [S | W]: "╮", [N | E]: "╰", [N | W]: "╯",
@@ -181,11 +181,13 @@ const arrows: Record<Side, string> = { E: "▶", W: "◀", S: "▼", N: "▲" };
 /**
  * Projected routes as terminal cells. Quiet connectors are dotted where they run straight; the selected node's are
  * solid and tinted by direction. `covered` hides cells under nodes; `t` is the position along the route (0..1).
+ * `marks` (keyed `source\0target`) picks out connectors whose imports were added or lost since a base commit: solid, in their own tints, under the selection's.
  */
-export function rasterize(routes: readonly Route[], project: (point: Point) => Point, covered: (x: number, y: number) => boolean, selected: string | undefined): RasterCell[] {
+export function rasterize(routes: readonly Route[], project: (point: Point) => Point, covered: (x: number, y: number) => boolean, selected: string | undefined, marks: ReadonlyMap<string, "added" | "lost"> = new Map()): RasterCell[] {
   const cells = new Map<string, { x: number; y: number; mask: number; tone: RasterCell["tone"]; t: number; arrow?: string }>();
-  const toneOf = (route: Route): RasterCell["tone"] => route.source === selected ? "out" : route.target === selected ? "in" : "dim";
-  const ordered = [...routes.filter(route => toneOf(route) === "dim"), ...routes.filter(route => toneOf(route) !== "dim")];
+  const toneOf = (route: Route): RasterCell["tone"] => route.source === selected ? "out" : route.target === selected ? "in" : marks.get(`${route.source}\0${route.target}`) ?? "dim";
+  const rank = (tone: RasterCell["tone"]) => tone === "dim" ? 0 : tone === "added" || tone === "lost" ? 1 : 2;
+  const ordered = [...routes].sort((a, b) => rank(toneOf(a)) - rank(toneOf(b)));
   for (const route of ordered) {
     const tone = toneOf(route);
     const points = route.points.map(project).map(point => ({ x: Math.round(point.x), y: Math.round(point.y) }));
@@ -196,7 +198,7 @@ export function rasterize(routes: readonly Route[], project: (point: Point) => P
       if (covered(x, y)) return;
       const key = `${x},${y}`, cell = cells.get(key) ?? { x, y, mask: 0, tone, t: at };
       cell.mask |= bit; cell.t = Math.min(cell.t, at);
-      if (tone !== "dim" || cell.tone === "dim") cell.tone = tone;
+      if (rank(tone) >= rank(cell.tone)) cell.tone = tone;
       cells.set(key, cell);
     };
     for (let index = 1; index < points.length; index++) {
@@ -227,6 +229,6 @@ export function rasterize(routes: readonly Route[], project: (point: Point) => P
   }
   return [...cells.values()].map(cell => {
     const straight = cell.mask === (E | W) ? "┈" : cell.mask === (N | S) ? "┊" : undefined;
-    return { x: cell.x, y: cell.y, tone: cell.tone, t: cell.t, glyph: cell.arrow ?? (cell.tone === "dim" && straight ? straight : solid[cell.mask] ?? "·") };
+    return { x: cell.x, y: cell.y, tone: cell.tone, t: cell.t, glyph: cell.arrow ?? ((cell.tone === "dim" || cell.tone === "lost") && straight ? straight : solid[cell.mask] ?? "·") };
   });
 }

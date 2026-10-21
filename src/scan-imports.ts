@@ -105,7 +105,8 @@ export function importsOf(source: string): ImportRef[] {
   const is = (index: number, text: string) => at(index)?.text === text && at(index)?.kind !== "string";
   // The clause between `import`/`export` and `from "x"`: only words and the punctuation of named bindings may appear.
   const clauseEnd = (start: number) => {
-    for (let index = start; index < tokens.length && index < start + 400; index++) {
+    // The clause ends at the first token that cannot be part of it, so this bound only stops a pathological file; generated code lists hundreds of names.
+    for (let index = start; index < tokens.length && index < start + 50_000; index++) {
       const token = tokens[index]!;
       if (token.kind === "word" && token.text === "from" && at(index + 1)?.kind === "string") return index;
       const allowed = token.kind === "word" || (token.kind === "punct" && ["{", "}", ",", "*"].includes(token.text));

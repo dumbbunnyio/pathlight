@@ -1,18 +1,28 @@
-# Handoff (2026-10-20, branch `main`)
+# Handoff (2026-10-21, branch `main`)
 
 ## State
-- Native viewer, scan/check, themes, `w` off-view hint, replay (`p`) and the OpenCode V2 plugin (verified against 2.0.32) are built and committed up to `ff20a58`. See `AGENTS.md` for the contracts and `docs/native-viewer.md` for controls.
-- `docs/pathlight-session.md` is the planning doc for the release push. Where it and this file differ, it wins.
-- `opencode.json` lists only the relative `./plugins/opencode` entry. It used to carry a second, absolute-path entry with `record: true` (written by `pathlight init`), which double-registered the plugin and leaked a home directory. Recording in this repo is opt-in again: `live: true` on a request, or a local override that is not committed.
+- Native viewer, scan/check, themes, `w` off-view hint, replay (`p`), the OpenCode V2 plugin and Claude subagent labels (`agent` field, `s` toggle) are built. Everything since `6ed4311` is uncommitted unless the user says otherwise.
+- **Map quality is the launch gate** and is measured: see `docs/eval.md`. The scan is checked against an independent reference (`tests/eval/facts.ts`), models are scored (`tests/eval/run.ts`, authors' rules in `tests/eval/references/opencode.json`), and planted-defect tests (`tests/eval.test.ts`) keep the scorer honest. The pinned repo is `.cache/eval/opencode-installed` (opencode at 5fa426f68d, `bun install --ignore-scripts`); rebuild it from `docs/eval.md`.
+- `pathlight draft` (`src/draft.ts`) writes a deterministic first picture from the imports: packages, components (small folders and loose files in two collections), relationships with import counts, and views for the landscape, each package, each component's neighbourhood and import cycles. Views are capped (about 16 boxes in an overview, 20 in any readable view, line counts bounded so the layout stays fast) with complete listings declared under `entries` in the mapping. Ids and names come from the code only; there is no overlay file yet.
+- `planned` in `pathlight.activity.json` marks elements designed but not built; `check` reports the plan, the viewer draws them dashed with `[planned]`, and the skill (plugin 0.1.10) teaches it.
+- Scanner: `package.json` `exports`/`imports` (patterns and runtime conditions) are resolved with `resolve.exports`; the 400-token cap on an import's name list was a real bug and is fixed. No native dependency ships.
+- codebase-memory-mcp and SCIP were trialled on opencode `packages/core`: neither replaces the scan (see `memory/map-pipeline-direction.md`).
 
-## Agreed plan (in order)
-1. Clean up `opencode.json`, refresh this file. (done)
-2. Log one raw Claude hook payload from inside a subagent (is `session_id` the parent's?). In parallel, spike `bun build --compile`: does OpenTUI's native library load, and does LikeC4's layout bundle?
-3. Subagents: add `agent` and `parent` to `ActivityEvent`; OpenCode records child sessions to their own journals with `parent`; Claude fills `agent` from `agent_type` (and `agent_id`). The viewer merges children under the root at read time, with labels, as a toggle; `--follow` resolves to the root. This amends AGENTS.md contract 5 (no subagent aggregation): do that with the code, with the user's approval.
-4. Drop `flock` (it breaks macOS: `src/tmux.ts` spawns it unconditionally), then packaging (compiled binary, self-fetching plugin, no required `init`), `pathlight doctor`, and a real macOS check. `pathlight init` writes an absolute plugin path into `opencode.json`; fix that with packaging.
-5. `check` upgrades (evidence declarations, per-edge suppressions with reasons), `check --json` in the `Stop` hook, a stale-model badge in the viewer.
-6. Edge diff (labelled static), then plan overlay (node IDs only, never plan text).
-7. After launch: renderer split, OpenCode `session.panel`, Raster/SVG surfaces, browser pop-out, per-language scanners (measure edge recall first).
+## Done since the last handoff (2026-10-21, uncommitted)
+- Overlay (`pathlight.overlay.json`, titles and notes keyed by what the code is, so ids can move) applied by `pathlight draft`; unknown keys are reported. Merges, splits and pinned relationship decisions are not built.
+- Agent-written baseline on `camenae` and `camenae-sdk` and pass marks: `docs/eval.md`. The scorer cannot judge grouping or descriptions.
+- Out-of-date badge: every `check` writes `.cache/pathlight/stale.json`; the Stop hook runs `check --quiet`; the viewer shows the counts and their age.
+- `pathlight diff [--base REV]` (relationships backed or lost since a commit, new undeclared pairs), drawn in the viewer: added solid green, lost dotted red. `check`'s import logic is shared as `compareImports`.
+- `pathlight plan ELEMENT ...` (ids only): outlined purple, activity outside it marked `off plan`.
+- Plugin 0.1.14 (new hooks.json `Stop`, skill sections for overlay, diff, plan). Run `claude plugin update` after publishing.
+
+## Next (in order)
+1. Pinned human decisions in the overlay (merges, splits, relationship titles) and a check that rejects an overlay entry that contradicts the code.
+2. Base-commit scan cache for `diff` (the Stop hook now does two scans per turn; about 3 s on the whole opencode repo).
+3. Packaging: drop `flock` (breaks macOS), compiled binary (works on Linux x64; the dependency now has no native code), `pathlight doctor`, macOS check.
+4. Python/Go scanners after the TypeScript gate; languages without one show "relationships unverified".
+5. OpenCode child-session recording, the read-time rollup, and the OpenCode Stop-equivalent for the badge, diff and plan: parked until the Claude side is finished.
+6. Known: `tests/file-click.test.ts` (about 1 in 9) and `follow-work` are timing flakes; one readable draft view can exceed its box budget by a couple; a selected node's connector hides its added/lost tint.
 
 ## Gotchas
 - Quiet, low-contrast, amber accent; accent bar stays off; no diagonals; key labels are words, not glyphs.

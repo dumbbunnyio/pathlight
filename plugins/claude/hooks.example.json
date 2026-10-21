@@ -3,6 +3,7 @@
     "PreToolUse": [{ "hooks": [{ "type": "command", "command": "sh '/ABSOLUTE/PATH/pathlight/plugins/claude/hook.sh'", "async": true }] }],
     "PostToolUse": [{ "hooks": [{ "type": "command", "command": "sh '/ABSOLUTE/PATH/pathlight/plugins/claude/hook.sh'", "async": true }] }],
     "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "sh '/ABSOLUTE/PATH/pathlight/plugins/claude/hook.sh'", "async": true }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "sh '/ABSOLUTE/PATH/pathlight/plugins/claude/hook.sh'", "async": true }] }]
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "sh '/ABSOLUTE/PATH/pathlight/plugins/claude/hook.sh'", "async": true }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "sh '/ABSOLUTE/PATH/pathlight/plugins/claude/stop-hook.sh'", "async": true }] }]
   }
 }

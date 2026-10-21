@@ -1,0 +1,23 @@
+{
+  "repo": "opencode",
+  "commit": "5fa426f68d",
+  "note": "Rules the authors state about package dependencies. `from` depends on `to` means files in `from` import files in `to`. Every rule quotes the document it comes from; none was derived from the scanner.",
+  "assertions": [
+    { "kind": "edge", "from": "core", "to": "schema", "basis": "stated", "source": "AGENTS.md:2", "quote": "Keep runtime dependencies directed from Schema to Core and Protocol" },
+    { "kind": "edge", "from": "protocol", "to": "schema", "basis": "stated", "source": "AGENTS.md:2", "quote": "Keep runtime dependencies directed from Schema to Core and Protocol" },
+    { "kind": "edge", "from": "protocol", "to": "schema", "basis": "stated", "source": "packages/schema/AGENTS.md:7", "quote": "Preserve the dependency direction: `@opencode/schema <- @opencode/protocol <- @opencode/server`" },
+    { "kind": "edge", "from": "server", "to": "protocol", "basis": "stated", "source": "packages/schema/AGENTS.md:7", "quote": "Preserve the dependency direction: `@opencode/schema <- @opencode/protocol <- @opencode/server`" },
+    { "kind": "edge", "from": "server", "to": "core", "basis": "stated", "source": "AGENTS.md:2", "quote": "then from Core and Protocol to Server" },
+    { "kind": "edge", "from": "server", "to": "protocol", "basis": "stated", "source": "AGENTS.md:2", "quote": "then from Core and Protocol to Server" },
+    { "kind": "edge", "from": "sdk", "to": "client", "basis": "stated", "source": "AGENTS.md:2", "quote": "`sdk` composes Client, Core, and Server" },
+    { "kind": "edge", "from": "sdk", "to": "core", "basis": "stated", "source": "AGENTS.md:2", "quote": "`sdk` composes Client, Core, and Server" },
+    { "kind": "edge", "from": "sdk", "to": "server", "basis": "stated", "source": "AGENTS.md:2", "quote": "`sdk` composes Client, Core, and Server" },
+    { "kind": "no-edge", "from": "schema", "to": "core", "basis": "stated", "source": "AGENTS.md:2", "quote": "dependencies directed from Schema to Core (the reverse is not allowed)" },
+    { "kind": "no-edge", "from": "schema", "to": "protocol", "basis": "stated", "source": "packages/schema/AGENTS.md:7", "quote": "Preserve the dependency direction: `@opencode/schema <- @opencode/protocol`" },
+    { "kind": "no-edge", "from": "schema", "to": "server", "basis": "stated", "source": "packages/schema/AGENTS.md:7", "quote": "Preserve the dependency direction: `@opencode/schema <- @opencode/protocol <- @opencode/server`" },
+    { "kind": "no-edge", "from": "core", "to": "server", "basis": "stated", "source": "AGENTS.md:2", "quote": "then from Core and Protocol to Server (the reverse is not allowed)" },
+    { "kind": "no-edge", "from": "protocol", "to": "server", "basis": "stated", "source": "AGENTS.md:2", "quote": "then from Core and Protocol to Server (the reverse is not allowed)" },
+    { "kind": "no-edge", "from": "client", "to": "core", "basis": "stated", "source": "AGENTS.md:2", "quote": "Client runtime code may depend on Schema and Protocol but never Core or Server" },
+    { "kind": "no-edge", "from": "client", "to": "server", "basis": "stated", "source": "AGENTS.md:2", "quote": "Client runtime code may depend on Schema and Protocol but never Core or Server" }
+  ]
+}

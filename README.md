@@ -100,6 +100,23 @@ The `pathlight` skill (`plugins/claude/skills/pathlight/SKILL.md`) teaches an ag
 
 `pathlight check --workspace .` compares that scan with your LikeC4 model and `pathlight.activity.json`: mapping globs that match no files, source files no mapping claims, relationships with no import between their mapped files, and imports between elements that no relationship declares. These are questions, not verdicts (a relationship can run over a network call that no import shows); `--json` gives the same facts as data and `--strict` exits 1 when anything is found.
 
+## Draw a codebase from its code
+
+`pathlight draft --workspace .` writes a first architecture picture made from the code alone, with no model in the loop: each workspace package becomes a box, the top-level folders inside it become components (`session.ts` beside a `session/` folder is one), and a relationship exists wherever files in one component import files in another, labelled with how many. Tests are left out. It writes `pathlight.model.c4`, `pathlight.activity.json` (the file mapping) and `likec4.config.json`, so `pathlight check` and the viewer work on it straight away, and the same code always gives the same text. Names are the folder names and the descriptions are facts (file and line counts); nothing is inferred about intent.
+
+It draws several kinds of view, each kept to about what a terminal can show at once:
+
+- **Packages** (`index`): the strongest packages and how they depend on each other. `all_packages` lists every package.
+- **Inside a package** (`<package>_components`): its components, with the other packages they connect to. Folders with fewer than three files, and a package's loose top-level files, sit in two collections (`small folders`, `loose files`) that open into their own views, so a small module is never merged into whatever imports it most. A package with more components than fit shows the strongest and says how many it left out; `<package>_all_components` shows everything.
+- **A component's neighbourhood** (`<component>_near`): what it uses and what uses it, which is the blast radius of editing it. Select a component and press enter to open it. A hub with too many neighbours lists its strongest and says how many were left out.
+- **Import cycles** (`cycles`, `<package>_cycles`): packages or components that import each other in a loop, with the size of the loop.
+
+Every connection stays in the model. A view hides the weakest ones (tagged `lt2`, `lt3`, ... by import count) until it has about as many lines as a terminal can show, and its description says so; select a component to see all of its connections. Views meant to be opened directly (the complete listings and the cycle reports) are named under `entries` in `pathlight.activity.json`, so `pathlight check` does not count them as a second entry point.
+
+Better names and notes go in `pathlight.overlay.json` beside the draft, which a rerun applies and never overwrites: `{"version":1,"elements":{"packages/core/src/session":{"title":"Sessions","note":"Runs one conversation turn"}}}`. Entries are keyed by what the code is (package directory, folder path, file path, or `<directory>#small` / `<directory>#loose` for a collection), so a name keeps applying when a generated id changes. Keys that match nothing are listed after each run. Titles (60 characters) and notes (300) only: files, relationships and ids always come from the code.
+
+It never rewrites a LikeC4 model you wrote: if the workspace has one, use `--out DIR` to write the draft elsewhere (or `--force`). A file it generated starts with a marker line and is replaced on the next run, so do not edit it by hand. See [scan format](docs/scan.md) for what counts as an import, and [measuring map quality](docs/eval.md) for how the draft is scored.
+
 ## Outside tmux
 
 Use `--pane %ID` to choose the parent pane explicitly (run `tmux display-message -p '#{pane_id}'` in it), and `--socket PATH` for a non-default tmux server.
@@ -140,7 +157,7 @@ Mappings use workspace-relative path globs and exact LikeC4 element IDs:
 }
 ```
 
-`ignore` lists files deliberately outside the model, and `shared` lists elements anything may import (so `pathlight check` expects no relationship to them). Only `check` reads either.
+`ignore` lists files deliberately outside the model (the viewer leaves their activity out too), and `shared` lists elements anything may import (so `pathlight check` expects no relationship to them). `planned` lists elements designed but not built yet (their mappings may match no files without being a mistake; `check` reports how much of the plan exists and the viewer draws them dashed with a `[planned]` tag until they have files). `entries` lists views meant to be opened directly (not linked from another), which `check` does not count as a second entry point. `check` reads these; the viewer also reads `ignore` and `planned`.
 
 In OpenCode with `record: true`, just run `/pathlight-open live`. Without it, ask the agent to show the `viewer` project's `live` view with `live: true` and your current pane ID.
 The plugin binds the panel to the session. It records that session's subsequent tool starts, completions, and failures automatically.
@@ -158,7 +175,7 @@ Selection, pan and zoom remain unchanged as activity arrives. Reopening the view
 For Claude Code, `pathlight init` installs these hooks. To do it by hand, copy the hooks from `plugins/claude/hooks.example.json` into your project settings and replace the absolute plugin path.
 Merge the hooks with existing settings; do not replace unrelated configuration.
 The hook runs asynchronously and exits successfully even if observation fails.
-The adapter accepts `PreToolUse`, `PostToolUse`, and `PostToolUseFailure`; it has been tested with hook payloads, not an interactive Claude session.
+`pathlight plan <element ids>` lets an agent say where it is about to work; the viewer outlines those elements and marks activity outside them `off plan`. A `Stop` hook runs `pathlight check --quiet` and `pathlight diff --quiet` after each turn, so the viewer can show an out-of-date badge when the model no longer matches the code and mark connectors whose imports changed since the last commit (`pathlight diff [--base REV]` prints the same list) (see [native viewer](docs/native-viewer.md)). The adapter accepts `PreToolUse`, `PostToolUse`, and `PostToolUseFailure`; it has been tested with hook payloads, not an interactive Claude session.
 With the Claude session ID, open a bound viewer:
 
 ```sh

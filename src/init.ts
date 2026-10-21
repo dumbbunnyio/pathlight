@@ -31,6 +31,10 @@ export const claudeSettings = (current: unknown, hook: string): Record<string, u
     if (!present) entries.push({ hooks: [{ type: "command", command: `sh '${hook}'`, async: true }] });
     hooks[event] = entries;
   }
+  // At the end of each turn, check the model against the code so the viewer can say when it has drifted.
+  const stop = [...hooks.Stop ?? []];
+  if (!stop.some(entry => JSON.stringify(entry).includes("plugins/claude/stop-hook.sh"))) stop.push({ hooks: [{ type: "command", command: `sh '${hook.replace(/hook\.sh$/, "stop-hook.sh")}'`, async: true }] });
+  hooks.Stop = stop;
   return { ...settings, hooks };
 };
 
