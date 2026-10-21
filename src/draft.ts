@@ -257,6 +257,16 @@ export const viewCap = 16;
 /** A readable view holds at most this many boxes in all: its own members plus the neighbours that connect to them. */
 export const crowdedAbove = 20;
 
+/**
+ * Folders and config files that build, measure or exercise a package rather than being part of it. They stay in the model and in every
+ * "everything" view, but they never count towards what a package depends on and they are the first to move out of an overview.
+ */
+export const isTooling = (key: string) => {
+  const name = posix.basename(key).toLowerCase();
+  return /^(benchmarks?|bench|build|scripts|e2e|examples?|fixtures|docs|runtime-tests|perf(-.*)?)$/.test(name)
+    || /^(vite|vitest|jest|rollup|tsup|webpack|eslint|babel|esbuild)\.config\.[cm]?[jt]s$/.test(name);
+};
+
 export interface Analysis {
   /** How much each package and component connects to the rest, in imports (a collection counts its members). */
   readonly weight: ReadonlyMap<string, number>;
@@ -323,12 +333,16 @@ export function analyse(draft: Draft): Analysis {
   const packageOf = new Map(draft.packages.flatMap(item => item.components.map(entry => [entry.id, item.id] as const)));
   const weight = new Map<string, number>();
   const add = (id: string, n: number) => weight.set(id, (weight.get(id) ?? 0) + n);
+  const tooling = new Set(draft.packages.flatMap(item => item.components.filter(entry => isTooling(entry.key)).map(entry => entry.id)));
   for (const edge of draft.relationships) {
+    // What a benchmark or a build script imports says nothing about what the product depends on.
+    if (tooling.has(edge.from)) continue;
     add(edge.from, edge.imports); add(edge.to, edge.imports);
     const a = packageOf.get(edge.from), b = packageOf.get(edge.to);
     if (!draft.flat && a && b && a !== b) { add(a, edge.imports); add(b, edge.imports); }
   }
-  const ranked = (ids: readonly string[], files: (id: string) => number) => [...ids].sort((a, b) => (weight.get(b) ?? 0) - (weight.get(a) ?? 0) || files(b) - files(a) || byText(a, b));
+  const ranked = (ids: readonly string[], files: (id: string) => number) => [...ids].sort((a, b) =>
+    Number(tooling.has(a)) - Number(tooling.has(b)) || (weight.get(b) ?? 0) - (weight.get(a) ?? 0) || files(b) - files(a) || byText(a, b));
   const minor = new Set<string>();
   if (!draft.flat && draft.packages.length > viewCap) {
     const filesOf = (id: string) => draft.packages.find(item => item.id === id)!.components.reduce((sum, entry) => sum + entry.files.length, 0);

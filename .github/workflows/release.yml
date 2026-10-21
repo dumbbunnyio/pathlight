@@ -30,7 +30,7 @@ jobs:
         run: |
           ./dist/pathlight-${{ matrix.name }} --help
           ./dist/pathlight-${{ matrix.name }} doctor || true
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: pathlight-${{ matrix.name }}
           path: dist/pathlight-${{ matrix.name }}
@@ -39,11 +39,11 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v7
         with: { path: dist, merge-multiple: true }
       - name: Checksums
         run: cd dist && chmod +x pathlight-* && sha256sum pathlight-* > SHA256SUMS && cat SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}

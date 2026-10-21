@@ -246,6 +246,18 @@ test("analyse keeps the strongest components in an overview and leaves the weake
   expect(result.weight.get("m00")).toBe(11);
 });
 
+test("analyse does not let tooling outrank the product: a benchmarks folder importing everything moves out of the overview first", () => {
+  const count = crowdedAbove + 2;
+  const names = Array.from({ length: count }, (_, n) => `m${String(n).padStart(2, "0")}`);
+  const paths = [...names, "benchmarks"].flatMap(name => ["a", "b", "c"].map(leaf => `src/${name}/${leaf}.ts`));
+  const imports = [...names.slice(1, 4).map(name => edge(`src/${name}/a.ts`, "src/m00/a.ts")), ...names.map(name => edge("src/benchmarks/a.ts", `src/${name}/a.ts`))];
+  const result = analyse(draftOf({ files: paths.map(file), imports }, [{ directory: "", name: "wide" }]));
+  expect(result.minor.has("benchmarks")).toBe(true);
+  // Only the three real imports count; the 22 the benchmarks make say nothing about what m00 is used for.
+  expect(result.weight.get("m00")).toBe(3);
+  expect(result.weight.get("benchmarks") ?? 0).toBe(0);
+});
+
 test("a workspace with an import loop gets a cycles view naming its size, and its neighbourhood views, listings and cycle reports are declared entries", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-cycles-"));
   try {

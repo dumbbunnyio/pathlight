@@ -32,6 +32,10 @@ test("the compiled binary drafts, initialises, reports on itself and opens its o
     let screen = "";
     for (let attempt = 0; attempt < 100 && !screen.includes("Selected:"); attempt++) { screen = await tmux("capture-pane", "-p", "-t", shown.pane); await delay(100); }
     expect(screen).toContain("Selected:");
+    // Showing again from the same pane reuses the viewer; it must not split a second one beside it.
+    const again = JSON.parse(await run(binary, ["show", "index", "--workspace", project, "--pane", harness, "--socket", socket])) as { pane: string };
+    expect(again.pane).toBe(shown.pane);
+    expect((await tmux("list-panes", "-a", "-F", "#{pane_id}")).trim().split("\n")).toHaveLength(2);
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

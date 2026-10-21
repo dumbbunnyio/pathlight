@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir, mkdtemp, open, readFile, unlink } from "node:fs/promises";
 import { Config, Effect, Schedule, Schema } from "effect";
@@ -76,10 +76,12 @@ export const showView = Effect.fn("Tmux.show")(function* (options: {
       args.push("--session", options.activity.session, "--source", options.activity.source);
     }
     if (options.follow) args.push("--follow");
+    // The viewer's process is bun from source and the binary itself when compiled; tmux may shorten a long name.
+    const runner = basename(process.execPath);
     const panes = yield* tmux("list-panes", "-a", "-F", "#{pane_id}\t#{@pathlight-owner}\t#{pane_current_command}\t#{pane_dead}\t#{pane_start_command}\t#{@pathlight-command}");
     const existing = panes.split("\n").map(line => line.split("\t"))
       .find(([, tag, command, dead, started, expected]) =>
-        tag === owner && started === expected && !!expected && (command === "bun" || dead === "1"));
+        tag === owner && started === expected && !!expected && (!!command && runner.startsWith(command) || dead === "1"));
     let pane = existing?.[0];
     if (pane) {
       const owned = pane;
