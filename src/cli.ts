@@ -8,7 +8,7 @@ import { io, json, failure } from "./effects";
 import { writeReady } from "./ready";
 import { atShellPrompt, showView } from "./tmux";
 import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
-import { claudeActivity } from "./claude";
+import { claudeActivity, claudeIgnores } from "./claude";
 import { initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
 import { checkWorkspace, formatCheck, hasFindings } from "./check";
@@ -91,8 +91,8 @@ try {
       process.stdout.write(`${(yield* initWorkspace(values.workspace, { claudeHooks: !values["no-claude-hooks"] })).join("\n")}\n`);
     } else if (command === "record") {
       yield* readActivityConfig(values.workspace);
-      const event = yield* claudeActivity(resolve(values.workspace), yield* json(yield* readStdin));
-      yield* writeActivity(values.workspace, event);
+      const input = yield* json(yield* readStdin);
+      if (!claudeIgnores(input)) yield* writeActivity(values.workspace, yield* claudeActivity(resolve(values.workspace), input));
     } else if (command === "show" || command === "view" || command === "open") {
       if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));

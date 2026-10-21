@@ -4,7 +4,7 @@ Oct 20, 2026 · @David Levy
 
 ## Using this doc in Claude Code
 
-This doc condenses a claude.ai planning conversation about Pathlight so a Claude Code session can pick up the context. Export it as Markdown into the repo (for example `docs/design-notes.md`) and point Claude Code at it, or reference it from `AGENTS.md`. Statements marked *unverified* were not confirmed against source code or a live run. The public repo was a few commits behind the local copy when this was written.
+This doc condenses a claude.ai planning conversation about Pathlight so a Claude Code session can pick up the context. It was last checked against the repo at commit `ff20a58` ("working toward opencode integration", Oct 20, 2026). Export it as Markdown into the repo (it lives there as `docs/pathlight-session.md`) and point Claude Code at it. Statements marked *unverified* were not confirmed against source code or a live run.
 
 ## Where Pathlight stands
 
@@ -13,21 +13,24 @@ Pathlight already has the right core: LikeC4 owns model and layout, an OpenTUI v
 - **Mapping:** `pathlight.activity.json` maps path globs to LikeC4 element IDs, with `ignore` and `shared` lists.
 - **Scan:** `pathlight scan` reads TypeScript and JavaScript statically and writes files, imports, packages and unreadable files to `scan.json`.
 - **Check:** compares scan, model and mapping. It reports globs matching no files, unclaimed source files, relationships with no import behind them, and imports with no declared relationship.
-- **Recording:** Claude Code hooks (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`) and an OpenCode V2 plugin write local journals under `.cache/pathlight/activity`.
-- **Viewer:** lights nodes on read and edit, shows an activity inspector, `a` glides the camera to the active node, `t` asks the agent about the selected node.
+- **Recording:** Claude Code hooks (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`) and an OpenCode V2 plugin write local journals under `.cache/pathlight/activity`, retaining 2048 events per session. Prompt submissions are recorded as turn markers with no prompt content.
+- **Viewer:** lights nodes on read and edit, shows an activity inspector, `a` follows the work, `w` jumps to it, `t` asks the agent about the selected node, `T` picks one of 33 OpenCode-format themes.
+- **Off-view work:** when work lands outside the open view, the header says "working in VIEW · w to go", choosing a linked view first, else the smallest view containing it. It never switches on its own.
+- **Replay (shipped):** `p` steps through the session's calls; `←`/`→` step, `[`/`]` jump by turn, `space` plays, `s` sets speed.
+- **OpenCode V2 (verified against 2.0.32):** a server plugin records via `tool.hook` and offers the skill and `pathlight_list`/`show`/`stop`; a CLI plugin adds `/pathlight-open` and `/pathlight`, passing the real tmux pane. `record: true` on the plugin entry is the workspace opt-in. Tested against the real OpenCode binary with a fake model.
 - **Skill:** `/pathlight` teaches the agent to scan, draft the model and mapping, check until clean, then show.
 
 ## Mapping a codebase to architecture
 
 "Perfect" means checkable: complete, every claim backed by evidence, stable across runs, and respectful of human decisions. There is no single correct architecture, so the gains come from constraining the agent with a verifier, not from a smarter agent.
 
-**Split mechanical from judgment.** Derive deterministically: containers from deployment units (Dockerfiles, k8s deployments, build targets), datastores and queues from IaC and connection config, and file membership from rules. Leave the agent only component grouping, naming, descriptions and ambiguous cases. Seed grouping with community detection (Leiden) on the coupling-weighted symbol graph, and have the agent accept, merge, split or rename clusters with reasons.
+**Split mechanical from judgment.** Derive deterministically: containers from deployment units (Dockerfiles, k8s deployments, build targets), datastores and queues from IaC and connection config, and file membership from rules. Leave the agent only component grouping, naming, descriptions and ambiguous cases. Seed grouping from directory and package structure plus the scan's import graph, and have the agent accept, merge, split or rename groups with reasons.
 
 **Evidence layers**, each covering what the others miss:
 
 | Layer | Source | Catches |
 | --- | --- | --- |
-| Symbol graph | codebase-memory-mcp, SCIP | Component internals, call and import edges |
+| Symbol graph | pathlight scan, per-language scanners or SCIP | Component internals, call and import edges |
 | Runtime | OpenTelemetry traces | Real service-to-service and DB calls, dynamic dispatch |
 | Declared infra | Terraform/Pulumi/CDK state, k8s manifests | Resources, deployment topology |
 | Actual infra | Cartography, Steampipe, AWS Config, Azure Resource Graph | What exists now, drift |
@@ -36,19 +39,19 @@ The hard part is identity linking: matching a code-level service to its image, k
 
 **Gaps to close in `check`:**
 
-- `scan` is TypeScript and JavaScript only, file-level imports. Add an adapter that exports codebase-memory-mcp's graph (with call edges) into the same `scan.json` shape, making `check` language-agnostic.
+- `scan` is TypeScript and JavaScript only, file-level imports. Add per-language scanners (or SCIP indexers) emitting the same `scan.json` shape, making `check` language-agnostic. Not codebase-memory-mcp: its edge recall was 45–62% in your trial.
 - Network edges show no import. Let each relationship declare evidence of a kind (HTTP route plus client call site, queue topic, env var or connection string, IaC resource) and have `check` verify it exists.
 - Anything unprovable gets an explicit per-edge suppression with a reason, stored like `ignore`/`shared`, so the agent loop converges and cannot re-litigate human decisions.
 
 **Stability:** persistent element IDs; never regenerate from scratch; the agent emits diffs against the existing model; human corrections become pinned constraints the verifier enforces. Run grouping several times, keep what is consistent, and surface only disagreements. Keep an eval set of hand-curated repos and score every prompt, model or clustering change against it.
 
-## Indexers: codebase-memory-mcp vs SCIP
+## Indexers beyond TypeScript
 
-Keep [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) as the agent's working graph, and add SCIP only as a verification source if a measurement shows it is needed. codebase-memory-mcp is a tree-sitter indexer with hybrid LSP resolution for 9 languages, stored in SQLite, with Cypher queries over MCP. Outside those languages it falls back to heuristic resolution.
+**Correction:** an earlier version of this doc recommended [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) as the working graph and as a `scan` adapter. Your own trial (recorded in `docs/handoff.md`) found 45–62% recall on its import edges and noise in its clusters, so drop that recommendation. `pathlight scan` stays the source of truth for TypeScript and JavaScript, and Leiden clustering on that graph is not a usable seed for grouping.
 
 [SCIP](https://github.com/scip-code/scip) is Sourcegraph's compiler-grade index format, now under the scip-code org, with indexers for Java/Scala/Kotlin, TypeScript/JavaScript, Rust (rust-analyzer), C/C++, Ruby, Python, C#/VB, Dart and PHP. It needs a working build per language.
 
-**The test:** run the SCIP indexer for the main language on a representative repo, aggregate both graphs to LikeC4 element level, and diff the cross-element edge sets. Element-level aggregation forgives most symbol-level errors. If they agree, skip SCIP. If they diverge (dynamic dispatch, DI-heavy code, languages outside the LSP set), use SCIP as ground truth for `check` in those languages only.
+**For other languages:** add per-language scanners, or SCIP indexers, that emit the same `scan.json` shape (files, file-to-file edges, packages, unreadable files), so `check` stays language-agnostic. Before relying on any new source, measure it the way you measured codebase-memory-mcp: recall of import edges against a known-good scan on a real repo.
 
 ## Live updates and greenfield growth
 
@@ -91,23 +94,30 @@ The goal is to move from showing where the agent is to showing what it is doing 
 5. **Trouble glyphs:** edit/fail thrash on the same files, tool failures, and new `check` findings.
 6. **Change magnitude:** lines added and removed, or heat, instead of raw read/edit counts.
 7. **Parallel agents:** several sessions on one view, each in its own color, surfacing collisions.
-8. **Timeline strip:** one row of session activity over time, colored by node, scrubbable for replay.
+8. **Timeline strip:** replay shipped (p). Still open: a one-row strip of session activity over time, colored by node, as a visual scrubber for it.
 9. **Zero-to-diagram onboarding:** a `pathlight bootstrap` that scans, proposes containers and components, has the agent refine them, and loops on `check` until clean.
 
 Build the edge diff and plan overlay first.
 
 ## Subagent visibility
 
-Subagent activity is visible in both harnesses; the likeliest cause of missing events is Pathlight's own session binding.
+Subagent work goes missing because of Pathlight's own code, not the harnesses. Both harnesses expose what's needed; as of `ff20a58` Pathlight discards it.
 
-- **Claude Code:** per the [hooks reference](https://code.claude.com/docs/en/hooks), settings and plugin hooks run inside subagents, and tool events carry `agent_id` and `agent_type`. `SubagentStart` and `SubagentStop` also fire. *Unverified:* whether a subagent's `session_id` equals the parent's. Fix: record `agent_id` and `agent_type` alongside `session_id`.
-- **OpenCode v2:** subagents are child sessions with `parentID`. Hook inputs don't carry the parent identity ([issue #15403](https://github.com/anomalyco/opencode/issues/15403)), but a plugin can walk `parentID` to the root. An older report ([issue #5894](https://github.com/anomalyco/opencode/issues/5894)) said `tool.execute.before` didn't fire for subagent calls; *unverified* for v2. Fix: resolve each event's session to its root and record it if the root is opted in, tagged with the child's agent name.
+- **OpenCode (`plugins/opencode/index.ts`):** auto-recording writes only when `known.root || !pending.auto`. Child sessions are never watched, so with `record: true` every subagent call is discarded. Subagents are child sessions with `parentID` ([issue #15403](https://github.com/anomalyco/opencode/issues/15403) notes hooks don't carry the parent identity, but walking `parentID` works).
+- **Claude Code (`src/claude.ts`):** the hook schema decodes neither `agent_id` nor `agent_type`, which the [hooks reference](https://code.claude.com/docs/en/hooks) says tool events carry inside subagents. *Unverified:* whether a subagent's `session_id` equals the parent's. If it does, subagent calls merge invisibly into the parent journal; if not, they form a separate session that `--follow` jumps to.
+- **Fix, both harnesses:** add an optional `agent` field to `ActivityEvent`. Claude: fill it from `agent_type`. OpenCode: resolve child sessions to their root via `parentID`, record under the root, and set `agent` to the child's agent name. The viewer can then show subagent work in a second color.
 
-Next step: log raw hook payloads in each harness while a subagent edits a file.
+Next step: log one raw Claude hook payload from inside a subagent to settle the `session_id` question, then implement the fix.
 
 ## Distribution
 
 Target: Claude Code setup is two commands plus `/pathlight`; OpenCode is one config line. Today a user needs Bun, Node, tmux, `flock`, `bun link`, a local-path marketplace, a plugin install and a per-project `init`.
+
+**Fix now, before distribution work:**
+
+- **`opencode.json` leaks a home path and double-registers.** It lists the plugin as `./plugins/opencode` and again as `/home/david/Projects/github/visualize-work/plugins/opencode` with `record: true`. Locally that likely records every call twice; for anyone else the path doesn't exist. Keep one relative entry and put `record: true` in a local or user config.
+- **Hooks still depend on `bun link`.** `plugin.json` says so, and every hook checks `command -v pathlight`, so on a machine without the link the hooks silently record nothing. `pathlight doctor` should catch this until the binary ships.
+- **`docs/handoff.md` is stale:** dated Oct 18, says all work is uncommitted and lists 62 tests. Refresh it or fold it into this doc, since agents read it as current.
 
 1. **One compiled binary:** `bun build --compile` bundles the Bun runtime and cross-compiles for macOS and Linux on x64 and arm64. Publish on GitHub Releases, with a Homebrew tap or `curl | sh`. Test first that OpenTUI's native library loads from a compiled binary and that LikeC4's layout dependencies bundle.
 2. **Plugin fetches the binary:** host the marketplace on GitHub (`owner/repo`). A SessionStart hook checks `${CLAUDE_PLUGIN_DATA}` and downloads the right binary on a miss; hooks call that path instead of relying on PATH.
@@ -142,18 +152,19 @@ The mark is a pen-and-ink lamppost: one lit lamp in the foreground beside a curv
 
 ## Suggested order and open questions
 
-1. Log raw subagent hook payloads in both harnesses and fix session attribution.
-2. Add the codebase-memory-mcp adapter to `scan`, then the SCIP edge-diff test.
+1. Clean up `opencode.json` (one relative entry, `record: true` moved to local config) and refresh `docs/handoff.md`.
+2. Log a raw Claude hook payload from a subagent; add the `agent` field and record subagent work in both harnesses.
 3. Evidence declarations and per-edge suppressions in `check`; `check` in the `Stop` hook.
 4. Compiled binary, GitHub-hosted marketplace, self-fetching plugin, `pathlight doctor`.
 5. Architectural edge diff and plan overlay in the viewer.
 6. Split the viewer into core plus renderers; OpenCode `session.panel`.
 7. Claude Code Raster spike; SVG renderer for desktop; browser pop-out on LikeC4's renderer.
+8. Per-language scanners for repos beyond TypeScript, each measured for edge recall before use.
 
 **Open questions**
 
 - [ ] Does a Claude Code subagent's hook `session_id` match the parent's?
-- [ ] Do OpenCode v2 plugin hooks fire for child-session tool calls?
+- [ ] Do OpenCode v2 plugin hooks fire for child-session tool calls? Likely yes: the plugin already receives them and filters them out by parentID; confirm with a live subagent run.
 - [ ] Does OpenTUI's native library load inside a `bun build --compile` binary?
 - [ ] Can the viewer mount as a component, or does the camera code assume it owns the renderer?
 - [ ] Is a Raster repaint fast enough for camera glides in Claude Code?

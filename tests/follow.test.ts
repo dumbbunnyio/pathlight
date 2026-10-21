@@ -83,7 +83,7 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
     await writeActivity(directory, toolActivity(directory, { source: "claude", session: "session-one-aaaa" }, "e-gap", "Edit",
       { file_path: join(directory, "src/unmapped-gap.ts") }, "completed"));
     await tmux("send-keys", "-t", pane, "4");
-    const gap = await capture("no component");
+    const gap = await capture("not in the model");
     expect(gap).toContain("src/unmapped-gap.ts");
     await delay(20);
     await edit("zzz-second-session", "e2");

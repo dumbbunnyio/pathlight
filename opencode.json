@@ -1,12 +1,4 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": [
-    "./plugins/opencode",
-    {
-      "package": "/home/david/Projects/github/visualize-work/plugins/opencode",
-      "options": {
-        "record": true
-      }
-    }
-  ]
+  "plugins": ["./plugins/opencode"]
 }

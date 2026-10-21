@@ -106,7 +106,7 @@ Keep platform-specific and manual verification claims separate.
 - Editing the architecture model through the viewer, or becoming a source editor.
 - A hosted dashboard, network telemetry service, collaborative presence system,
   or durable audit log.
-- Automatically recording every agent/subagent session or combining their activity.
+- Automatically recording every agent/subagent session, or presenting a subagent's work as the conversation's own. Claude subagent calls are recorded with their type as a label and can be hidden; they are never unlabelled.
 - Pixel-identical reproduction of every LikeC4 shape in native terminal cells.
 
 These are scope boundaries, not promises of later implementation.

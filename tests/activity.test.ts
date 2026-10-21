@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { activityLines, retainedEvents } from "../src/activity";
+import { activityLines, activityRows, retainedEvents } from "../src/activity";
+import { claudeIgnores } from "../src/claude";
 import { activityDirectory, readActivity, toolActivity, writeActivity, claudeActivity, run } from "./effects";
 import { ActivitySubscriptions } from "../src/activity-subscriptions";
 
@@ -89,6 +90,41 @@ test("a Claude session that cd'd into a workspace subdirectory is still recorded
     await expect(claudeActivity(directory, { hook_event_name: "PostToolUse", cwd: tmpdir(),
       session_id: "s", tool_use_id: "e", tool_name: "Read", tool_input: {} })).rejects.toThrow("does not match");
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("calls made inside a Claude subagent carry its type, and nothing else about it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-agent-"));
+  try {
+    const base = { hook_event_name: "PostToolUse", cwd: directory, session_id: "s", tool_name: "Read", tool_input: {} };
+    const own = await claudeActivity(directory, { ...base, tool_use_id: "a" });
+    const sub = await claudeActivity(directory, { ...base, tool_use_id: "b", agent_id: "a1b2c3", agent_type: "Explore" });
+    const bare = await claudeActivity(directory, { ...base, tool_use_id: "c", agent_id: "a1b2c3", agent_type: "" });
+    expect(own).not.toHaveProperty("agent");
+    expect(sub.agent).toBe("Explore");
+    expect(bare.agent).toBe("subagent");
+    expect(JSON.stringify(sub)).not.toContain("a1b2c3");
+    expect(claudeIgnores({ ...base, tool_name: "SubagentHandback" })).toBe(true);
+    expect(claudeIgnores(base)).toBe(false);
+    // Same journal as the conversation: the label is the only difference.
+    expect(await activityDirectory(directory, sub)).toBe(await activityDirectory(directory, own));
+    await writeActivity(directory, sub);
+    expect((await readActivity(directory, own)).map(event => event.agent)).toEqual(["Explore"]);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("calls that name no file are not listed as activity", () => {
+  const config = { version: 1 as const, project: "parcel", mappings: [{ glob: "src/a.ts", element: "parcel.a" }] };
+  const own = toolActivity("/work", { source: "claude", session: "s" }, "read", "Read", { file_path: "src/a.ts" }, "completed");
+  const launch = toolActivity("/work", { source: "claude", session: "s" }, "launch", "Agent", { prompt: "do things" }, "completed");
+  expect(activityRows([launch, own], config).map(row => row.call)).toEqual(["read"]);
+});
+
+test("work on files the mapping ignores is not listed", () => {
+  const config = { version: 1 as const, project: "parcel", mappings: [{ glob: "src/a.ts", element: "parcel.a" }], ignore: ["tests/**"] };
+  const own = toolActivity("/work", { source: "claude", session: "s" }, "edit", "Edit", { file_path: "src/a.ts" }, "completed");
+  const test = toolActivity("/work", { source: "claude", session: "s" }, "test", "Edit", { file_path: "tests/a.test.ts" }, "completed");
+  const stray = toolActivity("/work", { source: "claude", session: "s" }, "stray", "Edit", { file_path: "src/stray.ts" }, "completed");
+  expect(activityRows([stray, test, own], config).map(row => row.call)).toEqual(["stray", "edit"]);
 });
 
 test("stop cancels an outstanding attachment and concurrent reservations respect the limit", () => {

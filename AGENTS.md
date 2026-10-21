@@ -60,7 +60,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 5. **Recording and viewing are separate.** A bound CLI viewer consumes journals.
    OpenCode recording requires opt-in: `pathlight init` writes `record: true` on the plugin entry (the counterpart of the Claude hooks), or one session asks with `live: true`.
    Automatic recording covers root sessions of the plugin's workspace only; closing a viewer does not stop recording.
-   Do not silently enable recording or aggregate subagent sessions. `--follow` is an explicit viewing choice: it tracks only the single most recently active recorded session and never starts recording. Claude hook installation by `pathlight init` is the Claude opt-in.
+   Do not silently enable recording. Claude reports a subagent's tool calls under the conversation's own `session_id`; they are recorded in that journal with the subagent's type as an `agent` label (never its id, prompt or results), shown with that label, and can be hidden with `s`. A label must never make a subagent's call look like the conversation's own, and a call that names no file is not shown as activity. OpenCode child sessions are not recorded yet; when they are, each keeps its own journal with a `parent` link and the viewer merges them under the root at read time, labelled. `--follow` is an explicit viewing choice: it tracks only the single most recently active recorded session and never starts recording. Claude hook installation by `pathlight init` is the Claude opt-in.
 6. **Resource ownership is scoped.** Use Effect-returning module functions and
    scoped acquisition/finalization for renderers, polling and processes. Preserve
    signal cancellation, editor process-group cleanup, initialization/draw ordering,

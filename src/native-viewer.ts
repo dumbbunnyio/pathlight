@@ -226,6 +226,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // Under 80 columns the diagram does not fit: a plain list of nodes replaces it.
   let listMode = false;
   let events: ActivityEvent[] = [];
+  // Calls made by subagents carry a label and are shown with it; `s` hides them to leave only the conversation's own calls.
+  let showSubagents = true, allEvents: ActivityEvent[] = [];
+  const visibleEvents = (list: ActivityEvent[]) => showSubagents ? list : list.filter(event => !event.agent);
   // Replay: the retained calls of the bound session, walked one step at a time. While it is on, `events` is the calls up to the current step and the live poll stands aside.
   let replay: { data: Replay; index: number; playing: boolean; speed: number; next: number } | undefined;
   let byElement = new Map<string, ActivityEvent[]>();
@@ -246,7 +249,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"]] },
       { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a section"], ["j k", "move / scroll"], ["space", "fold section"],
         ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files"], ["esc", "back to diagram"]] },
-      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"], ["p", "replay the session"]] },
+      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
       { name: "Global", active: false, rows: [["/", "search this view"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
     ];
     const wide = renderer.width >= 100;
@@ -464,7 +467,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const now = Date.now();
     const rows = activityRows(events, config, now, 64);
     const mapped = rows.filter(row => row.elements.length);
-    if (!mapped.length) return note(rows.length ? `${rows.length} calls, none mapped to a component` : "No activity yet");
+    // Edits to files no component claims show where the mapping has a gap.
+    const gaps = [...new Set(rows.filter(row => !row.elements.length && row.operation === "edit").flatMap(row => row.paths))];
+    if (!mapped.length && !gaps.length) return note(rows.length ? "No activity on a mapped component yet" : "No activity yet");
     const groups = new Map<string, typeof mapped>();
     for (const row of mapped) groups.set(row.elements[0] ?? "", [...groups.get(row.elements[0] ?? "") ?? [], row]);
     const width = bodyWidth();
@@ -479,7 +484,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       activityTargets.push(element); activityItems.push({ element, from: lineStart, to: chunks.length }); lines++;
       const collapsed: { row: (typeof group)[number]; count: number; calls: string[] }[] = [];
       for (const row of group) {
-        const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target);
+        const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target && entry.row.agent === row.agent);
         if (same) { same.count++; same.calls.push(row.call); } else collapsed.push({ row, count: 1, calls: [row.call] });
       }
       const visibleRows = collapsed.slice(0, 3);
@@ -489,7 +494,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const glyphTone = row.state === "failed" ? palette.failure : row.state === "started" ? palette.accent : row.state === "completed" ? palette.green : palette.muted;
         const op = (row.operation === "command" ? "run" : row.operation).padEnd(5);
         const first = row.paths[0]?.split("/").at(-1) ?? row.target;
-        const extra = `${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}`;
+        const extra = `${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}${row.agent ? ` ·${row.agent.slice(0, 12)}` : ""}`;
         const age = formatAge(row.age);
         // Fixed grid: branch (3) · glyph (2) · op (5) · file + count · time, right aligned.
         const room = Math.max(4, width - 3 - 2 - 5 - age.length - 1);
@@ -502,14 +507,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         activityTargets.push(element); activityItems.push({ element, from: lineStart, to: chunks.length }); lines++;
       }
     }
-    const hidden = rows.length - mapped.length;
-    // Edits to files no component claims show where the mapping has a gap.
-    const gaps = [...new Set(rows.filter(row => !row.elements.length && row.operation === "edit").flatMap(row => row.paths))];
     if (gaps.length) {
-      chunks.push(nl, fg(palette.accent)("no component"), fg(palette.muted)(`  ${gaps.length} edited file${gaps.length > 1 ? "s" : ""}\n`)); lines += 2;
+      chunks.push(...(lines ? [nl] : []), fg(palette.accent)("not in the model"), fg(palette.muted)(`  ${gaps.length} edited file${gaps.length > 1 ? "s" : ""}\n`)); lines += lines ? 2 : 1;
       for (const path of gaps.slice(0, 3)) { chunks.push(fg(palette.border)("✎ "), fg(palette.body)(`${path.length > width - 4 ? `…${path.slice(-(width - 5))}` : path}\n`)); lines++; }
     }
-    if (hidden > 0) { chunks.push(fg(palette.border)(`+${hidden} unmapped call${hidden > 1 ? "s" : ""}`)); lines++; }
     cursor.activity = Math.min(cursor.activity, Math.max(0, activityItems.length - 1));
     const item = focusSection === "activity" ? activityItems[cursor.activity] : undefined;
     contentRows.activity = lines;
@@ -548,7 +549,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     for (const [path, info] of files) {
       const room = width - 30;
       chunks.push(fg(palette.outgoing)("  ✎ "), fg(info.element ? palette.text : palette.failure)((path.length > room ? `…${path.slice(-(room - 1))}` : path).padEnd(Math.min(room, 40))),
-        fg(palette.muted)(`×${info.count}  ${info.element ? elementTitle(info.element) : "no component"}`), nl);
+        fg(palette.muted)(`×${info.count}  ${info.element ? elementTitle(info.element) : "not in the model"}`), nl);
     }
     if (!files.length) chunks.push(fg(palette.muted)("  no edits observed"), nl);
     chunks.push(nl, fg(palette.border)("Counts come from the retained calls, not totals. Commands show files they name."));
@@ -561,7 +562,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!row || row.age > 120_000) return undefined;
     const label = row.state === "started" ? (row.operation === "command" ? "run" : row.operation) : row.state === "completed" ? "done" : row.state === "failed" ? "failed" : "unconfirmed";
     const tone = row.state === "failed" ? palette.failure : row.state === "started" ? palette.accent : palette.muted;
-    return [fg(tone)("● "), fg(tone)(label), fg(palette.body)(` ${row.target} `), fg(palette.border)("→ "), fg(row.elements.length ? palette.muted : palette.border)(row.elements.join(", ") || "unmapped"), fg(palette.border)(` · ${formatAge(row.age)}`)];
+    return [fg(tone)("● "), fg(tone)(label), fg(palette.body)(` ${row.target} `), ...(row.agent ? [fg(palette.muted)(`[${row.agent.slice(0, 16)}] `)] : []),
+      ...(row.elements.length ? [fg(palette.border)("→ "), fg(palette.muted)(row.elements.join(", "))] : []), fg(palette.border)(` · ${formatAge(row.age)}`)];
   };
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
@@ -795,7 +797,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (focusSection === "activity") followLine("activity", cursor.activity);
 
     const counts: Record<SectionKey, string> = { overview: "", connections: String(incoming.length + outgoing.length),
-      files: fileMode ? `${paths.length ? fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: events.length ? String(events.length) : "" };
+      files: fileMode ? `${paths.length ? fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: events.some(event => event.paths.length) ? String(events.filter(event => event.paths.length).length) : "" };
     layoutSections();
     for (const key of sectionOrder) {
       const entry = sections[key], focused = focusSection === key;
@@ -963,7 +965,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const showStep = (index: number) => {
     if (!replay) return;
     replay.index = Math.max(0, Math.min(replay.data.steps.length - 1, index));
-    events = replay.data.steps.slice(0, replay.index + 1).reverse();
+    events = visibleEvents(replay.data.steps.slice(0, replay.index + 1).reverse());
     seenCalls.clear(); nodeFlashes.clear(); rowFlashes.clear();
     for (const event of events.slice(1)) seenCalls.add(event.call);
     indexEvents(); noteCalls();
@@ -1438,6 +1440,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const card = focusSection ? sections[focusSection].content : sectionOrder.map(name => sections[name].content).find(box => box.visible && box.scrollHeight > box.viewport.height);
       (card ?? inspectorScroll).scrollBy(key.name === "pageup" ? -5 : 5);
     }
+    else if (key.name === "s") {
+      showSubagents = !showSubagents;
+      message = showSubagents ? "Subagent calls shown" : "Subagent calls hidden";
+      if (replay) showStep(replay.index); else { events = visibleEvents(allEvents); indexEvents(); }
+      update();
+    }
     else if (key.name === "a") {
       if (followCamera && followPaused) { followPaused = false; message = "Following the work (a to stop)"; }
       else { followCamera = !followCamera; followPaused = false; message = followCamera ? (binding || following ? "Following the work (a to stop)" : "Follow needs a bound session") : "Follow off"; }
@@ -1595,7 +1603,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       return;
     }
     if (following) binding = (yield* latestBinding(view.workspace)) ?? binding;
-    events = binding ? yield* readActivity(view.workspace, binding) : [];
+    allEvents = binding ? yield* readActivity(view.workspace, binding) : [];
+    events = visibleEvents(allEvents);
     const signature = `${binding?.session}/${events.map(event => `${event.call}${event.phase}`).join()}`;
     const changed = signature !== lastSignature;
     lastSignature = signature;

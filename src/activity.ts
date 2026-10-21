@@ -15,6 +15,8 @@ export const ActivityEvent = Schema.Struct({
   phase: Schema.Literals(["started", "completed", "failed"]),
   operation: Schema.Literals(["read", "edit", "command", "other", "turn"]),
   paths: Schema.Array(Path).check(Schema.isMaxLength(32)), time: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  // Which subagent made the call (its type, e.g. `Explore`); absent for the conversation's own calls. Journals are still keyed by session only.
+  agent: Schema.optionalKey(Label),
 });
 export interface ActivityEvent extends Schema.Schema.Type<typeof ActivityEvent> {}
 export const ActivityConfig = Schema.Struct({
@@ -51,7 +53,7 @@ const commandPaths = (workspace: string, command: string) => {
 };
 
 export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace: string, binding: ActivityBinding, call: string, tool: string,
-  input: unknown, phase: ActivityEvent["phase"], cwd = workspace) {
+  input: unknown, phase: ActivityEvent["phase"], cwd = workspace, agent?: string) {
   const args = Schema.decodeUnknownResult(Schema.Record(Schema.String, Schema.Unknown))(input);
   const name = tool.toLowerCase();
   const operation = /^(read|glob|grep|ls|list|view|notebookread)$/.test(name) ? "read"
@@ -77,7 +79,8 @@ export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace:
   const paths = [...new Set(candidates.map(path => relative(workspace, resolve(cwd, path)))
     .filter(path => path && path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path)
       && !/[\x00-\x1f\x7f]/.test(path)).map(path => path.split(sep).join("/")))].slice(0, 32);
-  return yield* Schema.decodeUnknownEffect(ActivityEvent)({ ...binding, version: 1, call, tool, phase, operation, paths, time: yield* Effect.clockWith(clock => clock.currentTimeMillis) });
+  return yield* Schema.decodeUnknownEffect(ActivityEvent)({ ...binding, version: 1, call, tool, phase, operation, paths, ...(agent ? { agent } : {}),
+    time: yield* Effect.clockWith(clock => clock.currentTimeMillis) });
 });
 
 /** Events kept per session. Live reads only look at the newest few; replay can walk all of them. */
@@ -178,11 +181,15 @@ export const latestBinding = Effect.fn("Activity.latest")(function* (workspace: 
   return { source: event.source, session: event.session } satisfies ActivityBinding;
 }, Effect.catch(() => Effect.succeed(undefined)));
 
-export type ActivityRow = { call: string; state: "started" | "completed" | "failed" | "unconfirmed"; operation: ActivityEvent["operation"]; elements: string[]; paths: readonly string[]; target: string; age: number };
+export type ActivityRow = { call: string; state: "started" | "completed" | "failed" | "unconfirmed"; operation: ActivityEvent["operation"]; elements: string[]; paths: readonly string[]; target: string; age: number; agent?: string };
 
 export function activityRows(events: ActivityEvent[], config: ActivityConfig, now = Date.now(), limit = 4): ActivityRow[] {
   const rules = config.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) }));
-  return events.slice(0, limit).map(event => ({
+  // A call that names no file (a subagent launch, a search, a shell command without a workspace file) says nothing about which component is being worked on.
+  // Files the mapping lists under `ignore` are deliberately outside the model (tests, generated code), so work on them is not shown either.
+  const ignored = (config.ignore ?? []).map(glob => new Bun.Glob(glob));
+  const outside = (path: string) => ignored.some(glob => glob.match(path)) && !rules.some(rule => rule.match.match(path));
+  return events.filter(event => event.paths.length && !event.paths.every(outside)).slice(0, limit).map(event => ({
     call: event.call,
     state: event.phase === "started" && now - event.time > 30_000 ? "unconfirmed" : event.phase,
     operation: event.operation,
@@ -190,6 +197,7 @@ export function activityRows(events: ActivityEvent[], config: ActivityConfig, no
     paths: event.paths,
     target: event.paths.join(", ") || event.tool,
     age: Math.max(0, now - event.time),
+    ...(event.agent ? { agent: event.agent } : {}),
   }));
 }
 
