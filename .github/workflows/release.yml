@@ -14,13 +14,13 @@ jobs:
     strategy:
       matrix:
         include:
-          - { os: ubuntu-latest, name: linux-x64 }
+          - { os: ubuntu-24.04, name: linux-x64 }
           - { os: ubuntu-24.04-arm, name: linux-arm64 }
-          - { os: macos-13, name: darwin-x64 }
+          - { os: macos-15-intel, name: darwin-x64 }
           - { os: macos-latest, name: darwin-arm64 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: "1.4.2" }
       - run: bun install --frozen-lockfile
@@ -30,16 +30,16 @@ jobs:
         run: |
           ./dist/pathlight-${{ matrix.name }} --help
           ./dist/pathlight-${{ matrix.name }} doctor || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: pathlight-${{ matrix.name }}
           path: dist/pathlight-${{ matrix.name }}
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { path: dist, merge-multiple: true }
       - name: Checksums
         run: cd dist && chmod +x pathlight-* && sha256sum pathlight-* > SHA256SUMS && cat SHA256SUMS
