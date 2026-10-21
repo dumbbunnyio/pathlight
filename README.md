@@ -21,13 +21,16 @@ Only open trusted LikeC4 workspaces. LikeC4 can load executable JavaScript or Ty
 
 ## Install as a Claude Code plugin
 
-Put the command on your PATH once, then install the plugin from this repository:
+Install the `pathlight` binary (Linux and macOS; needs tmux), then the plugin:
 
 ```sh
-bun install && bun link          # provides the pathlight command
-claude plugin marketplace add /path/to/pathlight
+curl -fsSL https://raw.githubusercontent.com/lennox-davidlevy/pathlight/main/install.sh | sh
+claude plugin marketplace add lennox-davidlevy/pathlight
 claude plugin install pathlight@pathlight
+pathlight doctor
 ```
+
+From a checkout instead: `bun install && bun link`, then `claude plugin marketplace add /path/to/pathlight`.
 
 The plugin adds the recording hooks and the `/pathlight` skill. Hooks do nothing in a project without `pathlight.activity.json`, so enabling the plugin globally is safe. Create the mapping with `pathlight init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
 Use either this route or the project-local route below, not both.

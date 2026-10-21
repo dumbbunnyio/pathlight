@@ -1,0 +1,52 @@
+name: release
+
+# Pushing a tag like v0.1.0 builds one binary per platform (OpenTUI's native library is per-platform, so each is built on its own runner)
+# and attaches them, with checksums, to a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: linux-x64 }
+          - { os: ubuntu-24.04-arm, name: linux-arm64 }
+          - { os: macos-13, name: darwin-x64 }
+          - { os: macos-latest, name: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: "1.4.2" }
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: sh scripts/build.sh
+      - name: Smoke test
+        run: |
+          ./dist/pathlight-${{ matrix.name }} --help
+          ./dist/pathlight-${{ matrix.name }} doctor || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pathlight-${{ matrix.name }}
+          path: dist/pathlight-${{ matrix.name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Checksums
+        run: cd dist && chmod +x pathlight-* && sha256sum pathlight-* > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/pathlight-*
+            dist/SHA256SUMS
