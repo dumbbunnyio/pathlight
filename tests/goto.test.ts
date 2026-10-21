@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./effects";
 
-test("g lists every view in the project and jumps by number or Enter, keeping Back history", async () => {
+test("g lists every view in the project, narrows as you type, and jumps on Enter, keeping Back history", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-goto-"));
   const socket = join("/tmp", `c4g-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
@@ -28,9 +28,23 @@ test("g lists every view in the project and jumps by number or Enter, keeping Ba
     await tmux("send-keys", "-t", pane, "g");
     const listing = await until(text => text.includes("Go to view"), "view list");
     for (const title of ["System context", "Service architecture", "Checkout detail"]) expect(listing).toContain(title);
-    expect(listing).toMatch(/System context\s+index\s+\d+ nodes\s+● here/);
-    await tmux("send-keys", "-t", pane, "3");
-    await until(text => text.includes("parcel/checkout") && text.includes("back 1"), "checkout view after pressing 3");
+    expect(listing).toMatch(/System context\s+\d+ nodes\s+● here/);
+    // Typing narrows the list (fuzzy: letters in order), and Enter goes to the best match.
+    await tmux("send-keys", "-t", pane, "-l", "chkdet");
+    const narrowed = await until(text => text.includes("1–1 of 1"), "filtered list");
+    expect(narrowed).toContain("Checkout detail");
+    expect(narrowed).not.toContain("Service architecture");
+    await tmux("send-keys", "-t", pane, "Enter");
+    await until(text => text.includes("parcel/checkout") && text.includes("back 1"), "checkout view after filtering");
+    // The view's id is not listed but still matches what you type.
+    await tmux("send-keys", "-t", pane, "g");
+    await until(text => text.includes("Go to view"), "view list for id search");
+    // "services" is the id of "Service architecture"; the title alone has no final s.
+    await tmux("send-keys", "-t", pane, "-l", "services");
+    const byId = await until(text => text.includes("1–1 of 1"), "list narrowed by id");
+    expect(byId).toContain("Service architecture");
+    expect(byId).not.toMatch(/\bservices\b.*nodes/);
+    await tmux("send-keys", "-t", pane, "Escape");
     await tmux("send-keys", "-t", pane, "g");
     await until(text => text.includes("Go to view"), "view list again");
     await tmux("send-keys", "-t", pane, "Down", "Down", "Enter");

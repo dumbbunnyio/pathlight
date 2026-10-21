@@ -16,6 +16,7 @@ import pkg from "../package.json" with { type: "json" };
 import { type Hint, borderHints, hintChunks, noticeStyle, palette, pill, setPalette } from "./ui";
 import { type Mode, loadThemes, modeOf, paletteOf, saveTheme, savedTheme, systemTheme, themeFromEnvironment } from "./theme";
 import { retheme } from "./retheme";
+import { fuzzyFilter } from "./fuzzy";
 import { rasterize, routeEdges, type Route } from "./routes";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
@@ -1096,22 +1097,36 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       animating = false; pendingVisit = { diagram: next };
     } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
   };
-  // Go to view: every view in this project, picked by the user. It does not infer links between views.
-  let gotoIndex = 0;
+  // Go to view: every view in this project, picked by the user. It does not infer links between views. Typing narrows the list (fuzzy) and
+  // the list scrolls inside the frame, so a project with hundreds of views still fits.
+  let gotoIndex = 0, gotoTop = 0, gotoQuery = "";
   const viewEntries = () => [...diagrams].filter(([, entry]) => entry.nodes.length);
+  const gotoEntries = () => fuzzyFilter(gotoQuery, viewEntries(), ([id, entry]) => `${String(entry.title ?? id)} ${id}`);
+  // The frame is the list plus the query line, the border and a blank row above and below; keep it inside the terminal and fairly compact.
+  const gotoRows = (count: number) => Math.max(1, Math.min(count, 18, renderer.height - 2 - 5));
   const renderGoto = () => {
-    const entries = viewEntries();
-    const chunks: TextChunk[] = [];
-    entries.forEach(([id, entry], index) => {
-      const current = id === String(diagram.id), cursor = index === gotoIndex;
-      chunks.push(bg(cursor ? palette.pick : palette.panel)(fg(palette.muted)(` ${index < 9 ? index + 1 : "·"} `)),
-        bg(cursor ? palette.pick : palette.panel)(fg(palette.text)(` ${String(entry.title ?? id).padEnd(30).slice(0, 30)}`)),
-        bg(cursor ? palette.pick : palette.panel)(fg(palette.muted)(` ${id.padEnd(16).slice(0, 16)} ${entry.nodes.length} nodes `)),
+    const entries = gotoEntries();
+    const rows = gotoRows(Math.max(1, entries.length));
+    gotoIndex = Math.min(gotoIndex, Math.max(0, entries.length - 1));
+    if (gotoIndex < gotoTop) gotoTop = gotoIndex;
+    if (gotoIndex >= gotoTop + rows) gotoTop = gotoIndex - rows + 1;
+    gotoTop = Math.max(0, Math.min(gotoTop, Math.max(0, entries.length - rows)));
+    // The frame is at most 80 wide, less its border and padding; what the title does not need goes to the title.
+    const titleWidth = Math.max(16, Math.min(80, renderer.width - 4) - 6 - 1 - 11 - 8);
+    const chunks: TextChunk[] = [fg(palette.incoming)(" › "), fg(palette.text)(gotoQuery), fg(palette.incoming)("▏"), nl];
+    if (!entries.length) chunks.push(fg(palette.muted)(" No view matches"), nl);
+    entries.slice(gotoTop, gotoTop + rows).forEach(([id, entry], offset) => {
+      const current = id === String(diagram.id), cursor = gotoTop + offset === gotoIndex;
+      // The id is not shown, but it is still matched, so typing `hono_helper` finds the view.
+      const title = String(entry.title ?? id);
+      chunks.push(bg(cursor ? palette.pick : palette.panel)(fg(palette.text)(` ${title.length > titleWidth ? `${title.slice(0, titleWidth - 1)}…` : title.padEnd(titleWidth)}`)),
+        bg(cursor ? palette.pick : palette.panel)(fg(palette.muted)(` ${`${entry.nodes.length} nodes`.padStart(9)} `)),
         fg(current ? palette.incoming : palette.panel)(current ? "  ● here" : ""), nl);
     });
     goto.content.content = new StyledText(chunks);
-    goto.foot.content = new StyledText(borderHints([["1-9", "jump"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]]));
-    goto.place(Math.min(80, renderer.width - 4), entries.length + 4);
+    goto.meta.content = new StyledText([fg(palette.muted)(` ${entries.length ? `${gotoTop + 1}–${Math.min(entries.length, gotoTop + rows)} of ${entries.length}` : "0"} `)]);
+    goto.foot.content = new StyledText(borderHints([["type", "filter"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]]));
+    goto.place(Math.min(80, renderer.width - 4), rows + 1 + (entries.length ? 0 : 1) + 4);
   };
   // Themes: the palette is swapped in place and every widget recoloured, so moving through the picker previews each one live.
   const applyTheme = (name: string) => {
@@ -1174,9 +1189,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     })),
     Effect.catch(() => Effect.void)));
   const beginGoto = () => {
-    const entries = viewEntries();
-    gotoIndex = Math.max(0, entries.findIndex(([id]) => id === String(diagram.id)));
-    goto.open(Math.min(80, renderer.width - 4), entries.length + 4); renderGoto(); update();
+    gotoQuery = ""; gotoTop = 0;
+    gotoIndex = Math.max(0, viewEntries().findIndex(([id]) => id === String(diagram.id)));
+    goto.open(Math.min(80, renderer.width - 4), 8); renderGoto(); update();
   };
   const goToView = (id: string) => {
     goto.close();
@@ -1421,12 +1436,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     if (goto.visible) {
       key.preventDefault();
-      const entries = viewEntries();
-      if (key.name === "escape" || key.name === "g") { goto.close(); update(); }
+      const entries = gotoEntries(), page = gotoRows(entries.length);
+      const move = (to: number) => { gotoIndex = entries.length ? (to + entries.length) % entries.length : 0; renderGoto(); };
+      if (key.name === "escape") { goto.close(); update(); }
       else if (key.name === "return") { const entry = entries[gotoIndex]; if (entry) goToView(entry[0]); }
-      else if (key.name === "up" || key.name === "k") { gotoIndex = (gotoIndex - 1 + entries.length) % entries.length; renderGoto(); }
-      else if (key.name === "down" || key.name === "j") { gotoIndex = (gotoIndex + 1) % entries.length; renderGoto(); }
-      else if (/^[1-9]$/.test(key.sequence)) { const entry = entries[Number(key.sequence) - 1]; if (entry) goToView(entry[0]); }
+      else if (key.name === "up" || (key.ctrl && key.name === "p")) move(gotoIndex - 1);
+      else if (key.name === "down" || (key.ctrl && key.name === "n")) move(gotoIndex + 1);
+      else if (key.name === "pageup") { gotoIndex = Math.max(0, gotoIndex - page); renderGoto(); }
+      else if (key.name === "pagedown") { gotoIndex = Math.min(Math.max(0, entries.length - 1), gotoIndex + page); renderGoto(); }
+      else if (key.name === "home") { gotoIndex = 0; renderGoto(); }
+      else if (key.name === "end") { gotoIndex = Math.max(0, entries.length - 1); renderGoto(); }
+      else if (key.ctrl && key.name === "u") { gotoQuery = ""; gotoIndex = 0; renderGoto(); }
+      else if (key.name === "backspace") { gotoQuery = gotoQuery.slice(0, -1); gotoIndex = 0; renderGoto(); }
+      else if (key.ctrl && key.name === "c") stop();
+      else if (!key.ctrl && !key.meta && key.sequence.length === 1 && key.sequence >= " ") { gotoQuery += key.sequence; gotoIndex = 0; renderGoto(); }
       return;
     }
     if (summary.visible) {
