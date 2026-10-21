@@ -11,7 +11,9 @@ view=$(printf '%s' "$input" | sed -n 's/.*"prompt":"\/pathlight:open *\([A-Za-z0
 if ! command -v pathlight >/dev/null 2>&1; then
   reason="pathlight is not on the PATH. Run bun link in the pathlight repository."
 else
-  if output=$(pathlight open ${view:+"$view"} --workspace "${CLAUDE_PROJECT_DIR:-$PWD}" 2>&1); then
+  # Bind to this conversation (the hook input names it), not "the newest session", which before its first tool call is nothing or a stale one.
+  session=$(printf '%s' "$input" | sed -n 's/.*"session_id":"\([A-Za-z0-9_-]*\)".*/\1/p')
+  if output=$(pathlight open ${view:+"$view"} --workspace "${CLAUDE_PROJECT_DIR:-$PWD}" ${session:+--session "$session" --source claude} 2>&1); then
     reason="Opened the pathlight viewer."
   else
     reason=$(printf '%s' "$output" | tail -n 1 | tr -d '"\\' | cut -c1-300)

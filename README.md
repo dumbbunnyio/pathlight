@@ -50,6 +50,7 @@ To reopen the viewer yourself, with no agent involved:
 | --- | --- | --- | --- |
 | A shell prompt in a tmux pane | `pathlight open [VIEW]` | That pane becomes the viewer | none |
 | Inside Claude Code | `/pathlight:open [VIEW]` | A viewer pane is split beside the conversation | none (a plugin hook handles it and blocks the prompt, so the model is never called) |
+| Inside OpenCode | `/pathlight-open [VIEW]` | A viewer pane is split beside the conversation | none (the CLI plugin handles it) |
 | Inside Claude Code or OpenCode | `! pathlight open [VIEW]` | The same split | none (a shell escape) |
 
 `open` follows the most recent recorded session and shows `VIEW`, else the view named `index`, else the first view. Typed at a prompt it takes over that pane; run by an agent (anything between the pane's shell and the command) it splits beside it. `--here` always uses the current terminal and `--split` always splits. Without a `pathlight.activity.json` it still opens, but cannot follow an agent. The hook needs the Claude plugin; `/pathlight:open` is not installed by `pathlight init`.
@@ -61,10 +62,12 @@ follows the most recently active recorded session with `--follow`, so you need n
 bun run pathlight show VIEW --workspace /path/to/project --follow
 ```
 
-Installing the Claude hooks is the opt-in for Claude recording; remove them to stop. OpenCode still records only after a `live: true` request.
+Installing the Claude hooks is the opt-in for Claude recording; remove them to stop. For OpenCode the opt-in is `record: true` on the plugin entry (what `init` writes) or a `live: true` request.
 `--follow` only reads journals: it never starts recording, and it switches to whichever recorded session wrote last, so subagent sessions are not merged.
 The header shows `LIVE source:session` with a spinner while a tool runs, the header's second row shows the latest call, and the inspector lists recent calls with their age.
 Nodes show `r`/`e` counts of retained reads and edits. Press `t` to ask the agent about the selected node (typed into your agent's pane, with the component's files, connections and, if you choose, recent activity; Enter sends and submits it, Alt+Enter adds a line). Press `1`–`4` to fold inspector sections, `g` to jump to any view and `T` to choose a theme (OpenCode-format JSON themes, previewed live). Press `w` to select the node the agent is working on; when that work is in a component this view does not show, the header says "working in VIEW · w to go" and `w` goes there (a view this one links to with `navigateTo` first, else the smallest view containing it), never on its own (or click its row in the activity list), and `c` for a one-screen summary of what the session touched. Press `a` to follow the work: the viewer selects the node of the newest tool call, running or finished, and glides the camera to it. Only work that happens after you turn it on (or resume it) counts; `w` jumps to the last work done. It is off by default, never changes the view, and pauses when you select, pan or zoom (`a` resumes).
+
+Press `p` to replay the session: the viewer steps through the recorded calls in order, one call per step, with the component of each step selected and the counts building up as they did. `←`/`→` step, `[`/`]` jump between turns (a turn is one prompt and the work after it), `space` plays and pauses, `s` sets the speed, `esc` returns to live. Replay covers what the journal retained (the last 2048 events of a session) and only the calls, never the prompts.
 
 ## Open a diagram
 
@@ -104,29 +107,23 @@ Use `--project NAME` when multiple projects have the same view ID.
 
 ## Use from OpenCode
 
-The repository's `opencode.json` registers `plugins/opencode`.
-Restart the OpenCode background service after adding the plugin if its tools do not appear:
+Targets OpenCode V2 (verified against 2.0.32). `pathlight init` registers `plugins/opencode` in the workspace's `opencode.json` with `"options": { "record": true }`; restart the OpenCode service after adding it.
+The plugin has two halves, both loaded from that one entry:
 
-```sh
-opencode service restart
-```
+- **Server plugin** (`plugins/opencode/index.ts`): records tool calls through OpenCode's `tool.hook` events, offers the `pathlight` skill to the agent (unless the workspace already has one), and provides the `pathlight_list`, `pathlight_show` and `pathlight_stop` tools.
+- **CLI plugin** (`plugins/opencode/tui.ts`): runs in your terminal process, the only place that knows your real tmux pane, and adds the slash commands below.
 
-This briefly disconnects active clients. The plugin provides `pathlight_list` and `pathlight_show`.
-Each tool requests permission before loading a workspace or opening a pane.
-Ask the agent to list the views, then show the selected view in your tmux pane.
+| In OpenCode (inside tmux) | Claude Code equivalent | What it does |
+| --- | --- | --- |
+| `/pathlight-open [VIEW]` (also `/pathlight:open`) | `/pathlight:open [VIEW]` | Splits the viewer beside the conversation and follows the newest recorded session. No model turn. |
+| `/pathlight [VIEW]` | `/pathlight [VIEW]` | Asks the agent to use the pathlight skill (draft, check, show), telling it your pane and tmux socket so it passes `--pane`. |
+| `! pathlight open [VIEW]` | the same | Shell escape. |
 
-For example, supply your actual pane ID:
+Recording: with `record: true` every root session in the workspace is recorded without a request, the counterpart of installing the Claude hooks. Subagent sessions and sessions in other workspaces are never recorded, and `pathlight_stop` stops one session. Without the option, recording starts only when an agent calls `pathlight_show` with `live: true`.
+Each tool requests permission before loading a workspace or opening a pane. `pathlight_show` needs an explicit pane (`%2`) because OpenCode's background service may not share your terminal's environment; the slash commands supply it for you.
+It uses the plugin location as the workspace and passes only identifiers to the CLI, not diagram geometry through model context. A new `show` request reuses the owned viewer pane and resets the view, selection, and scroll position.
 
-```text
-Show the parcel project's services diagram in tmux pane %2.
-```
-
-The plugin requires an explicit parent pane because OpenCode's background service may not share the current terminal's environment.
-It uses the plugin location as the workspace and passes only identifiers to the CLI, not diagram geometry through model context.
-Other agents can invoke the same CLI without the OpenCode plugin.
-A new `show` request reuses the owned viewer pane and resets the view, selection, and scroll position.
-
-OpenCode status: `opencode plugin list` shows this plugin loading from the repository. Its tools, permissions, recording and `stop` are tested against a stubbed plugin context and a real CLI and tmux server (`tests/opencode-plugin.test.ts`). It has not been run through a complete live OpenCode model session, so treat the hook payloads OpenCode sends in practice as unverified.
+OpenCode status: `tests/opencode-live.test.ts` runs the real OpenCode binary (`--standalone`, isolated config) against a fake OpenAI-compatible model: its hooks record a plain session, `/pathlight-open` opens a viewer bound to it, and the skill reaches the model. `tests/opencode-plugin.test.ts` covers the permission, `live`, `record` and `stop` rules against a stubbed context. The `/pathlight` command's model turn (that an agent follows the skill with a real model) is not covered, and tool names and arguments from providers other than the built-in ones are unverified.
 
 ## Observe live activity
 
@@ -145,8 +142,8 @@ Mappings use workspace-relative path globs and exact LikeC4 element IDs:
 
 `ignore` lists files deliberately outside the model, and `shared` lists elements anything may import (so `pathlight check` expects no relationship to them). Only `check` reads either.
 
-In OpenCode, ask the agent to show the `viewer` project's `live` view with `live: true` and your current pane ID.
-The plugin binds the panel to the calling session. It records that session's subsequent tool starts, completions, and failures automatically.
+In OpenCode with `record: true`, just run `/pathlight-open live`. Without it, ask the agent to show the `viewer` project's `live` view with `live: true` and your current pane ID.
+The plugin binds the panel to the session. It records that session's subsequent tool starts, completions, and failures automatically.
 Call `pathlight.stop` to stop recording. Closing the viewer alone does not stop recording.
 Plugin reloads stop recording; call `show` with `live: true` again to resume.
 Subagent sessions are separate and are not automatically included.

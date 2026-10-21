@@ -41,6 +41,15 @@
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/open-hook.sh\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$f/pathlight.activity.json\" ] && command -v pathlight >/dev/null 2>&1 && pathlight record --workspace \"$f\" >/dev/null 2>&1; exit 0'",
+            "async": true
+          }
+        ]
       }
     ]
   }

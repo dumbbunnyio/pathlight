@@ -68,13 +68,13 @@ test("/pathlight:open is handled by a hook that blocks the prompt, so the model 
 
     const plain = await hook("/pathlight:open");
     expect(JSON.parse(plain.out)).toEqual({ continue: false, stopReason: "Opened the pathlight viewer." });
-    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open --workspace /work/project");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open --workspace /work/project --session s --source claude");
 
     expect(JSON.parse((await hook("/pathlight:open services")).out).continue).toBe(false);
-    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open services --workspace /work/project");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open services --workspace /work/project --session s --source claude");
 
     // Anything but a plain view id never reaches the command line.
     await hook("/pathlight:open $(touch pwned)");
-    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open --workspace /work/project");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open --workspace /work/project --session s --source claude");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

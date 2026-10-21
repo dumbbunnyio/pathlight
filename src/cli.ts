@@ -106,8 +106,12 @@ try {
       const mapped = command !== "open" || (yield* io("CLI.mapping", () => Bun.file(resolve(values.workspace, "pathlight.activity.json")).exists()));
       if (!mapped) process.stderr.write("No pathlight.activity.json here, so the viewer will not follow an agent. Ask the agent to map the model (/pathlight).\n");
       const following = follow || (command === "open" && !activity && mapped);
-      const overview = command === "open" && !id ? yield* overviewId(values.workspace, values.project) : id;
-      const view = yield* selectView(values.workspace, overview!, values.project);
+      // The mapping names the project the agent's files belong to, so a workspace with several LikeC4 projects needs no --project: it is
+      // taken from pathlight.activity.json, unless the named view exists only in another project.
+      const mappedProject = values.project ? undefined : yield* readActivityConfig(values.workspace).pipe(Effect.map(mapping => mapping.project), Effect.catch(() => Effect.succeed(undefined)));
+      const project = values.project ?? (mappedProject && (!id || (yield* listViews(values.workspace)).views.some(entry => entry.id === id && entry.project === mappedProject)) ? mappedProject : undefined);
+      const overview = command === "open" && !id ? yield* overviewId(values.workspace, project) : id;
+      const view = yield* selectView(values.workspace, overview!, project);
       if (!here) {
         const result = yield* showView({ view, pane, socket: values.socket, activity, follow: following });
         process.stdout.write(`${JSON.stringify(result)}\n`);

@@ -109,3 +109,39 @@ test("open picks the overview view itself, and without tmux says so rather than 
   expect(code).toBe(1);
   expect(stderr).toContain("No tmux pane");
 });
+
+test("init registers the OpenCode plugin with recording on, upgrades a bare entry, and respects record: false", async () => {
+  const project = join(directory, "init-opencode");
+  await cp("examples/parcel", project, { recursive: true, filter: path => !path.includes(".cache") });
+  const plugin = resolve("plugins/opencode");
+  const read = async () => JSON.parse(await Bun.file(join(project, "opencode.json")).text());
+  expect((await invoke("init", "--workspace", project, "--no-claude-hooks")).stdout).toContain("recording on");
+  expect((await read()).plugins).toEqual([{ package: plugin, options: { record: true } }]);
+  // Re-running changes nothing.
+  expect((await invoke("init", "--workspace", project, "--no-claude-hooks")).stdout).toContain("already registered (recording on)");
+  // A bare entry from an older init gets the option; an explicit false stays false.
+  await writeFile(join(project, "opencode.json"), JSON.stringify({ plugins: ["./other", plugin] }));
+  expect((await invoke("init", "--workspace", project, "--no-claude-hooks")).stdout).toContain("recording turned on");
+  expect((await read()).plugins).toEqual(["./other", { package: plugin, options: { record: true } }]);
+  await writeFile(join(project, "opencode.json"), JSON.stringify({ plugins: [{ package: plugin, options: { record: false } }] }));
+  expect((await invoke("init", "--workspace", project, "--no-claude-hooks")).stdout).toContain("off, as configured");
+  expect((await read()).plugins).toEqual([{ package: plugin, options: { record: false } }]);
+});
+
+test("show and open take the project from pathlight.activity.json when the workspace has several LikeC4 projects", async () => {
+  const project = join(directory, "two-projects");
+  await cp("examples/parcel", join(project, "parcel"), { recursive: true, filter: path => !path.includes(".cache") });
+  await cp("tests/fixtures/viewer", join(project, "viewer"), { recursive: true });
+  const missing = ["--pane", "%0", "--socket", join(directory, "no-server.sock")];
+  // Without a mapping, `index` is ambiguous when both projects have one.
+  const bare = await invoke("open", "--workspace", project, "--split", ...missing);
+  // With one, the mapped project is used: the failure is now the missing tmux server, not the ambiguity.
+  await writeFile(join(project, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [] }));
+  const mapped = await invoke("open", "--workspace", project, "--split", ...missing);
+  expect(mapped.stderr).not.toContain("multiple projects");
+  // A view that exists only in the other project is still found without --project.
+  const other = await invoke("show", "services", "--workspace", project, ...missing);
+  expect(other.stderr).not.toContain("Unknown view");
+  expect(other.stderr).not.toContain("multiple projects");
+  expect(bare.code).toBe(1);
+});

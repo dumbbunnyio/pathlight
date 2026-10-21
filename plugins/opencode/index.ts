@@ -2,8 +2,8 @@ import { Plugin } from "@opencode/plugin";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { run } from "../../src/process";
-import { realpath } from "node:fs/promises";
-import { toolActivity, writeActivity, type ActivityEvent } from "../../src/activity";
+import { readFile, realpath } from "node:fs/promises";
+import { toolActivity, turnActivity, writeActivity, type ActivityEvent } from "../../src/activity";
 import { ActivitySubscriptions } from "../../src/activity-subscriptions";
 import { Effect, Fiber, Queue, Stream } from "effect";
 import { io } from "../../src/effects";
@@ -23,31 +23,64 @@ export default Plugin.define({
     const workspace = ctx.location.directory;
     const subscriptions = new ActivitySubscriptions();
     type SessionID = Parameters<typeof ctx.session.get>[0]["sessionID"];
-    const queue = Effect.runSync(Queue.sliding<{ event: ActivityEvent; sessionID: SessionID; recording: { active: boolean } }>(128));
+    // OpenCode brands these strings; the host validates the entry when it is added.
+    type SkillInfo = Parameters<Parameters<Parameters<typeof ctx.skill.transform>[0]>[0]["add"]>[0];
+    // `record: true` in the plugin's options is the workspace-wide opt-in (what `pathlight init` writes, the counterpart of installing the Claude hooks):
+    // every root session in this workspace is recorded without a `live` request. Subagent sessions are never aggregated, and `pathlight_stop` still stops one.
+    const record = ctx.options?.record === true;
+    const stopped = new Set<SessionID>();
+    const eligibility = new Map<SessionID, { inWorkspace: boolean; root: boolean }>();
+    const queue = Effect.runSync(Queue.sliding<{ event: ActivityEvent; sessionID: SessionID; recording: { active: boolean }; auto: boolean }>(128));
     const recordings = new Map<SessionID, { active: boolean }>();
     let disposed = false;
     const worker = Effect.runFork(Stream.fromQueue(queue).pipe(Stream.runForEach(pending => Effect.gen(function* () {
       if (disposed || !pending.recording.active) return;
-      const session = yield* io("Plugin.session", () => ctx.session.get({ sessionID: pending.sessionID }));
-      const root = yield* io("Plugin.workspace", () => realpath(workspace));
-      if ((yield* io("Plugin.sessionWorkspace", () => realpath(session.location.directory))) === root) {
-        yield* writeActivity(workspace, pending.event);
+      let known = eligibility.get(pending.sessionID);
+      if (!known) {
+        const session = yield* io("Plugin.session", () => ctx.session.get({ sessionID: pending.sessionID }));
+        const root = yield* io("Plugin.workspace", () => realpath(workspace));
+        known = { inWorkspace: (yield* io("Plugin.sessionWorkspace", () => realpath(session.location.directory))) === root, root: session.parentID === undefined };
+        eligibility.set(pending.sessionID, known);
       }
+      if (known.inWorkspace && (known.root || !pending.auto)) yield* writeActivity(workspace, pending.event);
     }).pipe(Effect.ignore))));
-    const observe = (event: { sessionID: SessionID; id: string; tool: string; input: unknown }, phase: ActivityEvent["phase"]) => {
-      if (disposed || !subscriptions.watching(event.sessionID) || event.tool.startsWith("pathlight")) return;
+    const enqueue = (sessionID: SessionID, make: () => ActivityEvent) => {
+      const watched = subscriptions.watching(sessionID);
+      if (disposed || !(watched || record && !stopped.has(sessionID))) return;
       try {
-        const activity = Effect.runSync(toolActivity(workspace, { source: "opencode", session: event.sessionID }, event.id, event.tool, event.input, phase));
-        let recording = recordings.get(event.sessionID);
-        if (!recording) { recording = { active: true }; recordings.set(event.sessionID, recording); }
-        Queue.offerUnsafe(queue, { event: activity, sessionID: event.sessionID, recording });
+        let recording = recordings.get(sessionID);
+        if (!recording) { recording = { active: true }; recordings.set(sessionID, recording); }
+        Queue.offerUnsafe(queue, { event: make(), sessionID, recording, auto: !watched });
       } catch { /* Observation must not change tool execution. */ }
     };
+    const observe = (event: { sessionID: SessionID; id: string; tool: string; input: unknown }, phase: ActivityEvent["phase"]) => {
+      if (event.tool.startsWith("pathlight")) return;
+      enqueue(event.sessionID, () => Effect.runSync(toolActivity(workspace, { source: "opencode", session: event.sessionID }, event.id, event.tool, event.input, phase)));
+    };
+    // A new run of a session is a new turn. Only the fact is recorded, never the prompt.
+    const listening = new AbortController();
+    void (async () => {
+      try {
+        for await (const event of ctx.event.subscribe({ signal: listening.signal })) {
+          if (event.type !== "session.execution.started") continue;
+          const sessionID = (event.data as { sessionID: SessionID }).sessionID;
+          enqueue(sessionID, () => Effect.runSync(turnActivity({ source: "opencode", session: sessionID })));
+        }
+      } catch { /* Turn markers are optional: replay falls back to pauses between calls. */ }
+    })();
     const dispose = async () => {
-      disposed = true; subscriptions.clear(); recordings.clear();
+      disposed = true; listening.abort(); subscriptions.clear(); recordings.clear(); stopped.clear(); eligibility.clear();
       await Effect.runPromise(Fiber.interrupt(worker));
     };
     try {
+    // The pathlight skill (shared with the Claude plugin) is offered to the agent unless the workspace already has one (`pathlight init` copies it for hosts without this plugin).
+    try {
+      const file = fileURLToPath(new URL("../claude/skills/pathlight/SKILL.md", import.meta.url));
+      const text = await readFile(file, "utf8");
+      const description = /^description:\s*(.+)$/m.exec(text)?.[1]?.trim();
+      const present = (await ctx.skill.list()).data.some(skill => skill.id === "pathlight" || skill.name === "pathlight");
+      if (!present) await ctx.skill.transform(editor => editor.add({ id: "pathlight", name: "pathlight", ...(description ? { description } : {}), path: file, content: text.replace(/^---\n[\s\S]*?\n---\n/, "") } as SkillInfo));
+    } catch { /* The skill is a convenience; the tools and recording do not depend on it. */ }
     await ctx.tool.hook("execute.before", event => observe(event, "started"));
     await ctx.tool.hook("execute.after", event => observe(event, event.status === "completed" ? "completed" : "failed"));
     await ctx.tool.transform(editor => {
@@ -59,6 +92,7 @@ export default Plugin.define({
         options: { namespace: "pathlight", codemode: true },
         execute: async (_input, context) => {
           subscriptions.stop(context.sessionID);
+          stopped.add(context.sessionID);
           const recording = recordings.get(context.sessionID);
           if (recording) recording.active = false;
           recordings.delete(context.sessionID);
@@ -107,6 +141,7 @@ export default Plugin.define({
             if (request.socket) args.push("--socket", request.socket);
             if (request.live) args.push("--session", context.sessionID, "--source", "opencode");
             const content = await Effect.runPromise(run("bun", args), { signal: context.signal });
+            if (request.live) stopped.delete(context.sessionID);
             if (ticket && !subscriptions.complete(context.sessionID, ticket)) {
               return { content: `${content}\nActivity attachment was superseded or stopped; recording was not enabled by this request.` };
             }

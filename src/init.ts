@@ -6,7 +6,7 @@ import { acquireModel } from "./catalog";
 import { hasCode, io, json, failure } from "./effects";
 
 const pluginRoot = fileURLToPath(new URL("../plugins", import.meta.url));
-const hookEvents = ["PreToolUse", "PostToolUse", "PostToolUseFailure"] as const;
+const hookEvents = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit"] as const;
 
 const kebab = (text: string) => text.replace(/([a-z\d])([A-Z])/g, "$1-$2").toLowerCase().replace(/[^a-z\d]+/g, "-").replace(/^-|-$/g, "");
 
@@ -113,11 +113,19 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
   const config = opencode ? yield* json(opencode) : { $schema: "https://opencode.ai/config.json" };
   if (isRecord(config)) {
     const plugin = join(pluginRoot, "opencode");
-    const plugins = Array.isArray(config.plugins) ? config.plugins : [];
-    if (!plugins.includes(plugin)) {
-      yield* writeText(opencodePath, `${JSON.stringify({ ...config, plugins: [...plugins, plugin] }, null, 2)}\n`);
-      notes.push("OpenCode: plugin registered in opencode.json. Restart the service, then ask for the diagram with live=true.");
-    } else notes.push("OpenCode: plugin already registered.");
+    const plugins: unknown[] = Array.isArray(config.plugins) ? [...config.plugins] : [];
+    // `record: true` is the OpenCode counterpart of installing the Claude hooks: running init is the opt-in to record this workspace's root sessions.
+    const index = plugins.findIndex(entry => entry === plugin || (isRecord(entry) && entry.package === plugin));
+    const entry = plugins[index];
+    const options = isRecord(entry) && isRecord(entry.options) ? entry.options : {};
+    if (index < 0) {
+      plugins.push({ package: plugin, options: { record: true } });
+      notes.push("OpenCode: plugin registered in opencode.json with recording on (restart the OpenCode service). Use /pathlight-open, or /pathlight to ask the agent.");
+    } else if (options.record === undefined) {
+      plugins[index] = { ...(isRecord(entry) ? entry : { package: plugin }), options: { ...options, record: true } };
+      notes.push("OpenCode: plugin was registered; recording turned on (restart the OpenCode service).");
+    } else notes.push(`OpenCode: plugin already registered (recording ${options.record === true ? "on" : "off, as configured"}).`);
+    if (index < 0 || options.record === undefined) yield* writeText(opencodePath, `${JSON.stringify({ ...config, plugins }, null, 2)}\n`);
   }
   return notes;
 });

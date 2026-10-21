@@ -4,7 +4,7 @@ import { SplitPaneRenderable } from "opentui-split";
 import { Effect, FiberSet, Schedule } from "effect";
 import { watch } from "node:fs";
 import { type View, acquireModel, validateActivityMapping } from "./catalog";
-import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, latestBinding, readActivity, readActivityConfig } from "./activity";
+import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, latestBinding, readActivity, readActivityConfig, readReplay, type Replay } from "./activity";
 import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
 import { askMessage, sendToPane } from "./ask";
@@ -226,6 +226,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // Under 80 columns the diagram does not fit: a plain list of nodes replaces it.
   let listMode = false;
   let events: ActivityEvent[] = [];
+  // Replay: the retained calls of the bound session, walked one step at a time. While it is on, `events` is the calls up to the current step and the live poll stands aside.
+  let replay: { data: Replay; index: number; playing: boolean; speed: number; next: number } | undefined;
   let byElement = new Map<string, ActivityEvent[]>();
   let byPath = new Map<string, ActivityEvent>();
   let followCamera = false, followPaused = false, followSelecting = false, focusedCall = "", followSince = 0, lastSignature = "", lastPaint = 0;
@@ -244,7 +246,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"]] },
       { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a section"], ["j k", "move / scroll"], ["space", "fold section"],
         ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files"], ["esc", "back to diagram"]] },
-      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"]] },
+      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"], ["p", "replay the session"]] },
       { name: "Global", active: false, rows: [["/", "search this view"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
     ];
     const wide = renderer.width >= 100;
@@ -315,6 +317,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id))]);
   // Right-hand: the live session when there is one (a spinner replaces the dot while a tool runs), otherwise nothing.
   const badgeContent = () => {
+    if (replay) return new StyledText([fg(palette.accent)("◀ replay"), fg(palette.border)(` ${liveLabel()} `)]);
     if (!binding && !following) return "";
     const busy = events.some(isActive);
     return new StyledText([fg(binding ? palette.incoming : palette.muted)(`${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} live`), fg(palette.border)(` ${liveLabel()} `)]);
@@ -805,7 +808,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     if (summary.visible) summary.content.content = summaryContent();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    const mode = fileMode ? "files" : focusSection ? sections[focusSection].name.toLowerCase() : search ? "search" : "diagram";
+    const mode = replay ? "replay" : fileMode ? "files" : focusSection ? sections[focusSection].name.toLowerCase() : search ? "search" : "diagram";
     // A notice has the room: the hidden-label count waits until it goes.
     const labelNote = message ? 0 : hidden;
     const work = binding || following ? newestWork() : undefined;
@@ -818,7 +821,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // The footer says where you are and how to ask for help; keys are named only inside a mode that needs them.
     const rightText = `${labelNote ? `${labelNote} labels hidden  ·  ` : ""}zoom ${Math.round(16 / scale * 100)}%  │  ? help`;
     const room = Math.max(10, renderer.width - rightText.length - 16 - mode.length - String(selected?.id ?? "").length - 4);
-    const hints = focusSection && !fileMode && !search ? hintChunks(sectionHints[focusSection], room)
+    const hints = replay ? [fg(palette.accent)(`${replay.playing ? "▶" : "⏸"} ${replay.index + 1}/${replay.data.steps.length}`), fg(palette.muted)(`  turn ${replayTurn() + 1}/${replay.data.turns.length}  `),
+        ...hintChunks([["space", replay.playing ? "pause" : "play"], ["←→", "step"], ["[ ]", "turn"], ["s", `${replay.speed}x`], ["esc", "exit"]], room - 24)]
+      : focusSection && !fileMode && !search ? hintChunks(sectionHints[focusSection], room)
       : search ? [fg(palette.muted)("type a name or id  "), ...hintChunks([["↑↓", "matches"], ["enter", "keep"], ["esc", "restore"]], room - 20)]
       : fileMode ? [fg(palette.accent)(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`), fg(palette.muted)("  type to filter  "), ...hintChunks([["enter", "open"], ["ctrl+r", "refresh"], ["esc", "back"]], room - 30)]
       : [];
@@ -952,6 +957,60 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       return best ? { view: best.id, element: best.element, title: String(best.entry.title ?? best.id) } : undefined;
     }
     return undefined;
+  };
+  const replayTurn = () => { let turn = 0; replay?.data.turns.forEach((start, index) => { if (start <= replay!.index) turn = index; }); return turn; };
+  // Show the session as it stood after step `index`: the calls so far, the newest one flashing, and the camera on its component (switching view when it lives elsewhere).
+  const showStep = (index: number) => {
+    if (!replay) return;
+    replay.index = Math.max(0, Math.min(replay.data.steps.length - 1, index));
+    events = replay.data.steps.slice(0, replay.index + 1).reverse();
+    seenCalls.clear(); nodeFlashes.clear(); rowFlashes.clear();
+    for (const event of events.slice(1)) seenCalls.add(event.call);
+    indexEvents(); noteCalls();
+    const work = newestWork();
+    if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } }
+    else if (work) { animating = false; pendingVisit = { diagram: getDiagram(work.view), select: work.element }; message = `Went to ${work.title}`; }
+    update();
+  };
+  const beginReplay = () => {
+    const target = binding;
+    if (!target) { message = "Replay needs a bound session"; update(); return; }
+    message = "Loading the session…"; update();
+    runTask(readReplay(view.workspace, target).pipe(
+      Effect.tap(data => Effect.sync(() => {
+        message = "";
+        if (!data.steps.length) { message = "Nothing recorded to replay"; update(); return; }
+        replay = { data, index: 0, playing: false, speed: 1, next: 0 };
+        showStep(data.turns.at(-1) ?? 0);
+      })),
+      Effect.catch(() => Effect.sync(() => { message = "Replay unavailable: the journal could not be read"; update(); }))));
+  };
+  const endReplay = () => {
+    replay = undefined;
+    // The next poll puts the live calls back; they are not news, so nothing flashes.
+    calmLoaded = false; seenCalls.clear(); nodeFlashes.clear(); rowFlashes.clear(); lastSignature = ""; message = "";
+    update();
+  };
+  const replayKey = (key: { name: string; sequence: string; preventDefault(): void }) => {
+    const play = replay;
+    if (!play) return false;
+    const last = play.data.steps.length - 1, turns = play.data.turns, turn = replayTurn();
+    const go = (index: number) => { key.preventDefault(); play.playing = false; showStep(index); return true; };
+    if (key.name === "escape" || key.name === "p") { key.preventDefault(); endReplay(); return true; }
+    if (key.name === "right") return go(play.index + 1);
+    if (key.name === "left") return go(play.index - 1);
+    if (key.name === "home") return go(0);
+    if (key.name === "end") return go(last);
+    if (key.sequence === "]") return go(turns[turn + 1] ?? last);
+    if (key.sequence === "[") return go(play.index > (turns[turn] ?? 0) ? turns[turn] ?? 0 : turns[turn - 1] ?? 0);
+    if (key.name === "space" || key.sequence === " ") {
+      key.preventDefault();
+      if (!play.playing && play.index >= last) showStep(turns.at(-1) ?? 0);
+      play.playing = !play.playing; play.next = Date.now() + 1000 / play.speed; update();
+      return true;
+    }
+    if (key.name === "s") { key.preventDefault(); play.speed = play.speed === 1 ? 2 : play.speed === 2 ? 4 : 1; update(); return true; }
+    return false;
   };
   activityText.onMouseDown = event => {
     event.preventDefault(); event.stopPropagation();
@@ -1256,6 +1315,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (help.visible) { key.preventDefault(); if (key.name === "escape" || key.sequence === "?") help.close();
       else if (key.name === "v" && !key.ctrl) { vimTraverses = !vimTraverses; showHelp(); }
       else if (key.ctrl && key.name === "c") stop(); return; }
+    if (!key.ctrl && !key.meta && replayKey(key)) return;
     if (!fileMode && !key.ctrl && !key.meta && /^[1-4]$/.test(key.sequence)) { key.preventDefault(); focusOn(sectionOrder[Number(key.sequence) - 1] ?? "overview"); return; }
     if (focusSection && !fileMode) {
       const entry = sections[focusSection], key_ = focusSection;
@@ -1321,6 +1381,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!fileMode && key.name === "c" && !key.ctrl) {
       key.preventDefault(); summary.foot.content = new StyledText(borderHints([["esc", "close"]])); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
     }
+    if (!fileMode && key.name === "p" && !key.ctrl) { key.preventDefault(); beginReplay(); return; }
     if (!fileMode && key.name === "w" && !key.ctrl) {
       key.preventDefault();
       const work = newestWork();
@@ -1526,6 +1587,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     Effect.catch(() => Effect.sync(() => { message = "Live reload unavailable: the model will not update until the viewer is reopened"; return undefined; }))),
     watcher => Effect.sync(() => { clearTimeout(reloadTimer); watcher?.close(); }));
   if (binding || following) yield* Effect.gen(function* () {
+    if (replay) {
+      if (replay.playing && Date.now() >= replay.next) {
+        replay.next = Date.now() + 1000 / replay.speed;
+        if (replay.index >= replay.data.steps.length - 1) { replay.playing = false; update(); } else showStep(replay.index + 1);
+      }
+      return;
+    }
     if (following) binding = (yield* latestBinding(view.workspace)) ?? binding;
     events = binding ? yield* readActivity(view.workspace, binding) : [];
     const signature = `${binding?.session}/${events.map(event => `${event.call}${event.phase}`).join()}`;

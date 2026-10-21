@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { activityLines } from "../src/activity";
+import { activityLines, retainedEvents } from "../src/activity";
 import { activityDirectory, readActivity, toolActivity, writeActivity, claudeActivity, run } from "./effects";
 import { ActivitySubscriptions } from "../src/activity-subscriptions";
 
@@ -64,12 +64,12 @@ test("the activity journal is bounded and Claude failure payloads exclude tool r
     expect(event.phase).toBe("failed");
     expect(event.paths).toEqual([]);
     expect(JSON.stringify(event)).not.toContain("SECRET");
-    for (let i = 0; i < 270; i++) await writeActivity(directory, { ...event, call: `call-${i}`, time: i });
-    expect((await readdir(await activityDirectory(directory, event))).filter(path => path.endsWith(".json"))).toHaveLength(256);
+    for (let i = 0; i < retainedEvents + 14; i++) await writeActivity(directory, { ...event, call: `call-${i}`, time: i });
+    expect((await readdir(await activityDirectory(directory, event))).filter(path => path.endsWith(".json"))).toHaveLength(retainedEvents);
     const events = await readActivity(directory, event);
     expect(events).toHaveLength(128);
-    expect(events[0]?.call).toBe("call-269");
-    expect(events.at(-1)?.call).toBe("call-142");
+    expect(events[0]?.call).toBe(`call-${retainedEvents + 13}`);
+    expect(events.at(-1)?.call).toBe(`call-${retainedEvents + 13 - 127}`);
     await expect(claudeActivity(directory, { hook_event_name: "PostToolUse", cwd: "/",
       session_id: "session-c", tool_use_id: "call-c", tool_name: "Read", tool_input: {} })).rejects.toThrow("does not match");
   } finally { await rm(directory, { recursive: true, force: true }); }

@@ -70,3 +70,49 @@ test("the OpenCode plugin registers its tools, asks permission, opens a viewer, 
     await rm(workspace, { recursive: true, force: true });
   }
 }, 90_000);
+
+test("with record: true the plugin records root sessions in its workspace without a live request, never subagents or other workspaces, and stop still stops one", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "pathlight-opencode-record-"));
+  const elsewhere = await mkdtemp(join(tmpdir(), "pathlight-opencode-elsewhere-"));
+  const hooks = new Map<string, (event: unknown) => unknown>();
+  const tools = new Map<string, Tool>();
+  let cleanup: void | (() => Promise<void> | void) = undefined;
+  try {
+    await cp("tests/fixtures/viewer", workspace, { recursive: true });
+    await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "activity" }] }));
+    const sessions: Record<string, { location: { directory: string }; parentID?: string }> = {
+      root: { location: { directory: workspace } }, child: { location: { directory: workspace }, parentID: "root" }, other: { location: { directory: elsewhere } },
+    };
+    const context = {
+      location: { directory: workspace }, options: { record: true },
+      session: { get: async ({ sessionID }: { sessionID: string }) => sessions[sessionID] },
+      permission: { assert: async () => undefined },
+      skill: { list: async () => ({ data: [] }), transform: async () => undefined },
+      tool: {
+        hook: async (name: string, handler: (event: unknown) => unknown) => { hooks.set(name, handler); },
+        transform: async (apply: (editor: unknown) => void) => apply({ namespace: () => undefined, add: (tool: Tool) => { tools.set(tool.name, tool); } }),
+      },
+    };
+    cleanup = await plugin.setup(context as never);
+    const read = async (sessionID: string, id: string) => {
+      const event = { sessionID, id, tool: "read", input: { path: "src/activity.ts" }, status: "completed" };
+      await hooks.get("execute.before")!(event); await hooks.get("execute.after")!(event);
+    };
+    const seen = (session: string) => readActivity(workspace, { source: "opencode", session });
+    await read("root", "r1"); await read("child", "k1"); await read("other", "o1");
+    let events = await seen("root");
+    for (let attempt = 0; attempt < 60 && events.length < 1; attempt++) { await delay(50); events = await seen("root"); }
+    await delay(300);
+    expect(events.map(event => [event.call, event.phase, [...event.paths]])).toEqual([["r1", "completed", ["src/activity.ts"]]]);
+    expect(await seen("child")).toEqual([]);
+    expect(await seen("other")).toEqual([]);
+    expect((await tools.get("stop")!.execute({}, { sessionID: "root", agent: "build", messageID: "m", id: "s", signal: new AbortController().signal })).content).toContain("stopped");
+    await read("root", "r2");
+    await delay(400);
+    expect((await seen("root")).map(event => event.call)).toEqual(["r1"]);
+  } finally {
+    await cleanup?.();
+    await rm(workspace, { recursive: true, force: true });
+    await rm(elsewhere, { recursive: true, force: true });
+  }
+}, 60_000);

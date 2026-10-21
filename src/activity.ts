@@ -13,7 +13,7 @@ export interface ActivityBinding extends Schema.Schema.Type<typeof ActivityBindi
 export const ActivityEvent = Schema.Struct({
   ...ActivityBinding.fields, version: Schema.Literal(1), call: Label, tool: Label,
   phase: Schema.Literals(["started", "completed", "failed"]),
-  operation: Schema.Literals(["read", "edit", "command", "other"]),
+  operation: Schema.Literals(["read", "edit", "command", "other", "turn"]),
   paths: Schema.Array(Path).check(Schema.isMaxLength(32)), time: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
 });
 export interface ActivityEvent extends Schema.Schema.Type<typeof ActivityEvent> {}
@@ -80,6 +80,16 @@ export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace:
   return yield* Schema.decodeUnknownEffect(ActivityEvent)({ ...binding, version: 1, call, tool, phase, operation, paths, time: yield* Effect.clockWith(clock => clock.currentTimeMillis) });
 });
 
+/** Events kept per session. Live reads only look at the newest few; replay can walk all of them. */
+export const retainedEvents = 2048;
+const liveEvents = 256;
+
+/** A prompt was submitted. Carries nothing about it: only that a new turn began, so replay can group the calls after it. */
+export const turnActivity = Effect.fn("Activity.turn")(function* (binding: ActivityBinding) {
+  return yield* Schema.decodeUnknownEffect(ActivityEvent)({ ...binding, version: 1, call: `turn-${randomUUID()}`, tool: "prompt", phase: "completed",
+    operation: "turn", paths: [], time: yield* Effect.clockWith(clock => clock.currentTimeMillis) });
+});
+
 export const writeActivity = Effect.fn("Activity.write")(function* (workspace: string, event: ActivityEvent) {
   const parsed = yield* Schema.decodeUnknownEffect(ActivityEvent, { onExcessProperty: "error" })(event);
   const directory = yield* activityDirectory(workspace, parsed);
@@ -90,7 +100,7 @@ export const writeActivity = Effect.fn("Activity.write")(function* (workspace: s
     yield* io("Activity.writeTemporary", () => writeFile(temporary, JSON.stringify(parsed), { mode: 0o600, flag: "wx" }));
     yield* io("Activity.publish", () => rename(temporary, join(directory, filename)));
     const files = (yield* io("Activity.entries", () => readdir(directory))).filter(file => file.endsWith(".json")).sort();
-    yield* Effect.forEach(files.slice(0, -256), file => io("Activity.prune", () => unlink(join(directory, file))).pipe(
+    yield* Effect.forEach(files.slice(0, -retainedEvents), file => io("Activity.prune", () => unlink(join(directory, file))).pipe(
       Effect.catchIf(error => hasCode(error, "ENOENT"), () => Effect.void)), { concurrency: 8, discard: true });
   }).pipe(Effect.ensuring(io("Activity.removeTemporary", () => unlink(temporary)).pipe(Effect.ignore)), Effect.uninterruptible);
 });
@@ -98,18 +108,56 @@ export const writeActivity = Effect.fn("Activity.write")(function* (workspace: s
 export const readActivity = Effect.fn("Activity.read")(function* (workspace: string, binding: ActivityBinding) {
   const directory = yield* activityDirectory(workspace, binding);
   const files = yield* io("Activity.entries", () => readdir(directory)).pipe(Effect.catchIf(error => hasCode(error, "ENOENT"), () => Effect.succeed([])));
-  const records = yield* Effect.forEach(files.filter(file => file.endsWith(".json")).sort().slice(-256), file => Effect.gen(function* () {
+  const records = yield* Effect.forEach(files.filter(file => file.endsWith(".json")).sort().slice(-liveEvents), file => Effect.gen(function* () {
     const text = yield* io("Activity.readEvent", () => readFile(join(directory, file), "utf8"));
     return yield* Schema.decodeUnknownEffect(ActivityEvent, { onExcessProperty: "error" })(yield* json(text));
   }).pipe(Effect.catch(() => Effect.succeed(undefined))), { concurrency: 16 });
   const calls = new Map<string, ActivityEvent>();
   for (const event of records) {
-    if (!event || event.source !== binding.source || event.session !== binding.session) continue;
+    if (!event || event.operation === "turn" || event.source !== binding.source || event.session !== binding.session) continue;
     const old = calls.get(event.call);
     if (old && old.phase !== "started" && event.phase === "started") continue;
     if (!old || old.phase === "started" || event.time >= old.time) calls.set(event.call, event);
   }
   return [...calls.values()].sort((a, b) => b.time - a.time).slice(0, 128);
+});
+
+/** A session's retained calls in the order they began, grouped into turns. */
+export interface Replay { steps: ActivityEvent[]; turns: number[] }
+const turnGap = 90_000;
+
+/**
+ * Steps are calls (a call's start and end are one step, shown as it ended). A turn starts at the first call after a prompt marker; without markers (an older
+ * journal) a pause of more than 90 s starts one. `turns` holds the step index each turn begins at; a prompt that ran no tool starts no turn.
+ */
+export function replayOf(events: ActivityEvent[]): Replay {
+  const ordered = [...events].sort((a, b) => a.time - b.time);
+  const markers = ordered.filter(event => event.operation === "turn").map(event => event.time);
+  const calls = new Map<string, { began: number; event: ActivityEvent }>();
+  for (const event of ordered) {
+    if (event.operation === "turn") continue;
+    const old = calls.get(event.call);
+    calls.set(event.call, { began: old?.began ?? event.time, event: old && old.event.phase !== "started" && event.phase === "started" ? old.event : event });
+  }
+  const steps = [...calls.values()].sort((a, b) => a.began - b.began).map(call => ({ ...call.event }));
+  const began = [...calls.values()].map(call => call.began).sort((a, b) => a - b);
+  const turns: number[] = [];
+  if (began.length) turns.push(0);
+  for (let index = 1; index < began.length; index++) {
+    const crossed = markers.length ? markers.some(time => time > began[index - 1]! && time <= began[index]!) : began[index]! - began[index - 1]! > turnGap;
+    if (crossed) turns.push(index);
+  }
+  return { steps, turns };
+}
+
+export const readReplay = Effect.fn("Activity.replay")(function* (workspace: string, binding: ActivityBinding) {
+  const directory = yield* activityDirectory(workspace, binding);
+  const files = yield* io("Activity.entries", () => readdir(directory)).pipe(Effect.catchIf(error => hasCode(error, "ENOENT"), () => Effect.succeed([])));
+  const records = yield* Effect.forEach(files.filter(file => file.endsWith(".json")).sort(), file => Effect.gen(function* () {
+    const text = yield* io("Activity.readEvent", () => readFile(join(directory, file), "utf8"));
+    return yield* Schema.decodeUnknownEffect(ActivityEvent, { onExcessProperty: "error" })(yield* json(text));
+  }).pipe(Effect.catch(() => Effect.succeed(undefined))), { concurrency: 16 });
+  return replayOf(records.filter((event): event is ActivityEvent => event !== undefined && event.source === binding.source && event.session === binding.session));
 });
 
 const activityRoot = (root: string) => join(root, ".cache", "pathlight", "activity");

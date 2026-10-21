@@ -39,7 +39,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 | Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/check.ts` |
 | Mapped files, editor and subprocess ownership | `src/node-files.ts`, `src/editor.ts`, `src/process.ts` |
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
-| Agent integrations | `plugins/` (`plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). `plugins/claude/skills/pathlight/SKILL.md` is the one skill for both hosts: `pathlight init` copies it, and `tests/skill.test.ts` checks every command and flag it names against the CLI help, so update it with the CLI. `plugins/claude/open-hook.sh` handles `/pathlight:open` as a `UserPromptSubmit` hook that stops the prompt with `continue: false` (no model turn); `commands/open.md` is only the picker entry and fallback. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
+| Agent integrations | `plugins/` (`plugins/opencode` targets OpenCode V2: `index.ts` is the server plugin (hooks, recording, tools, the skill), `tui.ts` the CLI plugin that holds the slash commands because only the terminal process knows the tmux pane; `tests/opencode-live.test.ts` drives the real binary; `plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). `plugins/claude/skills/pathlight/SKILL.md` is the one skill for both hosts: `pathlight init` copies it, and `tests/skill.test.ts` checks every command and flag it names against the CLI help, so update it with the CLI. `plugins/claude/open-hook.sh` handles `/pathlight:open` as a `UserPromptSubmit` hook that stops the prompt with `continue: false` (no model turn); `commands/open.md` is only the picker entry and fallback. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
 | Flat and nested fixtures | `tests/fixtures/viewer/` (frozen test layout), `examples/parcel/` |
 | This repo's own architecture diagram | `examples/viewer/`, mapped by `pathlight.activity.json` |
 
@@ -58,7 +58,8 @@ intentional redesigns separately; do not quietly substitute another camera.
    service traffic, test success, or parent activity from a child's event.
    Only actual active operations pulse; connectors do not imply live traffic.
 5. **Recording and viewing are separate.** A bound CLI viewer consumes journals.
-   OpenCode recording requires opt-in; closing a viewer does not stop recording.
+   OpenCode recording requires opt-in: `pathlight init` writes `record: true` on the plugin entry (the counterpart of the Claude hooks), or one session asks with `live: true`.
+   Automatic recording covers root sessions of the plugin's workspace only; closing a viewer does not stop recording.
    Do not silently enable recording or aggregate subagent sessions. `--follow` is an explicit viewing choice: it tracks only the single most recently active recorded session and never starts recording. Claude hook installation by `pathlight init` is the Claude opt-in.
 6. **Resource ownership is scoped.** Use Effect-returning module functions and
    scoped acquisition/finalization for renderers, polling and processes. Preserve
@@ -70,7 +71,7 @@ intentional redesigns separately; do not quietly substitute another camera.
    before editing. Treat editor commands and executable LikeC4 configuration as
    trusted-workspace inputs.
 8. **Keep activity minimal.** Do not store source contents, tool arguments,
-   command strings, results or error text in activity journals. For shell commands keep only existing workspace files the command names (state `command`, never read/edit). Preserve bounded
+   command strings, results or error text in activity journals. A turn marker records only that a prompt began (never its text), and replay reads the same journal (up to 2048 events per session). For shell commands keep only existing workspace files the command names (state `command`, never read/edit). Preserve bounded
    queues/history and local-only storage; this is not an audit log.
 
 ## Development and validation
