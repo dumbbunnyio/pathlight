@@ -13,5 +13,5 @@
     { "glob": "src/{theme,retheme}.ts", "element": "themes" },
     { "glob": "src/themes/**", "element": "themes" }
   ],
-  "ignore": ["tests/**", ".agents/**", "src/effects.ts", "src/assets.d.ts"]
+  "ignore": ["tests/**", "src/effects.ts", "src/assets.d.ts"]
 }

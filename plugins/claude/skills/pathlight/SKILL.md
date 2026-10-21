@@ -46,7 +46,7 @@ Aim for a diagram a person can read in one glance. Build it in levels: a few gro
 
 1. **Scan.** `pathlight scan --workspace . --out scan.json`. Read `coverage` first: `unscanned` lists languages the scan does not read (their dependencies are missing, so read those parts of the code yourself), and `unresolved` lists imports it could not follow.
 2. **Find the boundaries.** Use the import edges to see which files belong together and which depend on which. Read a few entry points and the files at the centre of the graph; do not read everything. Filename families (`chat-*`, `auth-*`), package directories and `external` packages are all hints, not answers.
-3. **Write the model.** Use `.c4` files with a `likec4.config.json`. If a `likec4-dsl` skill is available, follow it for syntax. Give each element a title, technology and a one-sentence description taken from code you read. Name each relationship for what the dependency is ("Reads the model"), not for something you did not see. A relationship on a group is supported by imports between its children. Do not install or run `likec4`: `pathlight check` loads the model itself and fails with "Invalid LikeC4 model" and the parser errors if it is wrong, so a clean check also means the model is valid.
+3. **Write the model.** Use `.c4` files with a `likec4.config.json`. The syntax you need is under "LikeC4 in brief" below. Give each element a title, technology and a one-sentence description taken from code you read. Name each relationship for what the dependency is ("Reads the model"), not for something you did not see. A relationship on a group is supported by imports between its children. Do not install or run `likec4`: `pathlight check` loads the model itself and fails with "Invalid LikeC4 model" and the parser errors if it is wrong, so a clean check also means the model is valid.
 4. **Write `pathlight.activity.json`.** `{ "version": 1, "project": "<likec4 project name>", "mappings": [{ "glob": "src/auth/**", "element": "<exact element id>" }], "ignore": ["tests/**"] }`. Globs are workspace-relative. Element ids are the full dotted ids (`backend.auth`). Use `ignore` for tests, vendored or generated code that is deliberately outside the model.
 5. **Check, then adjust.** `pathlight check --workspace .` and work through it:
    - *glob matches no files*: fix the glob.
@@ -67,6 +67,54 @@ Aim for a diagram a person can read in one glance. Build it in levels: a few gro
    - what the model contains: elements, and the views you made;
    - what was left out: the "N source files ignored on purpose" line and the kinds of file in `ignore` (tests, tooling, examples), so they can decide whether any belongs in the diagram;
    - what `check` could not verify: relationships marked "not checkable", and relationships you kept with no import behind them, each with the reason you kept it.
+
+## LikeC4 in brief
+
+This is the whole of the syntax a pathlight model needs; the example is compiled by a test, so copy its shape. Anything beyond it is on https://likec4.dev/dsl/, and `pathlight check` reports a mistake with the parser's message.
+
+```likec4
+specification {
+  element system
+  element component
+  tag planned
+}
+model {
+  app = system 'Orders' {
+    description 'Takes and fulfils orders.'
+    api = component 'Order API' {
+      technology 'Express'
+      description 'Validates an order and stores it.'
+    }
+    store = component 'Order store' {
+      #planned
+      technology 'Postgres'
+    }
+    api -> store 'Writes orders'
+  }
+  billing = system 'Billing'
+  app.api -> billing 'Asks it to charge the customer'
+}
+views {
+  view index {
+    title 'Overview'
+    include app with { navigateTo app }
+    include billing
+  }
+  view app of app {
+    title 'Inside Orders'
+    include *
+    autoLayout LeftRight
+  }
+}
+```
+
+- **Kinds** (`system`, `component`) are declared once in `specification`; a tag is declared there as `tag name` and used as `#name`.
+- **An element** is `id = kind 'Title' { ... }` with optional `technology`, `description` and nested elements. Its relationships go inside the parent (`api -> store 'label'`) or anywhere with full dotted ids (`app.api -> billing`).
+- **Ids** are letters, digits, `_` and `-`, not starting with a digit. A dot is the path separator (`app.api`), never part of an id. Avoid reserved words as ids (`storage`, `notation`, `model`, `view`, `style`, `group`).
+- **A view** is `view name { ... }`, or `view name of element { ... }` to open one element up. `include *` is the element's children (or the top level in a view with no `of`); `include a.*` is the children of `a`; `include a, b` lists elements; `exclude` removes. `*` only works alone or after a dot: there is no pattern such as `signup_*`.
+- **Linking views:** `include app with { navigateTo app }` makes the box open view `app` (`o` in the viewer). Every view except the overview should be linked from it.
+- **Quotes:** single or double; put a long text on its own lines inside `'''` triple quotes only if you need line breaks.
+- **Several files** in one folder with one `likec4.config.json` (`{"name": "demo"}`) form one model; across files an element is referenced by its full dotted id.
 
 ## Design the architecture before the code exists
 

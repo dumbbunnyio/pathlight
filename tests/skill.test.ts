@@ -47,6 +47,20 @@ test("the behavior skill's example model compiles and is listed as a view", asyn
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+// The syntax section is what an agent copies when it writes a model by hand, so its example must compile and list both views.
+test("the pathlight skill's LikeC4 example compiles and lists its views", async () => {
+  const text = await readFile(path, "utf8");
+  const example = text.match(/## LikeC4 in brief[\s\S]*?```likec4\n([\s\S]*?)```/)?.[1];
+  expect(example).toBeDefined();
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-syntax-"));
+  try {
+    await writeFile(join(directory, "likec4.config.json"), JSON.stringify({ name: "demo" }));
+    await writeFile(join(directory, "model.c4"), example!);
+    const views = JSON.parse(await run(process.execPath, [resolve("src/cli.ts"), "list", "--workspace", directory])).views.map((view: { id: string }) => view.id);
+    expect(views.sort()).toEqual(["app", "index"]);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("a draft rerun leaves a behavior file beside it alone", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-behavior-draft-"));
   try {
