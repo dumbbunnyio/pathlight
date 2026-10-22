@@ -204,7 +204,7 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
   }
 }, 30_000);
 
-test("search isolates typing, cycles matches, accepts without navigation, and cancels to the original viewport", async () => {
+test("the search picker isolates typing, ranks this view first, searches other views, and closes back to the original viewport", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-search-"));
   const socket = join(directory, "tmux.sock");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
@@ -228,82 +228,60 @@ test("search isolates typing, cycles matches, accepts without navigation, and ca
     await capture("Selected: parcel.commerce");
     await delay(700);
     const before = await tmux("capture-pane", "-p", "-t", pane);
+    const diagramCells = (text: string) => text.split("\n").slice(1, 25).map(line => line.padEnd(90).slice(0, 86)).join("\n");
+    // Typing goes to the query: letters that are keys elsewhere (h j k l) do not move the selection.
     await tmux("send-keys", "-t", pane, "/");
-    expect(await capture("Search 0/0")).toMatch(/type a name or id/);
+    await capture("Search");
     await tmux("send-keys", "-t", pane, "-l", "qbohjkl");
-    const absent = await capture("No matches in this view");
+    const absent = await capture("Nothing matches");
     expect(absent).toContain("qbohjkl");
     expect(absent).toContain("Selected: parcel.commerce");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("Search 0/0")).toContain("No matches in this view");
+    expect(await capture("Nothing matches")).toContain("Selected: parcel.commerce");
     await tmux("send-keys", "-t", pane, "Escape");
     await capture("Service architecture");
     await delay(700);
-    const diagramCells = (text: string) => text.split("\n").slice(1, 25).map(line => line.padEnd(90).slice(0, 86)).join("\n");
     expect(diagramCells(await tmux("capture-pane", "-p", "-t", pane))).toBe(diagramCells(before));
+    // With nothing typed the list starts with what is in this view.
     await tmux("send-keys", "-t", pane, "/");
+    const listing = await capture("● here");
+    expect(listing).toMatch(/box\s+\S.*● here/);
+    // Other views are searched too.
+    await tmux("send-keys", "-t", pane, "-l", "checkout");
+    await capture("› checkout");
+    expect(await capture(/view\s+Parcel \/ Checkout detail\s+\d+ nodes/)).not.toContain("Customer");
+    await tmux("send-keys", "-t", pane, "C-u");
     await tmux("send-keys", "-t", pane, "-l", "commerce");
-    await capture("Search 1/6");
+    await capture("› commerce");
     await delay(300);
-    const searching = await capture("Checkout API");
-    const lines = searching.split("\n");
-    const row = lines.findIndex(line => line.includes("Checkout API"));
-    const column = lines[row]?.indexOf("Checkout API") ?? -1;
-    expect(column).toBeGreaterThanOrEqual(0);
-    await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${column + 2};${row + 1}M\x1b[<0;${column + 2};${row + 1}m`);
-    expect(await capture("Search 1/6")).toContain("Selected: parcel.commerce");
-    await tmux("send-keys", "-t", pane, "-l", "x");
-    expect(await capture("No matches in this view")).toContain("commercex");
-    await tmux("send-keys", "-t", pane, "BSpace");
-    await capture("Search 1/6");
-    await tmux("send-keys", "-t", pane, "-l", "\x1b[200~x\x1b[201~");
-    expect(await capture("No matches in this view")).toContain("commercex");
-    await tmux("send-keys", "-t", pane, "BSpace");
-    await capture("Search 1/6");
+    // A click on the dimmed background closes it without going anywhere.
     await tmux("send-keys", "-t", pane, "-l", "\x1b[<0;1;2M\x1b[<0;1;2m");
-    await tmux("send-keys", "-t", pane, "-l", "x");
-    expect(await capture("No matches in this view")).toContain("commercex");
-    await tmux("send-keys", "-t", pane, "BSpace");
-    await capture("Search 1/6");
-    await tmux("send-keys", "-t", pane, "Up");
-    expect(await capture("Search 6/6")).toContain("Selected: parcel.commerce.stock");
-    await tmux("send-keys", "-t", pane, "Tab", "Down");
-    expect(await capture("Search 2/6")).toContain("Selected: parcel.commerce.api");
-    await tmux("resize-window", "-t", pane, "-x", "80", "-y", "32");
     await delay(300);
-    await tmux("send-keys", "-t", pane, "BSpace");
-    expect(await capture("Search 1/6")).toContain("commerc");
-    await tmux("resize-window", "-t", pane, "-x", "90", "-y", "36");
-    await delay(300);
-    await tmux("send-keys", "-t", pane, "Escape");
-    await capture("Service architecture");
-    await delay(100);
-    expect(diagramCells(await tmux("capture-pane", "-p", "-t", pane))).toBe(diagramCells(before));
+    expect(await tmux("capture-pane", "-p", "-t", pane)).not.toContain("› commerce");
+    // A paste is text for the query, whatever its case; two words must both match. A resize keeps the list in its frame.
     await tmux("send-keys", "-t", pane, "/");
     await tmux("send-keys", "-t", pane, "-l", "\x1b[200~cHeCkOuT aPi\x1b[201~");
-    expect(await capture("Search 1/1")).toContain("Selected: parcel.commerce.api");
+    await capture("› cHeCkOuT aPi");
+    await tmux("resize-window", "-t", pane, "-x", "80", "-y", "32");
+    await delay(300);
+    expect(await capture("Checkout API")).toContain("› cHeCkOuT aPi");
+    await tmux("resize-window", "-t", pane, "-x", "90", "-y", "36");
+    await delay(300);
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture(" nodes")).toContain("Selected: parcel.commerce.api");
+    expect(await capture("Selected: parcel.commerce.api")).toContain("parcel/services");
+    // A view picked from the list opens, and Back returns.
     await tmux("send-keys", "-t", pane, "/");
-    await tmux("send-keys", "-t", pane, "-l", "commerce");
-    await capture("Search 1/6");
+    await tmux("send-keys", "-t", pane, "-l", "Checkout detail");
+    await capture("› Checkout detail");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture(" nodes")).toContain("Selected: parcel.commerce");
-    await tmux("send-keys", "-t", pane, "o");
-    await capture("back 1");
-    await delay(100);
-    await tmux("send-keys", "-t", pane, "/");
-    await tmux("send-keys", "-t", pane, "-l", "parcel.commerce.api");
-    await capture("Search 1/1");
-    await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("back 1")).toContain("Selected: parcel.commerce.api");
-    await tmux("send-keys", "-t", pane, "Enter");
-    await capture("back 2");
+    expect(await capture("parcel/checkout")).toContain("back 1");
+    await tmux("send-keys", "-t", pane, "b");
+    await capture("parcel/services");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });
   }
-}, 30_000);
+}, 60_000);
 
 test("linked views keep one process and restore selection, scroll, and live activity on back", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-navigation-"));

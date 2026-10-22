@@ -18,7 +18,7 @@ Press `b` to return to the previous view, selection, zoom, and scroll position. 
 Press `f` to fit the diagram, `r` to center the selection, and `q` to quit.
 Press `+` or `=` to zoom in, `-` to zoom out, and `0` to return to 100%.
 Zoom keeps the viewport center in place. Keyboard pan, reveal, and zoom ease into position using a Three orthographic camera.
-Search snapshots the current camera position. Hierarchy and search navigation reveal a group's upper-left corner or center a leaf.
+Hierarchy and search navigation reveal a group's upper-left corner or center a leaf.
 Press `i` to toggle the inspector. From 120 columns up it is docked beside the diagram (drag its divider to resize it) and open by default. Narrower terminals start without it; `i` (or a section number) shows it as an overlay on the right half, covering part of the diagram, and `i` hides it again. PageUp/PageDown scroll its contents. Press `?` for keyboard help.
 
 The diagram is fitted and centred when it opens and whenever the terminal is resized, until you pan, zoom (`+`, `-`, `0`) or recentre (`r`) yourself; `f` fits it again and turns that back on. Switching views fits the new view.
@@ -42,14 +42,11 @@ Themes use [OpenCode's theme format](https://github.com/anomalyco/opencode), so 
 - With `COLORTERM` unset, colours are still snapped to xterm-256 for whichever theme is active.
 Resize the terminal, then click another visible node to check that mouse targets stay aligned.
 
-Press `/` to search the current view by node name or full ID. Matching ignores case and finds literal substrings, not regular expressions.
-Type `commerce` to find the group and its children, or `Checkout API` to match the displayed name.
-Use Up, Down, Tab, or Shift+Tab to cycle through matches. The selected match is revealed in the diagram.
-Press Enter to keep the selected match. This Enter does not open a linked view or enter a group.
-Press Escape to cancel and restore your original selection and scroll position.
-An empty query or a query with no matches restores the original selection. Enter stays in search until a match exists.
-Search accepts pasted text and limits queries to 256 characters. While typing, `q`, `b`, and `o` are text rather than commands, and diagram clicks do not change the selection.
-Ctrl+C still quits. Search does not include nodes that are absent from the current view.
+Press `/` to search everything: every view, every box (in any view, nested or not) and every file the mapping gives a box, with the views and files outside the one you are in included. `g` opens the same list restricted to views.
+Type to narrow it. Matching ignores case. Several words must all match, the letters of a word may be spread out (`ctx` finds `context`), and a swapped or doubled letter (`hepler`) still finds `helper`. A box matches on its name and its id, a view on its title and its id, and a file on its name and its path.
+Results are ranked by how well the text matches and by where the result is, added together. Match quality counts most: an exact name or id comes first wherever it is, then a prefix or a word start, then a substring, then spread-out letters. Where it is breaks ties and nudges close calls, in this order: a box in the view you are in, a file in it, a box elsewhere, a view, a file elsewhere. A row for something in your view carries a dot (`● here`); a row elsewhere says which view it opens. Files the mapping ignores (tests, generated code) are not offered. The ranking constants and their tests are in `src/search.ts` and `tests/search.test.ts`.
+Up, Down, `Ctrl+N`/`Ctrl+P`, PgUp, PgDn, Home and End move; Enter goes; Escape (or a click outside) closes without changing anything. A box in the view you are in is selected where it is. Otherwise Enter opens the view of its parent, else its own view, else a view it is linked from, else the smallest view that has it, selects the box, and Back returns. A file opens its box with that file marked in the Files section. A view just opens.
+The list scrolls inside its frame (the border shows `79–95 of 95`). Typing, pasted text (256 characters at most) and resizing all work while it is open, `q`, `b` and `o` are text rather than commands, and diagram clicks do not change the selection. Ctrl+C still quits.
 
 ## Open a node's files
 
@@ -192,7 +189,7 @@ Every `pathlight check` records its counts in `.cache/pathlight/stale.json`, and
 ## Rendering limits
 
 Pass a view ID and use `--workspace` and `--project` to select its model.
-Empty views are rejected. Native mode does not support collapsing groups, project-wide search, relationship-link navigation, or editing the model.
+Empty views are rejected. Native mode does not support collapsing groups, relationship-link navigation, or editing the model.
 The framebuffer follows the terminal viewport rather than allocating a full-diagram canvas. Manual zoom ranges from 12.5% to 800%; fit can scale further to show the whole diagram.
 Leaf shapes become filled boxes. Groups become transparent outlines with titles, ordered behind their children.
 Labels wrap at cell boundaries and can be clipped on small nodes. Leaf labels hide below six columns or two rows.
@@ -211,6 +208,6 @@ The isolated tmux tests exercise the flat view and both nested Parcel views, inc
 The file-browser test requires `nvim` and checks an actual save, resizing during editing, editor failure recovery, file filtering, refresh, and preserved zoomed diagram position.
 The Linux editor lifecycle test checks launcher environment forwarding and shutdown of an editor wrapper with a child process.
 Navigation tests verify explicit links, rejected empty destinations, restoration of zoomed diagram cells and selection, an unchanged process, and activity updates after returning.
-Search tests exercise shortcut isolation, case-insensitive names and IDs, pasted text, match cycling, mouse isolation, resize, accepting linked nodes without opening them, and cancellation back to the original diagram cells.
+Search tests exercise the ranking (an exact match beats the current view, the current view beats the rest on equal matches, typos, several words), shortcut isolation, pasted text, mouse isolation, resize, going to a view, and closing back to the original diagram cells.
 Routing tests check that routes are only horizontal and vertical, avoid nodes in the way, merge into junctions and end in an arrowhead outside the target. The relationship test checks selection colors and long labels that scroll without moving the diagram.
 The interactive prototype was manually tried and approved before integration into the CLI. macOS and broader terminal compatibility remain unverified.

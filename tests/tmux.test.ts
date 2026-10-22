@@ -153,7 +153,7 @@ test("default native show records activity, and replaces during search in the ow
   await capture(pane, "Service architecture");
   await tmux("send-keys", "-t", pane, "/");
   await tmux("send-keys", "-t", pane, "-l", "Orders");
-  await capture(pane, "Search 1/1");
+  await capture(pane, "› Orders");
   await tmux("send-keys", "-t", pane, "Enter");
   await capture(pane, "Selected: parcel.commerce.orders");
   await tmux("send-keys", "-t", pane, "0", "r");
@@ -165,7 +165,7 @@ test("default native show records activity, and replaces during search in the ow
   expect(await tmux("display-message", "-p", "-t", pane, "#{pane_pid}")).toBe(pid);
   await tmux("send-keys", "-t", pane, "/");
   await tmux("send-keys", "-t", pane, "-l", "pending");
-  await capture(pane, "Search 0/0");
+  await capture(pane, "Nothing matches");
   expect((await native("checkout")).pane).toBe(pane);
   await capture(pane, "Checkout detail");
   expect((await native("services")).pane).toBe(pane);

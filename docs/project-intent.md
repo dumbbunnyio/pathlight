@@ -122,8 +122,9 @@ These are scope boundaries, not promises of later implementation.
 - Connectors are routed by a simple grid search; in very dense diagrams two routes can share a lane or pass close to a node.
 - Labels may clip or hide at small scales; boxes move on terminal-cell boundaries.
   Dot and diamond markers are drawn as plain arrowheads.
-- Search is confined to the current view. Group collapsing, relationship-link
-  navigation and model editing are not implemented.
+- Group collapsing, relationship-link navigation and model editing are not
+  implemented. Search covers every view, box and mapped file, but only those
+  the model and mapping give it: unmapped or ignored files are not searchable.
 - Journals can lose events under overload or disk failure. Their bounded history
   cannot answer historical questions like a durable event store.
 

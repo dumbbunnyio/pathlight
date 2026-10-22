@@ -67,7 +67,7 @@ test("native relationship emphasis follows selection and long labels wrap and sc
     expect(paged).toContain("Opens a view");
     await tmux("send-keys", "-t", pane, "/");
     await tmux("send-keys", "-t", pane, "-l", "activity");
-    await capture("Search 1/1");
+    await capture("› activity");
     await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("← Agent adapters")).toContain("Selected: activity");
     await delay(700);

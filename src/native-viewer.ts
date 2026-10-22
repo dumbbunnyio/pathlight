@@ -16,7 +16,7 @@ import pkg from "../package.json" with { type: "json" };
 import { type Hint, borderHints, hintChunks, noticeStyle, palette, pill, setPalette } from "./ui";
 import { type Mode, loadThemes, modeOf, paletteOf, saveTheme, savedTheme, systemTheme, themeFromEnvironment } from "./theme";
 import { retheme } from "./retheme";
-import { fuzzyFilter } from "./fuzzy";
+import { type Candidate, search as rankSearch } from "./search";
 import { rasterize, routeEdges, type Route } from "./routes";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
@@ -192,8 +192,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (ask.visible) ask.place(Math.min(76, renderer.width - 4), rows + 9);
     renderer.requestRender();
   };
-  const searchShield = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 3, width: "100%", height: 1,
-    zIndex: 10000, visible: false, shouldFill: false, onMouse(event) { event.preventDefault(); event.stopPropagation(); searchInput.focus(); } });
   // The narrow-terminal view: every node as a row (indented by depth), the selection marked; it replaces the diagram.
   const listSurface = { backgroundColor: palette.background, rootOptions: { backgroundColor: palette.background }, wrapperOptions: { backgroundColor: palette.background },
     viewportOptions: { backgroundColor: palette.background }, contentOptions: { backgroundColor: palette.background } };
@@ -203,7 +201,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   nodeList.add(nodeListText);
   viewport.add(canvas); viewport.add(nodeList); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
-  for (const child of [topBar, body, footer, searchShield, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel, goto.scrim, goto.panel, picker.scrim, picker.panel]) renderer.root.add(child);
+  for (const child of [topBar, body, footer, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel, goto.scrim, goto.panel, picker.scrim, picker.panel]) renderer.root.add(child);
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
   let centerX = diagram.bounds.x + diagram.bounds.width / 2;
   let centerY = diagram.bounds.y + diagram.bounds.height / 2;
@@ -219,8 +217,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   type Visit = { view: string; selected: string | undefined; x: number; y: number; scale: number };
   const history: Visit[] = [];
   let pendingReload: { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; notice: string } | undefined;
-  let pendingVisit: { diagram: ReturnType<typeof getDiagram>; restore?: Visit; select?: string } | undefined;
-  let search: { before: Visit; matches: typeof diagram.nodes; index: number } | undefined;
+  let pendingVisit: { diagram: ReturnType<typeof getDiagram>; restore?: Visit; select?: string; file?: string } | undefined;
   let dirty = true;
   let redrawAfterResize = false;
   let targetX = centerX, targetY = centerY, targetScale = scale;
@@ -265,7 +262,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a section"], ["j k", "move / scroll"], ["space", "fold section"],
         ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files"], ["esc", "back to diagram"]] },
       { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["n", "name and note it yourself"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
-      { name: "Global", active: false, rows: [["/", "search this view"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
+      { name: "Global", active: false, rows: [["/", "search views, boxes, files"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
     ];
     const wide = renderer.width >= 100;
     const width = Math.min(96, renderer.width - 4), inner = width - 6, column = wide ? Math.floor((inner - 4) / 2) : inner, keyWidth = 12;
@@ -685,11 +682,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
     crumbPlain = `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${history.length ? ` · back ${history.length}` : ""}${diffText()}${plan ? ` · plan ${plan.elements.length}` : ""}`;
-    breadcrumb.content = search ? new StyledText([fg(palette.accent)(`Search ${search.matches.length ? search.index + 1 : 0}/${search.matches.length}`), fg(palette.muted)(" · Enter keep · Esc cancel")])
-      : crumbPlain;
+    breadcrumb.content = crumbPlain;
     crumbHint.visible = true;
-    searchShield.visible = !!search;
-    searchShield.height = Math.max(1, renderer.height - 5);
     const worldWidth = Math.max(1, viewport.width) * scale;
     const worldHeight = Math.max(1, viewport.height) * scale / cellAspect();
     camera.left = -worldWidth / 2; camera.right = worldWidth / 2;
@@ -851,7 +845,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     filesText.onMouseDown = event => {
       event.preventDefault(); event.stopPropagation();
       const index = fileLines[event.y - filesText.y - firstFileLine] ?? -1, path = paths[index];
-      if (index < 0 || !path || help.visible || summary.visible || search) return;
+      if (index < 0 || !path || help.visible || summary.visible) return;
       if (fileMode && clickedFile === index) { openFile(path); return; }
       if (!fileMode) beginFiles();
       fileCursor = clickedFile = index; message = "Click again or Enter to open"; searchInput.focus(); update();
@@ -873,8 +867,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       entry.content.verticalScrollBar.visible = focused && entry.content.scrollHeight > entry.content.viewport.height;
     }
     if (summary.visible) summary.content.content = summaryContent();
+    if (goto.visible) renderGoto();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    const mode = replay ? "replay" : fileMode ? "files" : focusSection ? sections[focusSection].name.toLowerCase() : search ? "search" : "diagram";
+    const mode = replay ? "replay" : fileMode ? "files" : focusSection ? sections[focusSection].name.toLowerCase() : "diagram";
     // A notice has the room: the hidden-label count waits until it goes.
     const labelNote = message ? 0 : hidden;
     const work = binding || following ? newestWork() : undefined;
@@ -889,8 +884,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const room = Math.max(10, renderer.width - rightText.length - 16 - mode.length - String(selected?.id ?? "").length - 4);
     const hints = replay ? [fg(palette.accent)(`${replay.playing ? "▶" : "⏸"} ${replay.index + 1}/${replay.data.steps.length}`), fg(palette.muted)(`  turn ${replayTurn() + 1}/${replay.data.turns.length}  `),
         ...hintChunks([["space", replay.playing ? "pause" : "play"], ["←→", "step"], ["[ ]", "turn"], ["s", `${replay.speed}x`], ["esc", "exit"]], room - 24)]
-      : focusSection && !fileMode && !search ? hintChunks(sectionHints[focusSection], room)
-      : search ? [fg(palette.muted)("type a name or id  "), ...hintChunks([["↑↓", "matches"], ["enter", "keep"], ["esc", "restore"]], room - 20)]
+      : focusSection && !fileMode ? hintChunks(sectionHints[focusSection], room)
       : fileMode ? [fg(palette.accent)(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`), fg(palette.muted)("  type to filter  "), ...hintChunks([["enter", "open"], ["ctrl+r", "refresh"], ["esc", "back"]], room - 30)]
       : [];
     if (message !== lastToast) {
@@ -907,11 +901,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // One activity line, top right: an offer when the work is in another view, else the latest call. It is dropped when it would not fit.
     const ticker = tickerContent();
     const activity: TextChunk[] | undefined = work && "view" in work ? [fg(palette.accent)("● "), fg(palette.text)(`working in ${work.title}`), fg(palette.muted)("  ·  "), fg(palette.accent)("w"), fg(palette.muted)(" to go")] : ticker;
-    const crumbWidth = search ? 40 : crumbPlain.length;
+    const crumbWidth = crumbPlain.length;
     const activityWidth = activity?.reduce((sum, chunk) => sum + chunk.text.length, 0) ?? 0;
     const available = renderer.width - 2 - crumbWidth - 3;
     const fitted: TextChunk[] = [];
-    if (activity && !search && available >= 24) {
+    if (activity && available >= 24) {
       let left = activityWidth > available ? available - 1 : available;
       for (const chunk of activity) { if (left <= 0) break; fitted.push(chunk.text.length <= left ? chunk : { ...chunk, text: chunk.text.slice(0, left) }); left -= chunk.text.length; }
       if (activityWidth > available) fitted.push(fg(palette.muted)("…"));
@@ -1082,7 +1076,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   activityText.onMouseDown = event => {
     event.preventDefault(); event.stopPropagation();
-    if (fileMode || help.visible || summary.visible || search || pendingVisit) return;
+    if (fileMode || help.visible || summary.visible || pendingVisit) return;
     const element = activityTargets[event.y - activityText.y];
     if (!element) return;
     const node = nodeForElement(element);
@@ -1097,11 +1091,40 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       animating = false; pendingVisit = { diagram: next };
     } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
   };
-  // Go to view: every view in this project, picked by the user. It does not infer links between views. Typing narrows the list (fuzzy) and
-  // the list scrolls inside the frame, so a project with hundreds of views still fits.
-  let gotoIndex = 0, gotoTop = 0, gotoQuery = "";
-  const viewEntries = () => [...diagrams].filter(([, entry]) => entry.nodes.length);
-  const gotoEntries = () => fuzzyFilter(gotoQuery, viewEntries(), ([id, entry]) => `${String(entry.title ?? id)} ${id}`);
+  // The picker: `/` searches every view, box and mapped file in the project, `g` only the views. It does not infer links between views.
+  // Typing narrows the list (see search.ts for the ranking) and the list scrolls inside its frame.
+  type Pick = Candidate & { view?: string; element?: string; path?: string; detail: string };
+  let gotoIndex = 0, gotoTop = 0, gotoQuery = "", gotoMode: "all" | "views" = "all", gotoItems: Pick[] = [];
+  // Where a box that is not in this view opens: the view of its parent (the box among its siblings), else the view of the box itself, else a
+  // view this one links to, else the smallest view that has it (the same last rule `w` uses).
+  const viewHaving = (element: string) => {
+    const linked = new Set(diagram.nodes.map(node => node.navigateTo && String(node.navigateTo)).filter(Boolean));
+    const parent = element.includes(".") ? element.slice(0, element.lastIndexOf(".")) : undefined;
+    const rank = ([id, entry]: [string, typeof diagram]) => {
+      const subject = "viewOf" in entry ? String(entry.viewOf ?? "") : "";
+      return subject && subject === parent ? 0 : subject === element ? 1 : linked.has(id) ? 2 : 3;
+    };
+    return [...diagrams].filter(([, entry]) => entry.nodes.some(node => String(node.modelRef) === element))
+      .sort((a, b) => rank(a) - rank(b) || a[1].nodes.length - b[1].nodes.length || Number(a[0] === "index") - Number(b[0] === "index"))[0];
+  };
+  const pickCandidates = (): Pick[] => {
+    const current = String(diagram.id);
+    const views: Pick[] = [...diagrams].filter(([, entry]) => entry.nodes.length).map(([id, entry]) =>
+      ({ kind: "view", name: String(entry.title ?? id), aliases: [id], here: id === current, view: id, detail: `${entry.nodes.length} nodes` }));
+    if (gotoMode === "views") return views;
+    const present = new Set(diagram.nodes.map(node => String(node.modelRef)));
+    const titles = new Map<string, string>();
+    for (const entry of diagrams.values()) for (const node of entry.nodes) if (node.modelRef && !titles.has(String(node.modelRef))) titles.set(String(node.modelRef), node.title);
+    const boxes: Pick[] = [...titles].map(([element, title]) =>
+      ({ kind: "box", name: title, aliases: [element, element.split(".").at(-1)!], here: present.has(element), element, detail: "" }));
+    // Files the mapping puts outside the picture (tests, generated code) are not offered, and neither is a file that is a box of its own.
+    const outside = (config?.ignore ?? []).map(glob => new Bun.Glob(glob));
+    const mapped: Pick[] = [...files].filter(([element]) => titles.has(element)).flatMap(([element, paths]) => paths
+      .filter(path => path.slice(path.lastIndexOf("/") + 1) !== titles.get(element) && !outside.some(glob => glob.match(path)))
+      .map(path => ({ kind: "file" as const, name: path.slice(path.lastIndexOf("/") + 1), aliases: [path], here: present.has(element), element, path, detail: titles.get(element)! })));
+    return [...views.filter(item => !item.here), ...boxes, ...mapped];
+  };
+  const gotoEntries = () => rankSearch(gotoQuery, gotoItems);
   // The frame is the list plus the query line, the border and a blank row above and below; keep it inside the terminal and fairly compact.
   const gotoRows = (count: number) => Math.max(1, Math.min(count, 18, renderer.height - 2 - 5));
   const renderGoto = () => {
@@ -1111,21 +1134,23 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (gotoIndex < gotoTop) gotoTop = gotoIndex;
     if (gotoIndex >= gotoTop + rows) gotoTop = gotoIndex - rows + 1;
     gotoTop = Math.max(0, Math.min(gotoTop, Math.max(0, entries.length - rows)));
-    // The frame is at most 80 wide, less its border and padding; what the title does not need goes to the title.
-    const titleWidth = Math.max(16, Math.min(80, renderer.width - 4) - 6 - 1 - 11 - 8);
+    const inner = Math.min(80, renderer.width - 4) - 6, contextWidth = Math.min(26, Math.floor(inner / 3)), nameWidth = Math.max(10, inner - 1 - 5 - 1 - contextWidth - 1);
+    const fit = (text: string, width: number) => text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text.padEnd(width);
     const chunks: TextChunk[] = [fg(palette.incoming)(" › "), fg(palette.text)(gotoQuery), fg(palette.incoming)("▏"), nl];
-    if (!entries.length) chunks.push(fg(palette.muted)(" No view matches"), nl);
-    entries.slice(gotoTop, gotoTop + rows).forEach(([id, entry], offset) => {
-      const current = id === String(diagram.id), cursor = gotoTop + offset === gotoIndex;
-      // The id is not shown, but it is still matched, so typing `hono_helper` finds the view.
-      const title = String(entry.title ?? id);
-      chunks.push(bg(cursor ? palette.pick : palette.panel)(fg(palette.text)(` ${title.length > titleWidth ? `${title.slice(0, titleWidth - 1)}…` : title.padEnd(titleWidth)}`)),
-        bg(cursor ? palette.pick : palette.panel)(fg(palette.muted)(` ${`${entry.nodes.length} nodes`.padStart(9)} `)),
-        fg(current ? palette.incoming : palette.panel)(current ? "  ● here" : ""), nl);
+    if (!entries.length) chunks.push(fg(palette.muted)(" Nothing matches"), nl);
+    entries.slice(gotoTop, gotoTop + rows).forEach((entry, offset) => {
+      const cursor = gotoTop + offset === gotoIndex, shade = bg(cursor ? palette.pick : palette.panel);
+      // What the row says on the right: where it is. A row in the view you are in carries a dot; one elsewhere says which view it opens.
+      const where = entry.kind === "view" ? (entry.here ? "● here" : entry.detail)
+        : entry.here ? `● ${entry.kind === "file" ? entry.detail : "here"}` : entry.kind === "file" ? entry.detail : `in ${String(viewHaving(entry.element!)?.[1].title ?? "")}`;
+      const dir = entry.kind === "file" ? ` ${entry.path!.slice(0, entry.path!.lastIndexOf("/") + 1)}` : "";
+      const name = fit(entry.name + (dir.trim() ? dir : ""), nameWidth);
+      chunks.push(shade(fg(palette.muted)(` ${entry.kind.padEnd(5)}`)), shade(fg(palette.text)(name.slice(0, Math.min(entry.name.length, nameWidth)))),
+        shade(fg(palette.muted)(name.slice(Math.min(entry.name.length, nameWidth)))), shade(fg(entry.here ? palette.incoming : palette.muted)(` ${fit(where, contextWidth)} `)), nl);
     });
     goto.content.content = new StyledText(chunks);
     goto.meta.content = new StyledText([fg(palette.muted)(` ${entries.length ? `${gotoTop + 1}–${Math.min(entries.length, gotoTop + rows)} of ${entries.length}` : "0"} `)]);
-    goto.foot.content = new StyledText(borderHints([["type", "filter"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]]));
+    goto.foot.content = new StyledText(borderHints([["type", "search"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]]));
     goto.place(Math.min(80, renderer.width - 4), rows + 1 + (entries.length ? 0 : 1) + 4);
   };
   // Themes: the palette is swapped in place and every widget recoloured, so moving through the picker previews each one live.
@@ -1188,9 +1213,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (wantedTheme === "system" || detected) applyTheme(wantedTheme === "system" ? "system" : themeName);
     })),
     Effect.catch(() => Effect.void)));
-  const beginGoto = () => {
-    gotoQuery = ""; gotoTop = 0;
-    gotoIndex = Math.max(0, viewEntries().findIndex(([id]) => id === String(diagram.id)));
+  const beginGoto = (mode: "all" | "views") => {
+    gotoMode = mode; gotoQuery = ""; gotoTop = 0; gotoItems = pickCandidates();
+    goto.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(mode === "views" ? "Go to view" : "Search"), fg(palette.muted)(" ")]);
+    gotoIndex = mode === "views" ? Math.max(0, gotoEntries().findIndex(item => item.here)) : 0;
     goto.open(Math.min(80, renderer.width - 4), 8); renderGoto(); update();
   };
   const goToView = (id: string) => {
@@ -1202,11 +1228,21 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       animating = false; pendingVisit = { diagram: next };
     } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
   };
-  const finishSearch = (cancel: boolean) => {
-    if (!search) return;
-    if (cancel) restore(search.before);
-    search = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true;
-    message = ""; update();
+  // Go to a box (and, for a file, show it in the Files section): in place when this view has it, else in the view that fits it best. Back returns.
+  const showFile = (path: string) => {
+    const index = selectedPaths().indexOf(path);
+    if (index < 0) return;
+    fileCursor = index; sections.files.open = true; touched.add("files"); focusSection = "files"; scrollToSection = "files"; inspectorPreference = "open";
+  };
+  const landOn = (element: string, path?: string) => {
+    goto.close();
+    const here = nodeForElement(element);
+    if (here) { selectNode(here, true); if (path) showFile(path); update(); return; }
+    const best = viewHaving(element);
+    if (!best) { message = "That is not in any view"; update(); return; }
+    history.push(visit()); if (history.length > 32) history.shift();
+    animating = false; pendingVisit = { diagram: getDiagram(best[0]), select: element, file: path };
+    message = `Went to ${String(best[1].title ?? best[0])}`;
   };
   // Ask about a node: type a question, with the component's context, into the agent's own tmux pane.
   let asking: typeof selected;
@@ -1342,7 +1378,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const foldSection = (key: SectionKey) => { sections[key].open = !sections[key].open; touched.add(key); update(); };
   for (const key of sectionOrder) sections[key].header.onMouseDown = event => {
     event.preventDefault(); event.stopPropagation();
-    if (fileMode || search || asking) return;
+    if (fileMode || asking) return;
     // The first click focuses the section; clicking the focused one folds it.
     if (focusSection === key) foldSection(key); else { focusSection = key; touched.add(key); scrollToSection = key; }
     update();
@@ -1367,23 +1403,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     searchRow.visible = true; heading.visible = false; searchInput.focus();
   };
   searchInput.on("input", (value: string) => {
-    if (fileMode) { fileQuery = value; fileCursor = 0; message = ""; update(); return; }
-    if (!search) return;
-    const query = value.trim().toLowerCase();
-    search.matches = query ? diagram.nodes.filter(node => node.title.toLowerCase().includes(query) || String(node.id).toLowerCase().includes(query)) : [];
-    search.index = 0;
-    message = query && !search.matches.length ? "No matches in this view" : "";
-    const match = search.matches[0];
-    if (match) selectNode(match, true);
-    else { restore(search.before); update(); }
+    if (fileMode) { fileQuery = value; fileCursor = 0; message = ""; update(); }
   });
   nodeListText.onMouseDown = event => {
-    if (help.visible || summary.visible || goto.visible || picker.visible || search || asking || pendingVisit) return;
+    if (help.visible || summary.visible || goto.visible || picker.visible || asking || pendingVisit) return;
     const node = diagram.nodes[event.y - nodeListText.y];
     if (node) selectNode(node, false);
   };
   viewport.onMouseDown = event => {
-    if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || search || asking || pendingVisit) return;
+    if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || asking || pendingVisit) return;
     focusSection = undefined;
     if (fileMode) { endFiles(); message = ""; }
     // Hit the displayed cell bounds, not the fractional world-space plane:
@@ -1392,23 +1420,16 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       && event.y >= box.y && event.y < box.y + box.height).sort((a, b) => b.node.level - a.node.level)[0];
     if (entry) selectNode(entry.node, false);
   };
+  // A paste into the picker is text for the query, not keys.
+  renderer.keyInput.on("paste", event => {
+    if (!goto.visible) return;
+    event.preventDefault();
+    gotoQuery = (gotoQuery + new TextDecoder().decode(event.bytes).replace(/[\x00-\x1f\x7f]/g, " ")).slice(0, 256); gotoIndex = 0; renderGoto();
+  });
   renderer.keyInput.on("keypress", key => {
     if (editorActive) return;
     if (key.ctrl && key.name === "c") { key.preventDefault(); stop(); return; }
     if (pendingVisit) { key.preventDefault(); return; }
-    if (search) {
-      if (key.name === "escape") { key.preventDefault(); finishSearch(true); }
-      else if (key.name === "return") { key.preventDefault(); if (search.matches.length) finishSearch(false); }
-      else if (["up", "down", "tab"].includes(key.name)) {
-        key.preventDefault();
-        if (search.matches.length) {
-          const step = key.name === "up" || key.name === "tab" && key.shift ? -1 : 1;
-          search.index = (search.index + step + search.matches.length) % search.matches.length;
-          selectNode(search.matches[search.index], true);
-        }
-      }
-      return;
-    }
     if (asking) {
       if (key.name === "escape") { key.preventDefault(); finishAsk(); }
       else if (key.name === "tab") { key.preventDefault(); if (askMode === "ask") focusAsk(askFocus < 0 ? 0 : -1); }
@@ -1439,7 +1460,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const entries = gotoEntries(), page = gotoRows(entries.length);
       const move = (to: number) => { gotoIndex = entries.length ? (to + entries.length) % entries.length : 0; renderGoto(); };
       if (key.name === "escape") { goto.close(); update(); }
-      else if (key.name === "return") { const entry = entries[gotoIndex]; if (entry) goToView(entry[0]); }
+      else if (key.name === "return") {
+        const entry = entries[gotoIndex];
+        if (entry?.kind === "view") goToView(entry.view!);
+        else if (entry) landOn(entry.element!, entry.path);
+      }
       else if (key.name === "up" || (key.ctrl && key.name === "p")) move(gotoIndex - 1);
       else if (key.name === "down" || (key.ctrl && key.name === "n")) move(gotoIndex + 1);
       else if (key.name === "pageup") { gotoIndex = Math.max(0, gotoIndex - page); renderGoto(); }
@@ -1499,12 +1524,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         return;
       }
     }
-    if (!fileMode && key.sequence === "/") {
-      key.preventDefault(); animating = false;
-      search = { before: visit(), matches: [], index: 0 };
-      searchInput.placeholder = "Search nodes in this view"; searchPrompt.content = " / "; searchPrompt.fg = palette.incoming;
-      heading.visible = false; searchRow.visible = true; searchInput.value = ""; searchInput.focus(); update(); return;
-    }
+    if (!fileMode && key.sequence === "/") { key.preventDefault(); animating = false; beginGoto("all"); return; }
     if (!fileMode && key.name === "b") {
       key.preventDefault();
       const saved = history.at(-1);
@@ -1521,7 +1541,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!fileMode && key.name === "backspace") { key.preventDefault(); selectNode(diagram.nodes.find(node => node.id === selected?.parent), true); return; }
     const direction = ({ h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" } as const)[key.name as "h"];
     const vimKey = key.name.length === 1;
-    if (!fileMode && key.name === "g" && !key.ctrl && !key.shift) { key.preventDefault(); beginGoto(); return; }
+    if (!fileMode && key.name === "g" && !key.ctrl && !key.shift) { key.preventDefault(); beginGoto("views"); return; }
     if (!fileMode && key.name === "t" && !key.ctrl && key.sequence === "T") { key.preventDefault(); beginThemes(); return; }
     if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
     if (!fileMode && key.name === "m" && !key.ctrl) { key.preventDefault(); beginMap(); return; }
@@ -1661,6 +1681,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (next.restore) restore(next.restore);
       else { autoFit = true; fit(); targetX = centerX; targetY = centerY; targetScale = scale; }
       if (next.select) selected = nodeForElement(next.select) ?? selected;
+      if (next.file) showFile(next.file);
       update();
     }
     layout();

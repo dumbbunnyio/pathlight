@@ -33,19 +33,16 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await capture("parcel/services");
     const initial = await settled();
     await find("qbohjkl");
-    expect(await capture("No matches in this view")).toContain("Search 0/0");
+    expect(await capture("Nothing matches")).toContain("qbohjkl");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("Search 0/0")).toContain("Selected: customer");
+    expect(await capture("Nothing matches")).toContain("Selected: customer");
     await tmux("send-keys", "-t", pane, "Escape");
     expect(await settled()).toBe(initial);
 
     await find("commerce");
-    expect(await capture("Search 1/6")).toContain("Selected: parcel.commerce");
-    await tmux("send-keys", "-t", pane, "Up");
-    await capture("Search 6/6");
-    await tmux("send-keys", "-t", pane, "Down");
-    await capture("Search 1/6");
+    await capture("› commerce");
     await tmux("send-keys", "-t", pane, "Enter");
+    expect(await capture("Selected: parcel.commerce")).toContain("parcel/services");
     expect(await capture("parcel/services")).not.toContain("back ");
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("Selected: parcel.commerce.api");
@@ -64,7 +61,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     expect(await settled()).toBe(beforeLink);
 
     await find("Checkout API");
-    await capture("Search 1/1");
+    await capture("› Checkout API");
     await tmux("resize-window", "-t", pane, "-x", "100", "-y", "36");
     await settled();
     await tmux("resize-window", "-t", pane, "-x", "180", "-y", "46");
@@ -74,7 +71,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "o");
     await capture("parcel/checkout");
     await find("parcel.commerce.api");
-    await capture("Search 1/1");
+    await capture("› parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "Enter");
     const selectedApi = await settled();
     expect(selectedApi).toContain("parcel/checkout");

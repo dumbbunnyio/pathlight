@@ -25,10 +25,3 @@ export const fuzzyScore = (query: string, text: string): number | undefined => {
   }
   return total;
 };
-
-/** The items that match, best first; an empty query keeps every item in its own order. */
-export const fuzzyFilter = <T>(query: string, items: readonly T[], textOf: (item: T) => string): T[] => {
-  if (!query.trim()) return [...items];
-  return items.flatMap((item, index) => { const score = fuzzyScore(query, textOf(item)); return score === undefined ? [] : [{ item, score, index }]; })
-    .sort((a, b) => b.score - a.score || a.index - b.index).map(entry => entry.item);
-};

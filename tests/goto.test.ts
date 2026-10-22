@@ -28,7 +28,7 @@ test("g lists every view in the project, narrows as you type, and jumps on Enter
     await tmux("send-keys", "-t", pane, "g");
     const listing = await until(text => text.includes("Go to view"), "view list");
     for (const title of ["System context", "Service architecture", "Checkout detail"]) expect(listing).toContain(title);
-    expect(listing).toMatch(/System context\s+\d+ nodes\s+● here/);
+    expect(listing).toMatch(/System context\s+● here/);
     // Typing narrows the list (fuzzy: letters in order), and Enter goes to the best match.
     await tmux("send-keys", "-t", pane, "-l", "chkdet");
     const narrowed = await until(text => text.includes("1–1 of 1"), "filtered list");
