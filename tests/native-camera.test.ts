@@ -63,11 +63,11 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     const event = await toolActivity(directory, { source: "claude", session: "three-smoke" }, "read-1", "Read",
       { file_path: join(directory, "src/activity.ts") }, "started");
     await writeActivity(directory, event);
-    await capture("[read]");
-    await tmux("send-keys", "-t", pane, "4");
-    expect(await capture("read activity.ts")).toContain("[read]");
+    await capture("◦ read");
+    await tmux("send-keys", "-t", pane, "1");
+    expect(await capture("read activity.ts")).toContain("◦ read");
     await writeActivity(directory, { ...event, phase: "completed", time: Date.now() });
-    expect(await capture("[done]")).toContain("✓ read activity.ts");
+    expect(await capture("✓ done")).toContain("✓ read activity.ts");
     await tmux("send-keys", "-t", pane, "Escape"); await delay(300);
     await tmux("send-keys", "-t", pane, "+", "Right");
     await delay(700);

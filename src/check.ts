@@ -173,6 +173,8 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   for (const view of model.views()) {
     // The "Landscape" index LikeC4 adds when none is written is not part of the author's diagram.
     if (!view.$view.sourcePath) continue;
+    // A flow (a journey, or a state diagram in a *.behavior.c4 file) is traced with F on the diagram, not reached by following a link.
+    if ((view.$view as { _type?: string })._type === "dynamic" || /\.behavior\.(c4|likec4)$/.test(view.$view.sourcePath)) continue;
     const targets = new Set<string>();
     for (const node of view.$view.nodes) if (node.navigateTo && String(node.navigateTo) !== String(view.id)) targets.add(String(node.navigateTo));
     viewLinks.set(String(view.id), targets);

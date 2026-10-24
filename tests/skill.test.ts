@@ -19,19 +19,20 @@ test.each(["pathlight", "pathlight-behavior"])("the %s skill has valid frontmatt
   expect(body!.length).toBeGreaterThan(500);
 });
 
-test("every pathlight command and flag the skill names exists in the real CLI help", async () => {
-  const text = await readFile(path, "utf8");
+test.each(["pathlight", "pathlight-behavior"])("every pathlight command and flag the %s skill names exists in the real CLI help", async name => {
+  const text = await readFile(`plugins/claude/skills/${name}/SKILL.md`, "utf8");
   const help = await run(process.execPath, [resolve("src/cli.ts"), "--help"]);
   const commands = new Set(help.split("\n").flatMap(line => line.match(/^pathlight ([a-z]+)/)?.[1] ?? []));
-  expect([...commands].sort()).toEqual(["check", "diff", "doctor", "draft", "init", "list", "open", "plan", "record", "scan", "show", "view"]);
+  expect([...commands].sort()).toEqual(["check", "diff", "doctor", "draft", "flow", "flows", "init", "list", "open", "plan", "record", "scan", "see", "show", "view"]);
   const named = [...text.matchAll(/`pathlight ([a-z]+)[ `]/g)].map(match => match[1]!);
-  expect(named.length).toBeGreaterThan(4);
+  expect(named.length).toBeGreaterThan(name === "pathlight" ? 4 : 0);
   for (const command of named) expect(commands.has(command)).toBe(true);
-  const flags = new Set([...text.matchAll(/--[a-z][a-z-]+/g)].map(match => match[0]));
+  // Only on lines that run pathlight: the behavior skill also shows git flags (`git rev-parse --short HEAD`).
+  const flags = new Set(text.split("\n").filter(line => name === "pathlight" || /`pathlight /.test(line)).flatMap(line => [...line.matchAll(/--[a-z][a-z-]+/g)].map(match => match[0])));
   // --help is accepted everywhere but is not in the usage text itself.
   expect((await run(process.execPath, [resolve("src/cli.ts"), "list", "--help"])).startsWith("pathlight list")).toBe(true);
   for (const flag of flags) if (flag !== "--help") expect([flag, help.includes(flag)]).toEqual([flag, true]);
-  expect(flags.size).toBeGreaterThan(5);
+  expect(flags.size).toBeGreaterThan(name === "pathlight" ? 5 : 0);
 });
 
 // The example in the behavior skill is what an agent copies, so it must compile and draw as a view.

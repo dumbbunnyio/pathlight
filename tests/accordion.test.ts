@@ -26,21 +26,22 @@ test("a number focuses an inspector section: move within it, act on an item, fol
       }
       throw new Error(`Missing ${label}:\n${output}`);
     };
-    const open = await until(text => /2 Connections[─\s]+2/.test(text) && text.includes("out 2 · in 0") && /3 Files[─\s]+3/.test(text), "expanded sections with mapped files");
-            expect(open).toContain("a.ts");
+    // Files stay out of sight until asked for; the actions line says how many there are.
+    const open = await until(text => /2 Connects[─\s]+2/.test(text) && text.includes("→ Activity metadata") && text.includes("e files 3"), "connections and the files count");
+    expect(open).not.toContain("a.ts");
     await delay(700);
     // A number focuses a section: the mode pill names it and the movement keys now belong to it.
     await tmux("send-keys", "-t", pane, "2");
-    await until(text => text.includes("Connections") && /enter\s+show in diagram/.test(text), "connections focused");
-    expect(await screen()).toContain("out 2 · in 0");
+    await until(text => text.includes("Connects") && /enter\s+show in diagram/.test(text), "connections focused");
+    expect(await screen()).toContain("→ Activity metadata");
     // j moves to the second connection; Enter shows that node in the diagram, and the focus stays in the section.
     await tmux("send-keys", "-t", pane, "j", "Enter");
     await until(text => text.includes("Selected: launcher"), "walked to tmux launcher");
-    expect(await screen()).toContain("Connections");
+    expect(await screen()).toContain("Connects");
     // Space folds the focused section to a header with its count.
     await tmux("send-keys", "-t", pane, "Space");
     const collapsed = await until(text => !text.includes("Starts owned pane"), "folded connections");
-    expect(collapsed).toMatch(/2 Connections[─\s]+\d/);
+    expect(collapsed).toMatch(/2 Connects[─\s]+\d/);
     await tmux("send-keys", "-t", pane, "Space");
     await until(text => text.includes("Starts owned pane"), "unfolded connections");
     // Esc hands the keys back to the diagram: hjkl select neighbours again.
@@ -50,7 +51,7 @@ test("a number focuses an inspector section: move within it, act on an item, fol
     await until(text => !text.includes("Selected: launcher"), "diagram navigation resumed");
     // Clicking a header folds that section and focuses it.
     await tmux("send-keys", "-t", pane, "3");
-    await until(text => text.includes("files") || text.includes("enter  open"), "files focused");
+    await until(text => text.includes("a.ts") && /3 Files[─\s]+3/.test(text), "files shown and focused");
     await tmux("send-keys", "-t", pane, "Space");
     const filesGone = await until(text => !text.includes("a.ts"), "folded files");
     expect(filesGone).toMatch(/3 Files[─\s]+\d/);

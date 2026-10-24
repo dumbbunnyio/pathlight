@@ -1,6 +1,6 @@
 ---
 name: pathlight-behavior
-description: Use when the user wants a state diagram or flow of what a user sees or what a feature does ("draw the flow", "statechart", "what should happen when..."), to find where a flow breaks, or to mark which states are broken or fixed in pathlight. Writes a behavior view in a *.behavior.c4 file and shows it with pathlight.
+description: Use when the user wants a state diagram or flow of what a user sees or what a feature does ("draw the flow", "statechart", "what should happen when...", "how does a request move through the system"), to find where a flow breaks, or to mark which states are broken or fixed in pathlight. Writes a behavior view (states) or a journey (a dynamic view through the real components) in a *.behavior.c4 file and shows it with pathlight.
 ---
 
 # pathlight behavior
@@ -15,7 +15,7 @@ A behavior view answers "what should happen, step by step?" It is a state diagra
 
 ## Where it goes
 
-Write one file per flow in the workspace root, named `NAME.behavior.c4` (for example `messages.behavior.c4`). `pathlight draft` leaves these alone, so a rerun never loses them. If the project has no model at all, ask before creating `likec4.config.json` and `pathlight.activity.json` (see the pathlight skill).
+Write one file per flow in the folder of the LikeC4 project it belongs to (the workspace root when there is one project), named `NAME.behavior.c4` (for example `messages.behavior.c4`). `pathlight draft` leaves these alone, so a rerun never loses them. If the project has no model at all, ask before creating `likec4.config.json` and `pathlight.activity.json` (see the pathlight skill).
 
 Put one flow in one `flow` element, tagged `#behavior`, with its states inside it, and name the flow after what it is (`signup`), because top-level ids are shared with the generated architecture model and a clash stops it compiling. Declare `tag behavior` in the file's `specification`, as the example does: it keeps the flow out of the architecture views. Avoid LikeC4 reserved words as ids (`storage`, `notation`, `model`, `view`, `style`, `group`).
 
@@ -76,10 +76,52 @@ views {
 
 pathlight draws `#bug` boxes with a red outline and `#fixed` ones green.
 
+## Journeys: how a request moves through the components
+
+A state diagram says what a person sees. A **journey** says which components a request passes through, in order, and pathlight draws it on the architecture itself. It is a LikeC4 `dynamic view` over components the model already has, one step per hop, each titled with the event.
+
+### Working it out
+
+The story comes from reading the code, so do it in this order and do not skip the second step:
+
+1. **Scout (a cheap, fast model or subagent, if the host has one).** Pick the entry point (a route, a command, a handler, the thing the person clicks). Follow it through the code and list, in order, the files it passes through, which component each belongs to (`pathlight list --workspace .` and the model give the ids) and the call that leads to the next. Make no claims about what it means; hand back facts and file names. `pathlight scan` lists the imports if a map is needed.
+2. **Decide (the strongest model you have, or yourself with one subagent less).** Open the files the scout named, confirm each hop is really in the code, and settle the order and the event on each arrow. Drop any hop you cannot point to in a file. If the code is unclear, leave the hop out and say so.
+3. **Write it with the command, not by hand.**
+
+```sh
+pathlight flow add place-order --workspace . \
+  --title 'Placing an order' \
+  --reads src/web/checkout.ts,src/api/checkout.ts \
+  --step 'customer -> parcel.storefront: opens checkout' \
+  --step 'parcel.storefront -> parcel.commerce.api: submits the cart' \
+  --step 'parcel.commerce.api -> parcel.commerce.orders: commits the order'
+```
+
+`pathlight flow add` checks every component against the model (and offers the nearest id when one is mistyped), requires the files you read, stamps the view with the commit, writes `place-order.behavior.c4` (in the folder of the LikeC4 project it is for; pass `--project NAME` when the repository has several), takes the file back out if the model would stop compiling, and prints what `pathlight flows` finds. Use `--force` to replace one it wrote and `pathlight flow remove place-order` to delete it; it never overwrites or removes a file a person or agent wrote by hand. The command writes down your reading; it does not make the reading right.
+
+If you must write the view by hand (for example to combine it with a state diagram in one file), this is the shape:
+
+```likec4
+views {
+  dynamic view placeorder {
+    title 'Placing an order'
+    description 'Agent-written from src/web/checkout.ts and src/api/checkout.ts. Synced at 3f2a9c1.'
+    customer -> parcel.storefront 'opens checkout'
+    parcel.storefront -> parcel.commerce.api 'submits the cart'
+    parcel.commerce.api -> parcel.commerce.orders 'commits the order'
+  }
+}
+```
+
+- Put it in the same `*.behavior.c4` file as the state diagram it belongs to, or its own; `pathlight draft` leaves those files alone.
+- Every hop should be a relationship the model already has. A hop it does not have is shown with `≠ no relationship in the model` and listed by `pathlight flows`: that is the story and the model disagreeing, so say which one you think is wrong instead of adding the relationship to make the warning go away.
+- Name the files you read in the `description`, and the commit (`Synced at <short sha>`). A journey is your reading of the code, drawn in the agent's colour and labelled so; it never says what happened.
+- The person traces it with `F` in the viewer (`[` `]` to step, `esc` to leave) and sees which components the agent has touched along it. Mark nothing as passed or failed: observed calls are shown beside the steps and are not part of the flow.
+
 ## Keeping it true
 
 - Write the commit you read the code at into the view's `description` (`Synced at <short sha>`), as the example does. Get it with `git rev-parse --short HEAD`.
-- Before using or extending a behavior view, run `git diff --stat SYNC_SHA -- FILES` over the files its states name. If anything changed, re-read those parts and update the view, and only then move the sync commit forward.
+- Before using or extending a behavior view, run `pathlight flows --workspace .`. It lists, per flow, files a state names that are gone or changed since the sync commit, arrows with no event, decisions with fewer than two answers, states nothing reaches, and states that name no file (those cannot be checked at all); and, per journey, hops the model has no relationship for and components whose files changed since the sync commit. If anything changed, re-read those parts and update the view, and only then move the sync commit forward. A clean report means the diagram has not visibly drifted from the files it names, not that it is right.
 - Say plainly when you did not do that: "this diagram was last checked at <sha>".
 
 ## Show it

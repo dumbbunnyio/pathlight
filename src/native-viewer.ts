@@ -10,7 +10,7 @@ import { type Plan, readPlan } from "./plan";
 import { readStale, type Stale, staleText } from "./stale";
 import { nodeFiles } from "./node-files";
 import { openEditor } from "./editor";
-import { askMessage, mapMessage, sendToPane } from "./ask";
+import { askMessage, flowMessage, mapMessage, sendToPane } from "./ask";
 import { readEntry, readKeys, saveElement } from "./edit";
 import pkg from "../package.json" with { type: "json" };
 import { type Hint, borderHints, hintChunks, noticeStyle, palette, pill, setPalette } from "./ui";
@@ -18,10 +18,12 @@ import { type Mode, loadThemes, modeOf, paletteOf, saveTheme, savedTheme, system
 import { retheme } from "./retheme";
 import { type Candidate, search as rankSearch } from "./search";
 import { rasterize, routeEdges, type Route } from "./routes";
+import { checkFlows } from "./flows";
+import { badgeText as stepBadge, badgesOf, flowMaps, flowsInView, flowsThrough, pathEdges, type FlowMap } from "./flow-view";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
 
-export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string }) {
+export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) {
 const view = options.view;
 let binding = options.activity;
 const following = options.follow === true;
@@ -100,40 +102,49 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const inspectorScroll = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, verticalScrollbarOptions: { showArrows: false, trackOptions: { foregroundColor: palette.edgeDim, backgroundColor: palette.panel } } });
   const inspectorTitle = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
   const inspectorHead = new TextRenderable(renderer, { selectable: false, bg: palette.panel, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
-  const inspectorId = new TextRenderable(renderer, { selectable: false, bg: palette.panel, flexShrink: 0, fg: palette.muted, wrapMode: "word" });
+  const inspectorId = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
   const relations = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "word" });
   const filesText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
   const activityText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
+  const stepsText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
+  const flowsText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
   // Numbered, collapsible sections: each is a lighter block on the panel, with a bar on its left edge when focused.
-  type SectionKey = "overview" | "connections" | "files" | "activity";
+  type SectionKey = "activity" | "steps" | "connections" | "flows" | "files";
   const thin = { showArrows: false, trackOptions: { foregroundColor: palette.edgeDim, backgroundColor: palette.panel } };
   const makeSection = (number: number, name: string, children: Renderable[]) => {
     const box = new BoxRenderable(renderer, { id: `section-${name.toLowerCase()}`, backgroundColor: palette.panel, width: "100%", height: 8, flexShrink: 0, flexDirection: "column", marginTop: 1 });
     const header = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
     // Every card is the same height; whatever does not fit scrolls inside it, behind a hairline scrollbar.
-    const content = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, paddingLeft: 4, verticalScrollbarOptions: thin });
+    const content = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, verticalScrollbarOptions: thin });
     for (const child of children) content.add(child);
     box.add(header); box.add(content);
     return { number, name, box, header, content, open: true };
   };
   const sections = {
-    overview: makeSection(1, "Overview", [inspectorId]),
-    connections: makeSection(2, "Connections", [relations]),
+    activity: makeSection(1, "Now", [activityText]),
+    steps: makeSection(2, "Steps", [stepsText]),
+    connections: makeSection(2, "Connects", [relations]),
+    flows: makeSection(4, "In flows", [flowsText]),
     files: makeSection(3, "Files", [filesText]),
-    activity: makeSection(4, "Activity", [activityText]),
   };
-  const sectionOrder: SectionKey[] = ["overview", "connections", "files", "activity"];
+  const sectionOrder: SectionKey[] = ["activity", "steps", "connections", "flows", "files"];
+  // Before the first layout nothing is measured; start with what is hidden by default already hidden, so no frame shows Files or an empty Now.
+  for (const key of ["files", "steps", "flows"] as const) { sections[key].box.visible = false; sections[key].box.height = 0; }
+  if (!binding && !following) { sections.activity.box.visible = false; sections.activity.box.height = 0; }
   // Which section (if any) owns the movement keys. Undefined means the diagram does.
   let focusSection: SectionKey | undefined;
-  const cursor: Record<SectionKey, number> = { overview: 0, connections: 0, files: 0, activity: 0 };
+  const cursor: Record<SectionKey, number> = { connections: 0, files: 0, activity: 0, steps: 0, flows: 0 };
   let connectionItems: string[] = [];
   let fileLines: number[] = [];
-  let activityItems: { element: string; from: number; to: number }[] = [];
   const hot = RGBA.fromHex(palette.hot), rowBackground = hot;
-  const contentRows: Record<SectionKey, number> = { overview: 4, connections: 4, files: 4, activity: 4 };
+  const contentRows: Record<SectionKey, number> = { connections: 4, files: 4, activity: 4, steps: 4, flows: 2 };
   const highlight = (chunks: TextChunk[], from: number, to: number) => chunks.map((chunk, index) => index >= from && index < to ? { ...chunk, bg: hot } : chunk);
-  for (const child of [inspectorTitle, inspectorHead, ...sectionOrder.map(key => sections[key].box)]) inspectorScroll.add(child);
+  for (const child of [inspectorTitle, inspectorHead, inspectorId, ...sectionOrder.map(key => sections[key].box)]) inspectorScroll.add(child);
   inspector.add(inspectorScroll);
+  // Pinned under the scrolling cards: what is one key away, and the question field. Neither scrolls away.
+  const inspectorActions = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 2, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
+  const inspectorAsk = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
+  inspector.add(inspectorActions); inspector.add(inspectorAsk);
   // One bottom row: the mode badge (the only filled block on screen), then key hints or a short-lived notice; zoom and version on the right.
   const statusLeft = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 1, flexGrow: 1, fg: palette.muted, wrapMode: "none" });
   const statusRight = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
@@ -213,7 +224,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     return scene.nodes.find(node => subject !== undefined && String(node.modelRef) === String(subject))
       ?? scene.nodes.find(node => `${String(node.modelRef).replace(/\./g, "_")}_near` === String(scene.id)) ?? scene.nodes[0];
   };
-  let selected = firstNode(diagram);
+  // `--select ELEMENT` opens with that element selected, so a screen (or a bug report) can name exactly what it shows.
+  const asked = options.select === undefined ? undefined : diagram.nodes.find(node => String(node.modelRef) === options.select);
+  if (options.select !== undefined && !asked) return yield* Effect.fail(failure("Native.select", `The view '${view.id}' has no element '${options.select}'. Pathlight list names the views; the element ids are in the model.`));
+  let selected = asked ?? firstNode(diagram);
   type Visit = { view: string; selected: string | undefined; x: number; y: number; scale: number };
   const history: Visit[] = [];
   let pendingReload: { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; notice: string } | undefined;
@@ -258,10 +272,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const groups: { name: string; active: boolean; rows: Hint[] }[] = [
       { name: "Diagram", active: !focusSection, rows: [[vimTraverses ? "h j k l" : arrows, "select a neighbour"], [vimTraverses ? arrows : "h j k l", "pan"], ["+ -", "zoom"], ["f", "fit everything"],
         ["0", "actual size"], ["r", "centre the selection"], ["tab", "next node"], ["enter", "into a group / open a link"], ["backspace", "up to the parent"],
-        ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"]] },
-      { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a section"], ["j k", "move / scroll"], ["space", "fold section"],
+        ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"], ["F", "trace a flow (F again: next, last one leaves)"], ["[ ]", "step through the flow"]] },
+      { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a card"], ["j k", "move / scroll"], ["space", "fold card"],
         ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files"], ["esc", "back to diagram"]] },
-      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["n", "name and note it yourself"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
+      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
       { name: "Global", active: false, rows: [["/", "search views, boxes, files"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
     ];
     const wide = renderer.width >= 100;
@@ -337,11 +351,17 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let diff: Diff | undefined;
   // The elements the agent said it is about to work on (`pathlight plan`): outlined, and activity on anything else is marked off-plan.
   let plan: Plan | undefined;
+  // Flows: readings of the code (a journey is a LikeC4 dynamic view, a state diagram is what an agent wrote). They are loaded in the background after the first frame
+  // and again when the model or a check changes, so a view never waits for them. In flow mode one is drawn on the diagram and read step by step in the inspector.
+  let flows: FlowMap[] = [];
+  let activeFlow: FlowMap | undefined, flowStep = 0;
+  let flowPath = new Set<string>();
+  let flowItems: ReturnType<typeof flowsThrough> = [];
   const inPlan = (ref: string) => (plan?.elements ?? []).some(id => ref === id || ref.startsWith(`${id}.`) || id.startsWith(`${ref}.`));
   const within = (id: string, ancestor: string) => id === ancestor || id.startsWith(`${ancestor}.`);
   const edgeMarks = () => {
-    const marks = new Map<string, "added" | "lost">();
-    if (!diff) return marks;
+    const marks = new Map<string, "added" | "lost" | "path">();
+    if (!diff) { for (const key of flowPath) marks.set(key, "path"); return marks; }
     const ref = new Map(diagram.nodes.map(node => [String(node.id), String(node.modelRef)] as const));
     for (const edge of diagram.edges) {
       const from = ref.get(String(edge.source)), to = ref.get(String(edge.target));
@@ -350,6 +370,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (hits.some(item => item.change === "added")) marks.set(`${edge.source}\0${edge.target}`, "added");
       else if (hits.length) marks.set(`${edge.source}\0${edge.target}`, "lost");
     }
+    // The flow being read wins over what changed: it is what the person asked to see.
+    for (const key of flowPath) marks.set(key, "path");
     return marks;
   };
   const diffText = () => {
@@ -393,7 +415,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (key === layoutKey) return;
     layoutKey = key;
     body.direction = "horizontal";
-    for (const key of sectionOrder) if (!touched.has(key)) sections[key].open = true;
+    for (const key of sectionOrder) if (!touched.has(key) && key !== "files") sections[key].open = true;
     if (mounted === "docked") body.remove(inspector);
     else if (mounted === "overlay") renderer.root.remove(inspector);
     mounted = mount;
@@ -419,10 +441,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const group = node.children.length > 0;
     const box = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: 1, height: 1,
       border: true, borderStyle: "rounded", borderColor: group ? palette.rule : palette.cardEdge, shouldFill: !group, backgroundColor: palette.background, zIndex: z,
-      justifyContent: "center", title: group ? node.title : undefined, titleColor: palette.muted });
+      justifyContent: "center", title: group ? node.title : undefined, titleColor: palette.muted, titleAlignment: group ? "left" : "right" });
     const label = new TextRenderable(renderer, { selectable: false, fg: palette.body, wrapMode: "word", content: group ? "" : node.title, marginLeft: 1, marginRight: 1 });
-    box.add(label); viewport.add(box);
-    return { node, box, label, rect: { x: 0, y: 0, width: 1, height: 1 } };
+    // The step number sits in the card's top border, on the left (the live tag is on the right); drawn only in flow mode.
+    const badge = new TextRenderable(renderer, { position: "absolute", left: 1, top: -1, selectable: false, wrapMode: "none", bg: palette.background, fg: palette.purple, visible: false });
+    box.add(label); box.add(badge); viewport.add(box);
+    return { node, box, label, badge, rect: { x: 0, y: 0, width: 1, height: 1 } };
   });
   // Orthogonal routes between the same nodes LikeC4 connects, found once per layout (see routes.ts).
   const computeRoutes = (): Route[] => routeEdges(diagram.nodes.map(node => ({ id: String(node.id), x: node.x, y: node.y, width: node.width, height: node.height, children: node.children.map(String) })),
@@ -452,30 +476,33 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     return { x: (p.x + 1) * viewport.width / 2, y: (1 - p.y) * viewport.height / 2 };
   };
   const nl = fg(palette.text)("\n");
-  // Section bodies are indented four columns (under the label); the panel has one column of padding each side and one for a scrollbar.
-  const bodyWidth = () => Math.max(16, inspector.width - 2 - 4 - 1);
+  // Section bodies start at the panel's edge; the panel has one column of padding each side and one for a scrollbar.
+  const bodyWidth = () => Math.max(16, inspector.width - 2 - 1);
   const innerWidth = bodyWidth;
   const section = (title: string, tone: string, right = "") => [fg(tone)(title), fg(palette.border)(` ${"─".repeat(Math.max(2, innerWidth() - title.length - right.length - 2))} `), fg(palette.muted)(right)];
   const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
-  // Which element each rendered line of the activity list belongs to, so a click can select its node.
-  let activityTargets: (string | undefined)[] = [];
   // Every open card gets an equal share of the inspector's height; a folded card is a padded header.
   let headRows = 2;
-  const bodyRows: Record<SectionKey, number> = { overview: 4, connections: 4, files: 4, activity: 4 };
+  const bodyRows: Record<SectionKey, number> = { connections: 4, files: 4, activity: 4, steps: 4, flows: 2 };
   const resetInspectorScroll = () => { inspectorScroll.scrollTo(0); for (const key of sectionOrder) sections[key].content.scrollTo(0); };
   // Sections folded automatically because the inspector is too short for every open card (never ones the user touched).
   const autoFolded = new Set<SectionKey>();
   const isOpen = (key: SectionKey) => sections[key].open && !autoFolded.has(key);
+  // Files stay out of sight until asked for (`e`, or `3`): the actions line says how many there are.
+  // "Now" says nothing when there is no session to watch.
+  const shownSections = () => sectionOrder.filter(key => key === "files" ? fileMode || focusSection === "files" : key === "activity" ? Boolean(binding || following)
+    : key === "steps" ? Boolean(activeFlow) : key === "connections" ? !activeFlow : !activeFlow && flowsThrough(flows, String(selected?.modelRef ?? "")).length > 0);
   const layoutSections = () => {
     const total = inspectorScroll.viewport.height;
     if (total <= 0) return;
     autoFolded.clear();
-    let active = sectionOrder.filter(key => sections[key].open);
+    const order = shownSections();
+    let active = order.filter(key => sections[key].open);
     const wants = (key: SectionKey) => 1 + Math.max(1, contentRows[key]);
     // Each open section gets what its content needs, capped at a fair share; whatever a short section leaves over goes to the long ones.
     const allot = (keys: SectionKey[], compact: boolean) => {
-      const closed = sectionOrder.length - keys.length;
-      let remaining = total - headRows - (compact ? 0 : sectionOrder.length) - closed;
+      const closed = order.length - keys.length;
+      let remaining = total - headRows - (compact ? 0 : order.length) - closed;
       const result = new Map<SectionKey, number>();
       const ordered = [...keys].sort((a, b) => wants(a) - wants(b));
       ordered.forEach((key, index) => {
@@ -485,20 +512,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       return { result, remaining };
     };
     // With a session attached the work is what is being watched, so activity is the last card to fold.
-    for (const drop of (binding || following ? ["files", "connections", "overview", "activity"] : ["overview", "activity", "files", "connections"]) as SectionKey[]) {
-      if (active.length <= 1 || [...allot(active, false).result.values()].every(rows => rows >= 4)) break;
+    for (const drop of (binding || following ? ["files", "flows", "connections", "activity"] : ["activity", "files", "flows", "connections"]) as SectionKey[]) {
+      if (active.length <= 1 || [...allot(active, false).result].every(([key, rows]) => rows >= Math.min(4, wants(key)))) break;
       if (active.includes(drop) && !touched.has(drop)) { active = active.filter(key => key !== drop); autoFolded.add(drop); }
     }
     const roomy = allot(active, false);
-    const compact = active.length > 0 && [...roomy.result.values()].some(rows => rows < 3);
+    const compact = active.length > 0 && [...roomy.result].some(([key, rows]) => rows < Math.min(3, wants(key)));
     const plan = compact ? allot(active, true) : roomy;
-    const ultra = compact && total - headRows - (sectionOrder.length - active.length) < 3;
+    const ultra = compact && total - headRows - (order.length - active.length) < 3;
     for (const key of sectionOrder) {
-      const entry = sections[key], isActive = active.includes(key);
+      const entry = sections[key], isActive = active.includes(key), shown = order.includes(key);
       const rows = ultra ? Math.max(3, total - headRows) : plan.result.get(key) ?? 1;
-      entry.box.visible = isActive || !ultra;
-      entry.box.height = isActive ? rows : 1;
-      entry.box.marginTop = compact ? 0 : 1;
+      entry.box.visible = shown && (isActive || !ultra);
+      entry.box.height = !shown ? 0 : isActive ? rows : 1;
+      entry.box.marginTop = !shown || compact ? 0 : 1;
       entry.content.visible = isActive;
       bodyRows[key] = Math.max(1, (isActive ? rows : 0) - 1);
     }
@@ -509,64 +536,45 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (rows <= 0) return;
     if (line < box.scrollTop) box.scrollTo(line); else if (line >= box.scrollTop + rows) box.scrollTo(line - rows + 1);
   };
+  // "Now": what the selected component's own mapped files saw, newest first. The work elsewhere is the header's line, `w`, `a` and `c`.
   const activityContent = () => {
-    activityTargets = []; activityItems = [];
     const note = (text: string, tone: string = palette.border) => { contentRows.activity = 1; return new StyledText([fg(tone)(text)]); };
     if (activityError) return note(activityError, palette.failure);
-    if (!binding && !following) return note("No session attached — run /pathlight in your agent");
-    if (!config) return note(`No activity mappings for ${view.project} — run pathlight init`);
-    if (!binding) return note("No activity yet");
+    if (!binding && !following) return note("○ no live session · model only");
+    if (!config) return note("no file mapping · run pathlight init");
+    if (!binding) return note("waiting for a session");
     const now = Date.now();
-    const rows = activityRows(events, config, now, 64);
-    const mapped = rows.filter(row => row.elements.length);
-    // Edits to files no component claims show where the mapping has a gap.
-    const gaps = [...new Set(rows.filter(row => !row.elements.length && row.operation === "edit").flatMap(row => row.paths))];
-    if (!mapped.length && !gaps.length) return note(rows.length ? "No activity on a mapped component yet" : "No activity yet");
-    const groups = new Map<string, typeof mapped>();
-    for (const row of mapped) groups.set(row.elements[0] ?? "", [...groups.get(row.elements[0] ?? "") ?? [], row]);
+    const own = String(selected?.modelRef ?? "");
+    const mine = activityRows(events, config, now, 64).filter(row => row.elements.includes(own));
+    if (!mine.length) return note("nothing observed here yet");
     const width = bodyWidth();
     const spin = spinner[Math.floor(now / 100) % spinner.length] ?? "●";
+    const collapsed: { row: (typeof mine)[number]; count: number; calls: string[] }[] = [];
+    for (const row of mine) {
+      const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target && entry.row.agent === row.agent);
+      if (same) { same.count++; same.calls.push(row.call); } else collapsed.push({ row, count: 1, calls: [row.call] });
+    }
     const chunks: TextChunk[] = [];
-    let lines = 0;
-    for (const [element, group] of [...groups].slice(0, 4)) {
-      let lineStart = chunks.length;
-      const inView = diagram.nodes.some(node => String(node.modelRef) === element);
-      const here = element === String(selected?.modelRef ?? "");
-      chunks.push(fg(here ? palette.accent : palette.border)("● "), fg(palette.text)(elementTitle(element)), ...(inView ? [] : [fg(palette.border)("  other view")]), nl);
-      activityTargets.push(element); activityItems.push({ element, from: lineStart, to: chunks.length }); lines++;
-      const collapsed: { row: (typeof group)[number]; count: number; calls: string[] }[] = [];
-      for (const row of group) {
-        const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target && entry.row.agent === row.agent);
-        if (same) { same.count++; same.calls.push(row.call); } else collapsed.push({ row, count: 1, calls: [row.call] });
-      }
-      const visibleRows = collapsed.slice(0, 3);
-      for (const [at, { row, count, calls }] of visibleRows.entries()) {
-        lineStart = chunks.length;
-        const glyph = row.state === "started" ? spin : row.state === "completed" ? "✓" : row.state === "failed" ? "✗" : "?";
-        const glyphTone = row.state === "failed" ? palette.failure : row.state === "started" ? palette.accent : row.state === "completed" ? palette.green : palette.muted;
-        const op = (row.operation === "command" ? "run" : row.operation).padEnd(5);
-        const first = row.paths[0]?.split("/").at(-1) ?? row.target;
-        const extra = `${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}${row.agent ? ` ·${row.agent.slice(0, 12)}` : ""}`;
-        const age = formatAge(row.age);
-        // Fixed grid: branch (3) · glyph (2) · op (5) · file + count · time, right aligned.
-        const room = Math.max(4, width - 3 - 2 - 5 - age.length - 1);
-        const shownFile = first.length + extra.length > room ? `${first.slice(0, Math.max(1, room - extra.length - 1))}…` : first;
-        const gap = Math.max(1, width - 3 - 2 - 5 - shownFile.length - extra.length - age.length);
-        const line: TextChunk[] = [fg(palette.border)(`${at === visibleRows.length - 1 ? "└─" : "├─"} `), fg(glyphTone)(`${glyph} `), fg(palette.muted)(op), fg(palette.body)(shownFile),
-          fg(palette.border)(extra), fg(palette.border)(`${" ".repeat(gap)}${age}`), nl];
-        const flashing = calls.some(call => (rowFlashes.get(call) ?? 0) > now);
-        chunks.push(...(flashing ? line.map(chunk => ({ ...chunk, bg: rowBackground })) : line));
-        activityTargets.push(element); activityItems.push({ element, from: lineStart, to: chunks.length }); lines++;
-      }
+    const shown = collapsed.slice(0, 3);
+    for (const { row, count, calls } of shown) {
+      const glyph = row.state === "started" ? spin : row.state === "completed" ? "✓" : row.state === "failed" ? "✗" : "~";
+      const glyphTone = row.state === "failed" ? palette.failure : row.state === "started" ? palette.accent : row.state === "completed" ? palette.green : palette.muted;
+      const op = (row.operation === "command" ? "run" : row.operation).padEnd(5);
+      const first = row.paths[0]?.split("/").at(-1) ?? row.target;
+      const extra = `${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}${row.agent ? ` ·${row.agent.slice(0, 12)}` : ""}`;
+      const age = formatAge(row.age);
+      // Fixed grid: glyph (2) · op (5) · file + count · time, right aligned.
+      const room = Math.max(4, width - 2 - 5 - age.length - 1);
+      const shownFile = first.length + extra.length > room ? `${first.slice(0, Math.max(1, room - extra.length - 1))}…` : first;
+      const gap = Math.max(1, width - 2 - 5 - shownFile.length - extra.length - age.length);
+      const line: TextChunk[] = [fg(glyphTone)(`${glyph} `), fg(row.state === "started" ? palette.accent : palette.muted)(op), fg(palette.body)(shownFile), fg(palette.border)(extra), fg(palette.border)(`${" ".repeat(gap)}${age}`), nl];
+      const flashing = calls.some(call => (rowFlashes.get(call) ?? 0) > now);
+      chunks.push(...(flashing ? line.map(chunk => ({ ...chunk, bg: rowBackground })) : line));
     }
-    if (gaps.length) {
-      chunks.push(...(lines ? [nl] : []), fg(palette.accent)("not in the model"), fg(palette.muted)(`  ${gaps.length} edited file${gaps.length > 1 ? "s" : ""}\n`)); lines += lines ? 2 : 1;
-      for (const path of gaps.slice(0, 3)) { chunks.push(fg(palette.border)("✎ "), fg(palette.body)(`${path.length > width - 4 ? `…${path.slice(-(width - 5))}` : path}\n`)); lines++; }
-    }
-    cursor.activity = Math.min(cursor.activity, Math.max(0, activityItems.length - 1));
-    const item = focusSection === "activity" ? activityItems[cursor.activity] : undefined;
-    contentRows.activity = lines;
-    return new StyledText(item ? highlight(chunks, item.from, item.to) : chunks);
+    const earlier = collapsed.length - shown.length;
+    if (earlier > 0) chunks.push(fg(palette.border)(`${earlier} earlier · `), fg(palette.muted)("c"), fg(palette.border)(" session\n"));
+    contentRows.activity = shown.length + (earlier > 0 ? 1 : 0);
+    return new StyledText(chunks);
   };
   // What the retained journal says the agent did: observed counts only, never a claim about outcomes.
   const summaryContent = () => {
@@ -600,7 +608,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const files = [...edited].sort((a, b) => b[1].count - a[1].count).slice(0, 8);
     for (const [path, info] of files) {
       const room = width - 30;
-      chunks.push(fg(palette.outgoing)("  ✎ "), fg(info.element ? palette.text : palette.failure)((path.length > room ? `…${path.slice(-(room - 1))}` : path).padEnd(Math.min(room, 40))),
+      chunks.push(fg(palette.outgoing)("  ■ "), fg(info.element ? palette.text : palette.failure)((path.length > room ? `…${path.slice(-(room - 1))}` : path).padEnd(Math.min(room, 40))),
         fg(palette.muted)(`×${info.count}  ${info.element ? elementTitle(info.element) : "not in the model"}`), nl);
     }
     if (!files.length) chunks.push(fg(palette.muted)("  no edits observed"), nl);
@@ -608,14 +616,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     summary.place(Math.min(100, renderer.width - 6), chunks.filter(chunk => chunk.text.includes("\n")).length + 4);
     return new StyledText(chunks);
   };
+  // The header's one activity line: "now" while a tool runs, "last" once it has an outcome, then what it did, to which file, in which component.
   const tickerContent = () => {
     if (!binding || !config) return undefined;
     const [row] = activityRows(events, config, Date.now(), 1);
     if (!row || row.age > 120_000) return undefined;
-    const label = row.state === "started" ? (row.operation === "command" ? "run" : row.operation) : row.state === "completed" ? "done" : row.state === "failed" ? "failed" : "unconfirmed";
-    const tone = row.state === "failed" ? palette.failure : row.state === "started" ? palette.accent : palette.muted;
-    return [fg(tone)("● "), fg(tone)(label), fg(palette.body)(` ${row.target} `), ...(row.agent ? [fg(palette.muted)(`[${row.agent.slice(0, 16)}] `)] : []),
-      ...(row.elements.length ? [fg(palette.border)("→ "), fg(palette.muted)(row.elements.join(", "))] : []), fg(palette.border)(` · ${formatAge(row.age)}`)];
+    const running = row.state === "started";
+    const verb = row.operation === "command" ? "run" : row.operation;
+    const glyph = running ? (row.operation === "edit" ? "■" : row.operation === "read" ? "◦" : spinner[Math.floor(Date.now() / 100) % spinner.length]!)
+      : row.state === "completed" ? "✓" : row.state === "failed" ? "✗" : "~";
+    const tone = row.state === "failed" ? palette.failure : running ? (row.operation === "edit" ? palette.accent : row.operation === "read" ? palette.incoming : palette.command) : row.state === "completed" ? palette.green : palette.muted;
+    const outcome = row.state === "failed" ? " failed" : row.state === "unconfirmed" ? ", no result" : "";
+    return [fg(palette.border)(running ? "now  " : "last "), fg(tone)(`${glyph} `), fg(running ? tone : palette.body)(verb), fg(palette.body)(` ${row.target}`), fg(row.state === "failed" ? palette.failure : palette.muted)(outcome), fg(palette.muted)(" "),
+      ...(row.agent ? [fg(palette.muted)(`[${row.agent.slice(0, 16)}] `)] : []),
+      ...(row.elements.length ? [fg(palette.border)("in "), fg(palette.body)(row.elements.map(elementTitle).join(", ")), fg(palette.muted)(" ")] : []), fg(palette.border)(running && row.age < 1000 ? "" : formatAge(row.age))];
   };
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
@@ -647,6 +661,24 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // What a node's mapped activity is doing right now: a running tool, or how a call that just ended finished.
   const operationState = (active: ActivityEvent[], recent: ActivityEvent | undefined) => active.length ? active.some(event => event.operation === "edit") ? "edit" : active.some(event => event.operation === "read") ? "read" : "run"
     : recent?.phase === "failed" ? "failed" : recent?.phase === "completed" ? "done" : "";
+  // How long a finished call stays on its card: long enough to notice a failure after looking away.
+  const outcomeMs = 30_000;
+  // The tag in a card's top border: what a tool is doing to it now, or how the last call ended. Journal facts only: `done` is not `passing`.
+  const cardTag = (related: ActivityEvent[], now: number): { text: string; color: string } | undefined => {
+    const running = related.filter(isActive);
+    if (running.length) {
+      if (running.some(event => event.operation === "edit")) return { text: "■ edit", color: palette.accent };
+      if (running.some(event => event.operation === "read")) return { text: "◦ read", color: palette.incoming };
+      return { text: `▸ ${spinner[Math.floor(now / 100) % spinner.length]}`, color: palette.command };
+    }
+    const newest = related[0];
+    if (newest && now - newest.time <= outcomeMs) {
+      if (newest.phase === "failed") return { text: "✗ failed", color: palette.failure };
+      if (newest.phase === "completed") return { text: "✓ done", color: palette.green };
+    }
+    // A call that started and never reported: not running as far as anyone knows, and not known to have finished.
+    return related.some(event => event.phase === "started" && now - event.time > 30_000 && now - event.time <= 300_000) ? { text: "~ no result", color: palette.muted } : undefined;
+  };
   let listSelected = "";
   const renderNodeList = () => {
     const chunks: TextChunk[] = [];
@@ -678,6 +710,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let crumbPlain = "";
   const update = () => {
     layout();
+    syncFlowStep();
     canvas.visible = !listMode; nodeList.visible = listMode;
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
@@ -693,6 +726,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     let hidden = 0;
     const now = Date.now();
     const previewed = focusSection === "connections" ? connectionItems[cursor.connections] : undefined;
+    // Flow mode: which cards carry a step number, and which connectors are the path. A card that is not on the path steps back.
+    const flowNodes = diagram.nodes.map(node => ({ id: String(node.id), modelRef: String(node.modelRef) }));
+    const badges = activeFlow ? badgesOf(activeFlow, flowNodes) : new Map<string, number[]>();
+    flowPath = activeFlow ? pathEdges(activeFlow, flowNodes, diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target) }))) : new Set<string>();
+    const stepNodeId = activeFlow ? (() => { const step = activeFlow.steps[flowStep]; const element = activeFlow.type === "journey" ? step?.to : step?.elements[0]; return flowNodes.find(node => node.modelRef === element)?.id; })() : undefined;
     const dashed = { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯", horizontal: "┄", vertical: "┆", topT: "┬", bottomT: "┴", leftT: "├", rightT: "┤", cross: "┼" };
     for (const entry of nodeObjects) {
       const group = entry.node.children.length > 0, id = String(entry.node.id);
@@ -702,7 +740,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const offPlan = !!plan && related.length > 0 && !inPlan(String(entry.node.modelRef));
       const counts = [reads && `r${reads}`, edits && `e${edits}`, runs && `c${runs}`, offPlan && "off plan"].filter(Boolean).join(" ");
       const active = related.filter(isActive);
-      const recent = related.find(event => now - event.time <= 5000);
+      const recent = related.find(event => now - event.time <= outcomeMs);
       const state = operationState(active, recent);
       const isSelected = id === String(selected?.id);
       const unbuilt = waiting(String(entry.node.modelRef));
@@ -717,6 +755,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (marks.includes("bug")) border = palette.failure; else if (marks.includes("fixed")) border = palette.green;
       if (state === "failed") border = palette.failure;
       if (previewed === id || isSelected || flashing) border = palette.accent;
+      const numbers = badges.get(id), offPath = Boolean(activeFlow) && !group && !numbers;
+      if (numbers && !isSelected && !flashing && state !== "failed") border = palette.purple;
+      if (offPath && !isSelected) border = fade(border, 0.5);
       if (active.length && !isSelected) {
         const pulse = RGBA.fromHex(palette.accent), brightness = 0.55 + 0.45 * (1 + Math.sin(now / 220)) / 2;
         pulse.r *= brightness; pulse.g *= brightness; pulse.b *= brightness;
@@ -744,59 +785,133 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       else {
         // First line: the kind (dim) on the left and observed activity (dim) on the right; then the title.
         const rows = height - 2, textWidth = Math.max(4, width - 4);
-        const stateText = state ? `[${state}]` : unbuilt ? "[planned]" : "";
+        const stateText = unbuilt ? "[planned]" : "";
+        const tag = cardTag(related, now);
+        // A narrow card keeps just the glyph, so the state is still there when the words do not fit.
+        entry.box.title = !tag ? undefined : width >= tag.text.length + 6 ? ` ${tag.text} ` : width >= 7 ? ` ${tag.text.slice(0, tag.text.indexOf(" ") > 0 ? tag.text.indexOf(" ") : 1)} ` : undefined;
+        entry.box.titleColor = tag?.color;
         const statusText = [stateText, counts].filter(Boolean).join(" ");
         const kindFull = entry.node.kind ? String(entry.node.kind) : "";
         const kindText = kindFull.length + (statusText ? statusText.length + 1 : 0) < textWidth ? kindFull : "";
         const header = rows >= 2 && (statusText || (kindText && kindText.length < textWidth));
         const gap = Math.max(1, textWidth - kindText.length - statusText.length);
         const first: TextChunk[] = header ? [fg(palette.muted)(kindText.slice(0, Math.max(0, textWidth - statusText.length - 1))),
-          fg(palette.muted)(statusText ? " ".repeat(gap) : ""), ...(stateText ? [fg(state === "failed" ? palette.failure : active.length || flashing ? palette.accent : palette.muted)(stateText), fg(palette.muted)(counts ? ` ${counts}` : "")] : [fg(palette.muted)(counts)]), nl] : [];
-        entry.label.content = new StyledText([...first, fg(bright ? palette.text : palette.body)(labelTitle(entry.node.title, textWidth, Math.max(1, rows - (header ? 1 : 0)), false))]);
+          fg(palette.muted)(statusText ? " ".repeat(gap) : ""), ...(stateText ? [fg(palette.muted)(stateText), fg(palette.muted)(counts ? ` ${counts}` : "")] : [fg(palette.muted)(counts)]), nl] : [];
+        entry.label.content = new StyledText([...first, fg(offPath ? palette.border : bright ? palette.text : palette.body)(labelTitle(entry.node.title, textWidth, Math.max(1, rows - (header ? 1 : 0)), false))]);
       }
       entry.box.visible = !listMode && end.x > 0 && end.y > 0 && origin.x < viewport.width && origin.y < viewport.height;
+      const badge = numbers && !group ? stepBadge(numbers) : "";
+      entry.badge.visible = badge !== "" && width >= badge.length + 4;
+      if (badge) { entry.badge.content = new StyledText([fg(id === stepNodeId ? palette.accent : palette.purple)(badge)]); }
       const bloom = Math.min(1, Math.max(0, (easeOut(revealProgress()) - (diagram.bounds.width ? (entry.node.x - diagram.bounds.x) / diagram.bounds.width * 0.45 : 0)) / 0.55));
       if (bloom < 1) { entry.box.borderColor = fade(entry.box.borderColor, bloom); }
       entry.label.visible = !group && width >= 8 && height >= 3 && bloom >= 0.7;
       if (!group && !entry.label.visible && bloom >= 0.7) hidden++;
     }
     const paths = selectedPaths();
-    inspectorTitle.content = new StyledText([fg(palette.text)(selected?.title ?? "No selection")]);
-    const what = [selected?.kind, selected?.technology, selected && waiting(String(selected.modelRef)) ? "planned: no files yet" : "", ...((selected as { tags?: readonly string[] } | undefined)?.tags ?? []).filter(tag => tag === "bug" || tag === "fixed")].filter(Boolean).join(" · ");
+    // The head says what the component is: its name and kind on one row, then what the model says it is for. Nothing else repeats the header or the cards.
+    const headWidth = Math.max(10, inspector.width - 3);
+    const kindText = selected?.kind ? String(selected.kind) : "";
+    const titleText = (selected?.title ?? "No selection");
+    const titleShown = titleText.length + kindText.length + 2 > headWidth ? `${titleText.slice(0, Math.max(1, headWidth - kindText.length - 3))}…` : titleText;
+    inspectorTitle.content = new StyledText([fg(palette.text)(titleShown), fg(palette.muted)(`${" ".repeat(Math.max(1, headWidth - titleShown.length - kindText.length))}${kindText}`)]);
+    const what = [selected?.technology, selected && waiting(String(selected.modelRef)) ? "planned: no files yet" : "", ...((selected as { tags?: readonly string[] } | undefined)?.tags ?? []).filter(tag => tag === "bug" || tag === "fixed")].filter(Boolean).join(" · ");
     inspectorHead.content = new StyledText([fg(palette.muted)(what || " ")]);
-    headRows = 2;
-    const parent = diagram.nodes.find(node => node.id === selected?.parent);
+    inspectorHead.visible = what !== "";
     const description = describe(selected);
-    const observed = byElement.get(String(selected?.modelRef ?? ""))?.length ?? 0;
-    const row = (key: string, value: string) => [fg(palette.border)(key.padEnd(9)), fg(palette.muted)(`${value}\n`)];
-    const facts = [...row("id", String(selected?.id ?? "")), ...(parent ? row("parent", parent.title) : []), ...row("files", String(paths.length)),
-      ...(binding || following ? row("events", String(observed)) : []), ...(selected?.navigateTo ? row("opens", `${selected.navigateTo}  (o)`) : [])];
-    inspectorId.content = new StyledText([...(description ? [fg(palette.body)(description), nl, nl] : []), ...facts]);
-    contentRows.overview = (description ? Math.ceil(description.length / bodyWidth()) + 2 : 0) + facts.filter(chunk => chunk.text.includes("\n")).length;
+    const opens = selected?.navigateTo ? `o opens ${selected.navigateTo}` : "";
+    inspectorId.content = new StyledText([...(description ? [fg(palette.body)(description)] : []), ...(description && opens ? [nl] : []), ...(opens ? [fg(palette.muted)(opens)] : [])]);
+    inspectorId.visible = Boolean(description || opens);
+    headRows = 1 + (what ? 1 : 0) + (description ? Math.ceil(description.length / headWidth) : 0) + (opens ? 1 : 0);
 
     const name = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const incoming = diagram.edges.filter(edge => edge.target === selected?.id);
     const outgoing = diagram.edges.filter(edge => edge.source === selected?.id);
-    connectionItems = [...outgoing.map(edge => String(edge.target)), ...incoming.map(edge => String(edge.source))];
+    // Who calls it first, then what it calls: one row each, the relationship's own words beside the name. Enter walks the graph.
+    const links = [...incoming.map(edge => ({ node: String(edge.source), arrow: "←", tone: palette.incoming, label: edge.label })),
+      ...outgoing.map(edge => ({ node: String(edge.target), arrow: "→", tone: palette.accent, label: edge.label }))];
+    connectionItems = links.map(item => item.node);
     cursor.connections = Math.min(cursor.connections, Math.max(0, connectionItems.length - 1));
-    const labelRows = (label: string | null | undefined) => Math.max(1, Math.ceil(((label?.replace(/\s+/g, " ").trim().length || 22) + 4) / Math.max(8, bodyWidth())));
-    const connectionLines: number[] = [];
-    let connectionLine = 1;
-    for (const edge of [...outgoing, ...incoming]) { connectionLines.push(connectionLine); connectionLine += 1 + labelRows(edge.label); }
-    contentRows.connections = connectionLine;
-    if (focusSection === "connections") followLine("connections", connectionLines[cursor.connections] ?? 0);
-    const link = (index: number, arrow: string, tone: string, node: string, label: string | null | undefined) => {
-      const here = focusSection === "connections" && cursor.connections === index;
-      const lines = [fg(palette.accent)(here ? "› " : "  "), fg(tone)(`${arrow} `), fg(here ? palette.text : palette.body)(`${name(node)}\n`),
-        fg(palette.muted)(`    ${label?.replace(/\s+/g, " ").trim() || "Unlabeled relationship"}\n`)];
-      return here ? lines.map(chunk => ({ ...chunk, bg: rowBackground })) : lines;
+    const nameColumn = Math.min(20, Math.max(8, ...links.map(item => name(item.node).length + 2)));
+    const clip = (text: string, room: number) => room <= 0 ? "" : text.length > room ? `${text.slice(0, Math.max(0, room - 1))}…` : text;
+    const wrapWords = (text: string, room: number) => {
+      const lines: string[] = [];
+      for (const word of text.split(" ")) {
+        const last = lines.at(-1);
+        if (last !== undefined && last.length + 1 + word.length <= room) lines[lines.length - 1] = `${last} ${word}`; else lines.push(word);
+      }
+      return lines;
     };
-    relations.content = new StyledText([
-      fg(palette.border)(`out ${outgoing.length} · in ${incoming.length}\n`),
-      ...outgoing.flatMap((edge, index) => link(index, "→", palette.accent, edge.target, edge.label)),
-      ...incoming.flatMap((edge, index) => link(outgoing.length + index, "←", palette.incoming, edge.source, edge.label)),
-      ...(outgoing.length + incoming.length ? [] : [fg(palette.border)("No relationships")]),
-    ]);
+    // One row each. The row under the cursor shows its relationship in full, wrapped, so nothing a long description says is out of reach.
+    const connectChunks: TextChunk[] = [], starts: number[] = [];
+    let connectLine = 0;
+    links.forEach((item, index) => {
+      starts.push(connectLine);
+      const here = focusSection === "connections" && cursor.connections === index;
+      const full = item.label?.replace(/\s+/g, " ").trim() ?? "", room = bodyWidth() - 2 - 2 - nameColumn;
+      const expand = here && full.length > room;
+      const lines = [fg(palette.accent)(here ? "› " : "  "), fg(item.tone)(`${item.arrow} `), fg(here ? palette.text : palette.body)(clip(name(item.node), nameColumn - 1).padEnd(nameColumn)), fg(palette.muted)(`${expand ? "" : clip(full, room)}\n`)];
+      connectChunks.push(...(here ? lines.map(chunk => ({ ...chunk, bg: rowBackground })) : lines)); connectLine++;
+      if (expand) for (const part of wrapWords(full, bodyWidth() - 4).slice(0, 6)) { connectChunks.push({ ...fg(palette.muted)(`    ${part}\n`), bg: rowBackground }); connectLine++; }
+    });
+    contentRows.connections = Math.max(1, connectLine);
+    if (focusSection === "connections") followLine("connections", starts[cursor.connections] ?? 0);
+    relations.content = new StyledText(links.length ? connectChunks : [fg(palette.border)("none")]);
+
+    // In flows: the flows this component is in, and which steps it plays. Nothing is shown for a component no flow touches.
+    const ownElement = String(selected?.modelRef ?? "");
+    flowItems = flowsThrough(flows, ownElement);
+    cursor.flows = Math.min(cursor.flows, Math.max(0, flowItems.length - 1));
+    contentRows.flows = Math.max(1, flowItems.length);
+    flowsText.content = new StyledText(flowItems.flatMap(({ flow, steps }, index) => {
+      const here = focusSection === "flows" && cursor.flows === index;
+      const room = bodyWidth(), at = `${steps.length > 1 ? "steps" : "step"} ${steps.join("·")}`;
+      const lines = [fg(palette.accent)(here ? "› " : "  "), fg(palette.purple)("◇ "), fg(here ? palette.text : palette.body)(clip(flow.title, Math.max(4, room - 4 - at.length - 1)).padEnd(Math.max(4, room - 4 - at.length))), fg(palette.muted)(`${at}\n`)];
+      return here ? lines.map(chunk => ({ ...chunk, bg: rowBackground })) : lines;
+    }));
+    if (focusSection === "flows") followLine("flows", cursor.flows);
+
+    // Steps: the flow being read, one row per step in the order it is told, with the component each lands on. `●` says the agent touched that component's
+    // files (a fact from the journal, not that the step happened); the current step shows its latest call and whether the model backs it.
+    const stepChunks: TextChunk[] = [], stepStarts: number[] = [];
+    let stepLine = 0;
+    if (activeFlow) {
+      const flow = activeFlow, room = bodyWidth(), journey = flow.type === "journey";
+      const syncLine = flow.sync.status === "none" ? "never synced" : flow.sync.status === "unknown" ? `synced at ${flow.sync.sha}, not a commit here`
+        : flow.sync.status === "behind" ? `synced at ${flow.sync.sha} · files changed since` : `synced at ${flow.sync.sha} · files unchanged since`;
+      stepChunks.push(fg(palette.purple)("◇ a reading of the code, not observed\n"), fg(flow.sync.status === "behind" || flow.sync.status === "unknown" ? palette.accent : palette.muted)(`${clip(syncLine, room)}\n`));
+      stepLine += 2;
+      let anyTouched = false;
+      flow.steps.forEach((step, index) => {
+        stepStarts.push(stepLine);
+        const here = index === flowStep;
+        const at = journey ? (step.to ? [step.to] : []) : step.elements;
+        const comp = at.length ? clip(`${elementTitle(at[0]!)}${at.length > 1 ? ` +${at.length - 1}` : ""}`, 16) : "";
+        const touched = at.some(element => (byElement.get(element)?.length ?? 0) > 0);
+        anyTouched ||= touched;
+        const titleRoom = Math.max(6, room - 2 - 3 - 1 - comp.length - 2);
+        const row = [fg(palette.accent)(here ? "› " : "  "), fg(here ? palette.accent : palette.purple)(`${step.n}`.padStart(2) + " "), fg(step.mark === "bug" ? palette.failure : step.mark === "fixed" ? palette.green : here ? palette.text : palette.body)(clip(step.title, titleRoom).padEnd(titleRoom)),
+          fg(palette.muted)(` ${comp}`), fg(palette.accent)(touched ? " ●" : "  "), nl];
+        stepChunks.push(...(here ? row.map(chunk => ({ ...chunk, bg: rowBackground })) : row)); stepLine++;
+        if (here) {
+          const latest = at.flatMap(element => byElement.get(element) ?? []).sort((a, b) => b.time - a.time)[0];
+          if (latest) {
+            const glyph = latest.phase === "started" ? (spinner[Math.floor(Date.now() / 100) % spinner.length] ?? "●") : latest.phase === "completed" ? "✓" : "✗";
+            const tone = latest.phase === "failed" ? palette.failure : latest.phase === "started" ? palette.accent : palette.green;
+            const file = latest.paths[0]?.split("/").at(-1) ?? latest.tool;
+            stepChunks.push(fg(palette.border)("     "), fg(tone)(`${glyph} `), fg(palette.muted)(`${latest.operation === "command" ? "run" : latest.operation} `), fg(palette.body)(clip(file, Math.max(4, room - 12))), fg(palette.border)(` ${formatAge(Date.now() - latest.time)}`), nl); stepLine++;
+          }
+          if (step.mark) { stepChunks.push(fg(palette.border)("     "), fg(step.mark === "bug" ? palette.failure : palette.green)(step.mark === "bug" ? "✗ marked as broken in the diagram\n" : "✓ marked as fixed in the diagram\n")); stepLine++; }
+          if (step.backed === false) { stepChunks.push(fg(palette.border)("     "), fg(palette.accent)("≠ "), fg(palette.muted)("no relationship in the model\n")); stepLine++; }
+          if (!step.elements.length) { stepChunks.push(fg(palette.border)("     "), fg(palette.muted)("no component for this step\n")); stepLine++; }
+        }
+      });
+      if (anyTouched) { stepChunks.push(fg(palette.accent)("●"), fg(palette.border)(" the agent touched its files\n")); stepLine++; }
+      if (flow.findings.length) { stepChunks.push(fg(palette.border)(`${flow.findings.length} to check · pathlight flows\n`)); stepLine++; }
+      followLine("steps", stepStarts[flowStep] ?? 0);
+    }
+    contentRows.steps = Math.max(1, stepLine);
+    stepsText.content = new StyledText(stepChunks);
 
     // Mapped files as a nested tree: directories dim with a trailing slash (single-child chains joined), files normal, files touched this
     // session bright with an accent dot at the right edge. Every row sits on one column grid: a two-column cursor slot, then the tree.
@@ -854,8 +969,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     activityText.content = activityContent();
     if (focusSection === "activity") followLine("activity", cursor.activity);
 
-    const counts: Record<SectionKey, string> = { overview: "", connections: String(incoming.length + outgoing.length),
-      files: fileMode ? `${paths.length ? fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: events.some(event => event.paths.length) ? String(events.filter(event => event.paths.length).length) : "" };
+    const observedHere = byElement.get(String(selected?.modelRef ?? ""))?.length ?? 0;
+    const counts: Record<SectionKey, string> = { steps: activeFlow ? `${flowStep + 1}/${activeFlow.steps.length}` : "", flows: flowItems.length ? "◇ reading" : "", connections: links.length ? String(links.length) : "",
+      files: fileMode ? `${paths.length ? fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: observedHere ? String(observedHere) : "" };
     layoutSections();
     for (const key of sectionOrder) {
       const entry = sections[key], focused = focusSection === key;
@@ -866,18 +982,26 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       // Only the focused section shows a scrollbar, and only when it has more than fits.
       entry.content.verticalScrollBar.visible = focused && entry.content.scrollHeight > entry.content.viewport.height;
     }
+    // Under the cards, always the same two lines: what is one key away, then the question field.
+    const panelWidth = Math.max(10, inspector.width - (mounted === "overlay" ? 3 : 2));
+    const action = (key: string, text: string) => [fg(palette.body)(key), fg(palette.muted)(` ${text}   `)];
+    inspectorActions.content = new StyledText([fg(palette.rule)("─".repeat(panelWidth)), nl,
+      ...(paths.length ? action("e", `files ${paths.length}`) : []), ...(binding ? action("c", "session") : []), ...(binding && events.length ? action("p", "replay") : [])]);
+    const askLabel = clip(selected ? `ask about ${selected.title}…` : "ask…", panelWidth - 6);
+    inspectorAsk.content = new StyledText([fg(palette.accent)("› "), fg(options.parent ? palette.muted : palette.border)(askLabel.padEnd(panelWidth - 3)), fg(palette.body)("t")].map(chunk => ({ ...chunk, bg: hot })));
     if (summary.visible) summary.content.content = summaryContent();
     if (goto.visible) renderGoto();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    const mode = replay ? "replay" : fileMode ? "files" : focusSection ? sections[focusSection].name.toLowerCase() : "diagram";
+    const mode = replay ? "replay" : fileMode ? "files" : focusSection ? sections[focusSection].name.toLowerCase() : activeFlow ? "flow" : "diagram";
     // A notice has the room: the hidden-label count waits until it goes.
     const labelNote = message ? 0 : hidden;
     const work = binding || following ? newestWork() : undefined;
     const sectionHints: Record<SectionKey, Hint[]> = {
-      overview: [["↑↓", "scroll"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
+      steps: [["↑↓", "step"], ["enter", "show"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
+      flows: [["↑↓", "move"], ["enter", "trace on the diagram"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
       connections: [["↑↓", "move"], ["enter", "show in diagram"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
       files: [["↑↓", "move"], ["enter", "open"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-      activity: [["↑↓", "move"], ["enter", "show component"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
+      activity: [["↑↓", "scroll"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
     };
     // The footer says where you are and how to ask for help; keys are named only inside a mode that needs them.
     const rightText = `${labelNote ? `${labelNote} labels hidden  ·  ` : ""}zoom ${Math.round(16 / scale * 100)}%  │  ? help`;
@@ -885,6 +1009,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const hints = replay ? [fg(palette.accent)(`${replay.playing ? "▶" : "⏸"} ${replay.index + 1}/${replay.data.steps.length}`), fg(palette.muted)(`  turn ${replayTurn() + 1}/${replay.data.turns.length}  `),
         ...hintChunks([["space", replay.playing ? "pause" : "play"], ["←→", "step"], ["[ ]", "turn"], ["s", `${replay.speed}x`], ["esc", "exit"]], room - 24)]
       : focusSection && !fileMode ? hintChunks(sectionHints[focusSection], room)
+      : activeFlow && !fileMode ? [fg(palette.purple)(`◇ ${clip(activeFlow.title, 24)} · ${flowStep + 1}/${activeFlow.steps.length}  `), ...hintChunks([["[ ]", "step"], ["F", "next flow"], ["esc", "exit"]], room - 40)]
       : fileMode ? [fg(palette.accent)(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`), fg(palette.muted)("  type to filter  "), ...hintChunks([["enter", "open"], ["ctrl+r", "refresh"], ["esc", "back"]], room - 30)]
       : [];
     if (message !== lastToast) {
@@ -983,7 +1108,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const pool = scored.some(entry => entry.cone) ? scored.filter(entry => entry.cone) : scored;
     const best = pool.sort((a, b) => a.score - b.score)[0]?.node;
     // Past the last node on the right, the inspector is the next thing: `h` (or left) comes back.
-    if (!best && direction === "right") { message = ""; focusOn("overview"); return; }
+    if (!best && direction === "right") { message = ""; focusOn("activity"); return; }
     if (!best) { message = `Nothing ${direction === "up" ? "above" : direction === "down" ? "below" : `to the ${direction} of`} ${current.title}`; update(); return; }
     message = "";
     selectNode(best, false);
@@ -998,6 +1123,53 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // The node for the newest observed call that maps to something in this view.
   const nodeForElement = (element: string) => diagram.nodes.filter(node => String(node.modelRef) === element).sort((a, b) => a.children.length - b.children.length)[0];
+  // Flow mode. A step lands on one component (a journey's target, a state's first); stepping selects it and brings it into view like any other selection, and says
+  // so when it is in another view. `F` enters the flows this view shows (the ones through the selection first) and cycles them; Esc leaves.
+  const stepElement = (flow: FlowMap, index: number) => { const step = flow.steps[index]; return flow.type === "journey" ? step?.to : step?.elements[0]; };
+  const goToStep = (index: number) => {
+    const flow = activeFlow;
+    if (!flow?.steps.length) return;
+    flowStep = (index + flow.steps.length) % flow.steps.length;
+    const element = stepElement(flow, flowStep), node = element ? nodeForElement(element) : undefined;
+    if (node) { message = ""; selectNode(node, true); }
+    else { message = element ? `${elementTitle(element)} is not in this view` : "No component for this step"; update(); }
+  };
+  const enterFlow = (flow: FlowMap, step = 1) => {
+    activeFlow = flow; flowStep = Math.max(0, Math.min(flow.steps.length - 1, step - 1));
+    if (focusSection === "connections") focusSection = undefined;
+    goToStep(flowStep);
+  };
+  const exitFlow = () => { activeFlow = undefined; if (focusSection === "steps") focusSection = undefined; message = ""; update(); };
+  const flowsHere = () => {
+    const present = new Set(diagram.nodes.map(node => String(node.modelRef)));
+    const through = new Set(flowsThrough(flows, String(selected?.modelRef ?? "")).map(entry => `${entry.flow.type}/${entry.flow.id}`));
+    return flowsInView(flows, present).sort((a, b) => Number(through.has(`${b.type}/${b.id}`)) - Number(through.has(`${a.type}/${a.id}`)));
+  };
+  const cycleFlow = () => {
+    const here = flowsHere();
+    if (!here.length) { message = flows.length ? "No flow touches this view" : "No flows yet · select a box and press d to ask the agent to trace one"; update(); return; }
+    const at = activeFlow ? here.findIndex(flow => flow.type === activeFlow!.type && flow.id === activeFlow!.id) : -1;
+    if (at === here.length - 1) { exitFlow(); return; }
+    const next = here[at + 1]!, mine = flowsThrough([next], String(selected?.modelRef ?? ""))[0]?.steps[0];
+    enterFlow(next, mine ?? 1);
+  };
+  // Stay on the step that matches the selection: choosing a component yourself moves the reader to its next step in the flow.
+  const syncFlowStep = () => {
+    const flow = activeFlow, ref = String(selected?.modelRef ?? "");
+    if (!flow || !ref || stepElement(flow, flowStep) === ref) return;
+    for (let offset = 1; offset <= flow.steps.length; offset++) {
+      const index = (flowStep + offset) % flow.steps.length;
+      if (stepElement(flow, index) === ref) { flowStep = index; return; }
+    }
+  };
+  const loadFlows = () => {
+    if (closing) return;
+    runTask(checkFlows(view.workspace).pipe(Effect.map(flowMaps), Effect.tap(list => Effect.sync(() => {
+      flows = list;
+      if (activeFlow) { activeFlow = list.find(flow => flow.type === activeFlow!.type && flow.id === activeFlow!.id); if (!activeFlow) message = "That flow is gone"; }
+      if (!editorActive && !closing) update();
+    })), Effect.catch(() => Effect.void)));
+  };
   // The newest call that maps to any element. In this view (or via an ancestor that is) it is a node; otherwise it names the view to go to:
   // one this view links to with navigateTo first, else the smallest view that contains the element. Never switches by itself.
   const newestWork = (): { node: NonNullable<typeof selected> } | { view: string; element: string; title: string } | undefined => {
@@ -1073,14 +1245,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     if (key.name === "s") { key.preventDefault(); play.speed = play.speed === 1 ? 2 : play.speed === 2 ? 4 : 1; update(); return true; }
     return false;
-  };
-  activityText.onMouseDown = event => {
-    event.preventDefault(); event.stopPropagation();
-    if (fileMode || help.visible || summary.visible || pendingVisit) return;
-    const element = activityTargets[event.y - activityText.y];
-    if (!element) return;
-    const node = nodeForElement(element);
-    if (node) { message = ""; selectNode(node, true); } else { message = `${elementTitle(element)} is not in this view`; update(); }
   };
   const openLink = () => {
     if (!selected?.navigateTo) { message = "No linked view"; update(); return; }
@@ -1256,16 +1420,16 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // What to send with the question: files, connections, activity. Tab moves between the question and these toggles.
   const askInclude = [true, true, false];
   // `t` asks a question; `m` asks the agent to improve the map; `n` is the person's own name and note (two steps, no agent).
-  let askMode: "ask" | "map" | "name" | "note" = "ask", editKey = "", editTitle = "";
+  let askMode: "ask" | "map" | "flow" | "name" | "note" = "ask", editKey = "", editTitle = "";
   let askFocus = -1, askSpans: { from: number; to: number }[] = [];
   const renderAsk = () => {
     if (!asking) return;
     if (askMode !== "ask") {
-      const names = { map: "Ask the agent to improve the map", name: "Name", note: "Note" } as const;
+      const names = { map: "Ask the agent to improve the map", flow: "Ask the agent to trace a flow", name: "Name", note: "Note" } as const;
       ask.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(names[askMode]), fg(palette.muted)(" ")]);
-      ask.content.content = new StyledText([fg(palette.muted)("about".padEnd(8)), fg(palette.text)(asking.title), fg(palette.purple)(`  ${asking.id}`), nl, fg(palette.muted)(askMode === "map" ? "it reads the files, then edits the overlay" : askMode === "name" ? "step 1 of 2" : "step 2 of 2 · empty clears it")]);
+      ask.content.content = new StyledText([fg(palette.muted)("about".padEnd(8)), fg(palette.text)(asking.title), fg(palette.purple)(`  ${asking.id}`), nl, fg(palette.muted)(askMode === "map" ? "it reads the files, then edits the overlay" : askMode === "flow" ? "it reads the code, then records a journey you can trace with F" : askMode === "name" ? "step 1 of 2" : "step 2 of 2 · empty clears it")]);
       askPrompt.fg = palette.accent;
-      ask.foot.content = new StyledText(borderHints(askMode === "map" ? [["enter", "send"], ["alt+enter", "new line"], ["esc", "cancel"]] : [["enter", askMode === "name" ? "next" : "save"], ["esc", "cancel"]]));
+      ask.foot.content = new StyledText(borderHints(askMode === "map" || askMode === "flow" ? [["enter", "send"], ["alt+enter", "new line"], ["esc", "cancel"]] : [["enter", askMode === "name" ? "next" : "save"], ["esc", "cancel"]]));
       ask.meta.content = new StyledText([fg(palette.muted)(" ")]);
       renderer.requestRender();
       return;
@@ -1323,6 +1487,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const target = selected;
     if (target) withKey(target, key => Effect.sync(() => { editKey = key; openAsk(target, "map", "", "What should it work out, or what should it be called?"); }));
   };
+  const beginFlow = () => {
+    if (!options.parent) { message = "Tracing a flow needs the viewer opened with pathlight show, which knows your agent's pane"; update(); return; }
+    if (selected) openAsk(selected, "flow", "", "What should it trace? (for example: what happens when someone places an order)");
+  };
   const beginName = () => {
     const target = selected;
     if (target) withKey(target, key => readEntry(view.workspace, key).pipe(Effect.flatMap(entry => Effect.sync(() => {
@@ -1351,6 +1519,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     if (!target || !parent || !question) return;
     const context = askContext(target);
+    if (askMode === "flow") {
+      const text = flowMessage({ title: target.title, id: String(target.id), files: context.files, links: context.links }, question);
+      finishAsk();
+      runTask(sendToPane(parent, text, true).pipe(
+        Effect.tap(() => Effect.sync(() => { message = `Asked the agent to trace a flow from ${target.title} · F shows it once it is written`; update(); })),
+        Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
+      return;
+    }
     if (askMode === "map") {
       const text = mapMessage({ title: target.title, id: String(target.id), key: editKey, files: context.files, links: context.links }, question);
       finishAsk();
@@ -1382,6 +1558,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // The first click focuses the section; clicking the focused one folds it.
     if (focusSection === key) foldSection(key); else { focusSection = key; touched.add(key); scrollToSection = key; }
     update();
+  };
+  inspectorAsk.onMouseDown = event => {
+    event.preventDefault(); event.stopPropagation();
+    if (fileMode || help.visible || summary.visible || goto.visible || picker.visible || asking || pendingVisit) return;
+    beginAsk();
   };
   let clickedFile = -1;
   const endFiles = () => { clickedFile = -1; fileMode = false; focusSection = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
@@ -1486,12 +1667,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       else if (key.name === "v" && !key.ctrl) { vimTraverses = !vimTraverses; showHelp(); }
       else if (key.ctrl && key.name === "c") stop(); return; }
     if (!key.ctrl && !key.meta && replayKey(key)) return;
-    if (!fileMode && !key.ctrl && !key.meta && /^[1-4]$/.test(key.sequence)) { key.preventDefault(); focusOn(sectionOrder[Number(key.sequence) - 1] ?? "overview"); return; }
+    if (!fileMode && !key.ctrl && !key.meta && /^[1-4]$/.test(key.sequence)) { key.preventDefault(); focusOn((["activity", activeFlow ? "steps" : "connections", "files", "flows"] as const)[Number(key.sequence) - 1] ?? "activity"); return; }
     if (focusSection && !fileMode) {
       const entry = sections[focusSection], key_ = focusSection;
-      const items = key_ === "connections" ? connectionItems.length : key_ === "files" ? selectedPaths().length : key_ === "activity" ? activityItems.length : 0;
+      const items = key_ === "connections" ? connectionItems.length : key_ === "files" ? selectedPaths().length : key_ === "flows" ? flowItems.length : 0;
       const move = (step: number) => {
-        if (key_ === "overview") { sections.overview.content.scrollBy(step * 2); return; }
+        if (key_ === "activity") { sections.activity.content.scrollBy(step * 2); return; }
+        if (key_ === "steps") { goToStep(flowStep + step); return; }
         if (!items) return;
         if (key_ === "files") fileCursor = (fileCursor + step + items) % items; else cursor[key_] = (cursor[key_] + step + items) % items;
         scrollToSection = undefined; update();
@@ -1499,7 +1681,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (key.name === "escape") { key.preventDefault(); focusSection = undefined; update(); return; }
       if (key.name === "tab") {
         key.preventDefault();
-        focusSection = sectionOrder[(sectionOrder.indexOf(key_) + (key.shift ? -1 : 1) + sectionOrder.length) % sectionOrder.length];
+        const shown = shownSections();
+        focusSection = shown[(Math.max(0, shown.indexOf(key_)) + (key.shift ? -1 : 1) + shown.length) % shown.length];
         if (focusSection) { sections[focusSection].open = true; scrollToSection = focusSection; }
         update(); return;
       }
@@ -1516,13 +1699,19 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         } else if (key_ === "files") {
           const path = selectedPaths()[fileCursor];
           if (path) openFile(path);
-        } else if (key_ === "activity") {
-          const element = activityItems[cursor.activity]?.element;
-          const node = element ? nodeForElement(element) : undefined;
-          if (node) { message = ""; selectNode(node, true); } else if (element) { message = `${elementTitle(element)} is not in this view`; update(); }
+        } else if (key_ === "steps") goToStep(flowStep);
+        else if (key_ === "flows") {
+          const entry = flowItems[cursor.flows];
+          if (entry) { focusSection = undefined; enterFlow(entry.flow, entry.steps[0]); }
         }
         return;
       }
+    }
+    if (!fileMode && key.sequence === "F") { key.preventDefault(); cycleFlow(); return; }
+    if (!fileMode && activeFlow && !key.ctrl && !key.meta) {
+      if (key.sequence === "]") { key.preventDefault(); goToStep(flowStep + 1); return; }
+      if (key.sequence === "[") { key.preventDefault(); goToStep(flowStep - 1); return; }
+      if (key.name === "escape") { key.preventDefault(); exitFlow(); return; }
     }
     if (!fileMode && key.sequence === "/") { key.preventDefault(); animating = false; beginGoto("all"); return; }
     if (!fileMode && key.name === "b") {
@@ -1545,6 +1734,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!fileMode && key.name === "t" && !key.ctrl && key.sequence === "T") { key.preventDefault(); beginThemes(); return; }
     if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
     if (!fileMode && key.name === "m" && !key.ctrl) { key.preventDefault(); beginMap(); return; }
+    if (!fileMode && key.name === "d" && !key.ctrl) { key.preventDefault(); beginFlow(); return; }
     if (!fileMode && key.name === "n" && !key.ctrl) { key.preventDefault(); beginName(); return; }
     if (!fileMode && key.name === "c" && !key.ctrl) {
       key.preventDefault(); summary.foot.content = new StyledText(borderHints([["esc", "close"]])); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
@@ -1720,7 +1910,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       });
       for (const cell of rasterize(routes, point => projected(point.x, point.y), isCovered, selected ? String(selected.id) : undefined, edgeMarks())) {
         if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width || cell.y >= viewport.height) continue;
-        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : palette.edgeDim;
+        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : cell.tone === "path" ? palette.purple : palette.edgeDim;
         canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(fg), bg);
       }
     })();
@@ -1745,6 +1935,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (nextConfig) yield* validateActivityMapping(view, nextConfig);
     pendingReload = { diagrams: nextDiagrams, config: nextConfig, files: nextFiles, fileError: nextError, notice: "" };
     renderer.requestRender();
+    yield* Effect.sync(loadFlows);
   });
   let reloading = false, again = false, reloadTimer: ReturnType<typeof setTimeout> | undefined;
   const triggerReload = () => {
@@ -1763,6 +1954,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     watcher => Effect.sync(() => { clearTimeout(reloadTimer); watcher?.close(); }));
   yield* Effect.gen(function* () {
     const next = yield* readStale(view.workspace), nextDiff = yield* readDiff(view.workspace), nextPlan = yield* readPlan(view.workspace);
+    if (next?.time !== stale?.time && stale !== undefined) loadFlows();
     if (JSON.stringify(next) !== JSON.stringify(stale) || JSON.stringify(nextDiff) !== JSON.stringify(diff) || JSON.stringify(nextPlan) !== JSON.stringify(plan)) { stale = next; diff = nextDiff; plan = nextPlan; dirty = true; if (!editorActive) update(); }
   }).pipe(Effect.repeat(Schedule.spaced("3 seconds")), Effect.forkScoped);
   if (binding || following) yield* Effect.gen(function* () {
@@ -1788,6 +1980,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   renderer.start(); update();
   const ready = yield* io("Native.firstFrame", () => Promise.race([displayed.promise.then(() => true), stopped.promise.then(() => false), renderer.closed.then(() => false)]));
   if (ready && options.ready) yield* writeReady(options.ready, { ready: true });
+  // Flows are read after the first frame, so opening a view never waits for them.
+  if (ready) loadFlows();
   if (ready) yield* io("Native.wait", () => Promise.race([stopped.promise, renderer.closed]));
   if (renderError !== undefined) return yield* Effect.fail(failure("Native.render", renderError));
 }, Effect.scoped);

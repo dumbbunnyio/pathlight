@@ -42,3 +42,18 @@ export function mapMessage(target: { title: string; id: string; key: string; fil
     + `Read the files, answer me here, then set its name and note in pathlight.overlay.json with "by":"agent" and run pathlight draft. Never change an entry marked "by":"human". `
     + `If it should be merged or split, tell me and wait for my yes before editing.`;
 }
+
+/**
+ * A request to trace how something works and record it as a journey. It carries what the viewer already knows (the component, its files and
+ * connections) and the rules the agent follows: read the code, decide, then write it down with `pathlight flow add`, which checks it against the model.
+ */
+export function flowMessage(target: { title: string; id: string; files: readonly string[]; links: readonly string[] }, request: string) {
+  const clean = (text: string) => text.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim();
+  const context = [
+    target.files.length ? `files: ${target.files.slice(0, 8).map(clean).join(", ")}` : "",
+    target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
+  ].filter(Boolean).join("; ");
+  return `Trace how this works in the "${clean(target.title)}" component (${clean(target.id)}) and record it as a pathlight journey: ${clean(request).slice(0, 600)}${context ? ` [${context}]` : ""} `
+    + `Follow the pathlight-behavior skill: read the code from this component outward, confirm each hop in a file, then run pathlight flow add with the files you read and one --step per hop between components in the model. `
+    + `Leave out any hop you cannot point to in the code and tell me what you could not find. Do not change product code.`;
+}

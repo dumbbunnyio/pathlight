@@ -92,7 +92,7 @@ test("p replays the session: steps, turns, play and exit", async () => {
     await until("⏸");
     // Exit goes back to the live view.
     await press("Escape");
-    await until("replay", true);
+    await until("◀ replay", true);
     await until("live claude:sess");
   } finally {
     await tmux("kill-server").catch(() => {});

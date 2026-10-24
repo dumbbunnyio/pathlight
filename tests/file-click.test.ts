@@ -33,6 +33,9 @@ test("clicking a file row highlights it, and clicking the diagram leaves file mo
       const row = rows.findIndex(line => line.includes(text));
       return { row, column: (rows[row] ?? "").indexOf(text) };
     };
+    // Files stay out of sight until asked for.
+    await until(text => text.includes("e files 2"), "the files count");
+    await tmux("send-keys", "-t", pane, "e");
     const before = await until(text => text.includes("a.ts"), "file rows");
     const file = find("b.ts", before);
     await click(file.column + 4, file.row);

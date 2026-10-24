@@ -25,7 +25,7 @@ test("the diagram stays fitted through resize until panned or zoomed; narrow ter
     };
     const zoom = (text: string) => Number(text.match(/zoom (\d+)%/)?.[1]);
     // The inspector's rows for the selected node, as they appear on the right of the screen.
-    const inspectorShown = (text: string) => text.includes("2 Connections");
+    const inspectorShown = (text: string) => text.includes("2 Connects");
 
     // Wide: docked inspector. Resizing a fitted diagram refits it.
     await until(text => text.includes("Selected: plugin") && inspectorShown(text), "docked inspector");
@@ -103,17 +103,17 @@ test("the first click on an inspector header focuses the section and the second 
       const x = lines[y]!.indexOf(text) + 1;
       await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
     };
-    await until(text => text.includes("Selected: plugin") && text.includes("2 Connections"), "inspector");
+    await until(text => text.includes("Selected: plugin") && text.includes("2 Connects"), "inspector");
     await delay(900);
-    const open = (text: string) => text.includes("▾ 2 Connections");
+    const open = (text: string) => text.includes("▾ 2 Connects");
     expect(open(await screen())).toBe(true);
-    await click("2 Connections");
-    await until(text => /^ connections /m.test(text) || text.includes(" connections  "), "connections focused");
+    await click("2 Connects");
+    await until(text => /^ connects /m.test(text) || text.includes(" connects  "), "connections focused");
     expect(open(await screen())).toBe(true);
-    await click("2 Connections");
-    await until(text => text.includes("▸ 2 Connections"), "connections folded");
-    await click("2 Connections");
-    await until(text => text.includes("▾ 2 Connections") || text.includes("▸ 2 Connections"), "still drawn");
+    await click("2 Connects");
+    await until(text => text.includes("▸ 2 Connects"), "connections folded");
+    await click("2 Connects");
+    await until(text => text.includes("▾ 2 Connects") || text.includes("▸ 2 Connects"), "still drawn");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

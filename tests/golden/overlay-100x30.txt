@@ -1,0 +1,30 @@
+ ◆ pathlight / Pathlight implementation                                                             
+ viewer/live · 6 nodes                                                                              
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                  │ Agent adapters                        component 
+                                                  │                                                 
+                                                  │ ▾ 2 Connects ──────────────────────────────── 2 
+                                                  │   → Activity metadata  Records tool lifecycle   
+ ·            ·           ·   ╭──────────────╮    │   → tmux launcher      Opens a view             
+                              │ component    │    │                                                 
+                        ╭────▶│ Activity me… │─┈┈┈│                                                 
+                        │     ╰──────────────╯    │                                                 
+                        │                         │                                                 
+  ╭──────────────╮      │                         │                                                 
+ ·│ component    │      │ ·            ·          │                                                 
+  │ Agent        │──────┤     ╭──────────────╮    │                                                 
+  │ adapters     │      │     │ component    │    │                                                 
+  ╰──────────────╯      ╰────▶│ tmux         │─┈┈┈│                                                 
+                              │ launcher     │    │                                                 
+                              ╰──────────────╯    │                                                 
+ ·            ·           ·            ·          │                                                 
+                                                  │                                                 
+  ╭──────────────╮                                │                                                 
+  │ component    │                                │                                                 
+  │ LikeC4 cata… │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈│                                                 
+  ╰──────────────╯                                │                                                 
+ ·            ·           ·            ·          │                                                 
+                                                  │ ─────────────────────────────────────────────── 
+                                                  │                                                 
+                                                  │ › ask about Agent adapters…                   t 
+ diagram   Selected: plugin                                                     zoom 78%  │  ? help 

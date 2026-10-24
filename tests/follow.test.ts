@@ -61,18 +61,16 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
       toolActivity(directory, { source: "claude", session }, call, "Edit", { file_path: join(directory, "src/activity.ts") }, "started"));
     await edit("session-one-aaaa", "e1");
     await capture("live claude:session-");
-    expect(await capture("[edit]")).toContain("session-");
-    // `w` selects what the agent is working on; clicking its row in the activity list does the same.
+    // The card carries the tag in its top border while the tool runs.
+    expect(await capture("─ ■")).toContain("session-");
+    // `w` selects what the agent is working on.
     await tmux("send-keys", "-t", pane, "w");
     await capture("Selected: activity");
     await tmux("send-keys", "-t", pane, "Tab");
     for (let attempt = 0; attempt < 40 && (await screen()).includes("Selected: activity"); attempt++) await delay(50);
     expect(await screen()).not.toContain("Selected: activity");
-    const rows = (await screen()).split("\n");
-    const row = rows.findIndex(line => /│ Activity/.test(line));
-    expect(row).toBeGreaterThan(0);
-    const column = (rows[row] ?? "").indexOf("Activity");
-    await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${column + 3};${row + 1}M\x1b[<0;${column + 3};${row + 1}m`);
+    // `w` goes back to the work from wherever the selection is.
+    await tmux("send-keys", "-t", pane, "w");
     await capture("Selected: activity");
     // `c` opens the session summary; Escape closes it.
     await tmux("send-keys", "-t", pane, "c");
@@ -83,9 +81,12 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
     expect(await screen()).not.toContain("components touched");
     await writeActivity(directory, toolActivity(directory, { source: "claude", session: "session-one-aaaa" }, "e-gap", "Edit",
       { file_path: join(directory, "src/unmapped-gap.ts") }, "completed"));
-    await tmux("send-keys", "-t", pane, "4");
+    // An edit to a file no component claims shows where the mapping has a gap: in the session summary.
+    await tmux("send-keys", "-t", pane, "c");
     const gap = await capture("not in the model");
     expect(gap).toContain("src/unmapped-gap.ts");
+    await tmux("send-keys", "-t", pane, "Escape");
+    for (let attempt = 0; attempt < 40 && (await screen()).includes("components touched"); attempt++) await delay(50);
     await delay(20);
     await edit("zzz-second-session", "e2");
     await capture("live claude:zzz-seco");

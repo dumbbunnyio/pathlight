@@ -7,9 +7,9 @@
     { "glob": "src/{activity,activity-subscriptions}.ts", "element": "activity" },
     { "glob": "src/ask.ts", "element": "ask" },
     { "glob": "src/catalog.ts", "element": "catalog" },
-    { "glob": "src/{cli,init,doctor,tmux,process,ready}.ts", "element": "launcher" },
-    { "glob": "src/{native-viewer,routes,ui,node-files,editor,fuzzy,search}.ts", "element": "viewer" },
-    { "glob": "src/{scan,scan-imports,check,draft,stale,diff,plan,edit}.ts", "element": "scanner" },
+    { "glob": "src/{cli,init,doctor,tmux,process,ready,see}.ts", "element": "launcher" },
+    { "glob": "src/{native-viewer,flow-view,routes,ui,node-files,editor,fuzzy,search}.ts", "element": "viewer" },
+    { "glob": "src/{scan,scan-imports,check,draft,stale,diff,plan,edit,flows,flow-write}.ts", "element": "scanner" },
     { "glob": "src/{theme,retheme}.ts", "element": "themes" },
     { "glob": "src/themes/**", "element": "themes" }
   ],
