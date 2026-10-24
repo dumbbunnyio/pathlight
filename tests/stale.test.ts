@@ -7,7 +7,7 @@ import { staleText } from "../src/stale";
 import { run } from "./effects";
 
 const cli = (...args: string[]) => run(process.execPath, [resolve("src/cli.ts"), ...args]);
-const stamp = async (directory: string) => JSON.parse(await readFile(join(directory, ".cache/pathlight/stale.json"), "utf8")) as Record<string, number>;
+const stamp = async (directory: string) => JSON.parse(await readFile(join(directory, ".cache/pathlight/stale.json"), "utf8")) as Record<string, number> & { invalid?: boolean };
 
 const workspace = async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-stale-"));
@@ -87,3 +87,38 @@ test("the viewer shows an out-of-date badge from the last check and drops it onc
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("a check that cannot run because the model is broken is recorded, so the badge stops saying in sync; the next good check clears it", async () => {
+  const directory = await workspace();
+  try {
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "launcher" }] }));
+    await cli("check", "--workspace", directory, "--quiet");
+    expect(await stamp(directory)).toMatchObject({ unmapped: 0 });
+    expect((await stamp(directory)).invalid).toBeUndefined();
+    const before = (await stamp(directory)).time!;
+    await delay(20);
+
+    const model = join(directory, (await Array.fromAsync(new Bun.Glob("*.c4").scan({ cwd: directory })))[0]!);
+    const good = await readFile(model, "utf8");
+    await writeFile(model, `${good}\nthis is not a model {{{\n`);
+    await expect(cli("check", "--workspace", directory, "--quiet")).rejects.toThrow();
+    const broken = await stamp(directory);
+    expect(broken.invalid).toBe(true);
+    expect(broken.time!).toBeGreaterThan(before);
+    expect(staleText(broken as never)).toBe("the model can't be read");
+
+    // Mending it records a normal result again.
+    await writeFile(model, good);
+    await cli("check", "--workspace", directory, "--quiet");
+    expect((await stamp(directory)).invalid).toBeUndefined();
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+test("a workspace with no mapping at all records nothing when its check fails", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-stale-none-"));
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    await expect(cli("check", "--workspace", directory, "--quiet")).rejects.toThrow();
+    await expect(readFile(join(directory, ".cache/pathlight/stale.json"), "utf8")).rejects.toBeDefined();
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 30_000);

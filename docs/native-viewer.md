@@ -5,7 +5,7 @@ The native renderer is the default for `pathlight show` and `pathlight view`. It
 From the repository root, run this command in a terminal:
 
 ```sh
-bun run pathlight view live --project viewer
+bun run pathlight view live --project pathlight
 ```
 
 Click a node. Its border becomes white, and the details panel lists its incoming and outgoing relationships.
@@ -51,7 +51,7 @@ The list scrolls inside its frame (the border shows `79–95 of 95`). Typing, pa
 ## Open a node's files
 
 Set `VISUAL` or `EDITOR` before starting the viewer. The viewer prefers a nonempty `VISUAL` value.
-For example, use `EDITOR=nvim bun run pathlight view live --project viewer`.
+For example, use `EDITOR=nvim bun run pathlight view live --project pathlight`.
 For a GUI editor, include its wait flag, such as `VISUAL='code --wait'`.
 These variables are trusted shell commands. Never populate them from untrusted model content.
 When an agent starts the viewer, the viewer inherits that agent process's environment.
@@ -94,7 +94,7 @@ Changing views replaces only the diagram widgets. The viewer process, activity b
 To observe an already-recording OpenCode session, supply its session ID:
 
 ```sh
-bun run pathlight view live --project viewer --session SESSION_ID
+bun run pathlight view live --project pathlight --session SESSION_ID
 ```
 
 This command only reads activity. It does not enable recording in the agent plugin.
@@ -199,7 +199,7 @@ TMPDIR=/tmp/opencode bun test tests/interactive.test.ts
 
 ## Out-of-date badge
 
-Every `pathlight check` records its counts in `.cache/pathlight/stale.json`, and the Claude plugin's `Stop` hook runs `pathlight check --quiet` at the end of each agent turn. The viewer reads that file every few seconds (it never scans itself) and, when the model and the code disagree, shows `▲ out of date: 3 files not in the model · 2 imports no relationship covers · checked 4m ago` at the right of the heading (shortened to `▲ out of date` in a narrow pane). The counts are `check`'s: source files no mapping claims, imports between mapped elements with no relationship, relationships no import backs, and mappings matching no file. They are static evidence that the two disagree, not which one is wrong, and they are as old as the last check: edits since then are not counted until the next turn ends or `pathlight check` runs. No stamp shows nothing; a clean one shows a muted `✓ in sync · checked 4m ago`, so you can tell the hook is running.
+Every `pathlight check` records its counts in `.cache/pathlight/stale.json`, and the Claude plugin's `Stop` hook runs `pathlight check --quiet` at the end of each agent turn. The viewer reads that file every few seconds (it never scans itself) and, when the model and the code disagree, shows `▲ out of date: 3 files not in the model · 2 imports no relationship covers · checked 4m ago` at the right of the heading (shortened to `▲ out of date` in a narrow pane). The counts are `check`'s: source files no mapping claims, imports between mapped elements with no relationship, relationships no import backs, and mappings matching no file. They are static evidence that the two disagree, not which one is wrong, and they are as old as the last check: edits since then are not counted until the next turn ends or `pathlight check` runs. No stamp shows nothing; a clean one shows a muted `✓ in sync · checked 4m ago`, so you can tell the hook is running. When the check cannot run because the model or the mapping is broken (it does not compile, or a mapping names a box that is gone), that is recorded too and the badge says `▲ out of date: the model can't be read · checked 2m ago` instead of keeping the last good result; the next check that runs clears it. The viewer itself keeps drawing the last good diagram and says the model has errors.
 
 ## Changes since a commit
 

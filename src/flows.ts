@@ -55,7 +55,7 @@ export function namedFiles(description: string, exists: (path: string) => boolea
   return [...found].map(([path, exists]) => ({ path, exists }));
 }
 
-const elementsOf = (config: ActivityConfig | undefined, path: string) =>
+export const elementsOf = (config: ActivityConfig | undefined, path: string) =>
   config ? [...new Set(config.mappings.filter(mapping => new Bun.Glob(mapping.glob).match(path)).map(mapping => mapping.element))].sort() : [];
 
 /** `changed` is the set of files that differ from the sync commit; `known` says whether that commit exists at all. */

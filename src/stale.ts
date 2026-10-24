@@ -12,6 +12,8 @@ import { io, json } from "./effects";
 const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
 export const Stale = Schema.Struct({
   version: Schema.Literal(1), time: Count, unmapped: Count, unmatched: Count, unsupported: Count, undeclared: Count,
+  // The check could not run because the model or the mapping is broken, so the counts are zero and mean nothing.
+  invalid: Schema.optionalKey(Schema.Boolean),
 });
 export interface Stale extends Schema.Schema.Type<typeof Stale> {}
 
@@ -22,10 +24,8 @@ export const staleOf = (check: Check, time = Date.now()): Stale => ({
   unsupported: check.summary.unsupported, undeclared: check.summary.undeclared,
 });
 
-/** Records a finished check. Writing is best effort: a read-only workspace just never shows the badge. */
-export const recordStale = Effect.fn("Stale.record")(function* (workspace: string, check: Check) {
+const writeStamp = Effect.fn("Stale.write")(function* (workspace: string, stamp: Stale) {
   const root = yield* io("Stale.root", () => realpath(workspace));
-  const stamp = staleOf(check);
   yield* io("Stale.write", async () => {
     await mkdir(join(root, ".cache", "pathlight"), { recursive: true });
     const temporary = `${stampPath(root)}.${process.pid}`;
@@ -35,8 +35,20 @@ export const recordStale = Effect.fn("Stale.record")(function* (workspace: strin
   return stamp;
 });
 
+/** Records a finished check. Writing is best effort: a read-only workspace just never shows the badge. */
+export const recordStale = (workspace: string, check: Check) => writeStamp(workspace, staleOf(check));
+
+// The checks that fail because a model or mapping exists and is wrong. A workspace with no mapping at all is not using pathlight, and records nothing.
+const broken = new Set(["Check.model", "Check.mapping", "Check.shared", "Check.planned"]);
+
+/**
+ * Runs the check and records it. When the check cannot run because the model or the mapping is broken, that is recorded too, so the badge does not
+ * keep saying "in sync" from the last good run while the diagram cannot be read. The failure is still raised.
+ */
 export const checkAndRecord = Effect.fn("Stale.checkAndRecord")(function* (workspace: string) {
-  const check = yield* checkWorkspace(workspace);
+  const check = yield* checkWorkspace(workspace).pipe(Effect.tapError(error => "operation" in error && broken.has(String(error.operation))
+    ? writeStamp(workspace, { version: 1, time: Date.now(), unmapped: 0, unmatched: 0, unsupported: 0, undeclared: 0, invalid: true })
+    : Effect.void));
   yield* recordStale(workspace, check);
   return check;
 });
@@ -51,6 +63,7 @@ export const readStale = (workspace: string) => Effect.gen(function* () {
 /** What the badge says, or nothing when the model and the code agree. */
 export const staleText = (stale: Stale | undefined) => {
   if (!stale) return undefined;
+  if (stale.invalid) return "the model can't be read";
   const parts = [
     stale.unmapped ? `${stale.unmapped} file${stale.unmapped === 1 ? "" : "s"} not in the model` : "",
     stale.undeclared ? `${stale.undeclared} import${stale.undeclared === 1 ? "" : "s"} no relationship covers` : "",

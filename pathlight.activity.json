@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "project": "viewer",
+  "project": "pathlight",
   "mappings": [
     { "glob": "plugins/**", "element": "plugin" },
     { "glob": "src/claude.ts", "element": "plugin" },

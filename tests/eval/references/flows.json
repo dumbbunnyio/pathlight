@@ -1,0 +1,141 @@
+{
+  "repo": "pathlight",
+  "commit": "3ab6c4f+",
+  "note": "Hand-traced from the code by the person scoring, not by the agent being scored. Each question is a trace across the components of examples/viewer. 'files' are the files a correct trace has to read.",
+  "questions": [
+    {
+      "id": "check-run",
+      "question": "What happens when someone runs `pathlight check`, from the command line to the report it prints?",
+      "hops": [
+        {
+          "from": "launcher",
+          "to": "scanner"
+        },
+        {
+          "from": "scanner",
+          "to": "activity"
+        },
+        {
+          "from": "scanner",
+          "to": "catalog"
+        }
+      ],
+      "files": [
+        "src/cli.ts",
+        "src/check.ts"
+      ]
+    },
+    {
+      "id": "record-call",
+      "question": "What happens when Claude Code runs a tool, from its hook firing to the call showing on a box in the viewer?",
+      "hops": [
+        {
+          "from": "plugin",
+          "to": "launcher"
+        },
+        {
+          "from": "launcher",
+          "to": "activity"
+        },
+        {
+          "from": "activity",
+          "to": "viewer"
+        }
+      ],
+      "files": [
+        "plugins/claude/hooks/hooks.json",
+        "src/cli.ts",
+        "src/activity.ts"
+      ]
+    },
+    {
+      "id": "ask-agent",
+      "question": "What happens when someone presses t in the viewer and sends a question about a component to the agent?",
+      "hops": [
+        {
+          "from": "viewer",
+          "to": "ask"
+        },
+        {
+          "from": "ask",
+          "to": "launcher"
+        }
+      ],
+      "files": [
+        "src/native-viewer.ts",
+        "src/ask.ts"
+      ]
+    },
+    {
+      "id": "open-viewer",
+      "question": "What happens when someone types /pathlight:open in Claude Code, up to the diagram being on screen?",
+      "hops": [
+        {
+          "from": "plugin",
+          "to": "launcher"
+        },
+        {
+          "from": "catalog",
+          "to": "launcher",
+          "optional": true
+        },
+        {
+          "from": "launcher",
+          "to": "viewer"
+        },
+        {
+          "from": "viewer",
+          "to": "catalog"
+        },
+        {
+          "from": "catalog",
+          "to": "activity",
+          "optional": true
+        },
+        {
+          "from": "activity",
+          "to": "viewer"
+        }
+      ],
+      "files": [
+        "plugins/claude/open-hook.sh",
+        "src/cli.ts",
+        "src/tmux.ts",
+        "src/native-viewer.ts"
+      ]
+    },
+    {
+      "id": "stale-badge",
+      "question": "What happens at the end of an agent turn so that the viewer shows whether the diagram still matches the code?",
+      "hops": [
+        {
+          "from": "plugin",
+          "to": "launcher"
+        },
+        {
+          "from": "launcher",
+          "to": "scanner"
+        },
+        {
+          "from": "scanner",
+          "to": "activity",
+          "optional": true
+        },
+        {
+          "from": "scanner",
+          "to": "catalog",
+          "optional": true
+        },
+        {
+          "from": "viewer",
+          "to": "scanner"
+        }
+      ],
+      "files": [
+        "plugins/claude/hooks/hooks.json",
+        "src/stale.ts",
+        "src/native-viewer.ts"
+      ]
+    }
+  ]
+}

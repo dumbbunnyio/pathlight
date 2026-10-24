@@ -46,7 +46,7 @@ Pathlight lets an engineer follow what an AI harness is doing, understand their 
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
 | Agent integrations | `plugins/` (`plugins/opencode` targets OpenCode V2: `index.ts` is the server plugin (hooks, recording, tools, the skill), `tui.ts` the CLI plugin that holds the slash commands because only the terminal process knows the tmux pane; `tests/opencode-live.test.ts` drives the real binary; `plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). Every folder in `plugins/claude/skills/` is a skill for both hosts (`pathlight` and `pathlight-behavior`): `pathlight init` copies them all, the OpenCode plugin registers them all, and `tests/skill.test.ts` checks every command and flag the main one names against the CLI help (and that the behavior skill's example compiles), so update them with the CLI. `plugins/claude/open-hook.sh` handles `/pathlight:open` as a `UserPromptSubmit` hook that stops the prompt with `continue: false` (no model turn); `commands/open.md` is only the picker entry and fallback. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
 | Flat and nested fixtures | `tests/fixtures/viewer/` (frozen test layout), `examples/parcel/` |
-| This repo's own architecture diagram | `examples/viewer/`, mapped by `pathlight.activity.json` |
+| This repo's own architecture diagram | `examples/viewer/` (LikeC4 project `pathlight`; the frozen test fixture is the project `viewer`, and two projects must not share a name), mapped by `pathlight.activity.json` |
 
 ## Contracts to preserve
 
@@ -116,7 +116,7 @@ ANSI reconstructions are useful diagnostics, not screenshots of the user's termi
 
 Screens are kept as text: `tests/golden/*.txt` are what `pathlight see` prints for the frozen fixture at several sizes, and `tests/golden.test.ts` compares them. A change to the diagram, header, footer or inspector fails there with a readable diff; when it is meant, look at the new screen and bless it with `UPDATE_GOLDEN=1 TMPDIR=/tmp/opencode bun test tests/golden.test.ts`. `pathlight see` runs the viewer in a private tmux server, so it never touches the user's panes; it is also how an agent can check what a person would see (`--cols`, `--rows`, `--select ELEMENT`, `--keys`).
 
-Map quality is measured, not judged: see [docs/eval.md](docs/eval.md) for the independent scan comparison (`tests/eval/facts.ts`), the model scorer and the authors' rules (`tests/eval/run.ts`). Any change to the scanner, the draft or the skill should be re-scored.
+Map quality is measured, not judged: see [docs/eval.md](docs/eval.md) for the independent scan comparison (`tests/eval/facts.ts`), the model scorer and the authors' rules (`tests/eval/run.ts`). Any change to the scanner, the draft or the skill should be re-scored. Flows have their own score (`tests/eval/flows.ts`, answers in `tests/eval/references/flows.json`): re-run it after a change to `pathlight flow`, the `d` request or the behavior skill.
 
 Keep README and the native controls document aligned with shipped behavior.
 Update project intent when an approved product decision changes, distinguishing
