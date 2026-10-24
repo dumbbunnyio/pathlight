@@ -35,6 +35,17 @@ From a checkout instead: `bun install && bun link`, then `claude plugin marketpl
 The plugin adds the recording hooks and the `/pathlight` skill. Hooks do nothing in a project without `pathlight.activity.json`, so enabling the plugin globally is safe. Create the mapping with `pathlight init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
 Use either this route or the project-local route below, not both.
 
+## First run
+
+In the project you work in, with `pathlight` on your PATH and (for Claude Code) the plugin installed:
+
+```sh
+pathlight setup            # checks tmux, the PATH, the model, the file mapping and the plugin; says what it would write
+pathlight setup --yes      # with no model yet, draws a first one from the code's imports, checks it, says how to open it
+```
+
+Or type `/pathlight` in Claude Code or OpenCode and let the agent run both for you, asking first. `setup` writes nothing without `--yes`, never rewrites a model you wrote, and leaves the hooks and recording to `pathlight init` (below), because those change your settings.
+
 ## Quick start (Claude Code and OpenCode)
 
 From the project you work in, with its LikeC4 model:

@@ -14,6 +14,10 @@ pathlight shows a LikeC4 architecture diagram in a tmux pane beside the conversa
 - Do not invent elements or relationships to make a check pass. A relationship needs a reason you can state from the code you read.
 - The viewer shows only observed tool calls. Never imply traffic between components.
 
+## First run
+
+When the user has just installed pathlight, asks you to set it up, or `pathlight open` says there is no model, run `pathlight setup --workspace .` first. It checks tmux, `pathlight` on the PATH, the model, the file mapping and the Claude plugin, prints what is wrong with the fix for each, and, if there is no model, says what it would write. Show the user that output, and only after they agree run `pathlight setup --workspace . --yes`: it draws a first picture from the code, checks it, and prints how to open the viewer. Then open it. It never rewrites a model the user wrote, and it leaves hooks and recording to `pathlight init`, which you run only with their agreement. If a step it names needs something you cannot do (installing the binary or the plugin), say so and give them the command it printed.
+
 ## Commands
 
 Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask the user how it is installed (the repository's `bun link`, or `bun <repo>/src/cli.ts`).
@@ -23,6 +27,7 @@ Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask th
 - `pathlight scan --workspace . --out scan.json` writes the static facts: files, imports (with lines), external packages, what could not be resolved, and `coverage`.
 - `pathlight check --workspace .` compares the model and mapping with a fresh scan. `--json` gives data; `--strict` exits 1 when anything is found.
 - `pathlight draft --workspace .` writes a first picture made from the code alone (packages, folders, the imports between them, several views); see the next section. `--out DIR` writes it elsewhere.
+- `pathlight setup --workspace .` is the first run (see above); add `--yes` to let it draw a first model.
 - `pathlight doctor --workspace .` checks tmux, the model, the file mapping and the plugin and prints the fix for each failure. Run it first when the viewer does not open or nothing is recorded.
 - `pathlight init --workspace .` wires Claude Code hooks (`.claude/settings.local.json`, per user), the OpenCode plugin, this skill, and proposes a mapping by matching element names to files on disk. It turns on recording, so tell the user what it will write and get their agreement first. `--no-claude-hooks` skips the project-local hooks when the Claude plugin is installed.
 

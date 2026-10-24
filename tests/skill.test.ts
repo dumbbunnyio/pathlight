@@ -23,7 +23,7 @@ test.each(["pathlight", "pathlight-behavior"])("every pathlight command and flag
   const text = await readFile(`plugins/claude/skills/${name}/SKILL.md`, "utf8");
   const help = await run(process.execPath, [resolve("src/cli.ts"), "--help"]);
   const commands = new Set(help.split("\n").flatMap(line => line.match(/^pathlight ([a-z]+)/)?.[1] ?? []));
-  expect([...commands].sort()).toEqual(["check", "diff", "doctor", "draft", "flow", "flows", "init", "list", "open", "plan", "record", "scan", "see", "show", "view"]);
+  expect([...commands].sort()).toEqual(["check", "diff", "doctor", "draft", "flow", "flows", "init", "list", "open", "plan", "record", "scan", "see", "setup", "show", "view"]);
   const named = [...text.matchAll(/`pathlight ([a-z]+)[ `]/g)].map(match => match[1]!);
   expect(named.length).toBeGreaterThan(name === "pathlight" ? 4 : 0);
   for (const command of named) expect(commands.has(command)).toBe(true);

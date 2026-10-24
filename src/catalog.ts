@@ -32,7 +32,7 @@ export const overviewId = Effect.fn("Catalog.overview")(function* (workspace: st
   const views = (yield* viewRows(workspace)).views.filter(view => !project || view.project === project);
   const written = views.filter(view => view.written);
   const chosen = written.find(view => view.id === "index") ?? written[0] ?? views[0];
-  if (!chosen) return yield* Effect.fail(failure("Catalog.overview", "This workspace has no views. Ask the agent to draft a model (/pathlight) or add one."));
+  if (!chosen) return yield* Effect.fail(failure("Catalog.overview", "This workspace has no views. Run `pathlight setup` (or ask the agent: /pathlight) to draw a first one from the code."));
   return chosen.id;
 });
 

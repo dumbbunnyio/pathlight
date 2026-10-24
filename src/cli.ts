@@ -19,6 +19,7 @@ import { formatCheck, hasFindings } from "./check";
 import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
 import { addFlow, formatAdded, removeFlow } from "./flow-write";
 import { doctor, formatDoctor, hasFailures } from "./doctor";
+import { setup } from "./setup";
 import { seeView } from "./see";
 
 const help = `pathlight list [--workspace PATH]
@@ -37,6 +38,7 @@ pathlight see VIEW [--workspace PATH] [--project NAME] [--cols N] [--rows N] [--
 pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--pane %ID] [--socket PATH]
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
+pathlight setup [--workspace PATH] [--yes]
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
 check compares the LikeC4 model and pathlight.activity.json with that scan: unmatched globs, unmapped files,
@@ -47,6 +49,7 @@ flow add writes a journey you worked out from the code: a LikeC4 dynamic view of
 plan says which elements you are about to work on (ids from the model); the viewer outlines them and marks activity outside them. No ids clears the plan.
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
+setup is the first run: it checks the machine and the workspace, says what it would write, and with --yes draws a first model from the code when there is none. It never rewrites a model you wrote and leaves hooks and recording to init.
 init wires Claude Code hooks, the pathlight skill and the OpenCode plugin into a workspace.
 show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
 see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. For agents and tests.
@@ -83,7 +86,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, title: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -144,6 +147,9 @@ try {
       const findings = yield* doctor(values.workspace);
       process.stdout.write(formatDoctor(findings));
       if (hasFailures(findings)) process.exitCode = 1;
+    } else if (command === "setup") {
+      if (id) return yield* invalid("setup takes no argument. Use --workspace PATH and --yes.");
+      process.stdout.write(yield* setup(values.workspace, { yes: values.yes === true }));
     } else if (command === "init") {
       if (id) return yield* invalid("init takes no argument. Use --workspace PATH.");
       process.stdout.write(`${(yield* initWorkspace(values.workspace, { claudeHooks: !values["no-claude-hooks"] })).join("\n")}\n`);

@@ -35,7 +35,7 @@ Pathlight lets an engineer follow what an AI harness is doing, understand their 
 
 | Area | Files |
 | --- | --- |
-| CLI, model/view selection, workspace setup | `src/cli.ts`, `src/catalog.ts`, `src/init.ts` |
+| CLI, model/view selection, workspace setup (`pathlight setup` is the first run: checks, then draws a first model with `--yes`; `init` wires hooks and recording) | `src/cli.ts`, `src/catalog.ts`, `src/init.ts`, `src/setup.ts` |
 | Owned tmux pane launch/replacement, readiness | `src/tmux.ts`, `src/ready.ts` |
 | Native UI and camera | `src/native-viewer.ts` |
 | Themes: OpenCode-format JSON, derived palette, live recolouring | `src/theme.ts`, `src/retheme.ts`, `src/themes/` (vendored OpenCode themes, see `NOTICE.md`), palette in `src/ui.ts` |
