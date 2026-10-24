@@ -82,10 +82,10 @@ A state diagram says what a person sees. A **journey** says which components a r
 
 ### Working it out
 
-The story comes from reading the code, so do it in this order and do not skip the second step:
+The story comes from reading the code. If a `pathlight-tracer` agent is available (the Claude plugin ships one, pinned to a mid-size model), hand the whole job to it: give it the component, the question and the files, let it run the steps below and write the journey, then pass on its report, including what it left out and anything `pathlight flows` flagged. Reading ten files is work a large conversation model should not spend its tokens on, and the files stay out of the conversation. Do not hand it to a smaller model than that: a smaller one did not do this reliably in testing. If there is no such agent, do the steps yourself, in this order, and do not skip the second:
 
-1. **Scout (a cheap, fast model or subagent, if the host has one).** Pick the entry point (a route, a command, a handler, the thing the person clicks). Follow it through the code and list, in order, the files it passes through, which component each belongs to (`pathlight list --workspace .` and the model give the ids) and the call that leads to the next. Make no claims about what it means; hand back facts and file names. `pathlight scan` lists the imports if a map is needed.
-2. **Decide (the strongest model you have, or yourself with one subagent less).** Open the files the scout named, confirm each hop is really in the code, and settle the order and the event on each arrow. Drop any hop you cannot point to in a file. If the code is unclear, leave the hop out and say so.
+1. **Trace the path.** Pick the entry point (a route, a command, a handler, the thing the person clicks). Follow it through the code and list, in order, the files it passes through, which component each belongs to (`pathlight list --workspace .` and the model give the ids) and the call that leads to the next. Hand back facts and file names, no claims about what they mean. `pathlight scan` lists the imports if a map is needed.
+2. **Decide.** Open the files yourself: any trace you were handed is a list of leads, not facts. Confirm each hop is really in the code, settle the order and the event on each arrow, and drop any hop you cannot point to in a file. If the code is unclear, leave the hop out and say so. Say where the story and the model disagree: a hop the code makes and the model has no relationship for (the command prints it) means the model may be missing a relationship, so name it for the person, and do not add the relationship yourself to silence the warning.
 3. **Write it with the command, not by hand.**
 
 ```sh

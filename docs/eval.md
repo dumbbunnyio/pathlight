@@ -98,3 +98,23 @@ What the failures were:
 Every wrong or missing hop in these runs was either flagged by `pathlight flows`, said by the agent in its report, or both. No run produced a wrong hop that nothing pointed out. What the cheaper model did less well was completeness and tracing the whole path, not honesty.
 
 **What this cannot tell you.** Five questions, one run per model each, and both models read this repository, so the result says little about a codebase they have not seen. The answers are the scorer's reading (the `check-run` answer is the one written by hand earlier, so it is not independent), and "supported by an import" does not show that a hop is on the path being traced. It cannot judge event titles. The scout-then-decide split in the skill has not been measured: these runs had one agent do both. Re-run after any change to the skill, `flow add` or the `d` request.
+
+### Scout, then decide (2026-10-24)
+
+The skill proposes a split: a cheap model traces the path and lists facts, a stronger model opens the files, decides the hops and writes the journey. It was run on the same five questions: five Haiku scouts (read-only, told to report files, components and calls and nothing else), then five Sonnet agents, each given the request, the scout's notes marked as unverified leads, and the instruction to confirm each hop in the files itself.
+
+| question | Sonnet alone | Haiku alone | Haiku scout, then Sonnet |
+| --- | --- | --- | --- |
+| `check-run` | ✓ | ✗ model gap | ✗ model gap (`scanner → launcher`, drawn twice: git through `process.ts`, and the result returned) |
+| `record-call` | ✓ | ✓ | ✗ model gap (`launcher → plugin`); one additional hop (`plugin → activity`) |
+| `ask-agent` | ✓ | no journey | ✓ |
+| `open-viewer` | ✗ stopped at `launcher → viewer` | ✗ | ✗ same two required hops missed (`viewer → catalog`, `activity → viewer`) |
+| `stale-badge` | ✓ | ✗ | ✓ (all five hops) |
+| passes | 4 of 5 | 1 of 5 | 2 of 5 |
+
+- **No gain was shown.** The split did not pass more questions than Sonnet alone, and it did not cost less: each decider spent about as many tokens (51 to 57 thousand) as a Sonnet agent working alone (50 to 53 thousand), because it opened the files anyway, and the scouts' tokens (50 to 66 thousand each, Haiku) came on top. The skill now says to trace the path yourself unless the path is long and the host offers a subagent.
+- **The two split failures are the same kind.** Neither invented anything. Both added hops the code makes and the model does not draw (`src/scan.ts` imports `src/process.ts`; `src/cli.ts` calls `src/claude.ts`), and `pathlight flow add` reported each as `≠`. Sonnet alone left those hops out. On a count that does not fail a run for a model gap the split and Sonnet alone are level, 4 of 5 each; neither count is a reason to prefer one. What it does show: a fuller trace finds places where the model is incomplete, and the strict pass mark treats that as a failure.
+- **`open-viewer` failed every way it was tried.** Every run stopped once the viewer was started, or left out `activity → viewer`. The question says "up to the diagram being on screen", and the answer's last hops are arguable; the reference was not changed.
+- **Journeys are stricter than `pathlight check`.** `check` counts an import in either direction as covering a relationship; a journey hop has a direction, so `scanner → launcher` is a gap even though `launcher → scanner` exists and the files import each other. This is why `examples/viewer` shows `≠` for hops the code does make.
+
+Five questions and one run each: not enough to rank the two ways of working, only to say the split did not help here.

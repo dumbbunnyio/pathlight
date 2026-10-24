@@ -85,7 +85,7 @@ test("d asks the agent to trace a flow: the request names the skill, the command
     const until = async (pane: string, predicate: (text: string) => boolean, label: string) => {
       let output = "";
       for (let attempt = 0; attempt < 100; attempt++) {
-        output = await tmux("capture-pane", "-p", "-t", pane);
+        output = await tmux("capture-pane", "-p", "-J", "-t", pane);
         if (predicate(output)) return output;
         await delay(50);
       }
@@ -103,6 +103,7 @@ test("d asks the agent to trace a flow: the request names the skill, the command
     const typed = (await until(harness, text => text.replace(/\n/g, "").includes("Do not change product code."), "request echoed back")).replace(/\n/g, "");
     expect(typed).toContain('Trace how this works in the "Agent adapters" component (plugin) and record it as a pathlight journey: how an adapter records a call');
     expect(typed).toContain("pathlight flow add");
+    expect(typed).toContain("pathlight-tracer agent");
     expect(typed).toContain("pathlight-behavior skill");
     await until(shown.pane, text => text.includes("Asked the agent to trace a flow"), "toast");
   } finally {

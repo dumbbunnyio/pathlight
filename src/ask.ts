@@ -54,6 +54,7 @@ export function flowMessage(target: { title: string; id: string; files: readonly
     target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   return `Trace how this works in the "${clean(target.title)}" component (${clean(target.id)}) and record it as a pathlight journey: ${clean(request).slice(0, 600)}${context ? ` [${context}]` : ""} `
+    + `If you have a pathlight-tracer agent, hand the trace to it: it runs on a mid-size model, so the reading stays out of this conversation and off a larger model. Otherwise do it yourself. `
     + `Follow the pathlight-behavior skill: read the code from this component outward, confirm each hop in a file, then run pathlight flow add with the files you read and one --step per hop between components in the model. `
     + `Leave out any hop you cannot point to in the code and tell me what you could not find. Do not change product code.`;
 }
