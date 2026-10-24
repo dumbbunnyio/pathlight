@@ -6,7 +6,7 @@ This document records the product direction and accepted design as of
 
 ## Design principle (user decision, 2026-10-21)
 
-The viewer must be informative, not a data dump: an engineer following a harness's work should see an elegant, intuitive picture with the detail available on request. The inspector sidebar, its sections and the placement of information are to be redesigned deliberately (not yet started). The out-of-date badge, diff marks, plan outline and `off plan` tags added on 2026-10-21 are provisional and may move or merge in that redesign.
+The viewer must be informative, not a data dump: an engineer following a harness's work should see an elegant, intuitive picture with the detail available on request. The inspector was redesigned on 2026-10-24 (Phase 1): it ranks what it shows (the component, what it is doing now, what it connects to) and keeps files, history and the session summary one key away, and live work appears as a tag in each card's border and a `now`/`last` line in the header. Phase 2 (flow mode: a flow drawn on the diagram with a step reader, cards off the path dimmed, `≠` where a journey hop has no relationship in the model) was added the same day; flows are readings of the code, labelled so and kept apart from what the journal observed. The out-of-date badge, diff marks, plan outline and `off plan` tags added on 2026-10-21 are provisional and may still move or merge.
 
 ## What we are trying to achieve
 

@@ -16,7 +16,7 @@ test("subagent calls carry their label in the activity list and s hides them", a
     await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [
       { glob: "src/activity.ts", element: "activity" }, { glob: "src/launcher.ts", element: "launcher" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "subagent", "-x", "140", "-y", "40", "-P", "-F", "#{pane_id}",
-      process.execPath, resolve("src/cli.ts"), "view", "small", "--workspace", directory, "--session", "sub", "--source", "claude");
+      process.execPath, resolve("src/cli.ts"), "view", "small", "--select", "activity", "--workspace", directory, "--session", "sub", "--source", "claude");
     const until = async (text: string, absent = false) => {
       let output = "";
       for (let attempt = 0; attempt < 100; attempt++) {
@@ -34,12 +34,17 @@ test("subagent calls carry their label in the activity list and s hides them", a
     };
     await until("Launch path");
     await call("own", "src/launcher.ts");
+    // Distinct timestamps: two calls in the same millisecond have no newest.
+    await delay(20);
     await call("sub", "src/activity.ts", "Explore");
+    // The selected component's own rows carry the label; the header's line names the newest call and who made it.
     const shown = await until("·Explore");
-    expect(shown).toContain("launcher.ts");
+    expect(shown).toContain("activity.ts");
+    expect(shown).toContain("[Explore]");
     await tmux("send-keys", "-t", pane, "s");
     await until("·Explore", true);
-    expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("launcher.ts");
+    // Hidden, the newest call that remains is the conversation's own.
+    expect(await until("launcher.ts")).not.toContain("[Explore]");
     await tmux("send-keys", "-t", pane, "s");
     await until("·Explore");
   } finally {

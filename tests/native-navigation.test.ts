@@ -78,13 +78,13 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     const event = await toolActivity(directory, { source: "claude", session: "navigation" }, "edit-1", "Edit",
       { file_path: join(directory, "src/api.ts") }, "started");
     await writeActivity(directory, event);
-    await capture("[edit]");
+    await capture(/─ ■/);
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("parcel/services");
     await tmux("send-keys", "-t", pane, "b");
     const restored = await capture("Selected: parcel.commerce.api");
     expect(restored).toContain("parcel/checkout");
-    expect(restored).toContain("[edit]");
+    expect(restored).toMatch(/─ ■/);
     expect(restored.match(/zoom \d+%/)?.[0]).toBe(selectedApi.match(/zoom \d+%/)?.[0]);
     await tmux("send-keys", "-t", pane, "e");
     await capture(/› [├└]─ api\.ts/);
@@ -93,7 +93,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Escape", ":q", "Enter");
     expect(await capture("Returned from editor: src/api.ts")).toContain("Selected: parcel.commerce.api");
     await writeActivity(directory, { ...event, phase: "failed", time: Date.now() });
-    await capture("[failed]");
+    await capture(/─ ✗/);
     expect(await tmux("display-message", "-p", "-t", pane, "#{pane_pid}")).toBe(pid);
   } finally {
     await tmux("kill-server").catch(() => {});

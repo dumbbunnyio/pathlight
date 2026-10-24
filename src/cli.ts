@@ -16,17 +16,24 @@ import { checkAndRecord } from "./stale";
 import { setPlan } from "./plan";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
+import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
+import { addFlow, formatAdded, removeFlow } from "./flow-write";
 import { doctor, formatDoctor, hasFailures } from "./doctor";
+import { seeView } from "./see";
 
 const help = `pathlight list [--workspace PATH]
 pathlight scan [--workspace PATH] [--out FILE]
 pathlight check [--workspace PATH] [--json] [--strict] [--quiet]
 pathlight diff [--workspace PATH] [--base REV] [--json] [--quiet]
+pathlight flows [--workspace PATH] [--json] [--strict] [--quiet]
+pathlight flow add ID --title TEXT --reads FILE,FILE --step "FROM -> TO: EVENT" ... [--workspace PATH] [--project NAME] [--force]
+pathlight flow remove ID [--workspace PATH]
 pathlight plan [ELEMENT ...] [--workspace PATH]
 pathlight draft [--workspace PATH] [--out DIR] [--force]
 pathlight init [--workspace PATH] [--no-claude-hooks]
 pathlight show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
-pathlight view VIEW [--workspace PATH] [--project NAME]
+pathlight view VIEW [--workspace PATH] [--project NAME] [--select ELEMENT]
+pathlight see VIEW [--workspace PATH] [--project NAME] [--cols N] [--rows N] [--select ELEMENT] [--keys KEY,KEY] [--ansi] [--follow]
 pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--pane %ID] [--socket PATH]
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
@@ -35,11 +42,14 @@ scan reads the source statically and prints files, imports and what it could not
 check compares the LikeC4 model and pathlight.activity.json with that scan: unmatched globs, unmapped files,
 relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found. --quiet prints nothing (the Stop hook uses it); every check records its counts for the viewer's out-of-date badge.
 diff compares the relationships the imports support now with those at a git commit (default HEAD): which the working tree added or lost, and new imports with no relationship. The viewer draws them; static evidence only.
+flows checks the state diagrams an agent wrote (*.behavior.c4) against the files they name and the commit they were synced at: files that are gone or changed since, arrows with no event, decisions with one answer, states nothing reaches, states that name no file. A flow is the agent's reading, so this finds what is wrong or old, never that it is right. --strict exits 1 if anything is found.
+flow add writes a journey you worked out from the code: a LikeC4 dynamic view of hops between components, as ID.behavior.c4, stamped with the commit and the files you read. It checks every component against the model and takes the file back out if the model would stop compiling; it decides nothing about what happens. flow remove deletes only a file flow add wrote.
 plan says which elements you are about to work on (ids from the model); the viewer outlines them and marks activity outside them. No ids clears the plan.
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
 init wires Claude Code hooks, the pathlight skill and the OpenCode plugin into a workspace.
-show opens or updates an owned tmux pane. view runs in the current terminal.
+show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
+see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. For agents and tests.
 open follows the most recent session and shows VIEW if given, else the view named index, else the first view.
 Typed at a shell prompt in tmux it turns that pane into the viewer; run by an agent it splits a pane beside it.
 --here always uses the current terminal and --split always splits.
@@ -73,7 +83,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, here: { type: "boolean" }, split: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, title: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -83,7 +93,7 @@ try {
     const follow = values.follow === true;
     const invalid = (message: string) => Effect.fail(failure("CLI.arguments", message));
     if (values.help || !command) return void process.stdout.write(help);
-    if (extra.length && command !== "plan") return yield* invalid("Too many arguments. Use --help.");
+    if (extra.length && command !== "plan" && !(command === "flow" && extra.length === 1)) return yield* invalid("Too many arguments. Use --help.");
     if (follow && activity) return yield* invalid("Use either --follow or --session, not both.");
 
     if (command === "list") {
@@ -108,6 +118,19 @@ try {
       const check = yield* checkAndRecord(values.workspace);
       if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(check, null, 2)}\n` : formatCheck(check));
       if (values.strict && hasFindings(check)) process.exitCode = 1;
+    } else if (command === "flows") {
+      if (id) return yield* invalid("flows takes no argument. Use --workspace PATH.");
+      const flows = yield* checkFlows(values.workspace);
+      if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(flows, null, 2)}\n` : formatFlows(flows));
+      if (values.strict && hasFlowFindings(flows)) process.exitCode = 1;
+    } else if (command === "flow") {
+      const name = extra[0];
+      if (id === "add") {
+        const steps = values.step ?? [];
+        const added = yield* addFlow(values.workspace, { id: name, title: values.title, reads: values.reads ?? [], steps, project: values.project, force: values.force });
+        process.stdout.write(formatAdded(added, steps.length));
+      } else if (id === "remove") process.stdout.write(`Removed ${yield* removeFlow(values.workspace, name)}.\n`);
+      else return yield* invalid("Use pathlight flow add ID ... or pathlight flow remove ID. pathlight flows lists and checks them.");
     } else if (command === "plan") {
       const made = yield* setPlan(values.workspace, [...(id ? [id] : []), ...extra]);
       process.stdout.write(made ? `Plan: ${made.elements.join(", ")}\n` : "Plan cleared.\n");
@@ -128,6 +151,16 @@ try {
       yield* readActivityConfig(values.workspace);
       const input = yield* json(yield* readStdin);
       if (!claudeIgnores(input)) yield* writeActivity(values.workspace, yield* claudeActivity(resolve(values.workspace), input));
+    } else if (command === "see") {
+      if (!id) return yield* invalid("Missing view ID. Use pathlight list.");
+      const size = (name: string, text: string | undefined, fallback: number) => {
+        const value = text === undefined ? fallback : Number(text);
+        return Number.isInteger(value) && value >= 20 && value <= 500 ? Effect.succeed(value) : invalid(`--${name} must be a whole number from 20 to 500.`);
+      };
+      const mappedProject = values.project ?? (yield* readActivityConfig(values.workspace).pipe(Effect.map(mapping => mapping.project), Effect.catch(() => Effect.succeed(undefined))));
+      const view = yield* selectView(values.workspace, id, mappedProject && (yield* listViews(values.workspace)).views.some(entry => entry.id === id && entry.project === mappedProject) ? mappedProject : values.project);
+      const screen = yield* seeView({ view, cols: yield* size("cols", values.cols, 120), rows: yield* size("rows", values.rows, 36), select: values.select, keys: values.keys?.split(",").map(key => key.trim()).filter(Boolean), ansi: values.ansi, follow: values.follow });
+      process.stdout.write(screen);
     } else if (command === "show" || command === "view" || command === "open") {
       if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));
@@ -152,7 +185,7 @@ try {
         process.stdout.write(`${JSON.stringify(result)}\n`);
       } else {
         const { viewNative } = yield* io("CLI.viewer", () => import("./native-viewer"));
-        yield* viewNative({ view, activity, follow: following, parent: values.parent, ready: values.ready });
+        yield* viewNative({ view, activity, follow: following, parent: values.parent, ready: values.ready, select: values.select });
       }
     } else return yield* invalid(`Unknown command '${command}'. Use --help.`);
   }), { signal: abort.signal });

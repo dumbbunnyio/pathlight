@@ -1,0 +1,24 @@
+ ◆ pathlight / Pathlight implementation                               
+ viewer/live · 6 nodes                                                
+──────────────────────────────────────────────────────────────────────
+ › Agent adapters                                          component  
+   LikeC4 catalog                                          component  
+   Activity metadata                                       component  
+   tmux launcher                                           component  
+   PNG export                                              component  
+   Persistent viewer                                       component  
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+ diagram   Selected: plugin                       zoom 54%  │  ? help 

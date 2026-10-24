@@ -171,7 +171,7 @@ export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdg
   });
 }
 
-export interface RasterCell { x: number; y: number; glyph: string; tone: "out" | "in" | "dim" | "added" | "lost"; t: number }
+export interface RasterCell { x: number; y: number; glyph: string; tone: "out" | "in" | "dim" | "added" | "lost" | "path"; t: number }
 
 const N = 1, E = 2, S = 4, W = 8;
 const solid: Record<number, string> = { [E | W]: "─", [N | S]: "│", [S | E]: "╭", [S | W]: "╮", [N | E]: "╰", [N | W]: "╯",
@@ -183,10 +183,10 @@ const arrows: Record<Side, string> = { E: "▶", W: "◀", S: "▼", N: "▲" };
  * solid and tinted by direction. `covered` hides cells under nodes; `t` is the position along the route (0..1).
  * `marks` (keyed `source\0target`) picks out connectors whose imports were added or lost since a base commit: solid, in their own tints, under the selection's.
  */
-export function rasterize(routes: readonly Route[], project: (point: Point) => Point, covered: (x: number, y: number) => boolean, selected: string | undefined, marks: ReadonlyMap<string, "added" | "lost"> = new Map()): RasterCell[] {
+export function rasterize(routes: readonly Route[], project: (point: Point) => Point, covered: (x: number, y: number) => boolean, selected: string | undefined, marks: ReadonlyMap<string, "added" | "lost" | "path"> = new Map()): RasterCell[] {
   const cells = new Map<string, { x: number; y: number; mask: number; tone: RasterCell["tone"]; t: number; arrow?: string }>();
   const toneOf = (route: Route): RasterCell["tone"] => route.source === selected ? "out" : route.target === selected ? "in" : marks.get(`${route.source}\0${route.target}`) ?? "dim";
-  const rank = (tone: RasterCell["tone"]) => tone === "dim" ? 0 : tone === "added" || tone === "lost" ? 1 : 2;
+  const rank = (tone: RasterCell["tone"]) => tone === "dim" ? 0 : tone === "added" || tone === "lost" || tone === "path" ? 1 : 2;
   const ordered = [...routes].sort((a, b) => rank(toneOf(a)) - rank(toneOf(b)));
   for (const route of ordered) {
     const tone = toneOf(route);

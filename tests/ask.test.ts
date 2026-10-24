@@ -3,7 +3,7 @@ import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { askMessage } from "../src/ask";
+import { askMessage, flowMessage } from "../src/ask";
 import { run } from "./effects";
 
 test("an ask message leads with the question, adds the component's context, and carries no control characters", () => {
@@ -72,3 +72,49 @@ test("t types a question about the selected node into the harness pane; Enter su
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("d asks the agent to trace a flow: the request names the skill, the command and the component's files, and nothing is sent until Enter", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-ask-flow-"));
+  const socket = join("/tmp", `c4f-${process.pid}.sock`);
+  const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
+    const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "flow-test", "-x", "170", "-y", "44", "-P", "-F", "#{pane_id}", "cat");
+    const shown = JSON.parse(await run(process.execPath, [resolve("src/cli.ts"), "show", "live", "--workspace", directory, "--project", "viewer", "--pane", harness, "--socket", socket])) as { pane: string };
+    const until = async (pane: string, predicate: (text: string) => boolean, label: string) => {
+      let output = "";
+      for (let attempt = 0; attempt < 100; attempt++) {
+        output = await tmux("capture-pane", "-p", "-t", pane);
+        if (predicate(output)) return output;
+        await delay(50);
+      }
+      throw new Error(`Missing ${label}:\n${output}`);
+    };
+    await until(shown.pane, text => text.includes("Selected: plugin"), "viewer");
+    await delay(700);
+    await tmux("send-keys", "-t", shown.pane, "d");
+    await until(shown.pane, text => text.includes("Ask the agent to trace a flow"), "flow prompt");
+    await tmux("send-keys", "-t", shown.pane, "Enter");
+    await delay(300);
+    expect(await tmux("capture-pane", "-p", "-t", harness)).not.toContain("pathlight journey");
+    await tmux("send-keys", "-t", shown.pane, "-l", "how an adapter records a call");
+    await tmux("send-keys", "-t", shown.pane, "Enter");
+    const typed = (await until(harness, text => text.replace(/\n/g, "").includes("Do not change product code."), "request echoed back")).replace(/\n/g, "");
+    expect(typed).toContain('Trace how this works in the "Agent adapters" component (plugin) and record it as a pathlight journey: how an adapter records a call');
+    expect(typed).toContain("pathlight flow add");
+    expect(typed).toContain("pathlight-behavior skill");
+    await until(shown.pane, text => text.includes("Asked the agent to trace a flow"), "toast");
+  } finally {
+    await tmux("kill-server").catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("a flow request is one clean line that keeps the rules: confirm each hop in a file, name the files, change no product code", () => {
+  const text = flowMessage({ title: "Orders\x1b[31m", id: "parcel.orders", files: ["src/orders.ts"], links: ["→ Stock"] }, "what\nhappens?");
+  expect(text).not.toMatch(/[\x00-\x1f\x7f]/);
+  expect(text).toContain('"Orders [31m" component (parcel.orders)');
+  expect(text).toContain("what happens? [files: src/orders.ts; connects: → Stock]");
+  expect(text).toMatch(/confirm each hop in a file.*pathlight flow add.*Do not change product code\.$/);
+});

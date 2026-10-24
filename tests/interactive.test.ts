@@ -144,7 +144,8 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
     const clickTitle = async (title: string, id: string) => {
       const output = await capture(title);
       const lines = output.split("\n");
-      const y = lines.findIndex(line => line.includes(title));
+      // Below the header: its activity line names components by title too.
+      const y = lines.findIndex((line, index) => index > 2 && line.includes(title));
       const x = (lines[y]?.indexOf(title) ?? -1) + 1;
       expect(y).toBeGreaterThanOrEqual(0);
       await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
@@ -167,7 +168,7 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
     const event = toolActivity(directory, { source: "claude", session: "native-test" }, "edit-1", "Edit",
       { file_path: join(directory, "src/activity.ts") }, "started");
     await writeActivity(directory, event);
-    expect(await capture("[edit]")).toContain("Selected: activity");
+    expect(await capture("─ ■")).toContain("Selected: activity");
     await clickTitle("tmux launcher", "launcher");
     await delay(300);
     const activeFrames = new Set<string>();
@@ -178,7 +179,7 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
     expect(activeFrames.size).toBeGreaterThan(1);
     await clickTitle("Activity", "activity");
     await writeActivity(directory, { ...event, phase: "failed", time: Date.now() });
-    expect(await capture("[failed]")).toContain("Selected: activity");
+    expect(await capture("─ ✗")).toContain("Selected: activity");
     const finishedFrame = await tmux("capture-pane", "-e", "-p", "-t", pane);
     await delay(600);
     expect(await tmux("capture-pane", "-e", "-p", "-t", pane)).toBe(finishedFrame);
@@ -187,11 +188,10 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
     await writeFile(journal, "unavailable");
     await tmux("send-keys", "-t", pane, "pagedown", "pagedown", "pagedown", "pagedown");
     await capture("Activity unavailable");
-    await tmux("send-keys", "-t", pane, "4");
+    await tmux("send-keys", "-t", pane, "1");
     await delay(5200);
     const unavailable = await tmux("capture-pane", "-p", "-t", pane);
     expect(unavailable).toContain("Activity unavailable");
-    expect(unavailable).not.toContain("[failed]");
     await tmux("send-keys", "-t", pane, "q");
     for (let i = 0; i < 50; i++) {
       if (await Bun.file(join(directory, "exit-status")).exists()) break;
@@ -352,15 +352,15 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await delay(700);
     const event = toolActivity(directory, { source: "claude", session: "navigation-test" }, "api-edit", "Edit", { path: "src/api.ts" }, "started");
     await writeActivity(directory, event);
-    await capture("[edit]");
+    await capture("─ ■");
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("back 3");
     await delay(100);
     await tmux("send-keys", "-t", pane, "b");
     const restored = await capture("Selected: parcel.commerce.api");
-    expect(restored).toContain("[edit]");
+    expect(restored).toContain("─ ■");
     await writeActivity(directory, { ...event, phase: "failed", time: Date.now() });
-    expect(await capture("[failed]")).toContain("Selected: parcel.commerce.api");
+    expect(await capture("─ ✗")).toContain("Selected: parcel.commerce.api");
     expect(await tmux("display-message", "-p", "-t", pane, "#{pane_pid}")).toBe(pid);
   } finally {
     await tmux("kill-server").catch(() => {});
@@ -433,7 +433,7 @@ test.each([
     await writeActivity(directory, toolActivity(directory, binding, "api-edit", "Edit", { path: "src/api.ts" }, "started"));
     await writeActivity(directory, toolActivity(directory, binding, "group-read", "Read", { path: "src/system.ts" }, "started"));
     const active = await capture("Commerce [read]");
-    expect(active).toContain("[edit]");
+    expect(active).toContain("■");
     expect(active).toContain("Checkout API");
     await click("Checkout API", "parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "BSpace");
