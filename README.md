@@ -150,6 +150,7 @@ Targets OpenCode V2 (verified against 2.0.32). `pathlight init` registers `plugi
 The plugin has two halves, both loaded from that one entry:
 
 - **Server plugin** (`plugins/opencode/index.ts`): records tool calls through OpenCode's `tool.hook` events, offers the `pathlight` skill to the agent (unless the workspace already has one), and provides the `pathlight_list`, `pathlight_show` and `pathlight_stop` tools.
+- **Tracer agent and `pathlight_models`**: the server plugin registers a read-only `pathlight-tracer` subagent (the prompt is the Claude plugin's `agents/pathlight-tracer.md`) that the `d` key's request hands a trace to, so the reading does not run on your largest model. It is pinned to the newest Sonnet-class model you can use (the host's own list of enabled models decides, not a guess), or to `options.tracerModel` (`provider/model`) if you set one; with neither it runs on your current model. `pathlight_models` reports the choice and your usable models so the agent can help you pick (the pathlight-behavior skill says how).
 - **CLI plugin** (`plugins/opencode/tui.ts`): runs in your terminal process, the only place that knows your real tmux pane, and adds the slash commands below.
 
 | In OpenCode (inside tmux) | Claude Code equivalent | What it does |
@@ -157,6 +158,8 @@ The plugin has two halves, both loaded from that one entry:
 | `/pathlight-open [VIEW]` (also `/pathlight:open`) | `/pathlight:open [VIEW]` | Splits the viewer beside the conversation and follows the newest recorded session. No model turn. |
 | `/pathlight [VIEW]` | `/pathlight [VIEW]` | Asks the agent to use the pathlight skill (draft, check, show), telling it your pane and tmux socket so it passes `--pane`. |
 | `! pathlight open [VIEW]` | the same | Shell escape. |
+
+Package: the plugin calls the `pathlight` binary on your PATH, never a checkout, and `sh scripts/build-opencode.sh [VERSION]` bundles it with the skills and tracer prompt into `plugins/opencode/dist`, the npm package `pathlight-opencode`. The release workflow publishes it when the repository has an `NPM_TOKEN` secret (pre-releases under the `next` tag); it has not been published yet, so use the folder form `pathlight init` writes until it is.
 
 Recording: with `record: true` every root session in the workspace is recorded without a request, the counterpart of installing the Claude hooks. Subagent sessions and sessions in other workspaces are never recorded, and `pathlight_stop` stops one session. Without the option, recording starts only when an agent calls `pathlight_show` with `live: true`.
 Each tool requests permission before loading a workspace or opening a pane. `pathlight_show` needs an explicit pane (`%2`) because OpenCode's background service may not share your terminal's environment; the slash commands supply it for you.

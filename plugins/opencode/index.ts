@@ -2,11 +2,14 @@ import { Plugin } from "@opencode/plugin";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { run } from "../../src/process";
+import { existsSync } from "node:fs";
 import { readFile, readdir, realpath } from "node:fs/promises";
 import { toolActivity, turnActivity, writeActivity, type ActivityEvent } from "../../src/activity";
 import { ActivitySubscriptions } from "../../src/activity-subscriptions";
 import { Effect, Fiber, Queue, Stream } from "effect";
 import { io } from "../../src/effects";
+import { chooseTracerModel, type ModelInfo } from "./tracer-model";
+import tracerSource from "../claude/agents/pathlight-tracer.md" with { type: "text" };
 
 const Show = z.object({
   view: z.string().min(1),
@@ -19,7 +22,14 @@ const Show = z.object({
 export default Plugin.define({
   id: "pathlight",
   async setup(ctx) {
-    const cli = fileURLToPath(new URL("../../src/cli.ts", import.meta.url));
+    // The viewer is the `pathlight` binary: OpenTUI's native library is per platform, so the plugin never carries the CLI itself and works from the npm package.
+    const pathlight = async (args: string[], signal?: AbortSignal) => {
+      try { return await Effect.runPromise(run("pathlight", args), { signal }); }
+      catch (error) {
+        if (/ENOENT/.test(String(error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : error))) throw new Error("pathlight is not installed or not on the PATH. Install it: curl -fsSL https://raw.githubusercontent.com/lennox-davidlevy/pathlight/main/install.sh | sh");
+        throw error;
+      }
+    };
     const workspace = ctx.location.directory;
     const subscriptions = new ActivitySubscriptions();
     type SessionID = Parameters<typeof ctx.session.get>[0]["sessionID"];
@@ -75,7 +85,9 @@ export default Plugin.define({
     try {
     // The pathlight skills (shared with the Claude plugin) are offered to the agent unless the workspace already has one of the same name (`pathlight init` copies them for hosts without this plugin).
     try {
-      const folder = fileURLToPath(new URL("../claude/skills/", import.meta.url));
+      // The npm package carries its own copy next to the code; a checkout reads the Claude plugin's folder.
+      const packaged = fileURLToPath(new URL("./skills/", import.meta.url));
+      const folder = existsSync(packaged) ? packaged : fileURLToPath(new URL("../claude/skills/", import.meta.url));
       const present = (await ctx.skill.list()).data;
       for (const name of await readdir(folder)) {
         const file = `${folder}${name}/SKILL.md`;
@@ -85,6 +97,45 @@ export default Plugin.define({
         await ctx.skill.transform(editor => editor.add({ id: name, name, ...(description ? { description } : {}), path: file, content: text.replace(/^---\n[\s\S]*?\n---\n/, "") } as SkillInfo));
       }
     } catch { /* The skills are a convenience; the tools and recording do not depend on them. */ }
+    // The tracer: a subagent that runs the pathlight-behavior skill's trace on a mid-size model, so a large conversation model does not spend its tokens reading code.
+    // The models the person can use are only known once the host has resolved its providers, so the choice is made when it reports them and the agent is rebuilt.
+    const tracerOption = typeof ctx.options?.tracerModel === "string" ? ctx.options.tracerModel : undefined;
+    let models: ModelInfo[] = [];
+    let choice = chooseTracerModel([], tracerOption);
+    let agentRegistered = false;
+    try {
+      await ctx.model.transform(editor => {
+        models = editor.list().map(model => ({
+          provider: String(model.providerID), id: String(model.id), name: model.name, released: model.time.released, status: model.status, enabled: model.enabled,
+          tools: model.capabilities.tools, cost: model.cost.map(tier => ({ in: Number(tier.input), out: Number(tier.output) })),
+        }));
+        const next = chooseTracerModel(models, tracerOption);
+        const changed = next.ref !== choice.ref;
+        choice = next;
+        // A late or changed model list changes the choice: rebuild the agent with it (outside this synchronous callback).
+        if (changed && agentRegistered) queueMicrotask(() => { void Promise.resolve(ctx.agent.reload()).catch(() => undefined); });
+      });
+    } catch { /* Without the model list the tracer runs on the current model. */ }
+    try {
+      const body = tracerSource.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
+      // Read-only: nothing is allowed unless listed, and the last matching rule wins.
+      const allow = (action: string, resource = "*") => ({ action, resource, effect: "allow" as const });
+      await ctx.agent.transform(editor => {
+        editor.update("pathlight-tracer" as never, agent => {
+          agent.name = "pathlight-tracer" as never;
+          agent.mode = "subagent";
+          agent.description = "Traces how something works through the components of a codebase and records it as a pathlight journey (pathlight flow add). Hand it the request the pathlight viewer's d key sends. It runs on a mid-size model so the reading stays out of this conversation.";
+          agent.system = body;
+          agent.permissions = [{ action: "*", resource: "*", effect: "deny" }, allow("read"), { action: "read", resource: "*.env", effect: "ask" }, { action: "read", resource: "*.env.*", effect: "ask" },
+            allow("grep"), allow("glob"), allow("shell", "pathlight *"), allow("shell", "git log*"), allow("shell", "git show*"), allow("shell", "ls*")] as never;
+          if (choice.ref) {
+            const split = choice.ref.indexOf("/");
+            agent.model = { providerID: choice.ref.slice(0, split), id: choice.ref.slice(split + 1) } as never;
+          }
+        });
+      });
+      agentRegistered = true;
+    } catch { /* The agent is a convenience: the skill falls back to tracing in the conversation. */ }
     await ctx.tool.hook("execute.before", event => observe(event, "started"));
     await ctx.tool.hook("execute.after", event => observe(event, event.status === "completed" ? "completed" : "failed"));
     await ctx.tool.transform(editor => {
@@ -104,6 +155,16 @@ export default Plugin.define({
         },
       });
       editor.add({
+        name: "models",
+        description: "Which model pathlight's tracer agent runs on and why, the models you can use that are in Sonnet's price range, and how to change it. Read-only. Use it before the first trace if the user has not chosen a tracer model.",
+        input: { type: "object", properties: {}, additionalProperties: false },
+        options: { namespace: "pathlight", codemode: true },
+        execute: async () => ({ content: JSON.stringify({
+          tracer: choice, setWith: "options.tracerModel on the pathlight plugin entry in opencode.json, as provider/model, then reload OpenCode",
+          usable: models.filter(model => model.enabled && model.status === "active" && model.tools).map(model => ({ model: `${model.provider}/${model.id}`, outputPerMillionTokens: model.cost[0]?.out ?? null })),
+        }, null, 2) }),
+      });
+      editor.add({
         name: "list",
         description: "List LikeC4 projects and view IDs in this workspace before choosing a diagram to show.",
         input: { type: "object", properties: {}, additionalProperties: false },
@@ -114,7 +175,7 @@ export default Plugin.define({
             source: { type: "tool", messageID: context.messageID, id: context.id },
             action: "pathlight_list", resources: [workspace], save: [workspace],
           });
-          return { content: await Effect.runPromise(run("bun", [cli, "list", "--workspace", workspace]), { signal: context.signal }) };
+          return { content: await pathlight(["list", "--workspace", workspace], context.signal) };
         },
       });
       editor.add({
@@ -139,12 +200,12 @@ export default Plugin.define({
               resources: [`${workspace}:${request.socket ?? "default"}:${request.pane}:${request.view}`],
               save: [`${workspace}:*`],
             });
-            const args = [cli, "show", request.view, "--workspace", workspace,
+            const args = ["show", request.view, "--workspace", workspace,
               "--pane", request.pane];
             if (request.project) args.push("--project", request.project);
             if (request.socket) args.push("--socket", request.socket);
             if (request.live) args.push("--session", context.sessionID, "--source", "opencode");
-            const content = await Effect.runPromise(run("bun", args), { signal: context.signal });
+            const content = await pathlight(args, context.signal);
             if (request.live) stopped.delete(context.sessionID);
             if (ticket && !subscriptions.complete(context.sessionID, ticket)) {
               return { content: `${content}\nActivity attachment was superseded or stopped; recording was not enabled by this request.` };

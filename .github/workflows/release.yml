@@ -50,3 +50,25 @@ jobs:
           files: |
             dist/pathlight-*
             dist/SHA256SUMS
+
+  # The OpenCode plugin as an npm package (see scripts/build-opencode.sh). Inert until the repository has an NPM_TOKEN secret: without one this job says so and passes.
+  # A tag with a hyphen (v0.1.0-rc7) publishes under the `next` dist-tag, so `npm i` never picks up a pre-release.
+  npm:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: "1.4.2" }
+      - run: bun install --frozen-lockfile
+      - name: Publish pathlight-opencode
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then echo "No NPM_TOKEN secret: not publishing pathlight-opencode."; exit 0; fi
+          version="${TAG#v}"
+          sh scripts/build-opencode.sh "$version"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$HOME/.npmrc"
+          cd plugins/opencode/dist
+          case "$version" in *-*) npm publish --access public --tag next ;; *) npm publish --access public ;; esac

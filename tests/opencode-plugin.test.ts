@@ -1,10 +1,20 @@
 import { expect, test } from "bun:test";
-import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import plugin from "../plugins/opencode/index";
 import { readActivity, run } from "./effects";
+
+// The plugin runs the `pathlight` binary, as a user who installed it has on the PATH.
+const withPathlight = async () => {
+  const bin = await mkdtemp(join(tmpdir(), "pathlight-opencode-bin-"));
+  await writeFile(join(bin, "pathlight"), `#!/bin/sh\nexec "${process.execPath}" "${resolve("src/cli.ts")}" "$@"\n`);
+  await chmod(join(bin, "pathlight"), 0o755);
+  const before = process.env.PATH;
+  process.env.PATH = `${bin}:${before}`;
+  return async () => { process.env.PATH = before; await rm(bin, { recursive: true, force: true }); };
+};
 
 type Tool = { name: string; execute: (input: unknown, context: unknown) => Promise<{ content: string }> };
 
@@ -16,6 +26,7 @@ test("the OpenCode plugin registers its tools, asks permission, opens a viewer, 
   const tools = new Map<string, Tool>();
   const permissions: { action: string }[] = [];
   let cleanup: void | (() => Promise<void> | void) = undefined;
+  const restore = await withPathlight();
   try {
     await cp("tests/fixtures/viewer", workspace, { recursive: true });
     await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
@@ -33,7 +44,7 @@ test("the OpenCode plugin registers its tools, asks permission, opens a viewer, 
       },
     };
     cleanup = await plugin.setup(context as never);
-    expect([...tools.keys()].sort()).toEqual(["list", "show", "stop"]);
+    expect([...tools.keys()].sort()).toEqual(["list", "models", "show", "stop"]);
     expect([...hooks.keys()].sort()).toEqual(["execute.after", "execute.before"]);
 
     const call = { sessionID: "ses_test", agent: "build", messageID: "m1", id: "t1", signal: new AbortController().signal };
@@ -65,6 +76,7 @@ test("the OpenCode plugin registers its tools, asks permission, opens a viewer, 
     await delay(400);
     expect((await readActivity(workspace, { source: "opencode", session: "ses_test" })).map(event => event.call)).toEqual(["c2"]);
   } finally {
+    await restore();
     await cleanup?.();
     await tmux("kill-server").catch(() => {});
     await rm(workspace, { recursive: true, force: true });
@@ -116,3 +128,82 @@ test("with record: true the plugin records root sessions in its workspace withou
     await rm(elsewhere, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("the plugin registers a read-only tracer subagent pinned to the newest enabled Sonnet, reports the choice in pathlight_models, and rebuilds the agent when the model list arrives late", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "pathlight-opencode-agent-"));
+  const tools = new Map<string, Tool>();
+  const agents: Record<string, Record<string, unknown>> = {};
+  const reloads: string[] = [];
+  let rebuild: (() => void) | undefined;
+  let modelsEditor: ((editor: { list: () => unknown[] }) => void) | undefined;
+  const host = (id: string, enabled: boolean, out: number, status = "active") => ({ providerID: "anthropic", id, name: id, time: { released: id.endsWith("5-5") ? 2 : 1 }, status, enabled, capabilities: { tools: true }, cost: [{ input: 2, output: out }] });
+  let list: unknown[] = [];
+  let cleanup: void | (() => Promise<void> | void) = undefined;
+  try {
+    const context = {
+      location: { directory: workspace }, options: { tracerModel: undefined },
+      session: { get: async () => ({ location: { directory: workspace } }) },
+      permission: { assert: async () => undefined },
+      skill: { list: async () => ({ data: [] }), transform: async () => undefined },
+      tool: {
+        hook: async () => undefined,
+        transform: async (apply: (editor: unknown) => void) => apply({ namespace: () => undefined, add: (tool: Tool) => { tools.set(tool.name, tool); } }),
+      },
+      // The host calls a model transform once its providers are resolved, which can be after setup returns.
+      model: { transform: async (apply: (editor: { list: () => unknown[] }) => void) => { modelsEditor = apply; } },
+      // Like the host: a transform runs when registered and again on reload.
+      agent: {
+        transform: async (apply: (editor: unknown) => void) => {
+          rebuild = () => apply({ update: (id: string, change: (agent: Record<string, unknown>) => void) => { agents[id] = {}; change(agents[id]!); } });
+          rebuild();
+        },
+        reload: async () => { reloads.push("agent"); rebuild!(); },
+      },
+    };
+    cleanup = await plugin.setup(context as never);
+    // Before the host reports any model nothing is pinned.
+    expect(agents["pathlight-tracer"]).toMatchObject({ mode: "subagent" });
+    expect(agents["pathlight-tracer"]!.model).toBeUndefined();
+
+    list = [host("claude-sonnet-4-6", true, 15), host("claude-sonnet-5-5", true, 10), host("claude-sonnet-5", false, 10), host("claude-opus-5-5", true, 25)];
+    modelsEditor!({ list: () => list });
+    await delay(20);
+    expect(reloads).toEqual(["agent"]);
+    expect(agents["pathlight-tracer"]!.model).toEqual({ providerID: "anthropic", id: "claude-sonnet-5-5" });
+    const reported = JSON.parse((await tools.get("models")!.execute({}, {})).content) as { tracer: { ref: string; source: string; tested: boolean }; usable: { model: string }[] };
+    expect(reported.tracer).toMatchObject({ ref: "anthropic/claude-sonnet-5-5", source: "sonnet", tested: true });
+    expect(reported.usable.map(item => item.model).sort()).toEqual(["anthropic/claude-opus-5-5", "anthropic/claude-sonnet-4-6", "anthropic/claude-sonnet-5-5"]);
+  } finally {
+    await cleanup?.();
+    await rm(workspace, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test("the tracer agent's rules deny everything but reading and a few commands, and its prompt is the Claude agent's body", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "pathlight-opencode-agent2-"));
+  const agents: Record<string, Record<string, unknown>> = {};
+  let cleanup: void | (() => Promise<void> | void) = undefined;
+  try {
+    const context = {
+      location: { directory: workspace }, options: { tracerModel: "anthropic/claude-sonnet-5-5" },
+      session: { get: async () => ({ location: { directory: workspace } }) }, permission: { assert: async () => undefined },
+      skill: { list: async () => ({ data: [] }), transform: async () => undefined },
+      tool: { hook: async () => undefined, transform: async (apply: (editor: unknown) => void) => apply({ namespace: () => undefined, add: () => undefined }) },
+      model: { transform: async () => undefined },
+      agent: { transform: async (apply: (editor: unknown) => void) => apply({ update: (id: string, change: (agent: Record<string, unknown>) => void) => { agents[id] = {}; change(agents[id]!); } }), reload: async () => undefined },
+    };
+    cleanup = await plugin.setup(context as never);
+    const agent = agents["pathlight-tracer"]!;
+    // The last matching rule wins in OpenCode, so the deny-all rule comes first and nothing after it writes.
+    const rules = agent.permissions as { action: string; resource: string; effect: string }[];
+    expect(rules[0]).toEqual({ action: "*", resource: "*", effect: "deny" });
+    expect(rules.filter(rule => rule.effect === "allow").map(rule => `${rule.action}:${rule.resource}`)).toEqual(["read:*", "grep:*", "glob:*", "shell:pathlight *", "shell:git log*", "shell:git show*", "shell:ls*"]);
+    expect(rules.some(rule => rule.action === "edit" && rule.effect === "allow")).toBe(false);
+    expect(agent.model).toEqual({ providerID: "anthropic", id: "claude-sonnet-5-5" });
+    expect(String(agent.system)).toContain("pathlight flow add");
+    expect(String(agent.system)).not.toContain("model: sonnet");
+  } finally {
+    await cleanup?.();
+    await rm(workspace, { recursive: true, force: true });
+  }
+}, 30_000);

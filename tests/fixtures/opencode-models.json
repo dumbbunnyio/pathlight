@@ -1,0 +1,122 @@
+[
+ {
+  "provider": "anthropic",
+  "id": "claude-sonnet-5-5",
+  "name": "Claude Sonnet 5.5",
+  "released": 1760000000000,
+  "status": "active",
+  "enabled": true,
+  "tools": true,
+  "cost": [
+   {
+    "in": 2,
+    "out": 10
+   }
+  ]
+ },
+ {
+  "provider": "anthropic",
+  "id": "claude-sonnet-5",
+  "name": "Claude Sonnet 5",
+  "released": 1750000000000,
+  "status": "active",
+  "enabled": true,
+  "tools": true,
+  "cost": [
+   {
+    "in": 2,
+    "out": 10
+   }
+  ]
+ },
+ {
+  "provider": "anthropic",
+  "id": "claude-sonnet-4-6",
+  "name": "Claude Sonnet 4.6",
+  "released": 1740000000000,
+  "status": "active",
+  "enabled": true,
+  "tools": true,
+  "cost": [
+   {
+    "in": 3,
+    "out": 15
+   }
+  ]
+ },
+ {
+  "provider": "anthropic",
+  "id": "claude-haiku-5-5",
+  "name": "Claude Haiku 5.5",
+  "released": 1760000000000,
+  "status": "active",
+  "enabled": true,
+  "tools": true,
+  "cost": [
+   {
+    "in": 0.5,
+    "out": 2.5
+   }
+  ]
+ },
+ {
+  "provider": "anthropic",
+  "id": "claude-opus-5-5",
+  "name": "Claude Opus 5.5",
+  "released": 1760000000000,
+  "status": "active",
+  "enabled": true,
+  "tools": true,
+  "cost": [
+   {
+    "in": 5,
+    "out": 25
+   }
+  ]
+ },
+ {
+  "provider": "anthropic",
+  "id": "claude-sonnet-4-5",
+  "name": "Claude Sonnet 4.5",
+  "released": 1730000000000,
+  "status": "deprecated",
+  "enabled": true,
+  "tools": true,
+  "cost": [
+   {
+    "in": 3,
+    "out": 15
+   }
+  ]
+ },
+ {
+  "provider": "opencode",
+  "id": "claude-sonnet-5-5",
+  "name": "Claude Sonnet 5.5",
+  "released": 1760000000000,
+  "status": "active",
+  "enabled": false,
+  "tools": true,
+  "cost": [
+   {
+    "in": 2,
+    "out": 10
+   }
+  ]
+ },
+ {
+  "provider": "fake",
+  "id": "m",
+  "name": "Fake",
+  "released": 0,
+  "status": "active",
+  "enabled": true,
+  "tools": true,
+  "cost": [
+   {
+    "in": 0,
+    "out": 0
+   }
+  ]
+ }
+]

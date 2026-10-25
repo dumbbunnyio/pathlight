@@ -1,6 +1,5 @@
 import { Plugin } from "@opencode/plugin/tui";
 import { Effect } from "effect";
-import { fileURLToPath } from "node:url";
 import { run } from "../../src/process";
 
 // The OpenCode counterpart of Claude's `/pathlight:open`: typed by the user, so no model turn. It runs in the terminal process, which is the one
@@ -8,7 +7,6 @@ import { run } from "../../src/process";
 export default Plugin.define({
   id: "pathlight",
   setup(context) {
-    const cli = fileURLToPath(new URL("../../src/cli.ts", import.meta.url));
     const open = async (view: string | undefined) => {
       const pane = process.env.TMUX_PANE;
       if (!pane) { context.ui.toast.show({ message: "Pathlight needs OpenCode to run inside tmux", variant: "warning" }); return; }
@@ -17,9 +15,9 @@ export default Plugin.define({
       // Bound to this conversation from the start (not "the newest session", which before its first tool call is nothing or a stale one).
       const route = context.ui.router.current();
       const bind = route.type === "session" ? ["--session", route.sessionID, "--source", "opencode"] : [];
-      const args = [cli, "open", ...(view ? [view] : []), "--workspace", directory, "--split", "--pane", pane, ...(socket ? ["--socket", socket] : []), ...bind];
+      const args = ["open", ...(view ? [view] : []), "--workspace", directory, "--split", "--pane", pane, ...(socket ? ["--socket", socket] : []), ...bind];
       try {
-        await Effect.runPromise(run("bun", args));
+        await Effect.runPromise(run("pathlight", args));
         context.ui.toast.show({ message: "Pathlight opened beside this conversation", variant: "success" });
       } catch (error) {
         const message = error instanceof Error ? error.message.split("\n").find(line => line.trim() && !line.startsWith("Command failed")) ?? error.message : String(error);

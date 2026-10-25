@@ -80,6 +80,10 @@ pathlight draws `#bug` boxes with a red outline and `#fixed` ones green.
 
 A state diagram says what a person sees. A **journey** says which components a request passes through, in order, and pathlight draws it on the architecture itself. It is a LikeC4 `dynamic view` over components the model already has, one step per hop, each titled with the event.
 
+### Which model traces (hosts where the person has several models)
+
+Claude Code pins the tracer to Sonnet itself, so skip this there. In OpenCode and any host with a `pathlight_models` tool, call it before the first trace. It reports the model the tracer will use and why. If `tracer.source` is `sonnet` or `option`, say which model in one line and carry on. If it is `none`, nothing tested is available to this person: do not pick a model yourself. Show them `usable` (the models they can use, with prices), name at most two that look like a fair step down from their current model for reading code, say that none has been measured for this (only Sonnet-class models have, docs/eval.md), and ask which they want, or to keep their current model. After they answer, set `options.tracerModel` as `provider/model` on the pathlight plugin entry in `opencode.json`, tell them to reload OpenCode, and note the choice in your reply. On a flat-rate plan a cheaper model may save nothing, so "keep my current model" is a real answer.
+
 ### Working it out
 
 The story comes from reading the code. If a `pathlight-tracer` agent is available (the Claude plugin ships one, pinned to a mid-size model), hand the whole job to it: give it the component, the question and the files, let it run the steps below and write the journey, then pass on its report, including what it left out and anything `pathlight flows` flagged. Reading ten files is work a large conversation model should not spend its tokens on, and the files stay out of the conversation. Do not hand it to a smaller model than that: a smaller one did not do this reliably in testing. If there is no such agent, do the steps yourself, in this order, and do not skip the second:
