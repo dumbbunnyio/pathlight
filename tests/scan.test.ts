@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, Schema } from "effect";
-import { importsOf } from "../src/scan-imports";
+import { exportsOf, importsOf } from "../src/scan-imports";
 import { Scan, readScan, scanWorkspace } from "../src/scan";
 import { run } from "./effects";
 
@@ -210,3 +210,47 @@ test("in a git repository scan leaves out ignored files, and the CLI writes JSON
     await rm(directory, { recursive: true, force: true });
   }
 }, 30_000);
+
+test("a specifier ending in a slash names the folder's index file, as `.` and `..` do", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-scan-slash-"));
+  try {
+    for (const [path, text] of Object.entries({
+      "a/index.ts": "export const x = 1;\n",
+      "a/b/index.ts": "export const y = 1;\n",
+      "a/b/c.ts": "import { y } from './';\nimport { x } from '../';\nimport { x as x2 } from '..';\nimport { y as y2 } from '.';\n",
+      "index.ts": "import { x } from './a/';\nexport const z = x;\n",
+    })) {
+      await mkdir(dirname(join(directory, path)), { recursive: true });
+      await writeFile(join(directory, path), text);
+    }
+    const scan = await Effect.runPromise(scanWorkspace(directory));
+    expect(scan.unresolved).toEqual([]);
+    expect(scan.imports.map(item => `${item.from}:${item.line} ${item.specifier} -> ${item.to}`).sort()).toEqual([
+      "a/b/c.ts:1 ./ -> a/b/index.ts", "a/b/c.ts:2 ../ -> a/index.ts", "a/b/c.ts:3 .. -> a/index.ts", "a/b/c.ts:4 . -> a/b/index.ts", "index.ts:1 ./a/ -> a/index.ts",
+    ]);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("exportsOf lists what a file offers: declarations, defaults, named and re-exported names, and nothing from text that only looks like an export", () => {
+  const names = (source: string) => exportsOf(source).map(item => `${item.kind} ${item.name}`);
+  expect(names(`export const a = 1, b = 2;
+export let c = 3;
+export async function load() {}
+export function* gen() {}
+export class Foo extends Bar {}
+export abstract class Base {}
+export interface Shape {}
+export type Id = string;
+export enum Color { Red }
+export const enum Flag { On }
+export declare const decl: number;
+export namespace Space {}
+export default class Main {}
+`)).toEqual(["const a", "const c", "function load", "function gen", "class Foo", "class Base", "interface Shape", "type Id", "enum Color", "enum Flag", "const decl", "namespace Space", "default default (Main)"]);
+  expect(names(`export default function () {}`)).toEqual(["default default"]);
+  expect(names(`export default async function handler() {}`)).toEqual(["default default (handler)"]);
+  expect(names(`const x = 1, y = 2;\nexport { x, y as z, type T };\nexport type { U, V as W };`)).toEqual(["named x", "named z", "named T", "type U", "type W"]);
+  expect(names(`export { a, b as c } from "./m";\nexport * from "./all";\nexport * as ns from "./n";\nexport type { T } from "./t";`)).toEqual(["reexport a", "reexport c", "reexport ns", "reexport T"]);
+  expect(names("// export const nope = 1;\nconst text = `export function inside() {}`;\nobj.export = 1;\nconst s = 'export const quoted';")).toEqual([]);
+  expect(exportsOf(Array.from({ length: 200 }, (_, index) => `export const n${index} = 1;`).join("\n"), 10)).toHaveLength(10);
+});

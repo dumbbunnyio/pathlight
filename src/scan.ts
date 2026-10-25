@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect";
 import { exports as packageExports, imports as packageImports } from "resolve.exports";
 import { failure, io, json, type OperationError } from "./effects";
 import { run } from "./process";
-import { importsOf, type ImportKind } from "./scan-imports";
+import { exportsOf, importsOf, type ImportKind } from "./scan-imports";
 
 const Path = Schema.String.check(Schema.isMinLength(1));
 const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
@@ -17,13 +17,20 @@ const Kind = Schema.Literals(["import", "type", "reexport", "dynamic", "require"
  * dates or absolute paths, so scanning the same tree twice gives the same text.
  */
 /** Bump when a change to the scanner can change its output for the same files: `pathlight diff` keeps the base commit's scan and trusts it only for the same revision. */
-export const scanRevision = 1;
+export const scanRevision = 3;
 
 export const Scan = Schema.Struct({
   version: Schema.Literal(1),
   basis: Schema.Literal("static"),
   root: Schema.String,
-  files: Schema.Array(Schema.Struct({ path: Path, language: Schema.Literals(["typescript", "javascript"]), lines: Count })),
+  files: Schema.Array(Schema.Struct({
+    path: Path, language: Schema.Literals(["typescript", "javascript"]), lines: Count,
+    // What the file offers to others, read from its `export` statements (names only; at most 80). Absent in scans made before 3.
+    exports: Schema.optionalKey(Schema.Array(Schema.Struct({
+      name: Schema.String.check(Schema.isMaxLength(200)),
+      kind: Schema.Literals(["function", "class", "interface", "type", "enum", "const", "namespace", "default", "named", "reexport"]),
+    }))),
+  })),
   // Imports that resolve to a file in this workspace; `line` is where the statement starts in `from`.
   imports: Schema.Array(Schema.Struct({ from: Path, to: Path, line: Line, kind: Kind, specifier: Schema.String })),
   // Packages outside the workspace (and `node:` or `bun:` built-ins), once per importing file.
@@ -61,8 +68,15 @@ const limits = { entries: 50_000, bytes: 2 * 1024 * 1024 };
 const extension = (path: string) => posix.extname(path);
 
 /** The file a path names, trying what TypeScript and Node do: the exact file, `.js` for `.ts`, an added extension, then a directory index. */
-function resolveFile(files: ReadonlySet<string>, base: string): string | undefined {
-  if (base.startsWith("../") || base === "..") return undefined;
+function resolveFile(files: ReadonlySet<string>, requested: string): string | undefined {
+  if (requested.startsWith("../") || requested === "..") return undefined;
+  // `./` and `../` name the folder itself, like `.` and `..` do: its index file.
+  const base = requested.replace(/\/+$/, "");
+  if (requested.endsWith("/")) {
+    const prefix = base ? `${base}/` : "";
+    for (const added of sourceExtensions) if (files.has(`${prefix}index${added}`)) return `${prefix}index${added}`;
+    return undefined;
+  }
   if (files.has(base)) return base;
   const ext = extension(base), stem = base.slice(0, base.length - ext.length);
   for (const alternative of jsToTs[ext] ?? []) if (files.has(stem + alternative)) return stem + alternative;
@@ -245,7 +259,7 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
   yield* Effect.forEach(sourcePaths, path => Effect.gen(function* () {
     const text = yield* readText(root, path);
     if (text === undefined) { skipped++; return; }
-    scanned.push({ path, language: languages[extension(path)]!, lines: text.length ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : 0 });
+    scanned.push({ path, language: languages[extension(path)]!, lines: text.length ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : 0, exports: exportsOf(text) });
     for (const { specifier: raw, line, kind } of importsOf(text)) {
       const specifier = raw.replace(/(?!^)[?#].*$/, "");
       if (!specifier) continue;

@@ -158,3 +158,48 @@ The same three repositories, a fresh Sonnet-class agent each, this time given `p
 The `src/request` box is `src/request/**` plus `src/request.ts` (the request wrapper class), but the agent was given only the overlay key, saw a folder holding `constants.ts`, and wrote "Request constants: small constants for the request wrapper". Every concept in the reference matched, so the reference now carries `"forbidden": ["constants"]` for that box and it fails. The cause is the input, not the model: the request never listed the files each box owns, so the agent could only describe the folder it opened. The `m` request already sends a box's files (up to eight), but nothing sends them when many boxes are named at once, and a box made of a folder and a loose file reads as the folder.
 
 Also found while drafting hono: a folder beside `src/` (`benchmarks/`, `build/`) was keyed as `src/benchmarks`, a path that does not exist; fixed in `draft.ts` with a test.
+
+## Our scanner against CodeGraph (2026-10-25)
+
+`bun tests/eval/codegraph-compare.ts WORKSPACE OUTDIR` compares file-to-file import pairs from `pathlight scan`, from the independent resolver of `facts.ts`, and from [CodeGraph](https://github.com/colbymchenry/codegraph) 1.6.2 (tree-sitter, SQLite, `codegraph init`; telemetry off), by edge kind. The oracle is not ground truth, so each disagreement on hono was read in the source.
+
+| repository | | pairs | found of the oracle | confirmed by the oracle |
+| --- | --- | --- | --- | --- |
+| hono (non-test files, after the scan fix below) | pathlight scan | 651 | 99.8% | 94.0% |
+| | CodeGraph `imports` | 684 | 96.7% | 86.7% |
+| dialupworld (non-test) | pathlight scan | 316 | 100% | 100% |
+| | CodeGraph `imports` | 311 | 97.5% | 99.0% |
+| models.dev | both tools agree on 343 and 355 pairs; the oracle resolves only 5 because the workspace packages are not installed, so it cannot judge them | | | |
+
+What reading the disagreements on hono showed:
+- **The scan's 47 pairs the oracle lacked** are all `from 'hono'` self-imports (adapters importing the root package); each statement was found at the line the scan recorded. The oracle misses them because nothing is installed, so they are the scan being right. The one pair the scan still lacks (`generate-app.ts → src/index.ts`) is import text inside a template string; the oracle is wrong there, and CodeGraph also leaves it out.
+- **A real scanner bug**, found by this: a specifier ending in a slash (`from './'`, `from '../'`) did not resolve, so eight edges on hono (the JSX and streaming folders importing their own index) were missing and reported as unresolved. Fixed in `src/scan.ts`, with a test; `scanRevision` is 2.
+- **CodeGraph leaves out file-level re-exports** (`export * from './mod'`, `export type {…} from './client'`): ten pairs on hono. It also skips folders its defaults exclude (`build/`).
+- **CodeGraph resolves a name through a barrel to the file that defines it.** That is why 74 of its 82 extra pairs are real dependencies the scan draws to the barrel (`src/index.ts`) instead: `handler.ts → src/hono.ts` where the scan has `handler.ts → src/index.ts`. It is more informative about who depends on what, and a different relation from an import.
+- **CodeGraph also draws wrong edges when two files define the same name:** `export type { Handler } from './types'` in `src/index.ts` became an edge to `adapters/aws-lambda/src/types.ts`; `ErrorHandler` to `src/jsx/components.ts`; a `ServeStaticOptions` imported from `hono/serve-static` to the Cloudflare adapter's type; `jsxDEV` to the wrong `jsx-dev-runtime.ts`. At least five on hono, none the scan has.
+- At box level on hono: the scan draws 168 arrows and CodeGraph's imports give 153; 137 agree. Of the 16 only CodeGraph has, most are the barrel-to-definer relation above and three are the name-collision mistakes.
+
+Conclusion for the arrows: for the question the diagram answers ("which box imports which"), the scan is at least as complete and has no known false edges on the repositories tried; CodeGraph adds a different, symbol-level view and some errors of its own. It has what the scan lacks (what each file defines, which names cross a boundary), which is context for a note, not arrows.
+
+### Naming with CodeGraph's symbols as extra context (hono, 2026-10-25)
+
+Same agent and instructions as the brief-only run, plus a sheet per box of the symbols it exports and which boxes use which names (generated from `codegraph.db`, `tests`-free, read-only):
+
+| | notes saying "inferred" or "guess" | described boxes passing | tokens | time |
+| --- | --- | --- | --- | --- |
+| brief only | 75 of 94 | 18 of 18 | about 67,000 | 59 s |
+| brief and symbol sheet | 30 of 94 | 17 of 18 | about 66,500 | 70 s |
+
+The agent reported that the sheet changed what it wrote for `adapters/bun/src/server.ts`, `service-worker/src/types.ts`, `src/hono-base.ts`, `src/request` and `src/preset`, and was least useful for the adapters, where `getConnInfo`, `handle` and `serveStatic` are defined once per adapter and a few "used by" entries were wrong. The one miss (`src/router`) is a true note ("the routing implementations: RegExp, Trie, Linear, Pattern and Smart") that uses none of the reference's synonyms for matching; it is the scorer, not the note. The count of "inferred" notes is a keyword count, not a measure of accuracy: fewer guesses were declared, and nothing here shows the notes became more correct. That needs a reference with the hard boxes (see above).
+
+### Our own exports list instead of CodeGraph (hono, 2026-10-25)
+
+`pathlight scan` now reads each file's `export` statements (`exportsOf` in `scan-imports.ts`: declarations, defaults, named and re-exported names; names only, TypeScript and JavaScript) and `pathlight brief` prints them per box as `defines:`. A fresh agent, same instructions as the brief-only run, no CodeGraph:
+
+| | notes saying "inferred" or "guess" | described boxes passing | tokens | time |
+| --- | --- | --- | --- | --- |
+| A: brief only | 75 of 94 | 18 of 18 | about 67,000 | 59 s |
+| B: brief and CodeGraph's symbol sheet | 30 of 94 | 17 of 18 | about 66,500 | 70 s |
+| C: brief with our exports | 55 of 94 | 18 of 18 | about 71,000 | 76 s |
+
+The two notes I checked against the code, which A got wrong or vague, are right in C: `adapters/bun/src/server.ts` ("Provides getBunServer, which fetches the running Bun server from the request context") and `src/validator` ("checks request parts (json, form, query...) with a user function and types the result"). `src/context.ts`, `src/types.ts`, `src/hono-base.ts` are specific in C where A hedged. CodeGraph's sheet still led to fewer declared guesses (30 against 55); the "used by" half of it is what C lacks, and it was also the half that was ambiguous for same-named functions. Same limits as before: one repository, one run each, a count of declared doubt and two notes verified, not a measure of correctness.

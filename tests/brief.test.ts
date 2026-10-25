@@ -45,6 +45,7 @@ test("a box lists every file it owns, so a folder and the loose file beside it r
     expect(text).toContain("## src/session  (component");
     expect(text).toContain("src/session.ts (");
     expect(text).toContain("imports from: src/database");
+    expect(text).toContain("defines: start");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 

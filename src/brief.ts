@@ -21,6 +21,8 @@ export interface BriefBox {
   parent?: string;
   files: { path: string; lines: number }[];
   lines: number;
+  /** What the box's files offer to others, read from their `export` statements: the biggest files first, at most 40. */
+  exports: { name: string; kind: string; file: string }[];
   imports: { key: string; generated: string; imports: number }[];
   importedBy: { key: string; generated: string; imports: number }[];
   /** Keys of the boxes inside this one. */
@@ -37,17 +39,19 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
   const overlay = yield* readOverlay(root);
   const draft = draftOf(scan, yield* readManifests(root, paths), overlay);
   const lines = new Map(scan.files.map(file => [file.path, file.lines] as const));
+  const offered = new Map(scan.files.map(file => [file.path, file.exports ?? []] as const));
   const sizes = (files: readonly string[]) => files.map(path => ({ path, lines: lines.get(path) ?? 0 })).sort((a, b) => b.lines - a.lines || (a.path < b.path ? -1 : 1));
   const boxes = new Map<string, BriefBox>();
   const byId = new Map<string, BriefBox>();
   const add = (box: BriefBox) => { boxes.set(box.key, box); byId.set(box.id, box); return box; };
   for (const item of draft.packages) {
-    const parent = draft.flat ? undefined : add({ key: item.key, id: item.id, kind: "package", generated: item.title, files: [], lines: 0, imports: [], importedBy: [], inside: [], depth: 0, ...(overlay.elements[item.key] ? { name: overlay.elements[item.key] } : {}) });
-    const groups = new Map(item.groups.map(group => [group.id, add({ key: group.key, id: group.id, kind: "collection", generated: group.title, ...(parent ? { parent: parent.key } : {}), files: [], lines: 0, imports: [], importedBy: [], inside: [], depth: 1, ...(overlay.elements[group.key] ? { name: overlay.elements[group.key] } : {}) })] as const));
+    const parent = draft.flat ? undefined : add({ key: item.key, id: item.id, kind: "package", generated: item.title, files: [], lines: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 0, ...(overlay.elements[item.key] ? { name: overlay.elements[item.key] } : {}) });
+    const groups = new Map(item.groups.map(group => [group.id, add({ key: group.key, id: group.id, kind: "collection", generated: group.title, ...(parent ? { parent: parent.key } : {}), files: [], lines: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 1, ...(overlay.elements[group.key] ? { name: overlay.elements[group.key] } : {}) })] as const));
     for (const component of item.components) {
       const group = component.group ? groups.get(component.group) : undefined;
       const container = group ?? parent;
-      const box = add({ key: component.key, id: component.id, kind: "component", generated: component.title, ...(container ? { parent: container.key } : {}), files: sizes(component.files), lines: component.files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0), imports: [], importedBy: [], inside: [], depth: group ? 2 : parent ? 1 : 0, ...(overlay.elements[component.key] ? { name: overlay.elements[component.key] } : {}) });
+      const box = add({ key: component.key, id: component.id, kind: "component", generated: component.title, ...(container ? { parent: container.key } : {}), files: sizes(component.files), lines: component.files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0), exports: [], imports: [], importedBy: [], inside: [], depth: group ? 2 : parent ? 1 : 0, ...(overlay.elements[component.key] ? { name: overlay.elements[component.key] } : {}) });
+      box.exports = [...new Map(box.files.flatMap(file => (offered.get(file.path) ?? []).map(item => ({ name: item.name, kind: item.kind, file: file.path }))).reverse().map(item => [item.name, item] as const)).values()].reverse().slice(0, 40);
       container?.inside.push(box.key);
       for (let up = container; up; up = up.parent ? boxes.get(up.parent) : undefined) { up.files.push(...box.files); up.lines += box.lines; }
     }
@@ -76,7 +80,7 @@ export function select(boxes: readonly BriefBox[], under: readonly string[]) {
   return { missing, boxes: chosen.sort((a, b) => b.depth - a.depth || (a.key < b.key ? -1 : 1)) };
 }
 
-const filesShown = 12, neighboursShown = 6, insideShown = 20;
+const filesShown = 12, neighboursShown = 6, insideShown = 20, exportsShown = 16;
 const count = (value: number, noun: string) => `${value.toLocaleString("en")} ${noun}${value === 1 ? "" : "s"}`;
 const neighbours = (items: BriefBox["imports"]) => items.slice(0, neighboursShown).map(item => `${item.key} (${item.imports})`).join(", ") + (items.length > neighboursShown ? `, +${items.length - neighboursShown} more` : "");
 
@@ -87,6 +91,7 @@ export function formatBrief(boxes: readonly BriefBox[], all: readonly BriefBox[]
     lines.push(`## ${box.key}  (${box.kind}${box.parent ? ` in ${box.parent}` : ""}${box.files.length ? ` · ${count(box.files.length, "file")}, ${count(box.lines, "line")}` : ""})`);
     lines.push(`generated name: ${box.generated}`);
     if (box.files.length) lines.push(`files: ${box.files.slice(0, filesShown).map(file => `${file.path} (${file.lines})`).join(", ")}${box.files.length > filesShown ? `, +${box.files.length - filesShown} more` : ""}`);
+    if (box.exports.length) lines.push(`defines: ${box.exports.slice(0, exportsShown).map(item => `${item.name}${item.kind === "const" || item.kind === "named" || item.kind === "reexport" ? "" : ` [${item.kind}]`}`).join(", ")}${box.exports.length > exportsShown ? `, +${box.exports.length - exportsShown} more` : ""}`);
     if (box.inside.length) lines.push(`inside: ${box.inside.slice(0, insideShown).map(key => { const child = byKey.get(key); const title = child?.name?.title; return title ? `${key} (“${title}”)` : key; }).join(", ")}${box.inside.length > insideShown ? `, +${box.inside.length - insideShown} more` : ""}`);
     if (box.imports.length) lines.push(`imports from: ${neighbours(box.imports)}`);
     if (box.importedBy.length) lines.push(`imported by: ${neighbours(box.importedBy)}`);

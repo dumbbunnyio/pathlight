@@ -150,3 +150,61 @@ export function importsOf(source: string): ImportRef[] {
   }
   return found;
 }
+
+export type ExportKind = "function" | "class" | "interface" | "type" | "enum" | "const" | "namespace" | "default" | "named" | "reexport";
+export interface ExportRef { readonly name: string; readonly kind: ExportKind }
+
+/** Names a file offers to others, read from its `export` statements: what a file is called says little, what it defines says more. Names only, in order, at most `limit`. */
+export function exportsOf(source: string, limit = 80): ExportRef[] {
+  const tokens = tokenize(source);
+  const found: ExportRef[] = [];
+  const word = (index: number) => tokens[index]?.kind === "word" ? tokens[index]!.text : undefined;
+  const is = (index: number, text: string) => tokens[index]?.text === text && tokens[index]?.kind !== "string";
+  const modifiers = new Set(["declare", "abstract", "async", "const"]);
+  for (let index = 0; index < tokens.length && found.length < limit; index++) {
+    if (word(index) !== "export" || is(index - 1, ".")) continue;
+    let at = index + 1;
+    if (word(at) === "default") {
+      let next = at + 1;
+      while (word(next) === "async" || word(next) === "abstract") next++;
+      const keyword = word(next);
+      const name = keyword === "function" || keyword === "class" ? (is(next + 1, "*") ? word(next + 2) : word(next + 1)) : undefined;
+      found.push({ name: name && name !== "extends" && name !== "implements" ? `default (${name})` : "default", kind: "default" });
+      continue;
+    }
+    if (is(at, "*")) {
+      // `export * from "x"` and `export * as ns from "x"`.
+      const alias = word(at + 1) === "as" ? word(at + 2) : undefined;
+      if (alias) found.push({ name: alias, kind: "reexport" });
+      continue;
+    }
+    const typeOnly = word(at) === "type" && is(at + 1, "{");
+    if (typeOnly) at++;
+    if (is(at, "{")) {
+      // `export { a, b as c, type d } [from "x"]`: the names other files see.
+      const fromModule = (() => { for (let end = at; end < tokens.length && end < at + 5_000; end++) if (is(end, "}")) return word(end + 1) === "from"; return false; })();
+      for (let item = at + 1; item < tokens.length && !is(item, "}") && found.length < limit; item++) {
+        let name = word(item);
+        if (!name) continue;
+        if (name === "type" && word(item + 1) && !is(item + 1, ",") && word(item + 1) !== "as") name = word(++item)!;
+        if (word(item + 1) === "as") { name = word(item + 2) ?? name; item += 2; }
+        found.push({ name, kind: fromModule ? "reexport" : typeOnly ? "type" : "named" });
+        while (item < tokens.length && !is(item, ",") && !is(item, "}")) item++;
+        if (is(item, "}")) break;
+      }
+      continue;
+    }
+    while (modifiers.has(word(at) ?? "") && !(word(at) === "const" && word(at + 1) !== "enum")) at++;
+    const keyword = word(at);
+    if (keyword === "function") { const name = is(at + 1, "*") ? word(at + 2) : word(at + 1); if (name) found.push({ name, kind: "function" }); }
+    else if (keyword === "class") { const name = word(at + 1); if (name) found.push({ name, kind: "class" }); }
+    else if (keyword === "interface" || keyword === "type" || keyword === "enum" || keyword === "namespace") {
+      const name = word(at + 1);
+      if (name) found.push({ name, kind: keyword === "namespace" ? "namespace" : keyword });
+    } else if (keyword === "const" || keyword === "let" || keyword === "var") {
+      const name = word(at + 1);
+      if (name) found.push({ name, kind: "const" });
+    }
+  }
+  return found;
+}
