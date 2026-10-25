@@ -208,3 +208,27 @@ export function exportsOf(source: string, limit = 80): ExportRef[] {
   }
   return found;
 }
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * What a file declares for an exported name, as it is written: the line or lines of the `export` statement up to where its body begins, whitespace
+ * collapsed and cut at 240 characters. Nothing is inferred (no resolved types); a declaration that cannot be found returns undefined.
+ */
+export function declarationOf(source: string, name: string): string | undefined {
+  const pattern = new RegExp(`^[ \\t]*export\\s+(?:declare\\s+)?(?:default\\s+)?(?:abstract\\s+)?(?:async\\s+)?(?:function\\s*\\*?|class|interface|type|enum|namespace|const|let|var)\\s+${escapeRegExp(name)}\\b`, "m");
+  const match = pattern.exec(source);
+  if (!match) return undefined;
+  const rest = source.slice(match.index);
+  // The body starts at the first `{` after the parameters (or at `=>`, or the end of a statement), so only the signature is kept.
+  let depth = 0, end = rest.length;
+  for (let index = 0; index < Math.min(rest.length, 1_500); index++) {
+    const char = rest[index]!;
+    if (char === "(" || char === "[" || char === "<") depth++;
+    else if (char === ")" || char === "]" || (char === ">" && rest[index - 1] !== "=")) depth = Math.max(0, depth - 1);
+    else if (depth === 0 && (char === ";" || (char === "=" && rest[index + 1] === ">"))) { end = char === ";" ? index : index + 2; break; }
+    else if (depth === 0 && char === "{" && !/:\s*$/.test(rest.slice(Math.max(0, index - 3), index)) && !/[:|&=,]\s*$/.test(rest.slice(0, index))) { end = index; break; }
+  }
+  const text = rest.slice(0, end).replace(/\s+/g, " ").trim();
+  return text.length > 240 ? `${text.slice(0, 239)}…` : text;
+}

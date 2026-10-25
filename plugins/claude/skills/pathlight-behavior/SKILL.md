@@ -98,8 +98,10 @@ pathlight flow add place-order --workspace . \
   --reads src/web/checkout.ts,src/api/checkout.ts \
   --step 'customer -> parcel.storefront: opens checkout' \
   --step 'parcel.storefront -> parcel.commerce.api: submits the cart' \
-  --step 'parcel.commerce.api -> parcel.commerce.orders: commits the order'
+  --step 'parcel.commerce.api -> parcel.commerce.orders: commits the order @ src/api/checkout.ts#commitOrder'
 ```
+
+End a step with ` @ file#function` when the hop is a call to an exported function (`commitOrder` above): the file must be one of `--reads` and must export that name, or the command refuses it. It copies the declaration from the file, and the viewer shows the name and signature in the step reader, so the person sees what is called without opening the file. Leave it off for a hop you cannot point to a function for; never guess a name.
 
 `pathlight flow add` checks every component against the model (and offers the nearest id when one is mistyped), requires the files you read, stamps the view with the commit, writes `place-order.behavior.c4` (in the folder of the LikeC4 project it is for; pass `--project NAME` when the repository has several), takes the file back out if the model would stop compiling, and prints what `pathlight flows` finds. Use `--force` to replace one it wrote and `pathlight flow remove place-order` to delete it; it never overwrites or removes a file a person or agent wrote by hand. The command writes down your reading; it does not make the reading right.
 

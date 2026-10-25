@@ -92,3 +92,48 @@ test("pathlight brief prints a box and pathlight name takes a JSON array on stan
     await expect(cli("name", "--workspace", directory)).rejects.toThrow("Use pathlight name KEY");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 90_000);
+
+test("the brief opens with what the project says about itself, only when it covers the whole map", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-context-"));
+  try {
+    await write(directory);
+    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "demo", description: "A demo that sells parcels" }));
+    await writeFile(join(directory, "README.md"), "# Demo\n\nSells parcels to people.\n");
+    await mkdir(join(directory, "docs"), { recursive: true });
+    await writeFile(join(directory, "docs", "design.md"), "# design\n");
+    await Effect.runPromise(draftWorkspace(directory));
+    const whole = await cli("brief", "--workspace", directory);
+    expect(whole).toContain("# About the project");
+    expect(whole).toContain("description: A demo that sells parcels");
+    expect(whole).toContain("documents: docs/design.md");
+    expect(whole).toContain("  Sells parcels to people.");
+    expect(await cli("brief", "src/session", "--workspace", directory)).not.toContain("About the project");
+    expect(JSON.parse(await cli("brief", "--json", "--workspace", directory))).toBeInstanceOf(Array);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+test("brief --changed lists only boxes whose files changed since they were named, and never one a person named", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-changed-"));
+  try {
+    await write(directory);
+    await Effect.runPromise(draftWorkspace(directory));
+    const all = await Effect.runPromise(briefOf(directory));
+    const keys = all.map(box => box.key);
+    expect(await cli("brief", "--changed", "--workspace", directory)).toContain("Nothing records when these boxes were named");
+    // Name everything but one box a person pinned.
+    await writeFile(join(directory, ".pathlight", "pathlight.overlay.json"), JSON.stringify({ version: 1, elements: { "src/database": { title: "Data", note: "By hand.", by: "human" } } }));
+    const entries = keys.filter(key => key !== "src/database").map(key => ({ key, title: `T ${key}`.slice(0, 60), note: "Named." }));
+    await writeFile(join(directory, "names.json"), JSON.stringify(entries));
+    await cli("name", "--workspace", directory, "--from", join(directory, "names.json"));
+    expect(await cli("brief", "--changed", "--workspace", directory)).toContain("Every box is named and its files are unchanged since.");
+    await writeFile(join(directory, "src/session/stop.ts"), "export const stop = 2;\n");
+    const after = await cli("brief", "--changed", "--workspace", directory);
+    expect(after).toContain("## src/session  (component");
+    expect(after).not.toContain("## src/database ");
+    expect(after).not.toContain("## benchmarks ");
+    // A person-named box is not offered even when its files change.
+    await writeFile(join(directory, "src/database/db.ts"), "export const db = 2;\n");
+    expect(await cli("brief", "--changed", "--workspace", directory)).not.toContain("## src/database ");
+    expect(await cli("brief", "--changed", "src/session", "--workspace", directory).catch((error: Error) => error.message)).toContain("takes no keys");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 90_000);

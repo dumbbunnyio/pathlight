@@ -904,6 +904,22 @@ const runTask = yield* FiberSet.makeRuntime<never>();
           if (step.mark) { stepChunks.push(fg(palette.border)("     "), fg(step.mark === "bug" ? palette.failure : palette.green)(step.mark === "bug" ? "✗ marked as broken in the diagram\n" : "✓ marked as fixed in the diagram\n")); stepLine++; }
           if (step.backed === false) { stepChunks.push(fg(palette.border)("     "), fg(palette.accent)("≠ "), fg(palette.muted)("no relationship in the model\n")); stepLine++; }
           if (!step.elements.length) { stepChunks.push(fg(palette.border)("     "), fg(palette.muted)("no component for this step\n")); stepLine++; }
+          if (step.call) {
+            // The function this hop calls, as the file declares it (copied when the flow was written, checked by pathlight flows): a name, where, and the signature wrapped to the panel.
+            stepChunks.push(fg(palette.border)("     "), fg(palette.purple)("ƒ "), fg(palette.text)(clip(step.call.name, Math.max(4, room - 8))), nl); stepLine++;
+            const where = `declared in ${step.call.file}`;
+            stepChunks.push(fg(palette.border)("       "), fg(palette.muted)(`${clip(where, Math.max(4, room - 7))}\n`)); stepLine++;
+            const signature = step.call.declaration.replace(/^export\s+(default\s+)?/, ""), width = Math.max(12, room - 7);
+            const lines: string[] = [];
+            for (const word of signature.split(" ")) {
+              const current = lines.at(-1);
+              if (current !== undefined && current.length + 1 + word.length <= width) lines[lines.length - 1] = `${current} ${word}`;
+              else lines.push(word.length > width ? `${word.slice(0, width - 1)}…` : word);
+            }
+            lines.slice(0, 3).forEach((line, index) => {
+              stepChunks.push(fg(palette.border)("       "), fg(palette.body)(`${index === 2 && lines.length > 3 ? `${line.slice(0, Math.max(0, width - 1))}…` : line}\n`)); stepLine++;
+            });
+          }
         }
       });
       if (anyTouched) { stepChunks.push(fg(palette.accent)("●"), fg(palette.border)(" the agent touched its files\n")); stepLine++; }

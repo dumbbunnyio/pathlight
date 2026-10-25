@@ -7,6 +7,7 @@ import { acquireModel } from "./catalog";
 import { failure, io } from "./effects";
 import { checkFlows, type JourneyReport } from "./flows";
 import { run } from "./process";
+import { declarationOf, exportsOf } from "./scan-imports";
 
 /**
  * `pathlight flow add`: an agent has read the code and knows the story; this writes it down correctly. The agent supplies the id, a title, the files it
@@ -20,7 +21,12 @@ const idPattern = /^[a-z][a-z0-9-]{0,47}$/;
 const stepPattern = /^(.+?)\s*->\s*(.+?)\s*:\s*(.+)$/;
 export const maxSteps = 24;
 
-export interface FlowStepInput { from: string; to: string; title: string }
+/** The function a hop calls: where it is declared and what it is called, checked against the file when the flow is written. */
+export interface FlowCall { file: string; name: string; declaration: string }
+export interface FlowStepInput { from: string; to: string; title: string; call?: { file: string; name: string } }
+const callPattern = /(?:^|\s)@\s*(\S+?)#([A-Za-z_$][\w$]*)\s*$/;
+/** How a call is kept in the view: one line in the step's notes, `name | file | declaration`. */
+export const callNote = (call: FlowCall) => `${call.name} | ${call.file} | ${call.declaration}`;
 
 /** `a.b -> c: opens checkout` → a step. Anything else is refused with the shape asked for, because a half-parsed hop would be a wrong flow. */
 export function parseStep(text: string): FlowStepInput | string {
@@ -29,17 +35,22 @@ export function parseStep(text: string): FlowStepInput | string {
   const [, from, to, title] = match as unknown as [string, string, string, string];
   if (/\s/.test(from) || /\s/.test(to)) return `“${text}”: component ids have no spaces. Check them with pathlight list and the model.`;
   if (/[\r\n]/.test(title)) return `“${text}”: an event is one line.`;
-  return { from, to, title: title.trim() };
+  const call = callPattern.exec(title);
+  const event = (call ? title.slice(0, call.index) : title).trim();
+  if (!event) return `“${text}”: say what happens before the @ file#function.`;
+  return { from, to, title: event, ...(call ? { call: { file: call[1]!.replace(/^\.\//, ""), name: call[2]! } } : {}) };
 }
 
 /** A LikeC4 single-quoted string. */
 const quote = (text: string) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 
-export function renderJourney(options: { id: string; title: string; reads: readonly string[]; sha: string | undefined; steps: readonly FlowStepInput[] }) {
+export function renderJourney(options: { id: string; title: string; reads: readonly string[]; sha: string | undefined; steps: readonly (FlowStepInput & { declared?: FlowCall })[] }) {
   const note = `Agent-written from ${options.reads.join(", ")}.${options.sha ? ` Synced at ${options.sha}.` : ""}`;
   return [
     marker, "views {", `  dynamic view ${options.id} {`, `    title ${quote(options.title)}`, `    description ${quote(note)}`,
-    ...options.steps.map(step => `    ${step.from} -> ${step.to} ${quote(step.title)}`), "  }", "}", "",
+    ...options.steps.map(step => step.declared
+      ? `    ${step.from} -> ${step.to} ${quote(step.title)} {\n      notes ${quote(callNote(step.declared))}\n    }`
+      : `    ${step.from} -> ${step.to} ${quote(step.title)}`), "  }", "}", "",
   ].join("\n");
 }
 
@@ -117,9 +128,25 @@ export const addFlow = Effect.fn("Flow.add")(function* (workspace: string, optio
     if (step.from === step.to) return yield* invalid(`Step ${index + 1}: a hop goes between two components; “${step.from}” is both ends.`);
   }
 
+  // A named function must be one the file exports, and its declaration is copied from the file as written: the flow says what the code says, no more.
+  const declared: (FlowCall | undefined)[] = [];
+  for (const [index, step] of steps.entries()) {
+    if (!step.call) { declared.push(undefined); continue; }
+    const { file: callFile, name } = step.call;
+    const where = `Step ${index + 1}: ${callFile}#${name}`;
+    if (!reads.includes(callFile)) return yield* invalid(`${where}: name the file in --reads too. A function in a file you did not read cannot be part of the reading.`);
+    if (callFile.startsWith("/") || callFile.includes("..") || !existsSync(join(root, callFile)) || !lstatSync(join(root, callFile)).isFile()) return yield* invalid(`${where}: not a file in the workspace.`);
+    const text = yield* io("Flow.call", () => readFile(join(root, callFile), "utf8"));
+    const names = exportsOf(text, 400).map(entry => entry.name);
+    if (!names.includes(name)) return yield* invalid(`${where}: ${callFile} does not export “${name}”.${names.length ? ` It exports ${names.slice(0, 12).join(", ")}${names.length > 12 ? ", …" : ""}.` : ""}`);
+    const declaration = declarationOf(text, name);
+    if (!declaration) return yield* invalid(`${where}: “${name}” is exported but its declaration could not be read. Name the function that is declared in that file.`);
+    declared.push({ file: callFile, name, declaration });
+  }
+
   // A commit to stamp: without one nobody can tell how old the reading is, and `pathlight flows` would say so.
   const sha = yield* run("git", ["-C", root, "rev-parse", "--short", "HEAD"]).pipe(Effect.map(text => text.trim() || undefined), Effect.catch(() => Effect.succeed(undefined)));
-  yield* io("Flow.write", () => writeFile(path, renderJourney({ id: options.id!, title: options.title!.trim(), reads, sha, steps })));
+  yield* io("Flow.write", () => writeFile(path, renderJourney({ id: options.id!, title: options.title!.trim(), reads, sha, steps: steps.map((step, index) => ({ ...step, declared: declared[index] })) })));
   const restore = io("Flow.restore", () => previous === undefined ? rm(path, { force: true }) : writeFile(path, previous)).pipe(Effect.ignore);
   const compiled = yield* Effect.scoped(Effect.gen(function* () {
     const source = yield* acquireModel(root);

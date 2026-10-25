@@ -24,6 +24,45 @@ test("the file is a dynamic view with the files and the commit in its descriptio
   expect(renderJourney({ id: "a", title: "t", reads: ["a.ts"], sha: undefined, steps: [] })).not.toContain("Synced at");
 });
 
+test("a step may name the function it calls: `from -> to: event @ file#name`", () => {
+  expect(parseStep("a -> b: submits the cart @ src/api.ts#submitCart")).toEqual({ from: "a", to: "b", title: "submits the cart", call: { file: "src/api.ts", name: "submitCart" } });
+  expect(parseStep("a -> b: mail me @ home")).toEqual({ from: "a", to: "b", title: "mail me @ home" });
+  expect(typeof parseStep("a -> b: @ src/x.ts#y")).toBe("string");
+  const text = renderJourney({ id: "p", title: "t", reads: ["src/api.ts"], sha: undefined, steps: [{ from: "a", to: "b", title: "go", declared: { file: "src/api.ts", name: "f", declaration: "export function f(a: A | B): void" } }] });
+  expect(text).toContain("notes 'f | src/api.ts | export function f(a: A | B): void'");
+});
+
+test("flow add keeps a called function only if the file exports it, shows it in flows, and flows says when it changes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-flow-call-"));
+  try {
+    await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
+    await mkdir(join(directory, "src"), { recursive: true });
+    await writeFile(join(directory, "src/checkout.ts"), "export async function submitCart(cart: Cart, user: User): Promise<Order> {\n  return order;\n}\nconst hidden = 1;\n");
+    const git = (...args: string[]) => run("git", ["-C", directory, "-c", "user.email=t@t", "-c", "user.name=t", ...args]);
+    await git("init", "-q"); await git("add", "-A"); await git("commit", "-q", "-m", "first");
+    const base = ["flow", "add", "place-order", "--workspace", directory, "--title", "Placing an order", "--reads", "src/checkout.ts"];
+    const first = "customer -> parcel.storefront: opens checkout";
+    const second = (call: string) => `parcel.storefront -> parcel.commerce.api: submits the cart${call}`;
+    expect(await fails(...base, "--step", first, "--step", second(" @ src/checkout.ts#hidden"))).toContain("does not export “hidden”");
+    expect(await fails(...base, "--step", first, "--step", second(" @ src/missing.ts#x"))).toContain("name the file in --reads");
+    expect(await fails("flow", "add", "place-order", "--workspace", directory, "--title", "T", "--reads", "src/checkout.ts", "--step", first, "--step", second(" @ package.json#x"))).toContain("name the file in --reads");
+    expect(existsSync(join(directory, "place-order.behavior.c4"))).toBe(false);
+
+    await cli(...base, "--step", first, "--step", second(" @ src/checkout.ts#submitCart"));
+    const written = await readFile(join(directory, "place-order.behavior.c4"), "utf8");
+    expect(written).toContain("notes 'submitCart | src/checkout.ts | export async function submitCart(cart: Cart, user: User): Promise<Order>'");
+    const { checkFlows } = await import("../src/flows");
+    const { Effect } = await import("effect");
+    const read = async () => (await Effect.runPromise(checkFlows(directory))).journeys[0]!;
+    expect((await read()).steps[1]!.call).toEqual({ name: "submitCart", file: "src/checkout.ts", declaration: "export async function submitCart(cart: Cart, user: User): Promise<Order>" });
+    expect((await read()).findings).toEqual([]);
+    await writeFile(join(directory, "src/checkout.ts"), "export async function submitCart(cart: Cart): Promise<Order> {\n  return order;\n}\n");
+    expect((await read()).findings.join("\n")).toContain("Step 2: submitCart in src/checkout.ts is declared differently");
+    await writeFile(join(directory, "src/checkout.ts"), "export const other = 1;\n");
+    expect((await read()).findings.join("\n")).toContain("which no longer declares it");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 // Against a real repository and model: what is written compiles, is stamped, shows in `flows`, and a hand-written file is never overwritten or removed.
 test("flow add writes a checked journey; refuses unknown components, unread files and files it did not write; remove takes back only its own", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-flow-write-"));

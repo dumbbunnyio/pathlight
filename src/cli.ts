@@ -18,7 +18,7 @@ import { setPlan } from "./plan";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
 import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
-import { briefOf, formatBrief, formatNamed, nameBoxes, select, type NameEntry } from "./brief";
+import { briefOf, changedBoxes, contextOf, formatBrief, formatContext, formatNamed, nameBoxes, select, type NameEntry } from "./brief";
 import { addFlow, formatAdded, removeFlow } from "./flow-write";
 import { doctor, formatDoctor, hasFailures } from "./doctor";
 import { setup } from "./setup";
@@ -29,9 +29,9 @@ pathlight scan [--workspace PATH] [--out FILE]
 pathlight check [--workspace PATH] [--json] [--strict] [--quiet]
 pathlight diff [--workspace PATH] [--base REV] [--json] [--quiet]
 pathlight flows [--workspace PATH] [--json] [--strict] [--quiet]
-pathlight flow add ID --title TEXT --reads FILE,FILE --step "FROM -> TO: EVENT" ... [--workspace PATH] [--project NAME] [--force]
+pathlight flow add ID --title TEXT --reads FILE,FILE --step "FROM -> TO: EVENT [@ FILE#FUNCTION]" ... [--workspace PATH] [--project NAME] [--force]
 pathlight flow remove ID [--workspace PATH]
-pathlight brief [KEY ...] [--workspace PATH] [--json]
+pathlight brief [KEY ... | --changed] [--workspace PATH] [--json]
 pathlight name KEY --title TEXT --note TEXT [--workspace PATH]
 pathlight name --from FILE|- [--workspace PATH]
 pathlight plan [ELEMENT ...] [--workspace PATH]
@@ -50,8 +50,8 @@ check compares the LikeC4 model and .pathlight/pathlight.activity.json with that
 relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found. --quiet prints nothing (the Stop hook uses it); every check records its counts for the viewer's out-of-date badge.
 diff compares the relationships the imports support now with those at a git commit (default HEAD): which the working tree added or lost, and new imports with no relationship. The viewer draws them; static evidence only.
 flows checks the state diagrams an agent wrote (*.behavior.c4) against the files they name and the commit they were synced at: files that are gone or changed since, arrows with no event, decisions with one answer, states nothing reaches, states that name no file. A flow is the agent's reading, so this finds what is wrong or old, never that it is right. --strict exits 1 if anything is found.
-flow add writes a journey you worked out from the code: a LikeC4 dynamic view of hops between components, as ID.behavior.c4, stamped with the commit and the files you read. It checks every component against the model and takes the file back out if the model would stop compiling; it decides nothing about what happens. flow remove deletes only a file flow add wrote.
-brief lists, for each box of the draft (or only the boxes under the keys you give, children first), the files it owns with their sizes, what it imports from and what imports it, what is inside it and any name it has: what an agent needs to say what each box is for. name saves the names and notes the agent worked out (one box with --title and --note, or many from a JSON file of {"key","title","note"} entries, a dash for standard input) as the agent's reading (by "agent"), redraws once, never replaces a name a person wrote, and refuses a key that is not a box.
+flow add writes a journey you worked out from the code: a LikeC4 dynamic view of hops between components, as ID.behavior.c4, stamped with the commit and the files you read. It checks every component against the model and takes the file back out if the model would stop compiling; it decides nothing about what happens. A step can name the function it calls with a trailing @ FILE#FUNCTION: the file must be one you read and must export that name, and its declaration is copied as written (pathlight flows says when it changes). flow remove deletes only a file flow add wrote.
+brief lists, for each box of the draft (or only the boxes under the keys you give, children first), the files it owns with their sizes, what it imports from and what imports it, what is inside it and any name it has: what an agent needs to say what each box is for. With no keys it opens with what the project says about itself (its package description and the start of its README). brief --changed lists only the boxes that are new or whose files changed since pathlight name recorded them, so a later run names just those. name saves the names and notes the agent worked out (one box with --title and --note, or many from a JSON file of {"key","title","note"} entries, a dash for standard input) as the agent's reading (by "agent"), redraws once, never replaces a name a person wrote, and refuses a key that is not a box.
 plan says which elements you are about to work on (ids from the model); the viewer outlines them and marks activity outside them. No ids clears the plan.
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
@@ -92,7 +92,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -142,9 +142,15 @@ try {
       else return yield* invalid("Use pathlight flow add ID ... or pathlight flow remove ID. pathlight flows lists and checks them.");
     } else if (command === "brief") {
       const all = yield* briefOf(values.workspace);
-      const chosen = select(all, [...(id ? [id] : []), ...extra]);
+      const chosen = values.changed ? { missing: [] as string[], boxes: [] as typeof all } : select(all, [...(id ? [id] : []), ...extra]);
+      if (values.changed) {
+        if (id || extra.length) return yield* invalid("--changed takes no keys: it lists every box whose files changed since it was named.");
+        const changed = yield* changedBoxes(values.workspace, all);
+        chosen.boxes = changed.boxes;
+        if (!values.json) process.stdout.write(changed.tracked ? (changed.boxes.length ? `${changed.boxes.length} of ${all.length} boxes are new or have changed files since they were named.\n\n` : "Every box is named and its files are unchanged since.\n") : "Nothing records when these boxes were named, so every box a person did not name is listed. Naming them once starts the record.\n\n");
+      }
       if (chosen.missing.length) return yield* invalid(`No box has the key ${chosen.missing.join(", ")}. Run pathlight brief with no keys to see them.`);
-      process.stdout.write(values.json ? `${JSON.stringify(chosen.boxes, null, 2)}\n` : formatBrief(chosen.boxes, all));
+      process.stdout.write(values.json ? `${JSON.stringify(chosen.boxes, null, 2)}\n` : `${id || extra.length ? "" : formatContext(yield* contextOf(values.workspace))}${formatBrief(chosen.boxes, all)}`);
     } else if (command === "name") {
       const entries: NameEntry[] = [];
       if (values.from) {

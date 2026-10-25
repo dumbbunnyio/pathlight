@@ -1,11 +1,12 @@
 import { existsSync, lstatSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { readActivityConfig, type ActivityConfig } from "./activity";
 import { acquireModel } from "./catalog";
 import { failure, io } from "./effects";
 import { run } from "./process";
+import { declarationOf } from "./scan-imports";
 
 /**
  * Whether the state diagrams an agent wrote (`*.behavior.c4`, see the pathlight-behavior skill) still agree with the code they were read from.
@@ -26,7 +27,13 @@ export type Sync =
  * One step of a flow, in the order it is told. A journey step is a hop between two components (a LikeC4 dynamic view's step); a behavior step is a
  * state. `elements` are the components it touches, and `backed` is whether the model has a relationship for the hop (null for a state, which is no hop).
  */
-export interface FlowStep { n: number; title: string; elements: string[]; from?: string; to?: string; backed: boolean | null; mark?: "bug" | "fixed" }
+export interface FlowStep { n: number; title: string; elements: string[]; from?: string; to?: string; backed: boolean | null; mark?: "bug" | "fixed"; call?: StepCall }
+/** The function a journey step calls, as the agent recorded it (`name | file | declaration` in the step's notes). The declaration is the code's own text when it was written. */
+export interface StepCall { name: string; file: string; declaration: string }
+export const parseCall = (notes: string | undefined): StepCall | undefined => {
+  const parts = (notes ?? "").split(" | ");
+  return parts.length >= 3 && parts[0] && parts[1] ? { name: parts[0].trim(), file: parts[1].trim(), declaration: parts.slice(2).join(" | ").trim() } : undefined;
+};
 export interface FlowReport {
   id: string; title: string; view: string | null; sync: Sync;
   steps: FlowStep[];
@@ -104,15 +111,21 @@ export function assessFlow(flow: FlowInput, exists: (path: string) => boolean, c
  * A journey is a LikeC4 dynamic view: the path a request takes through components the model already has. Each step names the relationship that backs it;
  * a step with none is the model and the story disagreeing, which is known from the model alone and needs no guess.
  */
-export interface JourneyInput { id: string; title: string; viewDescription: string; steps: readonly { source: string; target: string; title: string; backed: boolean }[] }
+export interface JourneyInput { id: string; title: string; viewDescription: string; steps: readonly { source: string; target: string; title: string; backed: boolean; notes?: string }[] }
 export interface JourneyReport { id: string; title: string; view: string; sync: Sync; steps: FlowStep[]; findings: string[] }
 const last = (id: string) => id.split(".").at(-1) ?? id;
 
 /** `changedElements` are the components some changed file belongs to (files that differ from the sync commit); `known` says whether that commit exists. */
-export function assessJourney(journey: JourneyInput, git: { changedElements: ReadonlySet<string>; known: (sha: string) => boolean }): JourneyReport {
+export function assessJourney(journey: JourneyInput, git: { changedElements: ReadonlySet<string>; known: (sha: string) => boolean; declared?: (file: string, name: string) => string | undefined }): JourneyReport {
   const sha = syncOf(journey.viewDescription);
   const findings: string[] = [];
-  const steps: FlowStep[] = journey.steps.map((step, index) => ({ n: index + 1, title: step.title, elements: [...new Set([step.source, step.target])], from: step.source, to: step.target, backed: step.backed }));
+  const steps: FlowStep[] = journey.steps.map((step, index) => ({ n: index + 1, title: step.title, elements: [...new Set([step.source, step.target])], from: step.source, to: step.target, backed: step.backed, ...(parseCall(step.notes) ? { call: parseCall(step.notes)! } : {}) }));
+  // A call recorded with the flow must still be what the file declares; if not, the reading is out of date at that step.
+  for (const step of steps) if (step.call && git.declared) {
+    const now = git.declared(step.call.file, step.call.name);
+    if (now === undefined) findings.push(`Step ${step.n} calls ${step.call.name} in ${step.call.file}, which no longer declares it.`);
+    else if (now !== step.call.declaration) findings.push(`Step ${step.n}: ${step.call.name} in ${step.call.file} is declared differently from when the flow was written.`);
+  }
   for (const step of steps) if (step.backed === false) findings.push(`Step ${step.n}, “${step.title}”, goes from ${last(step.from!)} to ${last(step.to!)} with no relationship between them in the model.`);
   const sync: Sync = !sha ? { status: "none" } : !git.known(sha) ? { status: "unknown", sha } : { status: "current", sha };
   if (sync.status === "none") findings.push("The view has no “Synced at <commit>” note, so nobody can tell how old this reading is.");
@@ -156,11 +169,11 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
   for (const project of source.projects()) {
     const model = yield* io("LikeC4.compute", () => source.computedModel(project));
     for (const entry of model.views()) {
-      const raw = entry.$view as { _type?: string; description?: { txt?: string } | null; edges?: readonly { source: string; target: string; label?: string | null; relations?: readonly unknown[] }[]; nodes?: readonly { id: string; modelRef?: string }[] };
+      const raw = entry.$view as { _type?: string; description?: { txt?: string } | null; edges?: readonly { source: string; target: string; label?: string | null; relations?: readonly unknown[]; notes?: { txt?: string } | null }[]; nodes?: readonly { id: string; modelRef?: string }[] };
       if (raw._type !== "dynamic") continue;
       const element = (id: string) => String(raw.nodes?.find(node => node.id === id)?.modelRef ?? id);
       journeyInputs.push({ id: entry.id, title: entry.title ?? entry.id, viewDescription: raw.description?.txt ?? "",
-        steps: (raw.edges ?? []).map(edge => ({ source: element(edge.source), target: element(edge.target), title: (edge.label ?? "").trim() || "(no title)", backed: (edge.relations ?? []).length > 0 })) });
+        steps: (raw.edges ?? []).map(edge => ({ source: element(edge.source), target: element(edge.target), title: (edge.label ?? "").trim() || "(no title)", backed: (edge.relations ?? []).length > 0, ...(edge.notes?.txt ? { notes: edge.notes.txt } : {}) })) });
     }
   }
   // One git call for every flow: the files that differ from each distinct sync commit.
@@ -177,9 +190,14 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
     const changed = (sha && changedSince.get(sha)) || new Set<string>();
     return new Set([...changed].flatMap(path => elementsOf(config, path)));
   };
+  const callFiles = new Map<string, string | undefined>();
+  for (const file of new Set(journeyInputs.flatMap(input => input.steps.flatMap(step => parseCall(step.notes)?.file ?? [])))) {
+    callFiles.set(file, file.startsWith("/") || file.includes("..") ? undefined : yield* io("Flows.call", () => readFile(join(root, file), "utf8")).pipe(Effect.catch(() => Effect.succeed(undefined))));
+  }
+  const declared = (file: string, name: string) => { const text = callFiles.get(file); return text === undefined ? undefined : declarationOf(text, name); };
   const journeys = journeyInputs.map(input => {
     const sha = syncOf(input.viewDescription);
-    return assessJourney(input, { changedElements: elementsChanged(sha), known: candidate => changedSince.get(candidate) !== undefined });
+    return assessJourney(input, { declared, changedElements: elementsChanged(sha), known: candidate => changedSince.get(candidate) !== undefined });
   }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const all = [...flows, ...journeys];
   return {

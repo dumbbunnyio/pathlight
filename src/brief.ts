@@ -1,4 +1,5 @@
-import { mkdir, realpath, rename, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
 import { draftOf, draftWorkspace, Overlay, readManifests } from "./draft";
@@ -30,6 +31,43 @@ export interface BriefBox {
   /** Depth below the top of the diagram: 0 is a package (or a top-level component of a flat workspace). */
   depth: number;
   name?: { title?: string; note?: string; by?: "human" | "agent" };
+  /** A short hash of the contents of every file the box owns: when it differs from the one recorded at the last naming, the files changed since. */
+  fingerprint: string;
+}
+
+/** Where `pathlight name` records the fingerprint each box had when it was named. Ignored, regenerated state, like the journals: it is a convenience for re-naming only what changed, never a claim about the names. */
+export const namedPath = join(".cache", "pathlight", "named.json");
+const readNamed = (root: string) => io("Brief.named", () => readFile(join(root, namedPath), "utf8")).pipe(
+  Effect.map((text): Record<string, string> | undefined => { try { const parsed: unknown = JSON.parse(text); const boxes = typeof parsed === "object" && parsed ? (parsed as { boxes?: unknown }).boxes : undefined; return typeof boxes === "object" && boxes ? Object.fromEntries(Object.entries(boxes).filter((entry): entry is [string, string] => typeof entry[1] === "string")) : undefined; } catch { return undefined; } }),
+  Effect.catch(() => Effect.succeed(undefined)));
+
+/**
+ * What the project says about itself, for naming the box that holds the whole app: its package description, the opening of its README, and the
+ * documents a person could read for more. Text the project wrote, passed on as it is (cut short); nothing here is inferred.
+ */
+export interface AppContext { name?: string; description?: string; readme?: string; docs: string[] }
+const readmeNames = ["README.md", "README", "readme.md", "Readme.md"], docNames = ["AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md", "CONTRIBUTING.md"];
+export const contextOf = Effect.fn("Brief.context")(function* (workspace: string) {
+  const root = yield* io("Brief.workspace", () => realpath(workspace));
+  const read = (path: string) => io("Brief.read", () => readFile(join(root, path), "utf8")).pipe(Effect.catch(() => Effect.succeed(undefined)));
+  const manifest = yield* read("package.json");
+  let name: string | undefined, description: string | undefined;
+  try { const parsed: unknown = JSON.parse(manifest ?? "{}"); if (typeof parsed === "object" && parsed) { const record = parsed as Record<string, unknown>; name = typeof record.name === "string" ? record.name : undefined; description = typeof record.description === "string" ? record.description : undefined; } } catch { /* no usable package.json */ }
+  let readme: string | undefined;
+  for (const candidate of readmeNames) { const text = yield* read(candidate); if (text) { readme = text.split("\n").slice(0, 60).join("\n").slice(0, 2_000).trim(); break; } }
+  const top = yield* io("Brief.docs", () => readdir(root)).pipe(Effect.catch(() => Effect.succeed([] as string[])));
+  const docs = [...docNames.filter(file => top.includes(file)), ...(yield* io("Brief.docs", () => readdir(join(root, "docs"))).pipe(Effect.catch(() => Effect.succeed([] as string[])))).filter(file => file.endsWith(".md")).sort().slice(0, 12).map(file => `docs/${file}`)];
+  return { ...(name ? { name } : {}), ...(description ? { description } : {}), ...(readme ? { readme } : {}), docs } satisfies AppContext;
+});
+
+export function formatContext(context: AppContext) {
+  if (!context.description && !context.readme && !context.docs.length) return "";
+  const lines = ["# About the project (its own words, for naming the box that holds the whole app)"];
+  if (context.name) lines.push(`package: ${context.name}`);
+  if (context.description) lines.push(`description: ${context.description}`);
+  if (context.docs.length) lines.push(`documents: ${context.docs.join(", ")}`);
+  if (context.readme) lines.push("README, opening:", ...context.readme.split("\n").map(line => `  ${line}`));
+  return `${lines.join("\n")}\n\n`;
 }
 
 export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
@@ -45,12 +83,12 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
   const byId = new Map<string, BriefBox>();
   const add = (box: BriefBox) => { boxes.set(box.key, box); byId.set(box.id, box); return box; };
   for (const item of draft.packages) {
-    const parent = draft.flat ? undefined : add({ key: item.key, id: item.id, kind: "package", generated: item.title, files: [], lines: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 0, ...(overlay.elements[item.key] ? { name: overlay.elements[item.key] } : {}) });
-    const groups = new Map(item.groups.map(group => [group.id, add({ key: group.key, id: group.id, kind: "collection", generated: group.title, ...(parent ? { parent: parent.key } : {}), files: [], lines: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 1, ...(overlay.elements[group.key] ? { name: overlay.elements[group.key] } : {}) })] as const));
+    const parent = draft.flat ? undefined : add({ key: item.key, id: item.id, kind: "package", generated: item.title, files: [], lines: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 0, fingerprint: "", ...(overlay.elements[item.key] ? { name: overlay.elements[item.key] } : {}) });
+    const groups = new Map(item.groups.map(group => [group.id, add({ key: group.key, id: group.id, kind: "collection", generated: group.title, ...(parent ? { parent: parent.key } : {}), files: [], lines: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 1, fingerprint: "", ...(overlay.elements[group.key] ? { name: overlay.elements[group.key] } : {}) })] as const));
     for (const component of item.components) {
       const group = component.group ? groups.get(component.group) : undefined;
       const container = group ?? parent;
-      const box = add({ key: component.key, id: component.id, kind: "component", generated: component.title, ...(container ? { parent: container.key } : {}), files: sizes(component.files), lines: component.files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0), exports: [], imports: [], importedBy: [], inside: [], depth: group ? 2 : parent ? 1 : 0, ...(overlay.elements[component.key] ? { name: overlay.elements[component.key] } : {}) });
+      const box = add({ key: component.key, id: component.id, kind: "component", generated: component.title, ...(container ? { parent: container.key } : {}), files: sizes(component.files), lines: component.files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0), exports: [], imports: [], importedBy: [], inside: [], depth: group ? 2 : parent ? 1 : 0, fingerprint: "", ...(overlay.elements[component.key] ? { name: overlay.elements[component.key] } : {}) });
       box.exports = [...new Map(box.files.flatMap(file => (offered.get(file.path) ?? []).map(item => ({ name: item.name, kind: item.kind, file: file.path }))).reverse().map(item => [item.name, item] as const)).values()].reverse().slice(0, 40);
       container?.inside.push(box.key);
       for (let up = container; up; up = up.parent ? boxes.get(up.parent) : undefined) { up.files.push(...box.files); up.lines += box.lines; }
@@ -65,6 +103,9 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
     from.imports.push({ key: to.key, generated: to.generated, imports: edge.imports });
     to.importedBy.push({ key: from.key, generated: from.generated, imports: edge.imports });
   }
+  const digests = new Map<string, string>();
+  for (const file of scan.files) digests.set(file.path, createHash("sha1").update(yield* io("Brief.hash", () => readFile(join(root, file.path))).pipe(Effect.catch(() => Effect.succeed(Buffer.alloc(0))))).digest("hex"));
+  for (const box of boxes.values()) box.fingerprint = createHash("sha1").update(box.files.map(file => `${file.path}\0${digests.get(file.path) ?? ""}`).sort().join("\n")).digest("hex").slice(0, 12);
   for (const box of boxes.values()) for (const list of [box.imports, box.importedBy]) list.sort((a, b) => b.imports - a.imports || (a.key < b.key ? -1 : 1));
   return [...boxes.values()];
 });
@@ -79,6 +120,18 @@ export function select(boxes: readonly BriefBox[], under: readonly string[]) {
   const chosen = under.length ? boxes.filter(box => wanted.has(box.key)) : [...boxes];
   return { missing, boxes: chosen.sort((a, b) => b.depth - a.depth || (a.key < b.key ? -1 : 1)) };
 }
+
+/**
+ * The boxes that need a name again: never named, or their files differ from what they were when `pathlight name` last recorded them. A box a person
+ * named is left out (their name is a pin). `tracked` is false when nothing has been recorded yet, which is every box's case after a first naming made
+ * before this record existed; then all unpinned boxes are returned, because nothing says they are current.
+ */
+export const changedBoxes = Effect.fn("Brief.changed")(function* (workspace: string, all: readonly BriefBox[]) {
+  const root = yield* io("Brief.workspace", () => realpath(workspace));
+  const named = yield* readNamed(root);
+  const boxes = all.filter(box => box.name?.by !== "human" && (!named || !box.name || named[box.key] !== box.fingerprint));
+  return { tracked: named !== undefined, boxes: select(boxes, []).boxes };
+});
 
 const filesShown = 12, neighboursShown = 6, insideShown = 20, exportsShown = 16;
 const count = (value: number, noun: string) => `${value.toLocaleString("en")} ${noun}${value === 1 ? "" : "s"}`;
@@ -111,7 +164,9 @@ export interface Named { saved: string[]; kept: string[]; unknown: string[]; unc
  */
 export const nameBoxes = Effect.fn("Brief.name")(function* (workspace: string, entries: readonly NameEntry[]) {
   const root = yield* io("Brief.workspace", () => realpath(workspace));
-  const known = new Set((yield* briefOf(root)).map(box => box.key));
+  const current = yield* briefOf(root);
+  const known = new Set(current.map(box => box.key));
+  const prints = new Map(current.map(box => [box.key, box.fingerprint] as const));
   const overlay = yield* readOverlay(root);
   const elements = { ...overlay.elements };
   const saved: string[] = [], kept: string[] = [], unknown: string[] = [], unchanged: string[] = [];
@@ -136,6 +191,17 @@ export const nameBoxes = Effect.fn("Brief.name")(function* (workspace: string, e
       await rename(temporary, target);
     });
     yield* draftWorkspace(root);
+  }
+  // Remember what the files were when each box was named (or confirmed as it is), so a later run can name only what changed.
+  const confirmed = [...saved, ...unchanged];
+  if (confirmed.length) {
+    const before = (yield* readNamed(root)) ?? {};
+    yield* io("Brief.record", async () => {
+      await mkdir(join(root, ".cache", "pathlight"), { recursive: true });
+      const target = join(root, namedPath), temporary = `${target}.${process.pid}`;
+      await writeFile(temporary, `${JSON.stringify({ version: 1, boxes: { ...before, ...Object.fromEntries(confirmed.flatMap(key => prints.has(key) ? [[key, prints.get(key)!]] : [])) } }, null, 2)}\n`);
+      await rename(temporary, target);
+    });
   }
   return { saved, kept, unknown, unchanged, rebuilt: saved.length > 0 } satisfies Named;
 });
