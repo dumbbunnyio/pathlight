@@ -1,0 +1,15 @@
+{
+  "repo": "dialupworld",
+  "commit": "68f4566",
+  "note": "Read from the repository's README and the file names under each folder by the person scoring, not by the agent being scored. Each concept is a group of words, any one of which says that thing. Only boxes whose purpose the README or the files make plain are listed.",
+  "elements": {
+    "play-web": { "concepts": [["browser", "web", "page", "front end", "frontend", "ui"], ["play", "playable", "day", "send", "compose"]] },
+    "scene-web": { "concepts": [["browser", "web", "page", "viewer"], ["scene", "replay", "recorded", "recording", "return"]] },
+    "studies/aim/pipeline": { "concepts": [["jev", "writer", "critic", "pipeline"], ["message", "conversation", "reply", "recovery"]] },
+    "studies/aim/mat": { "concepts": [["mat"], ["study", "person", "draft", "conversation", "packet"]] },
+    "studies/aim/living": { "concepts": [["living", "world", "day", "absence"], ["client", "server", "view", "presentation", "browser"]] },
+    "studies/aim/experiment": { "concepts": [["experiment", "generation", "conversation"], ["model", "opencode", "recorded", "results", "run"]] },
+    "studies/aim/evidence-v1": { "concepts": [["evidence", "export", "recovery"], ["projection", "native", "scene", "replay"]] },
+    "studies/aim/browser": { "concepts": [["browser", "visual", "capture", "screenshot"], ["verify", "sound", "scenario", "check"]] }
+  }
+}

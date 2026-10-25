@@ -118,3 +118,21 @@ The skill proposes a split: a cheap model traces the path and lists facts, a str
 - **Journeys are stricter than `pathlight check`.** `check` counts an import in either direction as covering a relationship; a journey hop has a direction, so `scanner → launcher` is a gap even though `launcher → scanner` exists and the files import each other. This is why `examples/viewer` shows `≠` for hops the code does make.
 
 Five questions and one run each: not enough to rank the two ways of working, only to say the split did not help here.
+
+## Names: does an agent's first pass describe the boxes? (2026-10-25)
+
+`bun tests/eval/names.ts --workspace DIR --reference tests/eval/references/names-NAME.json` scores the names and notes in `.pathlight/pathlight.overlay.json` against a hand-written reading of the repository (`name-score.ts`). Two things are measured: **coverage** (how many of the draft's boxes got a note) and, for the boxes the reference describes, **concepts** (groups of words, any one of which in the title or note says that thing) and **forbidden** phrases (a claim the code contradicts). It asks no model for an opinion, so a true note in other words can miss a concept; a box passes with two thirds of its concepts, a note, and no forbidden phrase. References: `names-dialupworld.json` (8 boxes) and `names-models-dev.json` (6 boxes, from a Bun monorepo of about 10,800 tracked files).
+
+### Baseline: today's method (2026-10-25)
+
+One Sonnet-class agent per repository, given the workspace, the overlay keys and the rules of the `m` request (read the code, write `by: "agent"` names, rerun `draft`), and no symbol data. Both ran on a scratch copy.
+
+| | boxes | noted | described boxes passing | files read (agent's count) | tokens | time |
+| --- | --- | --- | --- | --- | --- | --- |
+| dialupworld | 15 | 15 | 8 of 8 | about 25 | about 52,000 | 43 s |
+| models.dev | 41 | 41 | 6 of 6 | about 35 | about 52,000 | 39 s |
+
+What this does and does not show:
+- Naming every box once is cheap on a Sonnet-sized model, and both agents marked what they had only inferred ("inferred from file names", "only saw the folder layout") instead of claiming it. Spot checks of leaf boxes in models.dev (`hit.ts`, `describe.ts`, `model-file-v2.ts`) found the notes right.
+- **The score does not discriminate yet.** Both repos have READMEs that say what the major boxes are, and the reference lists only those boxes with loose concepts, so everything passes. It cannot show that symbol slices or any other input would do better. Before one is built, the reference needs the hard boxes (leaf folders and single files whose purpose the README does not state), and the forbidden lists need real mistakes to look for.
+- Only two repositories, one agent run each.

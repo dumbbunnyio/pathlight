@@ -1,0 +1,13 @@
+{
+  "repo": "models.dev",
+  "commit": "bead4a2bd",
+  "note": "Read from the repository's README, AGENTS.md and sync.md and the file names under each package by the person scoring, not by the agent being scored. Each concept is a group of words, any one of which says that thing.",
+  "elements": {
+    "packages/core": { "concepts": [["catalog", "schema", "validate", "validation", "model files", "toml"], ["generate", "sync", "api", "json", "build"]] },
+    "packages/core/src/sync": { "concepts": [["sync"], ["provider", "providers", "model", "models", "catalog", "openrouter"]] },
+    "packages/function": { "concepts": [["worker", "function", "serverless", "edge", "cloudflare"], ["api", "request", "serve", "serves", "catalog"]] },
+    "packages/sdk": { "concepts": [["sdk", "client", "library"], ["api", "models", "typed", "types", "catalog"]] },
+    "packages/sdk/src/effect": { "concepts": [["effect"], ["client"]] },
+    "packages/web": { "concepts": [["web", "site", "website", "page", "render"], ["models", "catalog", "providers", "list"]] }
+  }
+}
