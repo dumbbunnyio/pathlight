@@ -30,17 +30,17 @@ export const setup = Effect.fn("Setup.run")(function* (workspace: string, option
   if (!modelOk && !mappingOk) {
     if (!options.yes) {
       lines.push("Nothing to look at yet. With --yes this would draw a first picture from the code's imports (no model in the loop) and write",
-        "  pathlight.model.c4, pathlight.activity.json and likec4.config.json in this folder. It never rewrites a model you wrote.");
+        "  pathlight.model.c4, pathlight.activity.json and likec4.config.json in .pathlight/. It never rewrites a model you wrote.");
     } else {
       const made = yield* draftWorkspace(root);
       lines.push(`Drew ${made.elements} elements and ${made.relationships} relationships from the imports (${made.mappings} file mappings).`,
-        "Wrote pathlight.model.c4, pathlight.activity.json and likec4.config.json. It shows what the code does, not what it is for: ask the agent to name and describe the parts (press m on a box).");
+        "Wrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in .pathlight/. It shows what the code does, not what it is for: ask the agent to name and describe the parts (press m on a box).");
       ready = true;
     }
   } else if (modelOk && !mappingOk) {
-    lines.push("There is a model but no file mapping, so the viewer cannot light up what the agent touches. Run `pathlight init` (it maps boxes to files by name, wires the hooks and turns recording on) and review pathlight.activity.json.");
+    lines.push("There is a model but no file mapping, so the viewer cannot light up what the agent touches. Run `pathlight init` (it maps boxes to files by name, wires the hooks and turns recording on) and review .pathlight/pathlight.activity.json.");
   } else if (!modelOk && mappingOk) {
-    lines.push("There is a file mapping but no model it can load. Write the model, or remove pathlight.activity.json and run this again.");
+    lines.push("There is a file mapping but no model it can load. Write the model, or remove .pathlight/pathlight.activity.json and run this again.");
   } else lines.push("A model and a file mapping are already here; nothing to write.");
 
   if (ready) {

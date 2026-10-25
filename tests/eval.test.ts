@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { draftWorkspace } from "../src/draft";
 import { type Reference, crowdedAbove, formatScore, scoreWorkspace } from "./eval/score";
+import { mappingIn } from "./effects";
 
 const write = async (root: string, files: Record<string, string>) => {
   for (const [path, text] of Object.entries(files)) {
@@ -59,7 +60,7 @@ test("a draft of a clean layered workspace scores perfectly and every stated rul
 // The scorer is only worth trusting if it notices each kind of damage, so each is planted here on purpose.
 test("planted defect: a missing relationship lowers recall and fails the rule that needs it", async () => {
   await withDraft(layered, async directory => {
-    const path = join(directory, "pathlight.model.c4");
+    const path = join(directory, ".pathlight", "pathlight.model.c4");
     await writeFile(path, dropRelationship(await readFile(path, "utf8"), "app.root", "lib.root"));
     const result = await score(directory);
     expect(result.pairs.undeclared).toBe(1);
@@ -71,7 +72,7 @@ test("planted defect: a missing relationship lowers recall and fails the rule th
 
 test("planted defect: an invented relationship lowers precision and breaks a rule that forbids it", async () => {
   await withDraft(layered, async directory => {
-    const path = join(directory, "pathlight.model.c4");
+    const path = join(directory, ".pathlight", "pathlight.model.c4");
     const model = await readFile(path, "utf8");
     await writeFile(path, model.replace("\n}\n\nviews {", "\n  base.root -> app.root 'invented'\n}\n\nviews {"));
     const result = await score(directory);
@@ -84,7 +85,7 @@ test("planted defect: an invented relationship lowers precision and breaks a rul
 
 test("planted defect: a dropped file mapping lowers coverage", async () => {
   await withDraft(layered, async directory => {
-    const path = join(directory, "pathlight.activity.json");
+    const path = mappingIn(directory);
     const config = JSON.parse(await readFile(path, "utf8")) as { mappings: { glob: string; element: string }[] };
     await writeFile(path, JSON.stringify({ ...config, mappings: config.mappings.filter(item => item.element !== "base.root") }));
     const result = await score(directory);
@@ -103,7 +104,7 @@ test("a draft keeps readable views within the limit, and the scorer counts a cro
     // The complete listing is declared, so its 36 boxes are not held against the draft.
     expect(drafted.views.listings).toBe(1);
     // Planted defect: take the cap off the overview, so it shows all 36 components.
-    const path = join(directory, "pathlight.model.c4");
+    const path = join(directory, ".pathlight", "pathlight.model.c4");
     await writeFile(path, (await readFile(path, "utf8")).replace("    exclude * where tag is #minor\n", ""));
     const damaged = await score(directory);
     expect(damaged.views.maxNodes).toBe(36);

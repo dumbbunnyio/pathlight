@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { mapMessage } from "../src/ask";
-import { run } from "./effects";
+import { run, mappingIn, overlayIn } from "./effects";
 
 test("a map request names the overlay key, carries the rules and no control characters", () => {
   const text = mapMessage({ title: "Loose\x1b[31m files", id: "demo.loose", key: ".#loose", files: ["a.ts"], links: ["→ Core"] }, "what are\nthese?");
@@ -28,7 +28,7 @@ test("n pins a name and note from the viewer, m asks the agent to improve the ma
     await cli("draft", "--workspace", directory);
     expect(JSON.parse(await readFile(join(directory, ".cache/pathlight/keys.json"), "utf8")).keys).toMatchObject({ billing: "src/billing" });
     const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "map-edit", "-x", "170", "-y", "44", "-P", "-F", "#{pane_id}", "cat");
-    const project = JSON.parse(await readFile(join(directory, "pathlight.activity.json"), "utf8")).project as string;
+    const project = JSON.parse(await readFile(mappingIn(directory), "utf8")).project as string;
     const shown = JSON.parse(await cli("show", "index", "--workspace", directory, "--project", project, "--pane", harness, "--socket", socket)) as { pane: string };
     const until = async (pane: string, predicate: (text: string) => boolean, label: string) => {
       let output = "";
@@ -55,7 +55,7 @@ test("n pins a name and note from the viewer, m asks the agent to improve the ma
     let overlay: { elements: Record<string, { title?: string; note?: string; by?: string }> } = { elements: {} };
     for (let attempt = 0; attempt < 100 && !Object.keys(overlay.elements).length; attempt++) {
       await delay(100);
-      overlay = JSON.parse(await readFile(join(directory, "pathlight.overlay.json"), "utf8").catch(() => '{"elements":{}}'));
+      overlay = JSON.parse(await readFile(overlayIn(directory), "utf8").catch(() => '{"elements":{}}'));
     }
     const [entry] = Object.values(overlay.elements);
     expect(entry).toEqual({ title: "Money side", note: "Charges and refunds", by: "human" });

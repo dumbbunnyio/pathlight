@@ -21,7 +21,7 @@ test("check compares the model and mapping with the scan: evidence either way, u
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await write(directory, {
-      "pathlight.activity.json": mapping([["src/plugin.ts", "plugin"], ["src/activity.ts", "activity"], ["src/launcher.ts", "launcher"], ["src/viewer.ts", "viewer"],
+      ".pathlight/pathlight.activity.json": mapping([["src/plugin.ts", "plugin"], ["src/activity.ts", "activity"], ["src/launcher.ts", "launcher"], ["src/viewer.ts", "viewer"],
         ["src/catalog.ts", "catalog"], ["src/exporter.ts", "exporter"]]),
       "src/plugin.ts": `import { a } from "./activity";\nexport const p = a;\n`,
       "src/activity.ts": `export const a = 1;\n`,
@@ -81,7 +81,7 @@ model {
 }
 views { view live { include * autoLayout LeftRight } }
 `,
-      "pathlight.activity.json": mapping([["src/auth.ts", "api.auth"], ["src/users.ts", "api.users"], ["src/store.ts", "store"]], ["src/vendored/**"]),
+      ".pathlight/pathlight.activity.json": mapping([["src/auth.ts", "api.auth"], ["src/users.ts", "api.users"], ["src/store.ts", "store"]], ["src/vendored/**"]),
       "src/vendored/lib.ts": `export const lib = 1;\n`,
       "src/auth.ts": `import { u } from "./users";\nexport const a = u;\n`,
       "src/users.ts": `import { s } from "./store";\nexport const u = s;\n`,
@@ -97,7 +97,7 @@ views { view live { include * autoLayout LeftRight } }
     expect(formatCheck(check)).toContain("✓ every scanned source file is mapped");
 
     // An unknown element in the mapping is an error, not a finding.
-    await write(directory, { "pathlight.activity.json": mapping([["src/auth.ts", "api.missing"]]) });
+    await write(directory, { ".pathlight/pathlight.activity.json": mapping([["src/auth.ts", "api.missing"]]) });
     await expect(Effect.runPromise(checkWorkspace(directory))).rejects.toThrow("Unknown activity element 'api.missing'");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -124,7 +124,7 @@ views {
   view orphan { include types autoLayout LeftRight }
 }
 `,
-      "pathlight.activity.json": mapping([["src/big/**", "big"], ["src/small.ts", "small"], ["src/types.ts", "types"]]),
+      ".pathlight/pathlight.activity.json": mapping([["src/big/**", "big"], ["src/small.ts", "small"], ["src/types.ts", "types"]]),
       ...big,
       "src/small.ts": `import { T } from "./types";\nexport const s: T = 1;\n`,
       "src/types.ts": `export type T = number;\n`,
@@ -147,14 +147,14 @@ views {
     expect(String(await Effect.runPromise(overviewId(directory)))).toBe("overview");
     expect(formatCheck(check)).toContain("2 of 3 views have no navigateTo pointing to them: orphan, overview");
 
-    await write(directory, { "pathlight.activity.json": JSON.stringify({ version: 1, project: "viewer", shared: ["types"], mappings: [
+    await write(directory, { ".pathlight/pathlight.activity.json": JSON.stringify({ version: 1, project: "viewer", shared: ["types"], mappings: [
       { glob: "src/big/**", element: "big" }, { glob: "src/small.ts", element: "small" }, { glob: "src/types.ts", element: "types" }] }) });
     check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.undeclared).toEqual([]);
     expect(check.mappings).toMatchObject({ shared: ["types"], sharedImports: 2 });
     expect(formatCheck(check)).toContain("2 imports into shared types are not listed");
 
-    await write(directory, { "pathlight.activity.json": JSON.stringify({ version: 1, project: "viewer", shared: ["nope"], mappings: [{ glob: "src/types.ts", element: "types" }] }) });
+    await write(directory, { ".pathlight/pathlight.activity.json": JSON.stringify({ version: 1, project: "viewer", shared: ["nope"], mappings: [{ glob: "src/types.ts", element: "types" }] }) });
     await expect(Effect.runPromise(checkWorkspace(directory))).rejects.toThrow("Unknown shared element 'nope'");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -168,7 +168,7 @@ test("an element with many direct children is reported as wide, and grouping the
     const flat = Array.from({ length: 10 }, (_, index) => `  part${index} = component 'Part ${index}'`).join("\n");
     const grouped = ["a", "b"].map(name => `  ${name} = component '${name}' {\n${Array.from({ length: 5 }, (_, index) => `    p${index} = component 'P${index}'`).join("\n")}\n  }`).join("\n");
     const model = (body: string) => `specification { element component }\nmodel {\n  system = component 'System' {\n${body}\n  }\n}\nviews { view live { include system.* autoLayout LeftRight } }\n`;
-    await write(directory, { "model.c4": model(flat), "pathlight.activity.json": mapping([]) });
+    await write(directory, { "model.c4": model(flat), ".pathlight/pathlight.activity.json": mapping([]) });
     let check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.wide).toEqual([{ parent: "system", children: 10 }]);
     expect(check.summary.wideGroups).toBe(1);
@@ -188,7 +188,7 @@ test("a planned element with no files yet is the plan, not a broken mapping, and
     const config = (planned: string[]) => JSON.stringify({ version: 1, project: "viewer", planned, mappings: [
       { glob: "src/launcher.ts", element: "launcher" }, { glob: "src/viewer.ts", element: "viewer" }, { glob: "src/activity.ts", element: "activity" }] });
     await write(directory, {
-      "pathlight.activity.json": config(["activity"]),
+      ".pathlight/pathlight.activity.json": config(["activity"]),
       "src/launcher.ts": `import { v } from "./viewer";\nexport const l = v;\n`, "src/viewer.ts": `export const v = 1;\n`,
     });
     // `activity` is designed but not written: its glob matches nothing, and that is not a finding.
@@ -200,12 +200,12 @@ test("a planned element with no files yet is the plan, not a broken mapping, and
     expect(hasFindings(planned)).toBe(false);
     expect(formatCheck(planned)).toContain("0 of 1 planned elements have files; not yet: activity");
     // Without the plan marker the same mapping is reported as pointing nowhere.
-    await write(directory, { "pathlight.activity.json": config([]) });
+    await write(directory, { ".pathlight/pathlight.activity.json": config([]) });
     const unplanned = await Effect.runPromise(checkWorkspace(directory));
     expect(unplanned.mappings.unmatched).toEqual([{ glob: "src/activity.ts", element: "activity" }]);
     expect(hasFindings(unplanned)).toBe(true);
     // Once it is built the marker is stale, and check says so without calling it an error.
-    await write(directory, { "pathlight.activity.json": config(["activity"]), "src/activity.ts": `export const a = 1;\n` });
+    await write(directory, { ".pathlight/pathlight.activity.json": config(["activity"]), "src/activity.ts": `export const a = 1;\n` });
     const built = await Effect.runPromise(checkWorkspace(directory));
     expect(built.plan).toEqual({ planned: 1, waiting: [], built: ["activity"] });
     expect(formatCheck(built)).toContain("activity now has files: remove it from planned");
@@ -213,7 +213,7 @@ test("a planned element with no files yet is the plan, not a broken mapping, and
     expect(built.relationships.find(item => item.source === "activity" && item.target === "viewer")?.status).toBe("unsupported");
     expect(hasFindings(built)).toBe(true);
     // A planned element that is not in the model is a mistake.
-    await write(directory, { "pathlight.activity.json": config(["nonsense"]) });
+    await write(directory, { ".pathlight/pathlight.activity.json": config(["nonsense"]) });
     await expect(Effect.runPromise(checkWorkspace(directory))).rejects.toThrow("Unknown planned element 'nonsense'");
   } finally {
     await rm(directory, { recursive: true, force: true });

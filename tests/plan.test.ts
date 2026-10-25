@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { run, toolActivity, writeActivity } from "./effects";
+import { run, toolActivity, writeActivity, mappingIn } from "./effects";
 
 const cli = (...args: string[]) => run(process.execPath, [resolve("src/cli.ts"), ...args]);
 const model = `specification {\n  element component\n}\nmodel {\n  a = component 'Alpha'\n  b = component 'Beta'\n  c = component 'Gamma'\n  a -> b 'uses'\n}\nviews {\n  view index {\n    include *\n    autoLayout LeftRight\n  }\n}\n`;
@@ -13,7 +13,7 @@ const workspace = async () => {
   await mkdir(join(directory, "src"), { recursive: true });
   await writeFile(join(directory, "likec4.config.json"), JSON.stringify({ name: "d" }));
   await writeFile(join(directory, "model.c4"), model);
-  await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "d", mappings: [
+  await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "d", mappings: [
     { glob: "src/a.ts", element: "a" }, { glob: "src/b.ts", element: "b" }, { glob: "src/c.ts", element: "c" }] }));
   for (const name of ["a", "b", "c"]) await writeFile(join(directory, `src/${name}.ts`), `export const ${name} = 1;\n`);
   return directory;

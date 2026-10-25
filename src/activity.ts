@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from "n
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Effect, Schema, Result } from "effect";
 import { io, json, hasCode } from "./effects";
+import { mappingPath } from "./layout";
 
 const Label = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256), Schema.isPattern(/^[\w./:@ -]+$/));
 const Path = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024), Schema.isPattern(/^[^\x00-\x1f\x7f]+$/),
@@ -36,7 +37,7 @@ export const ActivityConfig = Schema.Struct({
 export interface ActivityConfig extends Schema.Schema.Type<typeof ActivityConfig> {}
 
 export const readActivityConfig = Effect.fn("Activity.config")(function* (workspace: string) {
-  const text = yield* io("Activity.readConfig", () => readFile(join(workspace, "pathlight.activity.json"), "utf8"));
+  const text = yield* io("Activity.readConfig", () => readFile(mappingPath(workspace), "utf8"));
   return yield* Schema.decodeUnknownEffect(ActivityConfig, { onExcessProperty: "error" })(yield* json(text));
 });
 

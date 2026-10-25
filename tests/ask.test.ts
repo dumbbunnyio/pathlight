@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { askMessage, flowMessage } from "../src/ask";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 test("an ask message leads with the question, adds the component's context, and carries no control characters", () => {
   const text = askMessage({ title: "Orders\x1b[31m", id: "parcel.orders", files: ["src/orders.ts"], links: ["→ Stock", "← Checkout API"] },
@@ -19,7 +19,7 @@ test("t types a question about the selected node into the harness pane; Enter su
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "plugins/**", element: "plugin" }] }));
     // `cat` stands in for the agent harness: it echoes whatever is typed into its pane.
     const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "ask-test", "-x", "170", "-y", "44", "-P", "-F", "#{pane_id}", "cat");
@@ -79,7 +79,7 @@ test("d asks the agent to trace a flow: the request names the skill, the command
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
     const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "flow-test", "-x", "170", "-y", "44", "-P", "-F", "#{pane_id}", "cat");
     const shown = JSON.parse(await run(process.execPath, [resolve("src/cli.ts"), "show", "live", "--workspace", directory, "--project", "viewer", "--pane", harness, "--socket", socket])) as { pane: string };
     const until = async (pane: string, predicate: (text: string) => boolean, label: string) => {

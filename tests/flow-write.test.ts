@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { parseStep, renderJourney } from "../src/flow-write";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 const cli = (...args: string[]) => run(process.execPath, [resolve("src/cli.ts"), ...args]);
 const fails = async (...args: string[]) => { try { await cli(...args); return "did not fail"; } catch (error) { return error instanceof Error ? error.message : String(error); } };
@@ -93,7 +93,7 @@ test("a journey is not reported by check as a view nothing links to", async () =
   const directory = await mkdtemp(join(tmpdir(), "pathlight-flow-check-"));
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true, filter: path => !path.includes(".cache") });
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
     await writeFile(join(directory, "a.ts"), "export const a = 1;\n");
     const unlinked = async () => (JSON.parse(await cli("check", "--workspace", directory, "--json")) as { summary: { unlinkedViews: number } }).summary.unlinkedViews;
     const before = await unlinked();

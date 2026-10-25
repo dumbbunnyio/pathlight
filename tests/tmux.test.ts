@@ -3,7 +3,7 @@ import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout } from "node:timers/promises";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 import { z } from "zod";
 import { toolActivity, writeActivity } from "./effects";
 
@@ -100,7 +100,7 @@ exit "$status"
 }, 120_000);
 
 test("a live viewer observes Claude hook metadata without restart and reloads retained state", async () => {
-  await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel",
+  await writeFile(mappingIn(workspace), JSON.stringify({ version: 1, project: "parcel",
     mappings: [{ glob: "src/orders.ts", element: "parcel.commerce.orders" }] }));
   const liveParent = await tmux("new-window", "-d", "-t", "viewer-test", "-P", "-F", "#{pane_id}", "sleep", "120");
   const pane = await show("services", "live-session", liveParent);
@@ -133,7 +133,7 @@ test("a live viewer observes Claude hook metadata without restart and reloads re
 test("default native show records activity, and replaces during search in the owned pane", async () => {
   const nativeWorkspace = join(directory, "native-workspace");
   await cp("examples/parcel", nativeWorkspace, { recursive: true, filter: path => !path.includes(".cache") });
-  await writeFile(join(nativeWorkspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel",
+  await writeFile(mappingIn(nativeWorkspace), JSON.stringify({ version: 1, project: "parcel",
     mappings: [{ glob: "src/orders.ts", element: "parcel.commerce.orders" }] }));
   const nativeParent = await tmux("new-window", "-d", "-t", "viewer-test", "-P", "-F", "#{pane_id}", "sleep", "120");
   const native = async (view: string) => {

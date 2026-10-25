@@ -3,7 +3,7 @@ import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { run, toolActivity, writeActivity } from "./effects";
+import { run, toolActivity, writeActivity, mappingIn } from "./effects";
 
 // Follow (`a`) selects the node of the running tool, and the user's own selection pauses it until `a` is pressed again.
 test("follow selects the node being worked on, pauses when the user selects, and resumes on a, ignoring older work", async () => {
@@ -12,7 +12,7 @@ test("follow selects the node being worked on, pauses when the user selects, and
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [
       { glob: "src/activity.ts", element: "activity" }, { glob: "src/launcher.ts", element: "launcher" }, { glob: "src/viewer.ts", element: "viewer" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "follow-work", "-x", "140", "-y", "40", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--workspace", directory, "--session", "work", "--source", "claude");

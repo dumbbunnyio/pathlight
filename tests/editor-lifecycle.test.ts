@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 test("show forwards editor configuration and shutdown stops a non-exec editor wrapper's process group", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-editor-stop-"));
@@ -14,7 +14,7 @@ test("show forwards editor configuration and shutdown stops a non-exec editor wr
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await writeFile(join(directory, "code.txt"), "example\n");
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "code.txt", element: "plugin" }] }));
     await writeFile(wrapper, `printf '%s' "$$" > "$0.group"
 trap '' TERM

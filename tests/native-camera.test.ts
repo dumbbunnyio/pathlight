@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { run, toolActivity, writeActivity } from "./effects";
+import { run, toolActivity, writeActivity, mappingIn } from "./effects";
 
 test("Three camera, native labels, picking, resize, and editor return", async () => {
   const directory = await mkdtemp("/tmp/opencode/three-check-");
@@ -13,7 +13,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await mkdir(join(directory, "src"));
     await writeFile(join(directory, "src/activity.ts"), "export const example = true;\n");
     for (let index = 1; index <= 6; index++) await writeFile(join(directory, `src/z${index}.ts`), "export {};\n");
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/*.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "three", "-x", "180", "-y", "45",
       "-e", "VISUAL=nvim -u NONE -i NONE -n", "-P", "-F", "#{pane_id}", process.execPath, resolve("src/cli.ts"), "view", "live",

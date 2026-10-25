@@ -1,7 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Effect, Schema } from "effect";
-import { draftWorkspace, keysPath, Overlay, overlayFile } from "./draft";
+import { draftWorkspace, keysPath, Overlay } from "./draft";
+import { homeOf, overlayFile } from "./layout";
 import { failure, io, json } from "./effects";
 
 /** Each generated element's overlay key, written by `pathlight draft` so the viewer can tell the overlay which element a box is. */
@@ -14,7 +15,7 @@ export const readKeys = Effect.fn("Edit.keys")(function* (workspace: string) {
 });
 
 const readOverlay = Effect.fn("Edit.overlay")(function* (workspace: string) {
-  const text = yield* io("Edit.overlay", () => readFile(join(resolve(workspace), overlayFile), "utf8")).pipe(Effect.option);
+  const text = yield* io("Edit.overlay", () => readFile(join(homeOf(resolve(workspace)), overlayFile), "utf8")).pipe(Effect.option);
   if (text._tag === "None") return { version: 1, elements: {} } as Overlay;
   return yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(yield* json(text.value));
 });
@@ -36,10 +37,10 @@ export const saveElement = Effect.fn("Edit.save")(function* (workspace: string, 
   const next = { ...overlay, elements: title || note ? { ...others, [key]: { ...(title && title !== generated ? { title } : {}), ...(note ? { note } : {}), by: "human" as const } } : others };
   const valid = yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(next).pipe(Effect.mapError(() => failure("Edit.invalid", "A name is at most 60 characters and a note at most 300, with no line breaks.")));
   yield* io("Edit.write", async () => {
-    await mkdir(root, { recursive: true });
-    const temporary = `${join(root, overlayFile)}.${process.pid}`;
+    await mkdir(homeOf(root), { recursive: true });
+    const temporary = `${join(homeOf(root), overlayFile)}.${process.pid}`;
     await writeFile(temporary, `${JSON.stringify(valid, null, 2)}\n`);
-    await rename(temporary, join(root, overlayFile));
+    await rename(temporary, join(homeOf(root), overlayFile));
   });
   return yield* draftWorkspace(root);
 });

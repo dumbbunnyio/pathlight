@@ -35,7 +35,7 @@ Pathlight lets an engineer follow what an AI harness is doing, understand their 
 
 | Area | Files |
 | --- | --- |
-| CLI, model/view selection, workspace setup (`pathlight setup` is the first run: checks, then draws a first model with `--yes`; `init` wires hooks and recording) | `src/cli.ts`, `src/catalog.ts`, `src/init.ts`, `src/setup.ts` |
+| CLI, model/view selection, workspace setup (`pathlight setup` is the first run: checks, then draws a first model with `--yes`; `init` wires hooks and recording) | `src/cli.ts`, `src/catalog.ts`, `src/init.ts`, `src/setup.ts`, `src/layout.ts` (the one place that names the `.pathlight/` folder and the files in it) |
 | Owned tmux pane launch/replacement, readiness | `src/tmux.ts`, `src/ready.ts` |
 | Native UI and camera | `src/native-viewer.ts` |
 | Themes: OpenCode-format JSON, derived palette, live recolouring | `src/theme.ts`, `src/retheme.ts`, `src/themes/` (vendored OpenCode themes, see `NOTICE.md`), palette in `src/ui.ts` |
@@ -46,7 +46,7 @@ Pathlight lets an engineer follow what an AI harness is doing, understand their 
 | Activity journals, subscriptions, Claude adapter | `src/activity.ts`, `src/activity-subscriptions.ts`, `src/claude.ts` |
 | Agent integrations | `plugins/` (`plugins/opencode` targets OpenCode V2: `index.ts` is the server plugin (hooks, recording, tools, the skills, the `pathlight-tracer` subagent and `pathlight_models`), `tracer-model.ts` the pure choice of the tracer's model (pin only a tested Sonnet-class model, suggest the rest), `tui.ts` the CLI plugin that holds the slash commands because only the terminal process knows the tmux pane; `tests/opencode-live.test.ts` drives the real binary, `tests/opencode-tracer.test.ts` and `tests/opencode-package.test.ts` read the registered agent and skills back from it (the second from the packed npm package, `scripts/build-opencode.sh`, which must carry no path from the checkout); the plugin runs the `pathlight` binary from the PATH and never a checkout; `plugins/claude` is a Claude Code plugin validated with `claude plugin validate --strict`; `.claude-plugin/marketplace.json` lists it). Every folder in `plugins/claude/skills/` is a skill for both hosts (`pathlight` and `pathlight-behavior`): `pathlight init` copies them all, the OpenCode plugin registers them all, and `tests/skill.test.ts` checks every command and flag the main one names against the CLI help (and that the behavior skill's example compiles), so update them with the CLI. `plugins/claude/agents/pathlight-tracer.md` is a subagent pinned to `model: sonnet` that the `d` request asks the agent to hand a trace to (the model is the point: tests/eval measured Haiku-class models failing it); `plugins/claude/open-hook.sh` handles `/pathlight:open` as a `UserPromptSubmit` hook that stops the prompt with `continue: false` (no model turn); `commands/open.md` is only the picker entry and fallback. Bump `version` in `plugins/claude/.claude-plugin/plugin.json` whenever the plugin or skill changes, or `claude plugin update` will report the old copy as current. |
 | Flat and nested fixtures | `tests/fixtures/viewer/` (frozen test layout), `examples/parcel/` |
-| This repo's own architecture diagram | `examples/viewer/` (LikeC4 project `pathlight`; the frozen test fixture is the project `viewer`, and two projects must not share a name), mapped by `pathlight.activity.json` |
+| This repo's own architecture diagram | `examples/viewer/` (LikeC4 project `pathlight`; the frozen test fixture is the project `viewer`, and two projects must not share a name), mapped by `.pathlight/pathlight.activity.json` |
 
 ## Contracts to preserve
 
@@ -78,6 +78,7 @@ Pathlight lets an engineer follow what an AI harness is doing, understand their 
 8. **Keep activity minimal.** Do not store source contents, tool arguments,
    command strings, results or error text in activity journals. A turn marker records only that a prompt began (never its text), and replay reads the same journal (up to 2048 events per session). For shell commands keep only existing workspace files the command names (state `command`, never read/edit). Preserve bounded
    queues/history and local-only storage; this is not an audit log.
+9. **Everything Pathlight writes into a workspace goes in `.pathlight/`** (`src/layout.ts`): the draft's model and `likec4.config.json`, the file mapping, the overlay of names and notes, and agent-written `*.behavior.c4` flows. Nothing is written loose in the root of someone's repository. Ignored, regenerated state (journals, the out-of-date stamp, overlay keys) stays in `.cache/pathlight`. There is no fallback that reads the old root location. A model a person wrote elsewhere stays where it is, but its mapping still lives in `.pathlight/`.
 
 ## Development and validation
 

@@ -32,7 +32,7 @@ pathlight doctor
 
 From a checkout instead: `bun install && bun link`, then `claude plugin marketplace add /path/to/pathlight`.
 
-The plugin adds the recording hooks and the `/pathlight` skill. Hooks do nothing in a project without `pathlight.activity.json`, so enabling the plugin globally is safe. Create the mapping with `pathlight init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
+The plugin adds the recording hooks and the `/pathlight` skill. Hooks do nothing in a project without `.pathlight/pathlight.activity.json`, so enabling the plugin globally is safe. Create the mapping with `pathlight init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
 Use either this route or the project-local route below, not both.
 
 ## First run
@@ -55,7 +55,7 @@ bun run --cwd /path/to/pathlight pathlight init --workspace /path/to/project
 ```
 
 `init` adds the Claude Code hooks to `.claude/settings.local.json` (per-user), copies the `pathlight` skill (the `/pathlight` command),
-registers the OpenCode plugin, and creates `pathlight.activity.json` if absent. It maps only elements whose name matches
+registers the OpenCode plugin, and creates `.pathlight/pathlight.activity.json` if absent. It maps only elements whose name matches
 a directory or file that exists; review it and add globs for the rest. Re-running `init` is safe and never overwrites an existing mapping.
 
 To reopen the viewer yourself, with no agent involved:
@@ -67,7 +67,7 @@ To reopen the viewer yourself, with no agent involved:
 | Inside OpenCode | `/pathlight-open [VIEW]` | A viewer pane is split beside the conversation | none (the CLI plugin handles it) |
 | Inside Claude Code or OpenCode | `! pathlight open [VIEW]` | The same split | none (a shell escape) |
 
-`open` follows the most recent recorded session and shows `VIEW`, else the view named `index`, else the first view. Typed at a prompt it takes over that pane; run by an agent (anything between the pane's shell and the command) it splits beside it. `--here` always uses the current terminal and `--split` always splits. Without a `pathlight.activity.json` it still opens, but cannot follow an agent. The hook needs the Claude plugin; `/pathlight:open` is not installed by `pathlight init`.
+`open` follows the most recent recorded session and shows `VIEW`, else the view named `index`, else the first view. Typed at a prompt it takes over that pane; run by an agent (anything between the pane's shell and the command) it splits beside it. `--here` always uses the current terminal and `--split` always splits. Without a `.pathlight/pathlight.activity.json` it still opens, but cannot follow an agent. The hook needs the Claude plugin; `/pathlight:open` is not installed by `pathlight init`.
 
 Then, in tmux, run `/pathlight` in Claude Code (or `/pathlight VIEW_ID`). The viewer opens beside the conversation and
 follows the most recently active recorded session with `--follow`, so you need no pane or session IDs. You can also run it yourself:
@@ -114,11 +114,11 @@ A second skill, `pathlight-behavior`, teaches an agent to draw what a user sees 
 
 `pathlight flows --workspace .` checks the state diagrams in `*.behavior.c4` files and the journeys (LikeC4 dynamic views: the components a request passes through) against the files they name, the model and the commit they were synced at, and lists what is gone, changed since, has no relationship behind it, or is unchecked; it never says a flow is right (`--json`, `--strict` as for `check`). `pathlight flow add ID --title T --reads FILES --step 'from -> to: event' ...` is how an agent records a journey it worked out from the code: it checks each component against the model, requires the files read, stamps the commit, writes `ID.behavior.c4` and rolls it back if the model would stop compiling (`flow remove ID` deletes only what it wrote). In the viewer, `F` traces a flow on the diagram: numbered steps, a step reader in the inspector, and the flow kept visibly apart from what the agent was observed doing (see [native viewer](docs/native-viewer.md)).
 
-`pathlight check --workspace .` compares that scan with your LikeC4 model and `pathlight.activity.json`: mapping globs that match no files, source files no mapping claims, relationships with no import between their mapped files, and imports between elements that no relationship declares. These are questions, not verdicts (a relationship can run over a network call that no import shows); `--json` gives the same facts as data and `--strict` exits 1 when anything is found.
+`pathlight check --workspace .` compares that scan with your LikeC4 model and `.pathlight/pathlight.activity.json`: mapping globs that match no files, source files no mapping claims, relationships with no import between their mapped files, and imports between elements that no relationship declares. These are questions, not verdicts (a relationship can run over a network call that no import shows); `--json` gives the same facts as data and `--strict` exits 1 when anything is found.
 
 ## Draw a codebase from its code
 
-`pathlight draft --workspace .` writes a first architecture picture made from the code alone, with no model in the loop: each workspace package becomes a box, the top-level folders inside it become components (`session.ts` beside a `session/` folder is one), and a relationship exists wherever files in one component import files in another, labelled with how many. Tests are left out. It writes `pathlight.model.c4`, `pathlight.activity.json` (the file mapping) and `likec4.config.json`, so `pathlight check` and the viewer work on it straight away, and the same code always gives the same text. Names are the folder names and the descriptions are facts (file and line counts); nothing is inferred about intent.
+`pathlight draft --workspace .` writes a first architecture picture made from the code alone, with no model in the loop, into `.pathlight/` (every file Pathlight writes into your repository goes there, so none lands in the root): each workspace package becomes a box, the top-level folders inside it become components (`session.ts` beside a `session/` folder is one), and a relationship exists wherever files in one component import files in another, labelled with how many. Tests are left out. It writes `pathlight.model.c4`, `.pathlight/pathlight.activity.json` (the file mapping) and `likec4.config.json`, so `pathlight check` and the viewer work on it straight away, and the same code always gives the same text. Names are the folder names and the descriptions are facts (file and line counts); nothing is inferred about intent.
 
 It draws several kinds of view, each kept to about what a terminal can show at once:
 
@@ -127,9 +127,9 @@ It draws several kinds of view, each kept to about what a terminal can show at o
 - **A component's neighbourhood** (`<component>_near`): what it uses and what uses it, which is the blast radius of editing it. Select a component and press enter to open it. A hub with too many neighbours lists its strongest and says how many were left out.
 - **Import cycles** (`cycles`, `<package>_cycles`): packages or components that import each other in a loop, with the size of the loop.
 
-Every connection stays in the model. A view hides the weakest ones (tagged `lt2`, `lt3`, ... by import count) until it has about as many lines as a terminal can show, and its description says so; select a component to see all of its connections. Views meant to be opened directly (the complete listings and the cycle reports) are named under `entries` in `pathlight.activity.json`, so `pathlight check` does not count them as a second entry point.
+Every connection stays in the model. A view hides the weakest ones (tagged `lt2`, `lt3`, ... by import count) until it has about as many lines as a terminal can show, and its description says so; select a component to see all of its connections. Views meant to be opened directly (the complete listings and the cycle reports) are named under `entries` in `.pathlight/pathlight.activity.json`, so `pathlight check` does not count them as a second entry point.
 
-Better names and notes go in `pathlight.overlay.json` beside the draft, which a rerun applies and never overwrites: `{"version":1,"elements":{"packages/core/src/session":{"title":"Sessions","note":"Runs one conversation turn"}}}`. Entries are keyed by what the code is (package directory, folder path, file path, or `<directory>#small` / `<directory>#loose` for a collection), so a name keeps applying when a generated id changes. Keys that match nothing are listed after each run. Titles (60 characters) and notes (300): files, relationships and ids always come from the code.
+Better names and notes go in `.pathlight/pathlight.overlay.json` beside the draft, which a rerun applies and never overwrites: `{"version":1,"elements":{"packages/core/src/session":{"title":"Sessions","note":"Runs one conversation turn"}}}`. Entries are keyed by what the code is (package directory, folder path, file path, or `<directory>#small` / `<directory>#loose` for a collection), so a name keeps applying when a generated id changes. Keys that match nothing are listed after each run. Titles (60 characters) and notes (300): files, relationships and ids always come from the code.
 
 Beyond names, the overlay can correct the structure. `"merges":[{"title":"Data store","keys":["packages/core/src/database","packages/core/src/style"],"by":"human"}]` makes those folders one top-level component; `"splits":[{"key":"packages/core/src/session","by":"agent"}]` makes a folder one component per subfolder (plus one for the files directly in it); `"relationships":[{"from":"packages/core#loose","to":"packages/core/src/database","title":"reads and writes rows","by":"human"}]` labels an arrow that imports already support (the import count moves to its description). Every entry may say who made the decision with `"by":"human"` or `"by":"agent"`. An entry that contradicts the code (a merge of a folder that is gone or already merged, a split of a folder with no subfolders, a title for an arrow no import supports) is skipped and listed after the run, never drawn. A `human` entry is a pin: if it differs from the last commit's overlay (or was removed), `draft` says so and leaves the decision to the person. Merges and splits work on folder components, not on single loose files.
 
@@ -169,7 +169,7 @@ OpenCode status: `tests/opencode-live.test.ts` runs the real OpenCode binary (`-
 
 ## Observe live activity
 
-Place `pathlight.activity.json` in the agent's workspace. This repository includes a mapping to its own `viewer` LikeC4 project.
+Place `.pathlight/pathlight.activity.json` in the agent's workspace. This repository includes a mapping to its own `viewer` LikeC4 project.
 Mappings use workspace-relative path globs and exact LikeC4 element IDs:
 
 ```json

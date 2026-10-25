@@ -69,12 +69,13 @@ test("a draft rerun leaves a behavior file beside it alone", async () => {
     await mkdir(join(directory, "src/a"), { recursive: true });
     for (const file of ["x", "y", "z", "w"]) await writeFile(join(directory, "src/a", `${file}.ts`), "export const v = 1;\n");
     const behavior = "specification {\n  element flow\n  element state\n  tag behavior\n}\nmodel {\n  steps = flow 'Steps' {\n    #behavior\n    start = state 'Start'\n  }\n}\nviews {\n  view steps of steps {\n    include *\n  }\n}\n";
-    await writeFile(join(directory, "flow.behavior.c4"), behavior);
+    await mkdir(join(directory, ".pathlight"), { recursive: true });
+    await writeFile(join(directory, ".pathlight", "flow.behavior.c4"), behavior);
     await run(process.execPath, [resolve("src/cli.ts"), "draft", "--workspace", directory]);
     await run(process.execPath, [resolve("src/cli.ts"), "draft", "--workspace", directory]);
-    expect(await readFile(join(directory, "flow.behavior.c4"), "utf8")).toBe(behavior);
+    expect(await readFile(join(directory, ".pathlight", "flow.behavior.c4"), "utf8")).toBe(behavior);
     expect(await run(process.execPath, [resolve("src/cli.ts"), "list", "--workspace", directory])).toContain("steps");
-    expect(await readFile(join(directory, "pathlight.model.c4"), "utf8")).toContain("exclude * where tag is #behavior");
+    expect(await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8")).toContain("exclude * where tag is #behavior");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

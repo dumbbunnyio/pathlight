@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import plugin from "../plugins/opencode/index";
-import { readActivity, run } from "./effects";
+import { readActivity, run, mappingIn } from "./effects";
 
 // The plugin runs the `pathlight` binary, as a user who installed it has on the PATH.
 const withPathlight = async () => {
@@ -29,7 +29,7 @@ test("the OpenCode plugin registers its tools, asks permission, opens a viewer, 
   const restore = await withPathlight();
   try {
     await cp("tests/fixtures/viewer", workspace, { recursive: true });
-    await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(mappingIn(workspace), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/**", element: "activity" }] }));
     const context = {
       location: { directory: workspace },
@@ -91,7 +91,7 @@ test("with record: true the plugin records root sessions in its workspace withou
   let cleanup: void | (() => Promise<void> | void) = undefined;
   try {
     await cp("tests/fixtures/viewer", workspace, { recursive: true });
-    await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "activity" }] }));
+    await writeFile(mappingIn(workspace), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "activity" }] }));
     const sessions: Record<string, { location: { directory: string }; parentID?: string }> = {
       root: { location: { directory: workspace } }, child: { location: { directory: workspace }, parentID: "root" }, other: { location: { directory: elsewhere } },
     };

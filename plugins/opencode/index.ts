@@ -16,7 +16,7 @@ const Show = z.object({
   project: z.string().optional(),
   pane: z.string().regex(/^%\d+$/).describe("The user's tmux pane ID. Obtain it from their terminal context, not the background server environment."),
   socket: z.string().optional().describe("tmux server socket path, if not using the default server."),
-  live: z.boolean().default(false).describe("Observe this session's tool activity. Requires pathlight.activity.json in the workspace."),
+  live: z.boolean().default(false).describe("Observe this session's tool activity. Requires .pathlight/pathlight.activity.json in the workspace."),
 }).strict();
 
 export default Plugin.define({

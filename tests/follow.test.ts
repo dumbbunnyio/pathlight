@@ -6,7 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { Effect } from "effect";
 import { latestBinding } from "../src/activity";
 import { claudeSettings, proposeMappings } from "../src/init";
-import { run, toolActivity, writeActivity } from "./effects";
+import { run, toolActivity, writeActivity, mappingIn } from "./effects";
 
 test("follow picks the most recently active session in this workspace only", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-latest-"));
@@ -41,7 +41,7 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await mkdir(join(directory, "src"));
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/activity.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "follow-test", "-x", "130", "-y", "42", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory, "--follow");

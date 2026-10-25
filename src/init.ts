@@ -4,6 +4,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { acquireModel } from "./catalog";
+import { mappingPath } from "./layout";
 import { hasCode, io, json, failure } from "./effects";
 
 import pathlightSkill from "../plugins/claude/skills/pathlight/SKILL.md" with { type: "text" };
@@ -103,8 +104,8 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
   notes.push(options.claudeHooks ? `Skills: ${skills.join(", ")} written to .claude/skills (Claude Code; OpenCode documents reading it too).`
     : `Skills: ${skills.join(", ")} written to .agents/skills for OpenCode (the Claude plugin supplies them to Claude Code).`);
 
-  const configPath = join(workspace, "pathlight.activity.json");
-  if (yield* readOptional(configPath)) notes.push("Activity: kept existing pathlight.activity.json.");
+  const configPath = mappingPath(workspace);
+  if (yield* readOptional(configPath)) notes.push("Activity: kept existing .pathlight/pathlight.activity.json.");
   else {
     const proposal = yield* Effect.gen(function* () {
       const source = yield* acquireModel(workspace);
@@ -114,10 +115,10 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
       const elements = [...model.elements()].map(element => ({ id: String(element.id), title: element.title }));
       return { project, mappings: proposeMappings(elements, yield* listFiles(workspace)), elements: elements.length };
     }).pipe(Effect.scoped, Effect.catch(() => Effect.succeed(undefined)));
-    if (!proposal) notes.push("Activity: no LikeC4 project found, so pathlight.activity.json was not created.");
+    if (!proposal) notes.push("Activity: no LikeC4 project found, so .pathlight/pathlight.activity.json was not created.");
     else {
       yield* writeText(configPath, `${JSON.stringify({ version: 1, project: proposal.project, mappings: proposal.mappings }, null, 2)}\n`);
-      notes.push(`Activity: mapped ${proposal.mappings.length} of ${proposal.elements} elements by matching names on disk. Review pathlight.activity.json and add globs for the rest.`);
+      notes.push(`Activity: mapped ${proposal.mappings.length} of ${proposal.elements} elements by matching names on disk. Review .pathlight/pathlight.activity.json and add globs for the rest.`);
     }
   }
 

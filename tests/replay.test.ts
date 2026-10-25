@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { Effect } from "effect";
 import { readReplay, replayOf, turnActivity, type ActivityEvent } from "../src/activity";
-import { claudeActivity, run, toolActivity, writeActivity } from "./effects";
+import { claudeActivity, run, toolActivity, writeActivity, mappingIn } from "./effects";
 
 const binding = { source: "claude", session: "sess" } as const;
 const event = (call: string, time: number, phase: ActivityEvent["phase"] = "completed", path = "src/a.ts"): ActivityEvent =>
@@ -47,7 +47,7 @@ test("p replays the session: steps, turns, play and exit", async () => {
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [
       { glob: "src/activity.ts", element: "activity" }, { glob: "src/launcher.ts", element: "launcher" }] }));
     const at = (call: string, file: string, time: number) => writeActivity(directory, { ...toolActivity(directory, binding, call, "Read", { file_path: join(directory, file) }, "completed"), time });
     const now = Date.now();

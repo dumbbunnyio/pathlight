@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { mappingIn } from "./effects";
 
 let directory: string;
 let workspace: string;
@@ -59,7 +60,7 @@ test("follow and a bound session are mutually exclusive", async () => {
 });
 
 test("rejects activity mappings to nonexistent architecture elements before opening a pane", async () => {
-  await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel",
+  await writeFile(mappingIn(workspace), JSON.stringify({ version: 1, project: "parcel",
     mappings: [{ glob: "src/**", element: "parcel.nonexistent" }] }));
   const result = await invoke("show", "index", "--workspace", workspace, "--pane", "%0",
     "--socket", join(directory, "no-server.sock"), "--session", "test-session");
@@ -67,7 +68,7 @@ test("rejects activity mappings to nonexistent architecture elements before open
   expect(result.stderr).toContain("Unknown activity element 'parcel.nonexistent'");
   const foreground = await invoke("view", "index", "--workspace", workspace, "--session", "test-session");
   expect(foreground.stderr).toContain("Unknown activity element 'parcel.nonexistent'");
-  await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "wrong-project", mappings: [] }));
+  await writeFile(mappingIn(workspace), JSON.stringify({ version: 1, project: "wrong-project", mappings: [] }));
   expect((await invoke("view", "index", "--workspace", workspace, "--session", "test-session")).stderr)
     .toContain("Activity mapping project must match");
 });
@@ -79,7 +80,7 @@ test("init can skip the project-local Claude hooks for plugin users", async () =
   expect(result.code).toBe(0);
   expect(result.stdout).toContain("no local hooks written");
   expect(await Bun.file(join(project, ".claude", "settings.local.json")).exists()).toBe(false);
-  expect(await Bun.file(join(project, "pathlight.activity.json")).exists()).toBe(true);
+  expect(await Bun.file(mappingIn(project)).exists()).toBe(true);
   // The plugin supplies the skill to Claude Code, so only the cross-agent location gets a copy.
   expect(await Bun.file(join(project, ".claude", "skills", "pathlight", "SKILL.md")).exists()).toBe(false);
   expect(await Bun.file(join(project, ".agents", "skills", "pathlight", "SKILL.md")).text()).toBe(await Bun.file("plugins/claude/skills/pathlight/SKILL.md").text());
@@ -137,7 +138,7 @@ test("show and open take the project from pathlight.activity.json when the works
   // Without a mapping, `index` is ambiguous when both projects have one.
   const bare = await invoke("open", "--workspace", project, "--split", ...missing);
   // With one, the mapped project is used: the failure is now the missing tmux server, not the ambiguity.
-  await writeFile(join(project, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [] }));
+  await writeFile(mappingIn(project), JSON.stringify({ version: 1, project: "viewer", mappings: [] }));
   const mapped = await invoke("open", "--workspace", project, "--split", ...missing);
   expect(mapped.stderr).not.toContain("multiple projects");
   // A view that exists only in the other project is still found without --project.

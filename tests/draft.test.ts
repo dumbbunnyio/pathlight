@@ -7,6 +7,7 @@ import { checkWorkspace } from "../src/check";
 import { listViews } from "../src/catalog";
 import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, viewCap, witness } from "../src/draft";
 import { readdir } from "node:fs/promises";
+import { mappingIn, overlayIn } from "./effects";
 
 const write = async (root: string, files: Record<string, string>) => {
   for (const [path, text] of Object.entries(files)) {
@@ -84,7 +85,7 @@ test("draft writes a model LikeC4 accepts and `check` finds nothing wrong with, 
     await write(directory, monorepo);
     const made = await Effect.runPromise(draftWorkspace(directory));
     expect(made).toMatchObject({ packages: 2, components: 5, collections: 1, relationships: 3, ignored: 1 });
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model.startsWith(generatedMarker)).toBe(true);
     const views = await Effect.runPromise(listViews(directory));
     expect(overviews(views.views)).toEqual(["core_components", "core_small_components", "index", "schema_components"]);
@@ -94,7 +95,7 @@ test("draft writes a model LikeC4 accepts and `check` finds nothing wrong with, 
     expect(check.summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
     // Rerunning replaces its own previous output with identical text.
     await Effect.runPromise(draftWorkspace(directory));
-    expect(await readFile(join(directory, "pathlight.model.c4"), "utf8")).toBe(model);
+    expect(await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8")).toBe(model);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -115,7 +116,7 @@ test("a view with too many connections hides the weakest tier, says so, and the 
     await write(directory, files);
     const made = await Effect.runPromise(draftWorkspace(directory));
     expect(made).toMatchObject({ packages: 0, components: 30, relationships: 57 });
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model).toContain("exclude * -> * where tag is #lt2");
     expect(model).toContain("description 'Connections with fewer than 2 imports are hidden here.");
     expect(model.split("\n").filter(line => line.startsWith("  f") && line.includes(" -> ")).length).toBe(57);
@@ -171,7 +172,7 @@ test("a root package whose folder also holds other packages claims only its own 
       "packages/orphan/x.ts": `export const orphan = 1;\n`, "packages/orphan/y.ts": `export const y = 1;\n`, "packages/orphan/z.ts": `export const z = 1;\n`,
     });
     await Effect.runPromise(draftWorkspace(directory));
-    const mapping = JSON.parse(await readFile(join(directory, "pathlight.activity.json"), "utf8")) as { mappings: { glob: string; element: string }[] };
+    const mapping = JSON.parse(await readFile(mappingIn(directory), "utf8")) as { mappings: { glob: string; element: string }[] };
     expect(mapping.mappings.some(item => item.glob === "packages/**")).toBe(false);
     const owners = (path: string) => mapping.mappings.filter(item => new Bun.Glob(item.glob).match(path)).map(item => item.element);
     for (const path of ["packages/a/src/one.ts", "packages/orphan/x.ts", "packages/orphan/z.ts"]) expect([path, owners(path).length]).toEqual([path, 1]);
@@ -194,7 +195,7 @@ test("imports of stylesheets count, and a test inside a claimed folder is not ev
       "src/ui/a.test.ts": `import { d } from "../data/d";\nexport const t = d;\n`,
     });
     await Effect.runPromise(draftWorkspace(directory));
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model).toContain("ui -> styles '1 import'");
     expect(model).not.toContain("ui -> data");
     const check = await Effect.runPromise(checkWorkspace(directory));
@@ -266,10 +267,10 @@ test("a workspace with an import loop gets a cycles view naming its size, and it
     files["src/d/f1.ts"] = `import "../a/f2";\n`;
     await write(directory, files);
     await Effect.runPromise(draftWorkspace(directory));
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model).toContain("view cycles {");
     expect(model).toContain("3 in one loop.");
-    const config = JSON.parse(await readFile(join(directory, "pathlight.activity.json"), "utf8")) as { entries?: string[] };
+    const config = JSON.parse(await readFile(mappingIn(directory), "utf8")) as { entries?: string[] };
     expect(config.entries).toEqual(["cycles"]);
     const views = await Effect.runPromise(listViews(directory));
     expect(overviews(views.views)).toEqual(["cycles", "index"]);
@@ -295,7 +296,7 @@ test("a loop of many components that all import each other is reported by its sh
     }
     await write(directory, files);
     await Effect.runPromise(draftWorkspace(directory));
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     const cycles = model.slice(model.indexOf("view cycles {"), model.indexOf("}", model.indexOf("view cycles {")) + 1);
     expect(cycles).toContain(`${count} in one loop.`);
     // 182 lines cannot be read or laid out. The model keeps all of them, and the report draws only the shortest loop through each member.
@@ -319,7 +320,7 @@ test("a hub with more neighbours than a view holds lists its strongest and says 
     for (let n = 0; n < spokes; n++) for (const leaf of ["a", "b", "c"]) files[`src/s${String(n).padStart(2, "0")}/${leaf}.ts`] = leaf === "a" ? `import "../hub/a";\n` : `export const ${leaf} = 1;\n`;
     await write(directory, files);
     await Effect.runPromise(draftWorkspace(directory));
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model).toContain(`the ${viewCap} strongest of ${spokes} neighbours.`);
     const check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.summary).toMatchObject({ undeclared: 0, unlinkedViews: 0, unmappedFiles: 0 });
@@ -332,9 +333,9 @@ test("draft never rewrites a model you wrote, and writes elsewhere when asked", 
   const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-own-"));
   const elsewhere = await mkdtemp(join(tmpdir(), "pathlight-draft-out-"));
   try {
-    await write(directory, { ...monorepo, "architecture.c4": "specification { element component }\nmodel { a = component 'A' }\n" });
+    await write(directory, { ...monorepo, ".pathlight/architecture.c4": "specification { element component }\nmodel { a = component 'A' }\n" });
     await expect(Effect.runPromise(draftWorkspace(directory))).rejects.toThrow("never rewritten");
-    expect(await readFile(join(directory, "architecture.c4"), "utf8")).toContain("component 'A'");
+    expect(await readFile(join(directory, ".pathlight", "architecture.c4"), "utf8")).toContain("component 'A'");
     await Effect.runPromise(draftWorkspace(directory, { out: elsewhere }));
     expect(await readFile(join(elsewhere, "pathlight.model.c4"), "utf8")).toContain(generatedMarker);
   } finally {
@@ -355,10 +356,10 @@ test("the overlay renames and annotates by what the code is, keeps applying when
         "packages/gone/src/old": { title: "Old" },
       },
     };
-    await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify(overlay));
+    await writeFile(overlayIn(directory), JSON.stringify(overlay));
     const first = await Effect.runPromise(draftWorkspace(directory));
     expect(first).toMatchObject({ overlay: 2, unknown: ["packages/gone/src/old"] });
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model).toContain("package 'Core'");
     expect(model).toContain("component 'Sessions'");
     expect(model).toContain("Sessions and storage · ");
@@ -368,11 +369,11 @@ test("the overlay renames and annotates by what the code is, keeps applying when
     // Two more files move `session` out of the small collection: its id changes, its name stays.
     await write(directory, { "packages/core/src/session/a.ts": "export const a = 1;\n", "packages/core/src/session/b.ts": "export const b = 1;\n" });
     await Effect.runPromise(draftWorkspace(directory));
-    const after = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const after = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(after).not.toContain("small.session");
     expect(after).toContain("session = component 'Sessions'");
     // The overlay is never rewritten by a draft.
-    expect(JSON.parse(await readFile(join(directory, "pathlight.overlay.json"), "utf8"))).toEqual(overlay);
+    expect(JSON.parse(await readFile(overlayIn(directory), "utf8"))).toEqual(overlay);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -388,7 +389,7 @@ test("an invalid overlay stops the draft instead of being half applied", async (
       { version: 1, elements: { "packages/core": { note: "line\nbreak" } } },
       { version: 2, elements: {} },
     ]) {
-      await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify(bad));
+      await writeFile(overlayIn(directory), JSON.stringify(bad));
       await expect(Effect.runPromise(draftWorkspace(directory))).rejects.toBeDefined();
     }
   } finally {
@@ -399,7 +400,7 @@ test("an invalid overlay stops the draft instead of being half applied", async (
 const withOverlay = async (files: Record<string, string>, overlay: unknown) => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-structure-"));
   await write(directory, files);
-  await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify(overlay));
+  await writeFile(overlayIn(directory), JSON.stringify(overlay));
   return directory;
 };
 
@@ -408,10 +409,10 @@ test("an overlay merge makes several folders one top-level component, and the mo
   try {
     const made = await Effect.runPromise(draftWorkspace(directory));
     expect(made.problems).toEqual([]);
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model).toContain("data_store = component 'Data store'");
     expect(model).not.toContain("= component 'database'");
-    const config = JSON.parse(await readFile(join(directory, "pathlight.activity.json"), "utf8")) as { mappings: { glob: string; element: string }[] };
+    const config = JSON.parse(await readFile(mappingIn(directory), "utf8")) as { mappings: { glob: string; element: string }[] };
     expect(config.mappings.filter(item => item.element === "core.data_store").map(item => item.glob).sort()).toEqual(["packages/core/src/database/**", "packages/core/src/style/**"]);
     // session imports database: the arrow now ends at the merged component.
     expect(model).toContain("core.session -> core.data_store");
@@ -432,9 +433,9 @@ test("an overlay split gives each subfolder its own component and every file exa
   try {
     const made = await Effect.runPromise(draftWorkspace(directory));
     expect(made.problems).toEqual([]);
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     for (const title of ["big/a", "big/b", "big (files)"]) expect(model).toContain(`component '${title}'`);
-    const config = JSON.parse(await readFile(join(directory, "pathlight.activity.json"), "utf8")) as { mappings: { glob: string; element: string }[] };
+    const config = JSON.parse(await readFile(mappingIn(directory), "utf8")) as { mappings: { glob: string; element: string }[] };
     expect(config.mappings.map(item => item.element)).toContain("big_b");
     for (const path of Object.keys(files).filter(name => name.startsWith("src/"))) {
       const owners = new Set(config.mappings.filter(item => new Bun.Glob(item.glob).match(path)).map(item => item.element));
@@ -453,7 +454,7 @@ test("a pinned relationship title labels an arrow imports support, and the count
   try {
     const made = await Effect.runPromise(draftWorkspace(directory));
     expect(made.problems).toEqual([]);
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model).toMatch(/core\.root -> core\.small\.database 'reads and writes rows' \{\n    #lt2[^\n]*\n    description '1 import'/);
     expect((await Effect.runPromise(checkWorkspace(directory))).summary).toMatchObject({ unsupported: 0, undeclared: 0 });
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -473,7 +474,7 @@ test("overlay entries that contradict the code are skipped and reported, never d
     expect(made.problems.some(text => text.startsWith("split 'packages/core/src/session'") && text.includes("no subfolders"))).toBe(true);
     expect(made.problems.some(text => text.includes("no import runs from the first to the second"))).toBe(true);
     expect(made.problems.some(text => text.includes("is not a component of the draft"))).toBe(true);
-    const model = await readFile(join(directory, "pathlight.model.c4"), "utf8");
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model).not.toContain("invented");
     expect(model).not.toContain("Ghosts");
     expect(model).not.toContain("Twice");
@@ -490,11 +491,11 @@ test("draft reports a human pin that differs from the last commit, and says noth
     await git("init", "-q"); await git("add", "-A"); await git("commit", "-q", "-m", "pins");
     expect((await Effect.runPromise(draftWorkspace(directory))).pins).toEqual([]);
     // The agent's entry can change freely; the human one cannot be altered or dropped unnoticed.
-    await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify({ ...pinned, splits: [] }));
+    await writeFile(overlayIn(directory), JSON.stringify({ ...pinned, splits: [] }));
     expect((await Effect.runPromise(draftWorkspace(directory))).pins).toEqual([]);
-    await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify({ ...pinned, merges: [{ title: "Data store", keys: ["packages/core/src/database", "packages/core/src/style"] }] }));
+    await writeFile(overlayIn(directory), JSON.stringify({ ...pinned, merges: [{ title: "Data store", keys: ["packages/core/src/database", "packages/core/src/style"] }] }));
     expect((await Effect.runPromise(draftWorkspace(directory))).pins).toEqual(["merge 'Data store' (pinned by a human) differs from the last commit or is gone"]);
-    await writeFile(join(directory, "pathlight.overlay.json"), JSON.stringify({ version: 1, elements: {} }));
+    await writeFile(overlayIn(directory), JSON.stringify({ version: 1, elements: {} }));
     expect((await Effect.runPromise(draftWorkspace(directory))).pins.length).toBe(1);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 30_000);

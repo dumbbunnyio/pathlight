@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { staleText } from "../src/stale";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 const cli = (...args: string[]) => run(process.execPath, [resolve("src/cli.ts"), ...args]);
 const stamp = async (directory: string) => JSON.parse(await readFile(join(directory, ".cache/pathlight/stale.json"), "utf8")) as Record<string, number> & { invalid?: boolean };
@@ -16,7 +16,7 @@ const workspace = async () => {
   await writeFile(join(directory, "src/launcher.ts"), "export const l = 1;\n");
   // A source file the mapping does not claim: the model is out of date by one file.
   await writeFile(join(directory, "src/extra.ts"), "import { l } from './launcher';\nexport const e = l;\n");
-  await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/launcher.ts", element: "launcher" }] }));
+  await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/launcher.ts", element: "launcher" }] }));
   return directory;
 };
 
@@ -29,7 +29,7 @@ test("every check records its counts, quietly when asked, and the badge text nam
     expect(staleText({ version: 1, time: 0, unmapped: 0, unmatched: 0, unsupported: 0, undeclared: 0 })).toBeUndefined();
     expect(staleText(undefined)).toBeUndefined();
     // Mapping the file clears it.
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "launcher" }] }));
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "launcher" }] }));
     await cli("check", "--workspace", directory, "--quiet");
     expect(await stamp(directory)).toMatchObject({ unmapped: 0 });
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -78,7 +78,7 @@ test("the viewer shows an out-of-date badge from the last check and drops it onc
     const screen = await until(text => text.includes("out of date"), "badge");
     expect(screen).toContain("1 file not in the model");
     expect(screen).toMatch(/checked (just now|<1m ago)/);
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "launcher" }] }));
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "launcher" }] }));
     await cli("check", "--workspace", directory, "--quiet");
     const clean = await until(text => !text.includes("out of date") && text.includes("in sync"), "badge gone");
     expect(clean).toMatch(/in sync · checked (just now|<1m ago)/);
@@ -91,7 +91,7 @@ test("the viewer shows an out-of-date badge from the last check and drops it onc
 test("a check that cannot run because the model is broken is recorded, so the badge stops saying in sync; the next good check clears it", async () => {
   const directory = await workspace();
   try {
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "launcher" }] }));
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "src/**", element: "launcher" }] }));
     await cli("check", "--workspace", directory, "--quiet");
     expect(await stamp(directory)).toMatchObject({ unmapped: 0 });
     expect((await stamp(directory)).invalid).toBeUndefined();

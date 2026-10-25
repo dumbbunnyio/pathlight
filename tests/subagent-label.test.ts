@@ -3,7 +3,7 @@ import { appendFile, cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { run, toolActivity, writeActivity } from "./effects";
+import { run, toolActivity, writeActivity, mappingIn } from "./effects";
 
 // A subagent's calls arrive in the conversation's journal; they are shown with its type, and `s` hides them.
 test("subagent calls carry their label in the activity list and s hides them", async () => {
@@ -13,7 +13,7 @@ test("subagent calls carry their label in the activity list and s hides them", a
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await appendFile(join(directory, "model.c4"), "\nviews {\n  view small {\n    title 'Launch path'\n    include launcher, viewer, activity\n    autoLayout LeftRight\n  }\n}\n");
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [
       { glob: "src/activity.ts", element: "activity" }, { glob: "src/launcher.ts", element: "launcher" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "subagent", "-x", "140", "-y", "40", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "small", "--select", "activity", "--workspace", directory, "--session", "sub", "--source", "claude");

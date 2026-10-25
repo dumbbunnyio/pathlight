@@ -952,7 +952,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       });
     };
     walk(root, "", true);
-    if (!paths.length) fileChunks.push(fg(palette.border)(fileError || (config ? "No files mapped" : "Map files in pathlight.activity.json")));
+    if (!paths.length) fileChunks.push(fg(palette.border)(fileError || (config ? "No files mapped" : "Map files in .pathlight/pathlight.activity.json")));
     else if (touchedAny) fileChunks.push(fg(palette.border)("● touched this session"));
     contentRows.files = fileChunks.filter(chunk => chunk.text.includes("\n")).length + (paths.length && touchedAny ? 1 : 0) + (paths.length ? 0 : 1);
     filesText.content = new StyledText(fileChunks);

@@ -33,17 +33,17 @@ The import reader is compared in the tests with Bun's own scanner on this reposi
 
 # Check
 
-`pathlight check [--workspace PATH] [--json] [--strict]` compares a workspace's LikeC4 model and `pathlight.activity.json` with a fresh scan. It is the validator for a model an agent drafted from the scan, and it catches drift when the code changes and the model does not. Like the scan, everything in it is static evidence: a finding is something to look at, not a verdict.
+`pathlight check [--workspace PATH] [--json] [--strict]` compares a workspace's LikeC4 model and `.pathlight/pathlight.activity.json` with a fresh scan. It is the validator for a model an agent drafted from the scan, and it catches drift when the code changes and the model does not. Like the scan, everything in it is static evidence: a finding is something to look at, not a verdict.
 
 An element's files are those its mappings match; for a relationship, the files of everything *inside* an element count too, so a relationship on a group is supported by imports between its children's files.
 
 | Section | Meaning |
 | --- | --- |
-| `mappings.shared`, `mappings.sharedImports` | The elements `shared` names in `pathlight.activity.json` (anything may import them, so no relationship is expected) and how many imports into them were left out of `undeclared`. |
+| `mappings.shared`, `mappings.sharedImports` | The elements `shared` names in `.pathlight/pathlight.activity.json` (anything may import them, so no relationship is expected) and how many imports into them were left out of `undeclared`. |
 | `size` | Files per element, largest first. An element with at least 15 files and a quarter or more of all mapped files is `large`, with the folders inside it. A hint that it may be several things, not a verdict. |
 | `wide` | Elements with more than 9 direct children, which a reader meets side by side. A hint to group them. |
 | `views` | `entries` are the written views no `navigateTo` points to. A diagram normally has one, so more than one is reported as `unlinkedViews`. LikeC4's generated Landscape index is not counted. |
-| `mappings.ignored` | Source files left out of "unmapped" by the optional `ignore` list in `pathlight.activity.json` (globs for tests, vendored or generated code that is deliberately outside the model). Only `check` reads it; activity mapping is unchanged. |
+| `mappings.ignored` | Source files left out of "unmapped" by the optional `ignore` list in `.pathlight/pathlight.activity.json` (globs for tests, vendored or generated code that is deliberately outside the model). Only `check` reads it; activity mapping is unchanged. |
 | `mappings.unmatched` | A mapping whose glob matches no file in the workspace. |
 | `mappings.unmappedFiles` | Scanned source files that no mapping claims, so activity on them lights nothing. |
 | `relationships` | Each relationship in the model with a `status`: `supported` (an import connects the two elements' files), `unsupported` (none does) or `unverifiable` (an end has no mapped files). |

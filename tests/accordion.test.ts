@@ -3,7 +3,7 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 test("a number focuses an inspector section: move within it, act on an item, fold it with Space, leave with Esc", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-accordion-"));
@@ -13,7 +13,7 @@ test("a number focuses an inspector section: move within it, act on an item, fol
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await mkdir(join(directory, "plugins"));
     for (const name of ["a", "b", "c"]) await writeFile(join(directory, "plugins", `${name}.ts`), "x\n");
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "acc", "-x", "150", "-y", "44", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory);
     const screen = () => tmux("capture-pane", "-p", "-t", pane);

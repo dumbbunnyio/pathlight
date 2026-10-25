@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { run, toolActivity, writeActivity } from "./effects";
+import { run, toolActivity, writeActivity, mappingIn } from "./effects";
 
 test("search, hierarchy, and linked views preserve the Three camera and bound activity", async () => {
   const directory = await mkdtemp("/tmp/opencode/three-navigation-");
@@ -11,7 +11,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
     await mkdir(join(directory, "src"));
     await writeFile(join(directory, "src/api.ts"), "export {};\n");
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel",
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "parcel",
       mappings: [{ glob: "src/api.ts", element: "parcel.commerce.api" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "navigation", "-x", "180", "-y", "46",
       "-e", "VISUAL=nvim -u NONE -i NONE -n", "-P", "-F", "#{pane_id}", process.execPath, resolve("src/cli.ts"), "view", "services",

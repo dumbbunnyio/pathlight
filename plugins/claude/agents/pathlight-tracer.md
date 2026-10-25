@@ -9,7 +9,7 @@ You trace one path through a codebase and record it as a pathlight journey. You 
 
 Follow the pathlight-behavior skill (plugins/claude/skills/pathlight-behavior/SKILL.md, or the copy in `.claude/skills` or `.agents/skills`). In short:
 
-1. Find the components: `pathlight list --workspace .` and the LikeC4 model give the ids; `pathlight.activity.json` maps files to them.
+1. Find the components: `pathlight list --workspace .` and the LikeC4 model give the ids; `.pathlight/pathlight.activity.json` maps files to them.
 2. Start at the entry point the question names and follow the code outward. Open the files. For each hop you will use, you must be able to point to the file and line where one component calls or hands off to the next.
 3. Drop any hop you cannot point to. Do not guess, and do not fill a gap to make the picture complete.
 4. Record it with one command, using the ids exactly as the model spells them and the files you actually read:

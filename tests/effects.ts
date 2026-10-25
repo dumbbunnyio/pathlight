@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { Effect } from "effect";
 import * as Activity from "../src/activity";
 import * as Claude from "../src/claude";
@@ -15,3 +17,7 @@ export const readActivity = (...args: Parameters<typeof Activity.readActivity>) 
 export const writeActivity = (...args: Parameters<typeof Activity.writeActivity>) => Effect.runPromise(Activity.writeActivity(...args));
 export const toolActivity = (...args: Parameters<typeof Activity.toolActivity>) => Effect.runSync(Activity.toolActivity(...args));
 export const claudeActivity = (...args: Parameters<typeof Claude.claudeActivity>) => Effect.runPromise(Claude.claudeActivity(...args));
+
+// Pathlight keeps what it writes in one folder of the workspace; these make the folder when a test writes there.
+export const mappingIn = (directory: string) => { mkdirSync(join(directory, ".pathlight"), { recursive: true }); return join(directory, ".pathlight", "pathlight.activity.json"); };
+export const overlayIn = (directory: string) => { mkdirSync(join(directory, ".pathlight"), { recursive: true }); return join(directory, ".pathlight", "pathlight.overlay.json"); };

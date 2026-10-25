@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { readActivity } from "./effects";
+import { readActivity, mappingIn } from "./effects";
 
 const hookCommand = async () => {
   const manifest = JSON.parse(await readFile("plugins/claude/hooks/hooks.json", "utf8")) as { hooks: Record<string, { hooks: { command: string; async?: boolean }[] }[]> };
@@ -37,7 +37,7 @@ test("the plugin's hook records an event through the pathlight command, and cost
     // No pathlight.activity.json: the hook exits successfully and records nothing.
     await fire();
     expect(await readActivity(workspace, { source: "claude", session: "plugin-session" })).toEqual([]);
-    await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "p", mappings: [] }));
+    await writeFile(mappingIn(workspace), JSON.stringify({ version: 1, project: "p", mappings: [] }));
     await fire();
     expect((await readActivity(workspace, { source: "claude", session: "plugin-session" })).map(event => [event.tool, event.phase, [...event.paths]]))
       .toEqual([["Read", "completed", ["src/a.ts"]]]);

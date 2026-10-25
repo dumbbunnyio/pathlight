@@ -3,7 +3,7 @@ import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/pro
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 import { activityDirectory, toolActivity, writeActivity } from "./effects";
 
 test("mapped files filter without live recording and round-trip through a real terminal editor", async () => {
@@ -16,7 +16,7 @@ test("mapped files filter without live recording and round-trip through a real t
     const filename = "src/it's a file.ts";
     await writeFile(join(directory, filename), "initial\n");
     for (const name of ["b", "c", "d", "e", "f"]) await writeFile(join(directory, "src", `${name}.ts`), "initial\n");
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/**", element: "plugin" }, { glob: "src/b.ts", element: "plugin" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "editor-test", "-x", "100", "-y", "36",
       "-P", "-F", "#{pane_id}", "env", "VISUAL=nvim -u NONE -i NONE -n", "EDITOR=nonexistent-editor",
@@ -114,7 +114,7 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/activity.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "native-test", "-x", "100", "-y", "42",
       "-P", "-F", "#{pane_id}", "sleep", "120");
@@ -292,7 +292,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     const viewsFile = join(directory, "views.c4");
     await writeFile(viewsFile, (await readFile(viewsFile, "utf8")).replace("include customer, parcel, payments, carrier, email",
       "include customer, parcel, payments, carrier, email\n include email with { navigateTo empty }") + "\nviews { view empty { title 'Empty' } }\n");
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel",
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "parcel",
       mappings: [{ glob: "src/api.ts", element: "parcel.commerce.api" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "navigation-test", "-x", "90", "-y", "36",
       "-P", "-F", "#{pane_id}", "sleep", "120");
@@ -377,7 +377,7 @@ test.each([
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel", mappings: [
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "parcel", mappings: [
       { glob: "src/api.ts", element: "parcel.commerce.api" },
       { glob: "src/system.ts", element: "parcel.commerce" },
     ] }));

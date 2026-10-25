@@ -32,8 +32,8 @@ export const doctor = Effect.fn("Doctor.run")(function* (workspace: string) {
   if (views._tag === "Some" && views.value.views.length) add({ name: "model", status: "ok", detail: `${views.value.views.length} views in ${root}` });
   else add({ name: "model", status: "fail", detail: `no LikeC4 model found in ${root}`, fix: "Run `pathlight draft --workspace .` to draw one from the code, or write a LikeC4 model." });
   const config = yield* readActivityConfig(root).pipe(Effect.option);
-  if (config._tag === "Some") add({ name: "file mapping", status: "ok", detail: `${config.value.mappings.length} mappings in pathlight.activity.json` });
-  else add({ name: "file mapping", status: "fail", detail: "pathlight.activity.json is missing or invalid", fix: "Run `pathlight draft --workspace .` (or `pathlight init`), then `pathlight check`." });
+  if (config._tag === "Some") add({ name: "file mapping", status: "ok", detail: `${config.value.mappings.length} mappings in .pathlight/pathlight.activity.json` });
+  else add({ name: "file mapping", status: "fail", detail: ".pathlight/pathlight.activity.json is missing or invalid", fix: "Run `pathlight draft --workspace .` (or `pathlight init`), then `pathlight check`." });
 
   const claude = yield* run("sh", ["-c", "command -v claude"]).pipe(Effect.option);
   if (claude._tag === "Some") {

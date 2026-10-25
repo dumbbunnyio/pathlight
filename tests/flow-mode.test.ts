@@ -3,7 +3,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 // Parcel with a journey (a dynamic view whose last step has no relationship behind it) and, optionally, a state diagram an agent wrote.
 const workspace = async (behavior: boolean) => {
@@ -24,7 +24,7 @@ views {
 `);
   await mkdir(join(directory, "src/api"), { recursive: true }); await mkdir(join(directory, "src/web"), { recursive: true });
   await writeFile(join(directory, "src/api/checkout.ts"), "x\n"); await writeFile(join(directory, "src/web/store.ts"), "x\n");
-  await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "parcel", mappings: [
+  await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "parcel", mappings: [
     { glob: "src/api/**", element: "parcel.commerce.api" }, { glob: "src/web/**", element: "parcel.storefront" }] }));
   if (behavior) await writeFile(join(directory, "checkout.behavior.c4"), `specification {
   element flow

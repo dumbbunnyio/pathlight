@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Effect } from "effect";
 import { diffWorkspace, formatDiff } from "../src/diff";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 const git = (directory: string, ...args: string[]) => run("git", ["-C", directory, "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args]);
 const model = `specification {\n  element component\n}\nmodel {\n  a = component 'A'\n  b = component 'B'\n  c = component 'C'\n  a -> b 'uses'\n  b -> c 'uses'\n}\nviews {\n  view index {\n    include *\n  }\n}\n`;
@@ -17,7 +17,7 @@ test("diff reports relationships an import backs now and did not at the base, on
     await mkdir(join(directory, "src"), { recursive: true });
     await writeFile(join(directory, "likec4.config.json"), JSON.stringify({ name: "d" }));
     await writeFile(join(directory, "model.c4"), model);
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "d", mappings: [
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "d", mappings: [
       { glob: "src/a.ts", element: "a" }, { glob: "src/b.ts", element: "b" }, { glob: "src/c.ts", element: "c" }] }));
     // At the base: b imports c (backs b -> c); a imports nothing.
     await writeFile(join(directory, "src/a.ts"), "export const a = 1;\n");
@@ -61,7 +61,7 @@ test("the viewer says what changed against the base commit, labelled static, and
     await mkdir(join(directory, "src"), { recursive: true });
     await writeFile(join(directory, "likec4.config.json"), JSON.stringify({ name: "d" }));
     await writeFile(join(directory, "model.c4"), model);
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "d", mappings: [
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "d", mappings: [
       { glob: "src/a.ts", element: "a" }, { glob: "src/b.ts", element: "b" }, { glob: "src/c.ts", element: "c" }] }));
     await writeFile(join(directory, "src/a.ts"), "export const a = 1;\n");
     await writeFile(join(directory, "src/b.ts"), "import { c } from './c';\nexport const b = c;\n");
@@ -94,7 +94,7 @@ test("the base commit's scan is kept, used only for the same commit and scanner 
     await mkdir(join(directory, "src"), { recursive: true });
     await writeFile(join(directory, "likec4.config.json"), JSON.stringify({ name: "d" }));
     await writeFile(join(directory, "model.c4"), model);
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "d", mappings: [
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "d", mappings: [
       { glob: "src/a.ts", element: "a" }, { glob: "src/b.ts", element: "b" }, { glob: "src/c.ts", element: "c" }] }));
     await writeFile(join(directory, "src/a.ts"), "export const a = 1;\n");
     await writeFile(join(directory, "src/b.ts"), "import { c } from './c';\nexport const b = c;\n");

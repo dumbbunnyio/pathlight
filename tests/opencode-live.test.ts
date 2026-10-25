@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { Effect } from "effect";
 import { latestBinding, readActivity, readReplay } from "../src/activity";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 // The real OpenCode V2 runtime (isolated config, `--standalone`) against a fake OpenAI-compatible model that follows a script, checked against what the
 // Claude plugin does: recording of reads, failures, edits and shell commands without a `live` request; /pathlight-open bound to the conversation before
@@ -57,7 +57,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     await mkdir(join(workspace, "src"), { recursive: true });
     await writeFile(join(workspace, "src/activity.ts"), "export {};\n");
     await writeFile(join(workspace, "src/launcher.ts"), "export {};\n");
-    await writeFile(join(workspace, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", mappings: [
+    await writeFile(mappingIn(workspace), JSON.stringify({ version: 1, project: "viewer", mappings: [
       { glob: "src/activity.ts", element: "activity" }, { glob: "src/launcher.ts", element: "launcher" }] }));
     await writeFile(join(workspace, "opencode.json"), JSON.stringify({
       $schema: "https://opencode.ai/config.json", model: "fake/m",

@@ -39,7 +39,7 @@ export function mapMessage(target: { title: string; id: string; key: string; fil
     target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   return `Improve the pathlight map for the "${clean(target.title)}" component (${clean(target.id)}): ${clean(request).slice(0, 600)} [${context}] `
-    + `Read the files, answer me here, then set its name and note in pathlight.overlay.json with "by":"agent" and run pathlight draft. Never change an entry marked "by":"human". `
+    + `Read the files, answer me here, then set its name and note in .pathlight/pathlight.overlay.json with "by":"agent" and run pathlight draft. Never change an entry marked "by":"human". `
     + `If it should be merged or split, tell me and wait for my yes before editing.`;
 }
 

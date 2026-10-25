@@ -3,7 +3,7 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 test("clicking a file row highlights it, and clicking the diagram leaves file mode instead of trapping input", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-file-click-"));
@@ -13,7 +13,7 @@ test("clicking a file row highlights it, and clicking the diagram leaves file mo
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await mkdir(join(directory, "src"));
     for (const name of ["a", "b"]) await writeFile(join(directory, "src", `${name}.ts`), "x\n");
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer",
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer",
       mappings: [{ glob: "src/**", element: "plugin" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "file-click", "-x", "150", "-y", "44", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory);

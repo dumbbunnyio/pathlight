@@ -3,7 +3,7 @@ import { appendFile, cp, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { run } from "./effects";
+import { run, mappingIn } from "./effects";
 
 // An element designed but not built is shown as such: dashed, tagged `[planned]`, counted in the header, and described under its title in the inspector.
 test("a planned element with no files is drawn as planned, and one that has files is not", async () => {
@@ -16,7 +16,7 @@ test("a planned element with no files is drawn as planned, and one that has file
     await mkdir(join(directory, "src"), { recursive: true });
     await writeFile(join(directory, "src/launcher.ts"), "export const l = 1;\n");
     await writeFile(join(directory, "src/viewer.ts"), "export const v = 1;\n");
-    await writeFile(join(directory, "pathlight.activity.json"), JSON.stringify({ version: 1, project: "viewer", planned: ["activity"], mappings: [
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", planned: ["activity"], mappings: [
       { glob: "src/launcher.ts", element: "launcher" }, { glob: "src/viewer.ts", element: "viewer" }, { glob: "src/activity.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "planned", "-x", "140", "-y", "40", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "small", "--workspace", directory);

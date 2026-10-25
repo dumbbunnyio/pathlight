@@ -63,7 +63,7 @@ Exit the editor to return to the same file selection and diagram position.
 Press Escape to return to diagram controls, or Ctrl+C to quit the viewer while browsing files.
 While the editor runs, it owns terminal input and handles its own shortcuts.
 
-The list uses direct mappings in `pathlight.activity.json`, including overlapping glob patterns.
+The list uses direct mappings in `.pathlight/pathlight.activity.json`, including overlapping glob patterns.
 It works without an activity session. A group does not inherit its children's files.
 Mappings must name the selected project. Files are sorted and deduplicated, not inferred from recent activity.
 Press Ctrl+R in the file list to find added, removed, or renamed files.
@@ -142,7 +142,7 @@ Press `g` for a list of every view in the project. Type to narrow it (fuzzy: the
 
 ## Live reload
 
-The viewer watches the workspace for changes to `.c4`/`.likec4` files, LikeC4 configuration and `pathlight.activity.json`, and rebuilds the diagram about half a second after the last change. Your selection, pan and zoom stay where they are, and a short notice lists added and removed nodes (`Model reloaded: + Billing service`).
+The viewer watches the workspace for changes to `.c4`/`.likec4` files, LikeC4 configuration and `.pathlight/pathlight.activity.json`, and rebuilds the diagram about half a second after the last change. Your selection, pan and zoom stay where they are, and a short notice lists added and removed nodes (`Model reloaded: + Billing service`).
 If the new model has errors (for example an agent is mid-edit), the viewer keeps the last good diagram and says so; it recovers on the next valid save. A new or removed view you are looking at is reported rather than dropped. Mapped files refresh with the mapping. `node_modules`, `.git` and `.cache` are ignored.
 
 ## Follow mode and the live display
@@ -177,9 +177,9 @@ Observed activity and the flow are kept apart on purpose: the flow never changes
 ### Changing the map from the viewer
 
 Two more keys on the selected box, each with its own meaning. They need a map made by `pathlight draft`, which records each element's overlay key in `.cache/pathlight/keys.json`; on a model you wrote the viewer says so and does nothing.
-- `m` asks the agent to improve the map. Same dialog shape as `t`, no toggles. The request typed into the agent's pane carries the overlay key, files and connections, and the rules: read the files, answer in chat, set the name and note in `pathlight.overlay.json` with `"by":"agent"`, run `pathlight draft`, never change a `"by":"human"` entry, and propose a merge or split in chat and wait for a yes. Use it for a box such as "loose files" whose purpose is not obvious.
+- `m` asks the agent to improve the map. Same dialog shape as `t`, no toggles. The request typed into the agent's pane carries the overlay key, files and connections, and the rules: read the files, answer in chat, set the name and note in `.pathlight/pathlight.overlay.json` with `"by":"agent"`, run `pathlight draft`, never change a `"by":"human"` entry, and propose a merge or split in chat and wait for a yes. Use it for a box such as "loose files" whose purpose is not obvious.
 - `d` asks the agent to trace a flow. Same dialog shape as `m`. The request typed into the agent's pane carries the component's files and connections and the rules: follow the `pathlight-behavior` skill, confirm each hop in a file, record it with `pathlight flow add` (which checks the components against the model and stamps the commit), preferably by handing the whole trace to the `pathlight-tracer` agent the Claude plugin ships (pinned to a mid-size model, so the reading stays out of the conversation and off a larger one), leave out any hop it cannot point to in the code, and change no product code. Nothing appears until the agent has written the journey; then `F` traces it. With no flows yet, `F` says to press `d`.
-- `n` is your own edit, with no agent: a name, Enter, a note, Enter. The viewer writes `pathlight.overlay.json` with `"by":"human"` (a pin) and reruns the draft; the model reloads on its own. A name left as the generated one is not stored, so the box keeps following its folder; leaving both empty removes your entry.
+- `n` is your own edit, with no agent: a name, Enter, a note, Enter. The viewer writes `.pathlight/pathlight.overlay.json` with `"by":"human"` (a pin) and reruns the draft; the model reloads on its own. A name left as the generated one is not stored, so the box keeps following its folder; leaving both empty removes your entry.
 This needs the viewer to have been opened with `pathlight show` (which records the parent pane); text is sent literally and the pane is checked to still exist.
 Press `a` to follow the work: while a tool runs, the viewer selects the node it belongs to (or the nearest enclosing component that is in this view) and glides the camera there, so the inspector shows that component's activity and files. It is off until you press `a`. Selecting something yourself, or panning or zooming, pauses it ("Follow paused · a to resume"); `a` again resumes, and once more turns it off. It never switches views. When the newest work is in a component this view does not show, the header offers "working in VIEW · w to go"; pressing `w` goes to the view that has it (one this view links to via `navigateTo` first, else the smallest containing view) and selects the component, and Back returns. When the inspector is short, the Activity card is the last to fold.
 

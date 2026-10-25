@@ -8,6 +8,7 @@ import { io, json, failure } from "./effects";
 import { writeReady } from "./ready";
 import { atShellPrompt, showView } from "./tmux";
 import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
+import { mappingPath } from "./layout";
 import { claudeActivity, claudeIgnores } from "./claude";
 import { initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
@@ -41,7 +42,7 @@ pathlight doctor [--workspace PATH]
 pathlight setup [--workspace PATH] [--yes]
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
-check compares the LikeC4 model and pathlight.activity.json with that scan: unmatched globs, unmapped files,
+check compares the LikeC4 model and .pathlight/pathlight.activity.json with that scan: unmatched globs, unmapped files,
 relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found. --quiet prints nothing (the Stop hook uses it); every check records its counts for the viewer's out-of-date badge.
 diff compares the relationships the imports support now with those at a git commit (default HEAD): which the working tree added or lost, and new imports with no relationship. The viewer draws them; static evidence only.
 flows checks the state diagrams an agent wrote (*.behavior.c4) against the files they name and the commit they were synced at: files that are gone or changed since, arrows with no event, decisions with one answer, states nothing reaches, states that name no file. A flow is the agent's reading, so this finds what is wrong or old, never that it is right. --strict exits 1 if anything is found.
@@ -112,7 +113,7 @@ try {
       const made = yield* draftWorkspace(values.workspace, { out: values.out, force: values.force });
       process.stdout.write(`Drew ${made.elements} elements (${made.packages ? `${made.packages} packages, ` : ""}${made.components} components${made.collections ? `, ${made.collections} collections` : ""}) and ${made.relationships} relationships from the imports.\n`
         + `${made.mappings} file mappings; ${made.ignored} test files left out.\nWrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in ${made.target}.\n`
-        + (made.overlay ? `Applied ${made.overlay} names or notes from pathlight.overlay.json.\n` : "")
+        + (made.overlay ? `Applied ${made.overlay} names or notes from .pathlight/pathlight.overlay.json.\n` : "")
         + made.problems.map(text => `Overlay skipped: ${text}\n`).join("")
         + made.pins.map(text => `Check: ${text}\n`).join("")
         + (made.unknown.length ? `Overlay keys that match nothing in the code now (remove or fix them): ${made.unknown.join(", ")}\n` : ""));
@@ -177,11 +178,11 @@ try {
       }
       if (here && process.stdout.isTTY) process.stdout.write("\x1b[2m  pathlight · loading the architecture…\x1b[0m\n");
       // `open` follows the agent when the workspace maps files to components; without a mapping there is nothing to follow.
-      const mapped = command !== "open" || (yield* io("CLI.mapping", () => Bun.file(resolve(values.workspace, "pathlight.activity.json")).exists()));
-      if (!mapped) process.stderr.write("No pathlight.activity.json here, so the viewer will not follow an agent. Ask the agent to map the model (/pathlight).\n");
+      const mapped = command !== "open" || (yield* io("CLI.mapping", () => Bun.file(mappingPath(resolve(values.workspace))).exists()));
+      if (!mapped) process.stderr.write("No .pathlight/pathlight.activity.json here, so the viewer will not follow an agent. Ask the agent to map the model (/pathlight).\n");
       const following = follow || (command === "open" && !activity && mapped);
       // The mapping names the project the agent's files belong to, so a workspace with several LikeC4 projects needs no --project: it is
-      // taken from pathlight.activity.json, unless the named view exists only in another project.
+      // taken from .pathlight/pathlight.activity.json, unless the named view exists only in another project.
       const mappedProject = values.project ? undefined : yield* readActivityConfig(values.workspace).pipe(Effect.map(mapping => mapping.project), Effect.catch(() => Effect.succeed(undefined)));
       const project = values.project ?? (mappedProject && (!id || (yield* listViews(values.workspace)).views.some(entry => entry.id === id && entry.project === mappedProject)) ? mappedProject : undefined);
       const overview = command === "open" && !id ? yield* overviewId(values.workspace, project) : id;

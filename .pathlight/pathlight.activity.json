@@ -4,7 +4,7 @@
   "mappings": [
     { "glob": "plugins/**", "element": "plugin" },
     { "glob": "src/claude.ts", "element": "plugin" },
-    { "glob": "src/{activity,activity-subscriptions}.ts", "element": "activity" },
+    { "glob": "src/{activity,activity-subscriptions,layout}.ts", "element": "activity" },
     { "glob": "src/ask.ts", "element": "ask" },
     { "glob": "src/catalog.ts", "element": "catalog" },
     { "glob": "src/{cli,init,doctor,setup,tmux,process,ready,see}.ts", "element": "launcher" },
