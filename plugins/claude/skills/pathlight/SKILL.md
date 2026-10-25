@@ -16,7 +16,7 @@ pathlight shows a LikeC4 architecture diagram in a tmux pane beside the conversa
 
 ## First run
 
-When the user has just installed pathlight, asks you to set it up, or `pathlight open` says there is no model, run `pathlight setup --workspace .` first. It checks tmux, `pathlight` on the PATH, the model, the file mapping and the Claude plugin, prints what is wrong with the fix for each, and, if there is no model, says what it would write. Show the user that output, and only after they agree run `pathlight setup --workspace . --yes`: it draws a first picture from the code, checks it, and prints how to open the viewer. Then open it. It never rewrites a model the user wrote, and it leaves hooks and recording to `pathlight init`, which you run only with their agreement. If a step it names needs something you cannot do (installing the binary or the plugin), say so and give them the command it printed.
+When the user has just installed pathlight, asks you to set it up, or `pathlight open` says there is no model, run `pathlight setup --workspace .` first. It checks tmux, `pathlight` on the PATH, the model, the file mapping and the Claude plugin, prints what is wrong with the fix for each, and, if there is no model, says what it would write. Show the user that output, and only after they agree run `pathlight setup --workspace . --yes`: it draws a first picture from the code, checks it, and prints how to open the viewer. Then **name the boxes** (next section), so the first thing they see is explained, and open it. It never rewrites a model the user wrote, and it leaves hooks and recording to `pathlight init`, which you run only with their agreement. If a step it names needs something you cannot do (installing the binary or the plugin), say so and give them the command it printed.
 
 ## Commands
 
@@ -28,6 +28,7 @@ Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask th
 - `pathlight check --workspace .` compares the model and mapping with a fresh scan. `--json` gives data; `--strict` exits 1 when anything is found.
 - `pathlight draft --workspace .` writes a first picture made from the code alone (packages, folders, the imports between them, several views); see the next section. `--out DIR` writes it elsewhere.
 - `pathlight setup --workspace .` is the first run (see above); add `--yes` to let it draw a first model.
+- `pathlight brief [KEY ...] --workspace .` lists what an agent needs to name boxes: the files each box owns, what it imports from and what imports it, what is inside it, any name it has. `pathlight name KEY --title TEXT --note TEXT --workspace .` (or `--from FILE|-` with a JSON array of `{"key","title","note"}`) saves names as the agent's reading and redraws once; it never replaces a name the user wrote.
 - `pathlight doctor --workspace .` checks tmux, the model, the file mapping and the plugin and prints the fix for each failure. Run it first when the viewer does not open or nothing is recorded.
 - `pathlight init --workspace .` wires Claude Code hooks (`.claude/settings.local.json`, per user), the OpenCode plugin, this skill, and proposes a mapping by matching element names to files on disk. It turns on recording, so tell the user what it will write and get their agreement first. `--no-claude-hooks` skips the project-local hooks when the Claude plugin is installed.
 
@@ -38,6 +39,15 @@ Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask th
 3. Report only whether it opened.
 
 If `list` returns no views the workspace has no model yet. Say so, and offer to draft one. Name the files you would write before writing them (`likec4.config.json`, `model.c4`, `views.c4` or similar, and `pathlight.activity.json`), and where. Everything pathlight writes goes in one folder, `.pathlight/` at the repository root, so nothing lands loose in the root; put your own model files there too unless the project already keeps its documentation elsewhere. Write nothing until the user agrees, then follow the draft workflow below.
+
+## After the draft: name the boxes
+
+A fresh draft shows what the code does, not what it is for: every box is a folder name with a line count. The first run is not finished until the boxes say what they are for, so after `setup --yes` do this (the user has already agreed to the draft; naming only writes `.pathlight/pathlight.overlay.json`, as your reading, and never replaces a name they wrote):
+
+- If you have a `pathlight-namer` agent, hand the whole job to it: "Name every box of the pathlight map in this workspace." It runs on a mid-size model, so the reading stays out of this conversation and off a larger model. Otherwise do it yourself as below.
+- Run `pathlight brief --workspace .`. Boxes come children first. The files listed are the box: a folder plus a loose file beside it is one box, so describe all of it. Open the files that decide what a box is for (the entry point, the biggest file, a README) and name it for what it does in this app, not what it holds. Say when a note is inferred from file names; never describe behaviour you did not see.
+- Save a level at a time: `pathlight name --workspace . --from -` with a JSON array of `{"key","title","note"}` (title up to 60 characters, note up to 300, one line). The key is exactly the one `brief` printed.
+- Tell the user how many boxes were named and which you could only infer, then open the viewer. They correct any box with `m` (ask the agent again) or `n` (write it themselves, which becomes a pin).
 
 ## A quick draft from the code
 

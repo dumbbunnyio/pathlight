@@ -10,6 +10,7 @@ import { Effect, Fiber, Queue, Stream } from "effect";
 import { io } from "../../src/effects";
 import { chooseTracerModel, type ModelInfo } from "./tracer-model";
 import tracerSource from "../claude/agents/pathlight-tracer.md" with { type: "text" };
+import namerSource from "../claude/agents/pathlight-namer.md" with { type: "text" };
 
 const Show = z.object({
   view: z.string().min(1),
@@ -117,25 +118,30 @@ export default Plugin.define({
       });
     } catch { /* Without the model list the tracer runs on the current model. */ }
     try {
-      const body = tracerSource.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
       // Read-only: nothing is allowed unless listed, and the last matching rule wins.
       const allow = (action: string, resource = "*") => ({ action, resource, effect: "allow" as const });
+      const readOnly = [{ action: "*", resource: "*", effect: "deny" }, allow("read"), { action: "read", resource: "*.env", effect: "ask" }, { action: "read", resource: "*.env.*", effect: "ask" },
+        allow("grep"), allow("glob"), allow("shell", "pathlight *"), allow("shell", "git log*"), allow("shell", "git show*"), allow("shell", "ls*")] as never;
+      const bodyOf = (source: string) => source.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
+      const descriptionOf = (source: string) => /^description:\s*(.+)$/m.exec(source)?.[1]?.trim() ?? "";
       await ctx.agent.transform(editor => {
-        editor.update("pathlight-tracer" as never, agent => {
-          agent.name = "pathlight-tracer" as never;
-          agent.mode = "subagent";
-          agent.description = "Traces how something works through the components of a codebase and records it as a pathlight journey (pathlight flow add). Hand it the request the pathlight viewer's d key sends. It runs on a mid-size model so the reading stays out of this conversation.";
-          agent.system = body;
-          agent.permissions = [{ action: "*", resource: "*", effect: "deny" }, allow("read"), { action: "read", resource: "*.env", effect: "ask" }, { action: "read", resource: "*.env.*", effect: "ask" },
-            allow("grep"), allow("glob"), allow("shell", "pathlight *"), allow("shell", "git log*"), allow("shell", "git show*"), allow("shell", "ls*")] as never;
-          if (choice.ref) {
-            const split = choice.ref.indexOf("/");
-            agent.model = { providerID: choice.ref.slice(0, split), id: choice.ref.slice(split + 1) } as never;
-          }
-        });
+        // Both run on the mid-size model chosen above, so neither spends a large model's tokens reading code.
+        for (const [id, source] of [["pathlight-tracer", tracerSource], ["pathlight-namer", namerSource]] as const) {
+          editor.update(id as never, agent => {
+            agent.name = id as never;
+            agent.mode = "subagent";
+            agent.description = descriptionOf(source);
+            agent.system = bodyOf(source);
+            agent.permissions = readOnly;
+            if (choice.ref) {
+              const split = choice.ref.indexOf("/");
+              agent.model = { providerID: choice.ref.slice(0, split), id: choice.ref.slice(split + 1) } as never;
+            }
+          });
+        }
       });
       agentRegistered = true;
-    } catch { /* The agent is a convenience: the skill falls back to tracing in the conversation. */ }
+    } catch { /* The agents are a convenience: the skills fall back to doing the work in the conversation. */ }
     await ctx.tool.hook("execute.before", event => observe(event, "started"));
     await ctx.tool.hook("execute.after", event => observe(event, event.status === "completed" ? "completed" : "failed"));
     await ctx.tool.transform(editor => {

@@ -499,3 +499,29 @@ test("draft reports a human pin that differs from the last commit, and says noth
     expect((await Effect.runPromise(draftWorkspace(directory))).pins.length).toBe(1);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 30_000);
+
+test("a folder beside src/ is keyed by its own path, not as a folder of src/, so a name written for it applies to what it names", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-outside-"));
+  try {
+    await write(directory, {
+      "package.json": JSON.stringify({ name: "lib" }),
+      "src/index.ts": `import { a } from "./core/a";\nexport const x = a;\n`,
+      "src/core/a.ts": `export const a = 1;\n`,
+      "src/util/u.ts": `export const u = 1;\n`,
+      "benchmarks/run.ts": `import { a } from "../src/core/a";\nexport const b = a;\n`,
+      "build/make.ts": `export const m = 1;\n`,
+    });
+    await Effect.runPromise(draftWorkspace(directory));
+    const keys = Object.values((JSON.parse(await readFile(join(directory, ".cache/pathlight/keys.json"), "utf8")) as { keys: Record<string, string> }).keys);
+    expect(keys).toContain("src/core");
+    expect(keys).toContain("benchmarks");
+    expect(keys).toContain("build");
+    expect(keys).not.toContain("src/benchmarks");
+    expect(keys).not.toContain("src/build");
+    // A name written for the folder by its real path applies.
+    await writeFile(overlayIn(directory), JSON.stringify({ version: 1, elements: { benchmarks: { title: "Speed tests", note: "Times the router", by: "agent" } } }));
+    const again = await Effect.runPromise(draftWorkspace(directory));
+    expect(again.unknown).toEqual([]);
+    expect(await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8")).toContain("Speed tests");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

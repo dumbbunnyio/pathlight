@@ -131,8 +131,30 @@ One Sonnet-class agent per repository, given the workspace, the overlay keys and
 | --- | --- | --- | --- | --- | --- | --- |
 | dialupworld | 15 | 15 | 8 of 8 | about 25 | about 52,000 | 43 s |
 | models.dev | 41 | 41 | 6 of 6 | about 35 | about 52,000 | 39 s |
+| hono (583 tracked files) | 94 | 94 | 17 of 18 | about 30 | about 50,000 | 55 s |
 
 What this does and does not show:
 - Naming every box once is cheap on a Sonnet-sized model, and both agents marked what they had only inferred ("inferred from file names", "only saw the folder layout") instead of claiming it. Spot checks of leaf boxes in models.dev (`hit.ts`, `describe.ts`, `model-file-v2.ts`) found the notes right.
 - **The score does not discriminate yet.** Both repos have READMEs that say what the major boxes are, and the reference lists only those boxes with loose concepts, so everything passes. It cannot show that symbol slices or any other input would do better. Before one is built, the reference needs the hard boxes (leaf folders and single files whose purpose the README does not state), and the forbidden lists need real mistakes to look for.
 - Only two repositories, one agent run each.
+
+### With `pathlight brief` and `pathlight name` (2026-10-25)
+
+The same three repositories, a fresh Sonnet-class agent each, this time given `pathlight brief` (every box's files with sizes, imports in and out, and what is inside it) and `pathlight name` to save the result, following `plugins/claude/agents/pathlight-namer.md`.
+
+| | boxes | noted | described boxes passing | files opened (agent's count) | tokens | time |
+| --- | --- | --- | --- | --- | --- | --- |
+| dialupworld | 15 | 15 | 8 of 8 | about 16 | about 54,500 | 26 s |
+| models.dev | 41 | 41 | 6 of 6 | about 45 | about 59,000 | 52 s |
+| hono | 94 | 94 | 18 of 18 | about 20 | about 67,000 | 59 s |
+
+- The `src/request` mistake is gone: the note now reads "HonoRequest: the request object handlers use", because the brief listed `src/request.ts` as part of the box. The top-level `jsx` box in hono, which is a benchmark package, is now "JSX benchmark package".
+- One box (`src/compose.ts`) missed a concept on a true note ("composes middleware and handlers into one function"); the reference's synonyms were widened, which is the scorer's limit, not the agent's.
+- The agents opened fewer files than in the baseline for hono (about 20 against about 30) and marked most notes "inferred from file names" or similar; they flagged `src/context.ts`, `src/types.ts`, `src/validator` and `src/utils` as guesses. That is the honest outcome, and a weakness: a box the agent could not read still gets a plausible note. The notes carry the doubt in their text; the viewer does not yet show it.
+- Still only three repositories, one run each, and a reference that lists the boxes whose purpose is clearest. It shows the brief removes one class of mistake; it does not show these names are right everywhere.
+
+### A real mistake, found on hono
+
+The `src/request` box is `src/request/**` plus `src/request.ts` (the request wrapper class), but the agent was given only the overlay key, saw a folder holding `constants.ts`, and wrote "Request constants: small constants for the request wrapper". Every concept in the reference matched, so the reference now carries `"forbidden": ["constants"]` for that box and it fails. The cause is the input, not the model: the request never listed the files each box owns, so the agent could only describe the folder it opened. The `m` request already sends a box's files (up to eight), but nothing sends them when many boxes are named at once, and a box made of a folder and a loose file reads as the folder.
+
+Also found while drafting hono: a folder beside `src/` (`benchmarks/`, `build/`) was keyed as `src/benchmarks`, a path that does not exist; fixed in `draft.ts` with a test.

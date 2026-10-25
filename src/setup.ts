@@ -34,7 +34,7 @@ export const setup = Effect.fn("Setup.run")(function* (workspace: string, option
     } else {
       const made = yield* draftWorkspace(root);
       lines.push(`Drew ${made.elements} elements and ${made.relationships} relationships from the imports (${made.mappings} file mappings).`,
-        "Wrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in .pathlight/. It shows what the code does, not what it is for: ask the agent to name and describe the parts (press m on a box).");
+        "Wrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in .pathlight/. It shows what the code does, not what it is for: have the agent name the boxes (pathlight brief lists what it needs, pathlight name saves it; /pathlight does both), or press m on one box.");
       ready = true;
     }
   } else if (modelOk && !mappingOk) {

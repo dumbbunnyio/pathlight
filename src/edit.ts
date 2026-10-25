@@ -14,7 +14,7 @@ export const readKeys = Effect.fn("Edit.keys")(function* (workspace: string) {
   return new Map(Object.entries(keys && typeof keys === "object" ? keys as Record<string, unknown> : {}).flatMap(([id, key]) => typeof key === "string" ? [[id, key] as const] : []));
 });
 
-const readOverlay = Effect.fn("Edit.overlay")(function* (workspace: string) {
+export const readOverlay = Effect.fn("Edit.overlay")(function* (workspace: string) {
   const text = yield* io("Edit.overlay", () => readFile(join(homeOf(resolve(workspace)), overlayFile), "utf8")).pipe(Effect.option);
   if (text._tag === "None") return { version: 1, elements: {} } as Overlay;
   return yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(yield* json(text.value));

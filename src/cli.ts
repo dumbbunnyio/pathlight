@@ -18,6 +18,7 @@ import { setPlan } from "./plan";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
 import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
+import { briefOf, formatBrief, formatNamed, nameBoxes, select, type NameEntry } from "./brief";
 import { addFlow, formatAdded, removeFlow } from "./flow-write";
 import { doctor, formatDoctor, hasFailures } from "./doctor";
 import { setup } from "./setup";
@@ -30,6 +31,9 @@ pathlight diff [--workspace PATH] [--base REV] [--json] [--quiet]
 pathlight flows [--workspace PATH] [--json] [--strict] [--quiet]
 pathlight flow add ID --title TEXT --reads FILE,FILE --step "FROM -> TO: EVENT" ... [--workspace PATH] [--project NAME] [--force]
 pathlight flow remove ID [--workspace PATH]
+pathlight brief [KEY ...] [--workspace PATH] [--json]
+pathlight name KEY --title TEXT --note TEXT [--workspace PATH]
+pathlight name --from FILE|- [--workspace PATH]
 pathlight plan [ELEMENT ...] [--workspace PATH]
 pathlight draft [--workspace PATH] [--out DIR] [--force]
 pathlight init [--workspace PATH] [--no-claude-hooks]
@@ -47,6 +51,7 @@ relationships with no import behind them and imports with no relationship. --str
 diff compares the relationships the imports support now with those at a git commit (default HEAD): which the working tree added or lost, and new imports with no relationship. The viewer draws them; static evidence only.
 flows checks the state diagrams an agent wrote (*.behavior.c4) against the files they name and the commit they were synced at: files that are gone or changed since, arrows with no event, decisions with one answer, states nothing reaches, states that name no file. A flow is the agent's reading, so this finds what is wrong or old, never that it is right. --strict exits 1 if anything is found.
 flow add writes a journey you worked out from the code: a LikeC4 dynamic view of hops between components, as ID.behavior.c4, stamped with the commit and the files you read. It checks every component against the model and takes the file back out if the model would stop compiling; it decides nothing about what happens. flow remove deletes only a file flow add wrote.
+brief lists, for each box of the draft (or only the boxes under the keys you give, children first), the files it owns with their sizes, what it imports from and what imports it, what is inside it and any name it has: what an agent needs to say what each box is for. name saves the names and notes the agent worked out (one box with --title and --note, or many from a JSON file of {"key","title","note"} entries, a dash for standard input) as the agent's reading (by "agent"), redraws once, never replaces a name a person wrote, and refuses a key that is not a box.
 plan says which elements you are about to work on (ids from the model); the viewer outlines them and marks activity outside them. No ids clears the plan.
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
@@ -87,7 +92,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -97,7 +102,7 @@ try {
     const follow = values.follow === true;
     const invalid = (message: string) => Effect.fail(failure("CLI.arguments", message));
     if (values.help || !command) return void process.stdout.write(help);
-    if (extra.length && command !== "plan" && !(command === "flow" && extra.length === 1)) return yield* invalid("Too many arguments. Use --help.");
+    if (extra.length && command !== "plan" && command !== "brief" && !(command === "flow" && extra.length === 1)) return yield* invalid("Too many arguments. Use --help.");
     if (follow && activity) return yield* invalid("Use either --follow or --session, not both.");
 
     if (command === "list") {
@@ -135,6 +140,26 @@ try {
         process.stdout.write(formatAdded(added, steps.length));
       } else if (id === "remove") process.stdout.write(`Removed ${yield* removeFlow(values.workspace, name)}.\n`);
       else return yield* invalid("Use pathlight flow add ID ... or pathlight flow remove ID. pathlight flows lists and checks them.");
+    } else if (command === "brief") {
+      const all = yield* briefOf(values.workspace);
+      const chosen = select(all, [...(id ? [id] : []), ...extra]);
+      if (chosen.missing.length) return yield* invalid(`No box has the key ${chosen.missing.join(", ")}. Run pathlight brief with no keys to see them.`);
+      process.stdout.write(values.json ? `${JSON.stringify(chosen.boxes, null, 2)}\n` : formatBrief(chosen.boxes, all));
+    } else if (command === "name") {
+      const entries: NameEntry[] = [];
+      if (values.from) {
+        const text = values.from === "-" ? yield* readStdin : yield* io("CLI.names", () => Bun.file(resolve(values.from!)).text());
+        const parsed = yield* json(text);
+        if (!Array.isArray(parsed)) return yield* invalid("--from takes a JSON array of {\"key\", \"title\", \"note\"} entries.");
+        for (const item of parsed) {
+          if (!item || typeof item !== "object" || typeof (item as { key?: unknown }).key !== "string") return yield* invalid("Every entry needs a \"key\" (see pathlight brief).");
+          const { key, title, note } = item as { key: string; title?: unknown; note?: unknown };
+          entries.push({ key, ...(typeof title === "string" ? { title } : {}), ...(typeof note === "string" ? { note } : {}) });
+        }
+      } else if (id) entries.push({ key: id, ...(values.title ? { title: values.title } : {}), ...(values.note ? { note: values.note } : {}) });
+      else return yield* invalid("Use pathlight name KEY --title TEXT --note TEXT, or pathlight name --from FILE.");
+      if (id && values.from) return yield* invalid("Give a KEY or --from, not both.");
+      process.stdout.write(formatNamed(yield* nameBoxes(values.workspace, entries)));
     } else if (command === "plan") {
       const made = yield* setPlan(values.workspace, [...(id ? [id] : []), ...extra]);
       process.stdout.write(made ? `Plan: ${made.elements.join(", ")}\n` : "Plan cleared.\n");

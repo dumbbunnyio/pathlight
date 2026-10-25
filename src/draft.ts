@@ -119,7 +119,9 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
     const sourceRoot = files.filter(path => inside(path).startsWith("src/")).length * 2 >= files.length ? "src/" : "";
     const segment = (path: string) => { const rel = inside(path); const stripped = rel.startsWith(sourceRoot) ? rel.slice(sourceRoot.length) : rel; return stripped.includes("/") ? stripped.slice(0, stripped.indexOf("/")) : ""; };
     const folders = new Set(files.map(segment).filter(Boolean));
-    const folderPath = (top: string) => [directory, sourceRoot.replace(/\/$/, ""), top].filter(Boolean).join("/");
+    // A top folder is under the source root only if some of its files are; `benchmarks/` beside `src/` is `benchmarks`, not `src/benchmarks`.
+    const inSource = (top: string) => files.some(path => inside(path).startsWith(`${sourceRoot}${top}/`));
+    const folderPath = (top: string) => [directory, sourceRoot && inSource(top) ? sourceRoot.replace(/\/$/, "") : "", top].filter(Boolean).join("/");
     // A folder the overlay splits becomes one component per subfolder, and one for the files directly in it.
     const splitKey = (path: string) => {
       const top = segment(path);
@@ -602,6 +604,17 @@ export function applyOverlay(draft: Draft, overlay: Overlay): { draft: Draft; un
   return { draft: { ...draft, packages }, unknown: Object.keys(overlay.elements).filter(key => !used.has(key)).sort() };
 }
 
+/** The `package.json` files of a workspace that name a package: where one package ends and the next begins. */
+export const readManifests = Effect.fn("Draft.manifests")(function* (root: string, paths: readonly string[]) {
+  const manifests: { directory: string; name: string }[] = [];
+  for (const path of paths.filter(item => basename(item) === "package.json" && !item.includes("node_modules/"))) {
+    const parsed = yield* io("Draft.manifest", () => readFile(join(root, path), "utf8")).pipe(Effect.flatMap(json), Effect.option);
+    const value = parsed._tag === "Some" && parsed.value && typeof parsed.value === "object" ? parsed.value as Record<string, unknown> : undefined;
+    if (value && typeof value.name === "string") manifests.push({ directory: posix.dirname(path) === "." ? "" : posix.dirname(path), name: value.name });
+  }
+  return manifests;
+});
+
 export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace: string, options: { out?: string; force?: boolean } = {}) {
   const root = resolve(workspace);
   // Written into `.pathlight/` unless told where; the ignored state (the overlay keys) stays under the workspace's own `.cache`.
@@ -609,12 +622,7 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const state = options.out ? target : root;
   const scan = yield* scanWorkspace(root);
   const { paths } = yield* listFiles(root);
-  const manifests: { directory: string; name: string }[] = [];
-  for (const path of paths.filter(item => basename(item) === "package.json" && !item.includes("node_modules/"))) {
-    const parsed = yield* io("Draft.manifest", () => readFile(join(root, path), "utf8")).pipe(Effect.flatMap(json), Effect.option);
-    const value = parsed._tag === "Some" && parsed.value && typeof parsed.value === "object" ? parsed.value as Record<string, unknown> : undefined;
-    if (value && typeof value.name === "string") manifests.push({ directory: posix.dirname(path) === "." ? "" : posix.dirname(path), name: value.name });
-  }
+  const manifests = yield* readManifests(root, paths);
   const overlayText = yield* io("Draft.overlay", () => readFile(join(target, overlayFile), "utf8")).pipe(Effect.option);
   const overlay = overlayText._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(yield* json(overlayText.value)) : undefined;
   const committedText = overlay ? yield* run("git", ["-C", target, "show", `HEAD:./${overlayFile}`]).pipe(Effect.option) : undefined;

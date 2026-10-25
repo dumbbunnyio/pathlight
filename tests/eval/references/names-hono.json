@@ -1,0 +1,25 @@
+{
+  "repo": "hono",
+  "commit": "bac5c4a8",
+  "note": "Read from the folder and file names, and the code's own comments, by the person scoring, not by the agent being scored. Includes single files and folders the README does not describe. Each concept is a group of words, any one of which says that thing.",
+  "elements": {
+    "src/router": { "concepts": [["router", "routing", "route"], ["match", "path", "url", "request"]] },
+    "src/client": { "concepts": [["client", "rpc", "hc"], ["type", "typed", "typesafe", "type-safe", "request", "fetch", "call"]] },
+    "src/compose.ts": { "concepts": [["middleware", "compose", "handler"], ["chain", "next", "onion", "run", "order", "sequence", "pipeline", "one function", "combine", "composes"]] },
+    "src/context.ts": { "concepts": [["context"], ["request", "response", "c.", "json", "html", "variable", "header"]] },
+    "src/hono-base.ts": { "concepts": [["app", "application", "class", "base", "core"], ["route", "routing", "handler", "fetch", "middleware", "request"]] },
+    "src/request": { "concepts": [["request"], ["parse", "body", "header", "query", "param", "wrapper", "validated", "input", "class"]], "forbidden": ["constants"] },
+    "src/http-exception.ts": { "concepts": [["exception", "error"], ["http", "status", "response"]] },
+    "src/preset": { "concepts": [["preset", "bundle", "variant", "build", "entry"], ["router", "tiny", "quick", "size", "fast", "startup"]] },
+    "src/middleware": { "concepts": [["middleware"], ["cors", "jwt", "auth", "logger", "built-in", "bundled", "csrf", "compress", "cache"]] },
+    "src/helper": { "concepts": [["helper", "utility", "utilities"], ["cookie", "html", "stream", "adapter", "css", "testing", "proxy"]] },
+    "src/validator": { "concepts": [["validat"], ["request", "input", "schema", "body", "query", "json"]] },
+    "src/jsx": { "concepts": [["jsx"], ["render", "component", "html", "dom", "element"]] },
+    "src/adapter": { "concepts": [["adapter", "runtime", "platform"], ["cloudflare", "bun", "deno", "node", "lambda", "vercel", "netlify", "environment"]] },
+    "adapters/bun": { "concepts": [["bun"], ["adapter", "serve", "static", "websocket", "server", "ssg"]] },
+    "benchmarks": { "concepts": [["benchmark", "performance", "speed", "bench"], ["router", "compare", "comparison", "jsx", "framework", "fetch", "query"]] },
+    "runtime-tests": { "concepts": [["runtime", "platform", "environment"], ["bun", "deno", "node", "workerd", "fastly", "cloudflare"]] },
+    "build": { "concepts": [["build", "declaration", "release", "type", "types", "dts"], ["adapter", "plugin", "test", "emit", "jsx", "package"]] },
+    "perf-measures": { "concepts": [["bundle", "type"], ["check", "size", "measure", "performance", "compile"]] }
+  }
+}
