@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { mappingIn } from "./effects";
 
@@ -18,8 +18,10 @@ beforeAll(async () => {
 });
 afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 
+/** Claude Code's settings folder for these runs: empty, so what the developer has installed never changes a result. */
+const claudeHome = () => join(directory, "claude-home");
 async function invoke(...args: string[]) {
-  const child = Bun.spawn([process.execPath, cli, ...args], { stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([process.execPath, cli, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CLAUDE_CONFIG_DIR: claudeHome() } });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
   ]);
@@ -99,6 +101,32 @@ test("init writes the pathlight skill next to the Claude hooks and replaces it o
   await writeFile(written, "stale");
   expect((await invoke("init", "--workspace", project)).code).toBe(0);
   expect(await Bun.file(written).text()).toContain("name: pathlight");
+});
+
+test("init leaves the skills to the installed plugin and removes the copies it once wrote", async () => {
+  const project = join(directory, "init-plugin");
+  await cp("examples/parcel", project, { recursive: true, filter: path => !path.includes(".cache") });
+  expect((await invoke("init", "--workspace", project)).code).toBe(0);
+  const copy = join(project, ".claude", "skills", "pathlight", "SKILL.md");
+  const own = join(project, ".claude", "skills", "mine", "SKILL.md");
+  await mkdir(dirname(own), { recursive: true });
+  await writeFile(own, "---\nname: mine\n---\n");
+  expect(await Bun.file(copy).exists()).toBe(true);
+  await mkdir(join(claudeHome(), "plugins"), { recursive: true });
+  await writeFile(join(claudeHome(), "plugins", "installed_plugins.json"), JSON.stringify({ version: 2, plugins: { "pathlight@pathlight": [{ scope: "user" }] } }));
+  const result = await invoke("init", "--workspace", project);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("removed the copies in .claude/skills (2)");
+  expect(await Bun.file(copy).exists()).toBe(false);
+  expect(await Bun.file(join(project, ".claude", "skills", "pathlight-behavior", "SKILL.md")).exists()).toBe(false);
+  expect(await Bun.file(own).exists()).toBe(true);
+  const again = await invoke("init", "--workspace", project);
+  expect(again.stdout).toContain("none were written");
+  expect(await Bun.file(copy).exists()).toBe(false);
+  await mkdir(dirname(copy), { recursive: true });
+  await writeFile(copy, "---\nname: pathlight\n---\nold\n");
+  expect((await invoke("doctor", "--workspace", project)).stdout).toContain("hides the plugin's newer ones");
+  await rm(join(claudeHome(), "plugins"), { recursive: true });
 });
 
 test("open picks the overview view itself, and without tmux says so rather than guessing a pane", async () => {

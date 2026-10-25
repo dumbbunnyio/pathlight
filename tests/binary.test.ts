@@ -22,6 +22,7 @@ test("the compiled binary drafts, initialises, reports on itself and opens its o
     }
     expect(await run(binary, ["draft", "--workspace", project])).toContain("Drew");
     expect(await run(binary, ["check", "--workspace", project,])).toContain("Relationships");
+    process.env.CLAUDE_CONFIG_DIR = join(directory, "claude-home"); // whatever plugin the developer has installed must not change the result
     const initialised = await run(binary, ["init", "--workspace", project]);
     expect(initialised).toContain("Skills: pathlight, pathlight-behavior written");
     expect(await readFile(join(project, ".claude/skills/pathlight/SKILL.md"), "utf8")).toContain("name: pathlight");
@@ -37,6 +38,7 @@ test("the compiled binary drafts, initialises, reports on itself and opens its o
     expect(again.pane).toBe(shown.pane);
     expect((await tmux("list-panes", "-a", "-F", "#{pane_id}")).trim().split("\n")).toHaveLength(2);
   } finally {
+    delete process.env.CLAUDE_CONFIG_DIR;
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });
   }

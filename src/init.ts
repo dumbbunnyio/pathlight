@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
@@ -15,6 +16,21 @@ const pluginRoot = fileURLToPath(new URL("../plugins", import.meta.url));
 const skillFiles: Record<string, string> = { pathlight: pathlightSkill, "pathlight-behavior": behaviorSkill };
 /** Hook scripts and the OpenCode plugin are files in a checkout; a compiled binary has none, and the plugins supply them instead. */
 const hasCheckout = (path: string) => existsSync(join(pluginRoot, path));
+
+/** Whether the Claude Code plugin is installed for this user. A skill in a project's `.claude/skills` outranks the plugin's own, so a copy written before the plugin arrived keeps its old text through every update. */
+export const claudePluginInstalled = () => {
+  try {
+    const installed: unknown = JSON.parse(readFileSync(join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json"), "utf8"));
+    const plugins = isRecord(installed) && isRecord(installed.plugins) ? installed.plugins : {};
+    return Object.keys(plugins).some(key => key.startsWith("pathlight@"));
+  } catch { return false; }
+};
+
+/** The skill copies in a project's `.claude/skills` that Pathlight wrote (matched by the name in their front matter, so a person's own skill of another name is never touched). */
+export const projectSkillCopies = (workspace: string) => Object.keys(skillFiles).map(name => join(workspace, ".claude", "skills", name, "SKILL.md")).filter(path => {
+  try { return new RegExp(`^name: ${basename(dirname(path))}\\s*$`, "m").test(readFileSync(path, "utf8").slice(0, 400)); } catch { return false; }
+});
+
 const hookEvents = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit"] as const;
 
 const kebab = (text: string) => text.replace(/([a-z\d])([A-Z])/g, "$1-$2").toLowerCase().replace(/[^a-z\d]+/g, "-").replace(/^-|-$/g, "");
@@ -96,12 +112,18 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
 
   } else notes.push("Claude Code: no local hooks written (using the plugin).");
 
-  // The skills are the same files for both hosts. Claude Code reads .claude/skills; with the plugin installed it supplies them itself,
-  // so only OpenCode needs a copy, and its documentation lists .agents/skills (and .claude/skills) as places it looks.
+  // The skills are the same files for both hosts. Claude Code reads .claude/skills, but a copy there outranks the plugin's skill and goes stale
+  // when the plugin updates, so with the plugin installed none is written and an earlier one is removed. OpenCode documents .agents/skills (and .claude/skills).
+  const plugin = options.claudeHooks && claudePluginInstalled();
   const skillRoot = options.claudeHooks ? ".claude" : ".agents";
   const skills = Object.keys(skillFiles).sort();
-  for (const name of skills) yield* writeText(join(workspace, skillRoot, "skills", name, "SKILL.md"), skillFiles[name]!);
-  notes.push(options.claudeHooks ? `Skills: ${skills.join(", ")} written to .claude/skills (Claude Code; OpenCode documents reading it too).`
+  if (plugin) {
+    const removed = projectSkillCopies(workspace);
+    for (const path of removed) yield* io("Init.remove", () => rm(dirname(path), { recursive: true }));
+    notes.push(removed.length ? `Skills: removed the copies in .claude/skills (${removed.length}); the installed plugin supplies them and a copy would hide its updates.`
+      : "Skills: the installed plugin supplies them to Claude Code, so none were written to .claude/skills.");
+  } else for (const name of skills) yield* writeText(join(workspace, skillRoot, "skills", name, "SKILL.md"), skillFiles[name]!);
+  if (!plugin) notes.push(options.claudeHooks ? `Skills: ${skills.join(", ")} written to .claude/skills (Claude Code; OpenCode documents reading it too).`
     : `Skills: ${skills.join(", ")} written to .agents/skills for OpenCode (the Claude plugin supplies them to Claude Code).`);
 
   const configPath = mappingPath(workspace);

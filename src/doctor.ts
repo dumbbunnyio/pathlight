@@ -3,6 +3,7 @@ import { Config, Effect } from "effect";
 import { listViews } from "./catalog";
 import { readActivityConfig } from "./activity";
 import { run } from "./process";
+import { claudePluginInstalled, projectSkillCopies } from "./init";
 import pkg from "../package.json" with { type: "json" };
 
 /** One line of the report: `fix` is what to do, shown only when the check failed. `info` is not a problem, just what was found. */
@@ -42,6 +43,7 @@ export const doctor = Effect.fn("Doctor.run")(function* (workspace: string) {
       ? { name: "Claude Code", status: "ok", detail: "the pathlight plugin is installed" }
       : { name: "Claude Code", status: "info", detail: "the pathlight plugin was not found (hooks are what record activity)", fix: "Run `claude plugin marketplace add lennox-davidlevy/pathlight` then `claude plugin install pathlight`." });
   } else add({ name: "Claude Code", status: "info", detail: "not installed here" });
+  if (claudePluginInstalled() && projectSkillCopies(root).length) add({ name: "old skills", status: "fail", detail: "this project has its own copy of the pathlight skills in .claude/skills, which hides the plugin's newer ones", fix: "Run `pathlight init` to remove them, or delete .claude/skills/pathlight and .claude/skills/pathlight-behavior." });
   const editor = yield* Config.String("VISUAL").pipe(Config.withDefault(""), Effect.flatMap(visual => visual ? Effect.succeed(visual) : Config.String("EDITOR").pipe(Config.withDefault(""))));
   add(editor ? { name: "editor", status: "ok", detail: `${editor} opens files from the viewer` }
     : { name: "editor", status: "info", detail: "neither VISUAL nor EDITOR is set, so opening a file from the viewer will fail", fix: "Set VISUAL or EDITOR, for example `export EDITOR=nvim`." });
