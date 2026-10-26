@@ -28,7 +28,7 @@ export type Sync =
  * One step of a flow, in the order it is told. A journey step is a hop between two components (a LikeC4 dynamic view's step); a behavior step is a
  * state. `elements` are the components it touches, and `backed` is whether the model has a relationship for the hop (null for a state, which is no hop).
  */
-export interface FlowStep { n: number; title: string; elements: string[]; from?: string; to?: string; backed: boolean | null; mark?: "bug" | "fixed"; call?: StepCall }
+export interface FlowStep { n: number; title: string; elements: string[]; from?: string; to?: string; backed: boolean | null; reply?: boolean; mark?: "bug" | "fixed"; call?: StepCall }
 /** The function a journey step calls, as the agent recorded it (`name | file | declaration` in the step's notes). The declaration is the code's own text when it was written. */
 export interface StepCall { name: string; file: string; declaration: string }
 export const parseCall = (notes: string | undefined): StepCall | undefined => {
@@ -134,7 +134,20 @@ export function assessJourney(journey: JourneyInput, git: { changedElements: Rea
     if (now === undefined) findings.push(`Step ${step.n} calls ${step.call.name} in ${step.call.file}, which no longer declares it.`);
     else if (now !== step.call.declaration) findings.push(`Step ${step.n}: ${step.call.name} in ${step.call.file} is declared differently from when the flow was written.`);
   }
-  for (const step of steps) if (step.backed === false) findings.push(`Step ${step.n}, “${step.title}”, goes from ${last(step.from!)} to ${last(step.to!)} with no relationship between them in the model.`);
+  // A hop back along the way an earlier step went is the answer to it (a response, a return value), not a second thing the model must declare;
+  // and several hops over the same pair are one gap in the model, reported once.
+  for (const step of steps) {
+    // The first step over a pair sets which way the request goes; hops the other way are answers.
+    const opened = steps.find(other => (other.from === step.from && other.to === step.to) || (other.from === step.to && other.to === step.from))!;
+    if (step.backed === false && opened.from === step.to && opened.to === step.from) step.reply = true;
+  }
+  const gaps = new Map<string, FlowStep[]>();
+  for (const step of steps) if (step.backed === false && !step.reply) gaps.set(`${step.from} ${step.to}`, [...(gaps.get(`${step.from} ${step.to}`) ?? []), step]);
+  for (const group of gaps.values()) {
+    const first = group[0]!, ends = `goes from ${last(first.from!)} to ${last(first.to!)} with no relationship between them in the model.`;
+    if (group.length === 1) findings.push(`Step ${first.n}, “${first.title}”, ${ends}`);
+    else findings.push(`Steps ${group.slice(0, -1).map(step => step.n).join(", ")} and ${group.at(-1)!.n} go from ${last(first.from!)} to ${last(first.to!)} with no relationship between them in the model.`);
+  }
   const sync: Sync = !sha ? { status: "none" } : !git.known(sha) ? { status: "unknown", sha } : { status: "current", sha };
   if (sync.status === "none") findings.push("The view has no “Synced at <commit>” note, so nobody can tell how old this reading is.");
   if (sync.status === "unknown") findings.push(`The view was synced at ${sync.sha}, which is not a commit in this repository.`);

@@ -902,7 +902,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
             stepChunks.push(fg(palette.border)("     "), fg(tone)(`${glyph} `), fg(palette.muted)(`${latest.operation === "command" ? "run" : latest.operation} `), fg(palette.body)(clip(file, Math.max(4, room - 12))), fg(palette.border)(` ${formatAge(Date.now() - latest.time)}`), nl); stepLine++;
           }
           if (step.mark) { stepChunks.push(fg(palette.border)("     "), fg(step.mark === "bug" ? palette.failure : palette.green)(step.mark === "bug" ? "✗ marked as broken in the diagram\n" : "✓ marked as fixed in the diagram\n")); stepLine++; }
-          if (step.backed === false) { stepChunks.push(fg(palette.border)("     "), fg(palette.accent)("≠ "), fg(palette.muted)("no relationship in the model\n")); stepLine++; }
+          if (step.reply) { stepChunks.push(fg(palette.border)("     "), fg(palette.muted)("↩ the answer to an earlier step\n")); stepLine++; }
+          else if (step.backed === false) { stepChunks.push(fg(palette.border)("     "), fg(palette.accent)("≠ "), fg(palette.muted)("no relationship in the model\n")); stepLine++; }
           if (!step.elements.length) { stepChunks.push(fg(palette.border)("     "), fg(palette.muted)("no component for this step\n")); stepLine++; }
           if (step.call) {
             // The function this hop calls, as the file declares it (copied when the flow was written, checked by pathlight flows): a name, where, and the signature wrapped to the panel.

@@ -116,6 +116,13 @@ test("a journey reports each step the model has no relationship for, a missing o
   });
   const known = () => true;
   expect(assessJourney(journey(), { changedElements: new Set(), known }).findings).toEqual(["Step 2, “tells shipping directly”, goes from orders to shipping with no relationship between them in the model."]);
+  // Two hops over one unrelated pair are one gap; a hop back the way an earlier one went is its answer and no gap.
+  const http = assessJourney(journey({ steps: [
+    { source: "page", target: "server", title: "loads", backed: false }, { source: "server", target: "page", title: "returns", backed: false },
+    { source: "page", target: "server", title: "sends", backed: false },
+  ] }), { changedElements: new Set(), known });
+  expect(http.findings).toEqual(["Steps 1 and 3 go from page to server with no relationship between them in the model."]);
+  expect(http.steps.map(step => step.reply ?? false)).toEqual([false, true, false]);
   const clean = assessJourney(journey({ steps: [journey().steps[0]!] }), { changedElements: new Set(), known });
   expect(clean.findings).toEqual([]);
   expect(clean.sync).toEqual({ status: "current", sha: "abc1234" });
