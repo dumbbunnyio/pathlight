@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect";
 import { failure, io, json } from "./effects";
 import { configFile, home, mappingFile, modelFile, overlayFile } from "./layout";
 import { run } from "./process";
-import { listFiles, scanWorkspace, type Scan } from "./scan";
+import { isUnscannedSource, languageOf, listFiles, scanWorkspace, type Scan } from "./scan";
 
 /**
  * A first picture of a codebase made from facts alone, with no model in the loop: packages become boxes, the top-level folders
@@ -45,6 +45,8 @@ export const looseFiles = 3;
 const outside = [
   { glob: "**/test/**", pattern: /(^|\/)test\// }, { glob: "**/tests/**", pattern: /(^|\/)tests\// }, { glob: "**/__tests__/**", pattern: /(^|\/)__tests__\// },
   { glob: "**/*.test.*", pattern: /\.test\.[^/]+$/ }, { glob: "**/*.spec.*", pattern: /\.spec\.[^/]+$/ },
+  // Other languages' conventions, for the unread files drawn beside the code the scan reads.
+  { glob: "**/*_test.go", pattern: /_test\.go$/ }, { glob: "**/test_*.py", pattern: /(^|\/)test_[^/]+\.py$/ }, { glob: "**/*_test.py", pattern: /_test\.py$/ },
 ];
 
 /**
@@ -81,7 +83,11 @@ const escapeGlob = (text: string) => text.replace(/[\\*?[\]{}()!]/g, "\\$&");
 const braces = (names: readonly string[]) => names.length === 1 ? escapeGlob(names[0]!) : `{${names.map(escapeGlob).join(",")}}`;
 const byText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
-export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readonly { directory: string; name: string }[], overlay?: Overlay): Draft {
+/**
+ * `unread`: source files in languages the scan does not read (`isUnscannedSource`). They are drawn in the folders they live in, so the picture
+ * leaves no part of the code out, but they bring no imports: an arrow to or from them is never drawn, and their description says so.
+ */
+export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readonly { directory: string; name: string }[], overlay?: Overlay, unread: readonly string[] = []): Draft {
   const problems: string[] = [];
   const splits = new Set((overlay?.splits ?? []).map(item => item.key));
   const splitSubfolders = new Map<string, Set<string>>();
@@ -89,8 +95,9 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
   const merges = (overlay?.merges ?? []).map((item, index) => ({ ...item, index, applied: false }));
   const mergedKeys = new Set<string>();
   const ignoredBy = (path: string) => outside.find(item => item.pattern.test(path));
-  const kept = scan.files.map(file => file.path).filter(path => !ignoredBy(path));
-  const ignore = outside.filter(item => scan.files.some(file => item.pattern.test(file.path))).map(item => item.glob);
+  const source = [...scan.files.map(file => file.path), ...unread], unreadSet = new Set(unread);
+  const kept = source.filter(path => !ignoredBy(path));
+  const ignore = outside.filter(item => source.some(path => item.pattern.test(path))).map(item => item.glob);
 
   // The package a file belongs to is the nearest package.json above it.
   const named = [...manifests].sort((a, b) => b.directory.length - a.directory.length);
@@ -115,8 +122,10 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
     const packageId = flat ? "" : unique(slug(short), taken);
     const qualify = (id: string) => packageId ? `${packageId}.${id}` : id;
     const inside = (path: string) => (directory ? path.slice(directory.length + 1) : path);
-    // Source lives under src/ when most of the package does; files elsewhere keep their own top folder.
-    const sourceRoot = files.filter(path => inside(path).startsWith("src/")).length * 2 >= files.length ? "src/" : "";
+    // Source lives under src/ when most of the package does; files elsewhere keep their own top folder. Only files the scan reads decide it,
+    // so adding unread files never regroups a package (and never orphans the names already given to its folders).
+    const read = files.filter(path => !unreadSet.has(path));
+    const sourceRoot = read.filter(path => inside(path).startsWith("src/")).length * 2 >= read.length ? "src/" : "";
     const segment = (path: string) => { const rel = inside(path); const stripped = rel.startsWith(sourceRoot) ? rel.slice(sourceRoot.length) : rel; return stripped.includes("/") ? stripped.slice(0, stripped.indexOf("/")) : ""; };
     const folders = new Set(files.map(segment).filter(Boolean));
     // A top folder is under the source root only if some of its files are; `benchmarks/` beside `src/` is `benchmarks`, not `src/benchmarks`.
@@ -234,7 +243,7 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
     else titled.set(`${from}\0${to}`, pin.title);
   }
   const labelled = relationships.map(edge => titled.has(`${edge.from}\0${edge.to}`) ? { ...edge, title: titled.get(`${edge.from}\0${edge.to}`)! } : edge);
-  return { packages, flat, relationships: labelled, problems, ignore, ignored: scan.files.length - kept.length };
+  return { packages, flat, relationships: labelled, problems, ignore, ignored: source.length - kept.length };
 }
 
 const quote = (text: string) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
@@ -387,7 +396,7 @@ const nearView = (id: string) => `${viewName(id)}_near`;
 const cyclesView = (id: string) => `${viewName(id)}_cycles`;
 
 /** `behavior`: a `*.behavior.c4` file sits beside the draft, so the views that list every top-level element leave out what it tags `#behavior`. */
-export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = new Map(), behavior = false) {
+export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = new Map(), behavior = false, unread: ReadonlySet<string> = new Set()) {
   const notBehavior = behavior ? ["    exclude * where tag is #behavior"] : [];
   const analysis = analyse(draft);
   const { minor } = analysis;
@@ -395,7 +404,18 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   const inPackageCycle = new Set(analysis.packageCycles.flat());
   const entries: string[] = [];
   const out: string[] = [generatedMarker, "", "specification {", ...(draft.flat ? [] : ["  element package"]), "  element collection", "  element component", ...tiers.map(tier => `  tag lt${tier}`), "  tag minor", "  tag cycle", "  tag pkgcycle", "}", "", "model {"];
-  const facts = (files: readonly string[]) => `${plural(files.length, "file")}, ${(files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0)).toLocaleString("en-US")} lines`;
+  // Files in a language the scan does not read are counted and named by language, and the description says their connections are not drawn.
+  const languages = (files: readonly string[]) => {
+    const counts = new Map<string, number>();
+    for (const path of files) counts.set(languageOf(path), (counts.get(languageOf(path)) ?? 0) + 1);
+    return [...counts].sort(([a, x], [b, y]) => y - x || byText(a, b)).map(([language, count]) => `${count} ${language}`).join(", ");
+  };
+  const facts = (files: readonly string[]) => {
+    const total = `${(files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0)).toLocaleString("en-US")} lines`, notRead = files.filter(path => unread.has(path));
+    if (!notRead.length) return `${plural(files.length, "file")}, ${total}`;
+    if (notRead.length === files.length) return `${languages(notRead)} ${files.length === 1 ? "file" : "files"}, ${total}, not read by the scan: its connections are not drawn`;
+    return `${plural(files.length, "file")}, ${total} (${languages(notRead)} not read by the scan)`;
+  };
   const said = (note: string | undefined, text: string) => note ? `${note} · ${text}` : text;
   const local = (id: string, parent: string) => parent ? id.slice(parent.length + 1) : id;
   const tagsOf = (id: string, kind: "package" | "component") => [...(minor.has(id) ? ["#minor"] : []), ...(kind === "package" ? (inPackageCycle.has(id) ? ["#pkgcycle"] : []) : (inCycle.has(id) ? ["#cycle"] : []))];
@@ -604,15 +624,50 @@ export function applyOverlay(draft: Draft, overlay: Overlay): { draft: Draft; un
   return { draft: { ...draft, packages }, unknown: Object.keys(overlay.elements).filter(key => !used.has(key)).sort() };
 }
 
-/** The `package.json` files of a workspace that name a package: where one package ends and the next begins. */
+/** The name another language's manifest gives its package: a Go module (its last path segment), a Rust crate, a Python project. */
+const otherManifests: Record<string, (text: string) => string | undefined> = {
+  "go.mod": text => /^module\s+(\S+)/m.exec(text)?.[1]?.split("/").at(-1),
+  "Cargo.toml": text => /^\[package\][^[]*?^name\s*=\s*"([^"]+)"/ms.exec(text)?.[1],
+  "pyproject.toml": text => /^\[(?:project|tool\.poetry)\][^[]*?^name\s*=\s*"([^"]+)"/ms.exec(text)?.[1],
+};
+
+/**
+ * The manifests of a workspace that name a package: where one package ends and the next begins. `package.json` first; a Go module, Rust crate or
+ * Python project is a package too, so code in another language is drawn as its own package rather than as a folder of whatever package holds it.
+ */
 export const readManifests = Effect.fn("Draft.manifests")(function* (root: string, paths: readonly string[]) {
   const manifests: { directory: string; name: string }[] = [];
+  const directoryOf = (path: string) => posix.dirname(path) === "." ? "" : posix.dirname(path);
   for (const path of paths.filter(item => basename(item) === "package.json" && !item.includes("node_modules/"))) {
     const parsed = yield* io("Draft.manifest", () => readFile(join(root, path), "utf8")).pipe(Effect.flatMap(json), Effect.option);
     const value = parsed._tag === "Some" && parsed.value && typeof parsed.value === "object" ? parsed.value as Record<string, unknown> : undefined;
-    if (value && typeof value.name === "string") manifests.push({ directory: posix.dirname(path) === "." ? "" : posix.dirname(path), name: value.name });
+    if (value && typeof value.name === "string") manifests.push({ directory: directoryOf(path), name: value.name });
+  }
+  for (const path of paths.filter(item => basename(item) in otherManifests && !item.includes("node_modules/"))) {
+    if (manifests.some(item => item.directory === directoryOf(path))) continue;
+    const text = yield* io("Draft.manifest", () => readFile(join(root, path), "utf8")).pipe(Effect.option);
+    const name = text._tag === "Some" ? otherManifests[basename(path)]!(text.value) : undefined;
+    if (name) manifests.push({ directory: directoryOf(path), name });
   }
   return manifests;
+});
+
+/**
+ * The drawn files the scan could not read, by language ("32 Zig, 7 Go files"), or "" when there are none: the boxes are there, the arrows to and
+ * from them are not, and a person must be told so rather than read a quiet picture as complete.
+ */
+export function unreadSummary(draft: Draft, unread: ReadonlySet<string>) {
+  const counts = new Map<string, number>();
+  for (const path of draft.packages.flatMap(item => item.components.flatMap(entry => entry.files)).filter(path => unread.has(path))) counts.set(languageOf(path), (counts.get(languageOf(path)) ?? 0) + 1);
+  const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+  return total ? `${[...counts].sort(([a, x], [b, y]) => y - x || byText(a, b)).map(([language, count]) => `${count} ${language}`).join(", ")} ${total === 1 ? "file" : "files"}` : "";
+}
+
+/** Line counts of the files the scan does not read, which it therefore did not count. */
+export const unreadLines = Effect.fn("Draft.unreadLines")(function* (root: string, unread: readonly string[]) {
+  const counted = yield* Effect.forEach(unread, path => io("Draft.lines", () => readFile(join(root, path), "utf8")).pipe(
+    Effect.map(text => [[path, text.split("\n").length - (text.endsWith("\n") ? 1 : 0)] as const]), Effect.catch(() => Effect.succeed([]))), { concurrency: 16 });
+  return counted.flat();
 });
 
 export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace: string, options: { out?: string; force?: boolean } = {}) {
@@ -627,9 +682,14 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const overlay = overlayText._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(yield* json(overlayText.value)) : undefined;
   const committedText = overlay ? yield* run("git", ["-C", target, "show", `HEAD:./${overlayFile}`]).pipe(Effect.option) : undefined;
   const committed = committedText?._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay)(yield* json(committedText.value)).pipe(Effect.option) : undefined;
-  const base = draftOf(scan, manifests, overlay);
+  const unread = paths.filter(isUnscannedSource);
+  const base = draftOf(scan, manifests, overlay, unread);
   const { draft, unknown } = overlay ? applyOverlay(base, overlay) : { draft: base, unknown: [] as string[] };
-  if (!draft.packages.some(item => item.components.length)) return yield* Effect.fail(failure("Draft.empty", "No TypeScript or JavaScript source was found to draw."));
+  // Boxes of unread code alone would be a picture with no arrows at all: the draft needs some code the scan reads.
+  const unreadSet = new Set(unread);
+  if (!draft.packages.some(item => item.components.some(entry => entry.files.some(path => !unreadSet.has(path))))) {
+    return yield* Effect.fail(failure("Draft.empty", "No TypeScript or JavaScript source was found to draw."));
+  }
 
   // A model you wrote is never rewritten: only a previous draft (marked as generated) is replaced.
   const existing = yield* io("Draft.existing", () => readdir(target)).pipe(Effect.catch(() => Effect.succeed([] as string[])));
@@ -642,8 +702,8 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   }
   const label = basename(options.out ? target : root);
   const name = slug(label);
-  const lines = new Map(scan.files.map(file => [file.path, file.lines] as const));
-  const rendered = renderDraft(draft, lines, existing.some(name => /\.behavior\.(c4|likec4)$/.test(name)));
+  const lines = new Map([...scan.files.map(file => [file.path, file.lines] as const), ...yield* unreadLines(root, unread)]);
+  const rendered = renderDraft(draft, lines, existing.some(name => /\.behavior\.(c4|likec4)$/.test(name)), unreadSet);
   const mappings = draft.packages.flatMap(item => item.components.flatMap(entry => entry.globs.map(glob => ({ glob, element: entry.id }))));
   yield* io("Draft.write", async () => {
     await mkdir(target, { recursive: true });
@@ -655,6 +715,6 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   });
   const components = draft.packages.reduce((sum, item) => sum + item.components.length, 0), collections = draft.packages.reduce((sum, item) => sum + item.groups.length, 0);
   return { target, project: name, packages: draft.flat ? 0 : draft.packages.length, components, collections, elements: components + collections + (draft.flat ? 0 : draft.packages.length),
-    relationships: draft.relationships.length, mappings: mappings.length, ignored: draft.ignored, overlay: overlay ? Object.keys(overlay.elements).length - unknown.length : 0, unknown,
+    relationships: draft.relationships.length, mappings: mappings.length, ignored: draft.ignored, unread: unreadSummary(draft, unreadSet), overlay: overlay ? Object.keys(overlay.elements).length - unknown.length : 0, unknown,
     problems: draft.problems, pins: overlay && committed?._tag === "Some" ? changedPins(committed.value, overlay) : [] };
 });

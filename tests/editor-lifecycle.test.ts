@@ -5,6 +5,16 @@ import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { run, mappingIn } from "./effects";
+import { editorCommand } from "../src/editor";
+
+test("a line is passed only to editors whose way of taking one is known", () => {
+  expect(editorCommand("nvim -u NONE", 12)).toBe('exec nvim -u NONE +12 "$1"');
+  expect(editorCommand("/usr/bin/vim", 3)).toBe('exec /usr/bin/vim +3 "$1"');
+  expect(editorCommand("hx", 7)).toBe('exec hx "$1:7"');
+  expect(editorCommand("code --wait", 7)).toBe('exec code --wait "$1"');
+  expect(editorCommand("nvim")).toBe('exec nvim "$1"');
+  expect(editorCommand("nvim", 0)).toBe('exec nvim "$1"');
+});
 
 test("show forwards editor configuration and shutdown stops a non-exec editor wrapper's process group", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-editor-stop-"));

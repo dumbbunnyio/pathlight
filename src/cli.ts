@@ -118,6 +118,7 @@ try {
       const made = yield* draftWorkspace(values.workspace, { out: values.out, force: values.force });
       process.stdout.write(`Drew ${made.elements} elements (${made.packages ? `${made.packages} packages, ` : ""}${made.components} components${made.collections ? `, ${made.collections} collections` : ""}) and ${made.relationships} relationships from the imports.\n`
         + `${made.mappings} file mappings; ${made.ignored} test files left out.\nWrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in ${made.target}.\n`
+        + (made.unread ? `Not read: ${made.unread}. Their boxes are drawn; no arrow to or from them is.\n` : "")
         + (made.overlay ? `Applied ${made.overlay} names or notes from .pathlight/pathlight.overlay.json.\n` : "")
         + made.problems.map(text => `Overlay skipped: ${text}\n`).join("")
         + made.pins.map(text => `Check: ${text}\n`).join("")

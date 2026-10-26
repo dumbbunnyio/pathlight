@@ -215,9 +215,17 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&
  * What a file declares for an exported name, as it is written: the line or lines of the `export` statement up to where its body begins, whitespace
  * collapsed and cut at 240 characters. Nothing is inferred (no resolved types); a declaration that cannot be found returns undefined.
  */
+const declarationPattern = (name: string) =>
+  new RegExp(`^[ \\t]*export\\s+(?:declare\\s+)?(?:default\\s+)?(?:abstract\\s+)?(?:async\\s+)?(?:function\\s*\\*?|class|interface|type|enum|namespace|const|let|var)\\s+${escapeRegExp(name)}\\b`, "m");
+
+/** The 1-based line an exported name is declared on, as the file reads now. */
+export function declarationLine(source: string, name: string): number | undefined {
+  const match = declarationPattern(name).exec(source);
+  return match ? source.slice(0, match.index).split("\n").length : undefined;
+}
+
 export function declarationOf(source: string, name: string): string | undefined {
-  const pattern = new RegExp(`^[ \\t]*export\\s+(?:declare\\s+)?(?:default\\s+)?(?:abstract\\s+)?(?:async\\s+)?(?:function\\s*\\*?|class|interface|type|enum|namespace|const|let|var)\\s+${escapeRegExp(name)}\\b`, "m");
-  const match = pattern.exec(source);
+  const match = declarationPattern(name).exec(source);
   if (!match) return undefined;
   const rest = source.slice(match.index);
   // The body starts at the first `{` after the parameters (or at `=>`, or the end of a statement), so only the signature is kept.

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -119,6 +119,41 @@ test("a flow is shown on the screen as text, so an agent can check it", async ()
     expect(screen).toBe(await readFile(file, "utf8"));
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("e on a step that names a function opens it in the editor at the line the file declares it on now", async () => {
+  const directory = await workspace(false);
+  const socket = join("/tmp", `c4fe-${process.pid}.sock`);
+  const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
+  try {
+    await writeFile(join(directory, "views.c4"), (await readFile(join(directory, "views.c4"), "utf8")).replace("'submits the cart'",
+      "'submits the cart' {\n      notes 'submitCart | src/api/checkout.ts | export function submitCart(cart: Cart)'\n    }"));
+    // Moved down since the flow was written: the editor must land on where it is now.
+    await writeFile(join(directory, "src/api/checkout.ts"), "import x from './x';\n\n// Takes the cart.\nexport function submitCart(cart: Cart) {}\n");
+    // A stand-in editor named nvim, so the viewer passes it a line; it records what it was given.
+    await mkdir(join(directory, "bin"));
+    await writeFile(join(directory, "bin/nvim"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${join(directory, "editor-args")}"\n`, { mode: 0o755 });
+    const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "flow", "-x", "170", "-y", "42", "-P", "-F", "#{pane_id}",
+      "env", `VISUAL=${join(directory, "bin/nvim")}`, process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", directory, "--project", "parcel");
+    const until = async (predicate: (text: string) => boolean, label: string) => {
+      let output = "";
+      for (let attempt = 0; attempt < 160; attempt++) {
+        output = await tmux("capture-pane", "-p", "-t", pane);
+        if (predicate(output)) return output;
+        await delay(50);
+      }
+      throw new Error(`Missing ${label}:\n${output}`);
+    };
+    await until(text => text.includes("◇ Placing an order"), "the flow");
+    await tmux("send-keys", "-t", pane, "F", "]");
+    expect(await until(text => text.includes("2/5") && text.includes("ƒ submitCart"), "step 2 with its function")).toContain("e read it");
+    await tmux("send-keys", "-t", pane, "e");
+    await until(text => text.includes("Returned from submitCart"), "back from the editor");
+    expect((await readFile(join(directory, "editor-args"), "utf8")).trim().split("\n")).toEqual(["+4", join(await realpath(directory), "src/api/checkout.ts")]);
+  } finally {
+    await tmux("kill-server").catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 90_000);
 
 test("F in a flow's own view starts with that flow, even when another flow also passes through the selected component", async () => {
   const directory = await workspace(true);

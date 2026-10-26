@@ -160,6 +160,6 @@ When files are added, moved or removed, run `pathlight check --workspace .` and 
 
 ## Limits
 
-- The scan reads TypeScript and JavaScript only. It does not follow `tsconfig` `extends`, `exports` patterns or bundler aliases; what it cannot resolve is listed, not guessed.
+- The scan reads TypeScript and JavaScript only. Code in other languages is drawn in its own boxes ("not read by the scan") with no arrows, because its imports are unknown; say so when you describe the map. It does not follow `tsconfig` `extends`, `exports` patterns or bundler aliases; what it cannot resolve is listed, not guessed.
 - The viewer is for Linux with tmux. Do not claim other terminals or platforms work.
 - Activity journals hold metadata only (tool, operation, file paths, time). Do not add source, commands or results to them.

@@ -67,6 +67,14 @@ const limits = { entries: 50_000, bytes: 2 * 1024 * 1024 };
 
 const extension = (path: string) => posix.extname(path);
 
+/** Source in a language this scan does not read: it is part of the code, but its imports are unknown. */
+export const isUnscannedSource = (path: string) => unscannedExtensions.has(extension(path));
+const languageNames: Record<string, string> = { ".py": "Python", ".go": "Go", ".rs": "Rust", ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin", ".rb": "Ruby",
+  ".php": "PHP", ".cs": "C#", ".swift": "Swift", ".c": "C", ".cc": "C++", ".cpp": "C++", ".h": "C", ".hpp": "C++", ".m": "Objective-C", ".mm": "Objective-C",
+  ".scala": "Scala", ".dart": "Dart", ".zig": "Zig", ".ex": "Elixir", ".exs": "Elixir", ".lua": "Lua", ".vue": "Vue", ".svelte": "Svelte", ".astro": "Astro" };
+/** The language an unscanned file is written in, by its extension. */
+export const languageOf = (path: string) => languageNames[extension(path)] ?? extension(path);
+
 /** The file a path names, trying what TypeScript and Node do: the exact file, `.js` for `.ts`, an added extension, then a directory index. */
 function resolveFile(files: ReadonlySet<string>, requested: string): string | undefined {
   if (requested.startsWith("../") || requested === "..") return undefined;

@@ -3,6 +3,8 @@ import { THREE } from "@opentui/three";
 import { SplitPaneRenderable } from "opentui-split";
 import { Effect, FiberSet, Schedule } from "effect";
 import { watch } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { type View, acquireModel, validateActivityMapping } from "./catalog";
 import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, latestBinding, readActivity, readActivityConfig, readReplay, type Replay } from "./activity";
 import { type Diff, readDiff } from "./diff";
@@ -22,6 +24,7 @@ import { checkFlows } from "./flows";
 import { badgeText as stepBadge, badgesOf, flowMaps, flowsInView, flowsThrough, pathEdges, type FlowMap } from "./flow-view";
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
+import { declarationLine } from "./scan-imports";
 
 export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) {
 const view = options.view;
@@ -274,7 +277,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         ["0", "actual size"], ["r", "centre the selection"], ["tab", "next node"], ["enter", "into a group / open a link"], ["backspace", "up to the parent"],
         ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"], ["F", "trace a flow (F again: next, last one leaves)"], ["[ ]", "step through the flow"]] },
       { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a card"], ["j k", "move / scroll"], ["space", "fold card"],
-        ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files"], ["esc", "back to diagram"]] },
+        ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files (in a flow: read the step's function)"], ["esc", "back to diagram"]] },
       { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work, and follow it"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
       { name: "Global", active: false, rows: [["/", "search views, boxes, files"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
     ];
@@ -819,7 +822,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     inspectorHead.content = new StyledText([fg(palette.muted)(what || " ")]);
     inspectorHead.visible = what !== "";
     const description = describe(selected);
-    const opens = selected?.navigateTo ? `o opens ${selected.navigateTo}` : "";
+    const opens = selected?.navigateTo ? `o opens ${diagrams.get(String(selected.navigateTo))?.title ?? selected.navigateTo}` : "";
     inspectorId.content = new StyledText([...(description ? [fg(palette.body)(description)] : []), ...(description && opens ? [nl] : []), ...(opens ? [fg(palette.muted)(opens)] : [])]);
     inspectorId.visible = Boolean(description || opens);
     headRows = 1 + (what ? 1 : 0) + (description ? Math.ceil(description.length / headWidth) : 0) + (opens ? 1 : 0);
@@ -907,7 +910,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
           if (!step.elements.length) { stepChunks.push(fg(palette.border)("     "), fg(palette.muted)("no component for this step\n")); stepLine++; }
           if (step.call) {
             // The function this hop calls, as the file declares it (copied when the flow was written, checked by pathlight flows): a name, where, and the signature wrapped to the panel.
-            stepChunks.push(fg(palette.border)("     "), fg(palette.purple)("ƒ "), fg(palette.text)(clip(step.call.name, Math.max(4, room - 8))), nl); stepLine++;
+            // `e` opens it in the editor at its declaration; the hint goes when the name needs the room.
+            const fits = step.call.name.length + 11 <= room - 8;
+            stepChunks.push(fg(palette.border)("     "), fg(palette.purple)("ƒ "), fg(palette.text)(clip(step.call.name, Math.max(4, room - 8))), ...(fits ? [fg(palette.accent)("  e"), fg(palette.muted)(" read it")] : []), nl); stepLine++;
             const where = `declared in ${step.call.file}`;
             stepChunks.push(fg(palette.border)("       "), fg(palette.muted)(`${clip(where, Math.max(4, room - 7))}\n`)); stepLine++;
             const signature = step.call.declaration.replace(/^export\s+(default\s+)?/, ""), width = Math.max(12, room - 7);
@@ -1585,15 +1590,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   let clickedFile = -1;
   const endFiles = () => { clickedFile = -1; fileMode = false; focusSection = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
-  const openFile = (path: string) => {
+  const openFile = (path: string, line?: number, returned = `Returned from editor: ${path}`) => {
     editorActive = true;
     searchInput.blur();
     runTask(Effect.gen(function* () {
       yield* io("Native.finishDrawing", async () => { await drawing; });
       yield* Effect.acquireRelease(io("Native.suspend", () => renderer.suspend()),
         () => io("Native.resume", async () => { await renderer.resume(); editorActive = false; searchInput.focus(); update(); }).pipe(Effect.orDie));
-      yield* openEditor({ workspace: view.workspace, path }).pipe(
-        Effect.tap(() => Effect.sync(() => { message = `Returned from editor: ${path}`; })),
+      yield* openEditor({ workspace: view.workspace, path, line }).pipe(
+        Effect.tap(() => Effect.sync(() => { message = returned; })),
         Effect.catch(error => Effect.sync(() => { message = error.message; })));
     }).pipe(Effect.scoped, Effect.catch(error => Effect.sync(() => { editorActive = false; message = error.message; searchInput.focus(); update(); }))));
   };
@@ -1828,6 +1833,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       else { followCamera = !followCamera; followPaused = false; message = followCamera ? (binding || following ? "Following the work (a to stop)" : "Follow needs a bound session") : "Follow off"; }
       focusedCall = ""; followSince = Date.now();
       if (followCamera) followActivity();
+    }
+    else if (key.name === "e" && activeFlow?.steps[flowStep]?.call) {
+      // In a flow, the step's function is what there is to read: open it where the file declares it now, not where it was when the flow was written.
+      const call = activeFlow.steps[flowStep]!.call!;
+      runTask(io("Native.readCall", () => readFile(join(view.workspace, call.file), "utf8")).pipe(
+        Effect.map(source => declarationLine(source, call.name)),
+        Effect.catch(() => Effect.succeed(undefined)),
+        Effect.tap(line => Effect.sync(() => openFile(call.file, line, line ? `Returned from ${call.name}` : `${call.name} is no longer declared in ${call.file}; opened it at the top`)))));
     }
     else if (key.name === "e") beginFiles();
     else if (key.name === "tab") {

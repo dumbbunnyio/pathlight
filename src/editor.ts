@@ -3,14 +3,26 @@ import { Config, Effect } from "effect";
 import { editorFile } from "./node-files";
 import { attempt, failure, hasCode, io } from "./effects";
 
-export const openEditor = Effect.fn("Editor.open")(function* (options: { workspace: string; path: string }) {
+/**
+ * The shell command that opens `$1` in the editor, at `line` when the editor is one whose way of taking a line we know (`+N file` for the vi family,
+ * nano, emacs, micro and kakoune; `file:N` for helix). Any other editor opens the file at the top: a guessed flag could open the wrong file or none.
+ */
+export function editorCommand(editor: string, line?: number) {
+  const program = editor.trim().split(/\s+/)[0]?.split("/").at(-1) ?? "";
+  if (line === undefined || !Number.isInteger(line) || line < 1) return `exec ${editor} "$1"`;
+  if (/^(n?vim?|view|gvim|nano|emacs(client)?|micro|kak)$/.test(program)) return `exec ${editor} +${line} "$1"`;
+  if (/^(hx|helix)$/.test(program)) return `exec ${editor} "$1:${line}"`;
+  return `exec ${editor} "$1"`;
+}
+
+export const openEditor = Effect.fn("Editor.open")(function* (options: { workspace: string; path: string; line?: number }) {
   const file = yield* editorFile(options.workspace, options.path);
   const visual = yield* Config.String("VISUAL").pipe(Config.withDefault(""));
   const fallback = yield* Config.String("EDITOR").pipe(Config.withDefault(""));
   const editor = visual.trim() || fallback.trim();
   if (!editor) return yield* Effect.fail(failure("Editor.config", "Set VISUAL or EDITOR before starting the viewer. For GUI editors, include a wait flag."));
   const child = yield* Effect.acquireRelease(attempt("Editor.spawn", () => {
-    const child = spawn("sh", ["-c", `exec ${editor} "$1"`, "pathlight-editor", file], {
+    const child = spawn("sh", ["-c", editorCommand(editor, options.line), "pathlight-editor", file], {
       cwd: options.workspace, stdio: "inherit", detached: true,
     });
     const exited = new Promise<void>((resolve, reject) => {

@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { Effect, Schema } from "effect";
-import { draftOf, draftWorkspace, Overlay, readManifests } from "./draft";
+import { draftOf, draftWorkspace, Overlay, readManifests, unreadLines } from "./draft";
 import { readOverlay } from "./edit";
 import { failure, io } from "./effects";
 import { homeOf, overlayFile } from "./layout";
-import { listFiles, scanWorkspace } from "./scan";
+import { isUnscannedSource, listFiles, scanWorkspace } from "./scan";
 
 /**
  * `pathlight brief`: what an agent needs to name the boxes of a draft, gathered from the code and nothing else. For each box (a package, a collection
@@ -117,8 +117,9 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
   const scan = yield* scanWorkspace(root);
   const { paths } = yield* listFiles(root);
   const overlay = yield* readOverlay(root);
-  const draft = draftOf(scan, yield* readManifests(root, paths), overlay);
-  const lines = new Map(scan.files.map(file => [file.path, file.lines] as const));
+  const unread = paths.filter(isUnscannedSource);
+  const draft = draftOf(scan, yield* readManifests(root, paths), overlay, unread);
+  const lines = new Map([...scan.files.map(file => [file.path, file.lines] as const), ...yield* unreadLines(root, unread)]);
   const offered = new Map(scan.files.map(file => [file.path, file.exports ?? []] as const));
   const sizes = (files: readonly string[]) => files.map(path => ({ path, lines: lines.get(path) ?? 0 })).sort((a, b) => b.lines - a.lines || (a.path < b.path ? -1 : 1));
   const boxes = new Map<string, BriefBox>();
