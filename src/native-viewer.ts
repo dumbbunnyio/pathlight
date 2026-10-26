@@ -1,12 +1,11 @@
-import { type Renderable, BoxRenderable, FrameBufferRenderable, InputRenderable, ScrollBoxRenderable, TextareaRenderable, TextRenderable, StyledText, type TextChunk, fg, bg, RGBA, createCliRenderer } from "@opentui/core";
+import { BoxRenderable, TextRenderable, StyledText, type TextChunk, fg, bg, RGBA, createCliRenderer } from "@opentui/core";
 import { THREE } from "@opentui/three";
-import { SplitPaneRenderable } from "opentui-split";
 import { Effect, FiberSet, Schedule } from "effect";
 import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type View, acquireModel, validateActivityMapping } from "./catalog";
-import { type ActivityBinding, type ActivityEvent, activityRows, formatAge, latestBinding, readActivity, readActivityConfig, readReplay, type Replay } from "./activity";
+import { type ActivityBinding, type ActivityEvent, formatAge, latestBinding, readActivity, readActivityConfig, readReplay, type Replay } from "./activity";
 import { type Diff, readDiff } from "./diff";
 import { type Plan, readPlan } from "./plan";
 import { readStale, type Stale, staleText } from "./stale";
@@ -25,6 +24,11 @@ import { badgeText as stepBadge, badgesOf, flowMaps, flowsInView, flowsThrough, 
 import { attempt, failure, hasCode, io } from "./effects";
 import { writeReady } from "./ready";
 import { declarationLine } from "./scan-imports";
+import { cardTag, isActive, nowCard, operationState, outcomeMs, sessionSummary, ticker } from "./viewer/activity-view";
+import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
+import { helpContent } from "./viewer/help";
+import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
+import { clip, describe, easeOut, fade, labelTitle, nl, spinAt } from "./viewer/text";
 
 export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) {
 const view = options.view;
@@ -76,63 +80,7 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
   for (const resource of resources) resource.dispose();
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
-  const topBar = new BoxRenderable(renderer, { height: 3, flexShrink: 0, border: ["bottom"], borderColor: palette.border, paddingLeft: 1, paddingRight: 1 });
-  const row = () => new BoxRenderable(renderer, { height: 1, width: "100%", flexShrink: 0, flexDirection: "row", justifyContent: "space-between" });
-  const headingText = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.text, wrapMode: "none" });
-  const badgeText = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
-  const heading = row();
-  heading.add(headingText); heading.add(badgeText);
-  const breadcrumb = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
-  const crumbHint = new TextRenderable(renderer, { selectable: false, height: 1, fg: palette.muted, wrapMode: "none" });
-  const breadcrumbRow = row();
-  breadcrumbRow.add(breadcrumb); breadcrumbRow.add(crumbHint);
-  topBar.add(heading); topBar.add(breadcrumbRow);
-  const searchInput = new InputRenderable(renderer, { flexGrow: 1, maxLength: 256,
-    placeholder: "Search nodes in this view", backgroundColor: palette.panel, textColor: palette.text, focusedBackgroundColor: palette.panel });
-  const searchPrompt = new TextRenderable(renderer, { selectable: false, content: " / ", fg: palette.incoming, wrapMode: "none", flexShrink: 0 });
-  const searchRow = new BoxRenderable(renderer, { height: 1, width: "100%", flexShrink: 0, flexDirection: "row", visible: false, backgroundColor: palette.panel });
-  searchRow.add(searchPrompt); searchRow.add(searchInput);
-  topBar.insertBefore(searchRow, breadcrumbRow);
-  const body = new SplitPaneRenderable(renderer, { flexGrow: 1, flexBasis: 0, minHeight: 1, direction: "horizontal",
-    gutterOptions: { color: palette.border } });
-  const viewport = new BoxRenderable(renderer, { minHeight: 1, overflow: "hidden" });
-  const canvas = new FrameBufferRenderable(renderer, { position: "absolute", left: 0, top: 0, width: renderer.width, height: Math.max(1, renderer.height - 7) });
-  const inspector = new BoxRenderable(renderer, { width: 38, flexShrink: 0, border: false,
-    paddingLeft: 1, paddingRight: 1, backgroundColor: palette.panel });
-  // Every layer of a scroll box paints its own background; set them all so no cell falls back to the terminal default.
-  const surface = { backgroundColor: palette.panel, rootOptions: { backgroundColor: palette.panel }, wrapperOptions: { backgroundColor: palette.panel },
-    viewportOptions: { backgroundColor: palette.panel }, contentOptions: { backgroundColor: palette.panel } };
-  const inspectorScroll = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, verticalScrollbarOptions: { showArrows: false, trackOptions: { foregroundColor: palette.edgeDim, backgroundColor: palette.panel } } });
-  const inspectorTitle = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
-  const inspectorHead = new TextRenderable(renderer, { selectable: false, bg: palette.panel, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
-  const inspectorId = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
-  const relations = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "word" });
-  const filesText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
-  const activityText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.muted, wrapMode: "word" });
-  const stepsText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
-  const flowsText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
-  // Numbered, collapsible sections: each is a lighter block on the panel, with a bar on its left edge when focused.
-  type SectionKey = "activity" | "steps" | "connections" | "flows" | "files";
-  const thin = { showArrows: false, trackOptions: { foregroundColor: palette.edgeDim, backgroundColor: palette.panel } };
-  const makeSection = (number: number, name: string, children: Renderable[]) => {
-    const box = new BoxRenderable(renderer, { id: `section-${name.toLowerCase()}`, backgroundColor: palette.panel, width: "100%", height: 8, flexShrink: 0, flexDirection: "column", marginTop: 1 });
-    const header = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
-    // Every card is the same height; whatever does not fit scrolls inside it, behind a hairline scrollbar.
-    const content = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, verticalScrollbarOptions: thin });
-    for (const child of children) content.add(child);
-    box.add(header); box.add(content);
-    return { number, name, box, header, content, open: true };
-  };
-  const sections = {
-    activity: makeSection(1, "Now", [activityText]),
-    steps: makeSection(2, "Steps", [stepsText]),
-    connections: makeSection(2, "Connects", [relations]),
-    flows: makeSection(4, "In flows", [flowsText]),
-    files: makeSection(3, "Files", [filesText]),
-  };
-  const sectionOrder: SectionKey[] = ["activity", "steps", "connections", "flows", "files"];
-  // Before the first layout nothing is measured; start with what is hidden by default already hidden, so no frame shows Files or an empty Now.
-  for (const key of ["files", "steps", "flows"] as const) { sections[key].box.visible = false; sections[key].box.height = 0; }
+  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, nodeList, nodeListText } = createWidgets(renderer);
   if (!binding && !following) { sections.activity.box.visible = false; sections.activity.box.height = 0; }
   // Which section (if any) owns the movement keys. Undefined means the diagram does.
   let focusSection: SectionKey | undefined;
@@ -142,80 +90,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const hot = RGBA.fromHex(palette.hot), rowBackground = hot;
   const contentRows: Record<SectionKey, number> = { connections: 4, files: 4, activity: 4, steps: 4, flows: 2 };
   const highlight = (chunks: TextChunk[], from: number, to: number) => chunks.map((chunk, index) => index >= from && index < to ? { ...chunk, bg: hot } : chunk);
-  for (const child of [inspectorTitle, inspectorHead, inspectorId, ...sectionOrder.map(key => sections[key].box)]) inspectorScroll.add(child);
-  inspector.add(inspectorScroll);
-  // Pinned under the scrolling cards: what is one key away, and the question field. Neither scrolls away.
-  const inspectorActions = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 2, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
-  const inspectorAsk = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
-  inspector.add(inspectorActions); inspector.add(inspectorAsk);
-  // One bottom row: the mode badge (the only filled block on screen), then key hints or a short-lived notice; zoom and version on the right.
-  const statusLeft = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 1, flexGrow: 1, fg: palette.muted, wrapMode: "none" });
-  const statusRight = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
-  const footer = new BoxRenderable(renderer, { height: 1, flexShrink: 0, flexDirection: "row", justifyContent: "space-between", paddingRight: 1 });
-  footer.add(statusLeft); footer.add(statusRight);
-  // A modal is one 1-column rounded frame over a dimmed backdrop. Its title, metadata and key hints are set into the border rows
-  // (small panel-coloured texts laid over the border), so there is no separate header or footer.
-  const makeModal = (color: string, titleChunks: TextChunk[], dim = 0.8) => {
-    const modal = { dismiss: () => {}, get visible() { return panel.visible; } };
-    const scrim = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", zIndex: 19000, visible: false,
-      backgroundColor: RGBA.fromValues(0.02, 0.03, 0.04, dim), onMouse(event) { event.preventDefault(); event.stopPropagation(); if (event.type === "down") modal.dismiss(); } });
-    const panel = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: 60, height: 10, border: true, borderStyle: "rounded", borderColor: color,
-      backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2, paddingTop: 1, paddingBottom: 1, zIndex: 20000, visible: false, flexDirection: "column" });
-    const onBorder = (options: { left?: number; right?: number; top?: number; bottom?: number }, initial?: TextChunk[]) => {
-      const text = new TextRenderable(renderer, { selectable: false, wrapMode: "none", flexShrink: 0, fg: palette.muted });
-      const box = new BoxRenderable(renderer, { position: "absolute", height: 1, flexDirection: "row", backgroundColor: palette.panel, ...options });
-      box.add(text); box.visible = false;
-      const set = (value: StyledText | string) => { text.content = value; box.visible = true; };
-      if (initial) set(new StyledText([fg(palette.muted)(" "), ...initial, fg(palette.muted)(" ")]));
-      return { box, set content(value: StyledText | string) { set(value); } };
-    };
-    const title = onBorder({ left: 1, top: -1 }, titleChunks), meta = onBorder({ right: 1, top: -1 }), foot = onBorder({ left: 1, bottom: -1 });
-    const content = new TextRenderable(renderer, { selectable: false, fg: palette.body, wrapMode: "none", flexShrink: 0 });
-    for (const child of [content, title.box, meta.box, foot.box]) panel.add(child);
-    // `height` is the whole frame: its content rows plus the border and one blank row of padding top and bottom.
-    const place = (width: number, height: number) => {
-      const w = Math.max(20, Math.min(width, renderer.width - 2)), h = Math.max(5, Math.min(height, renderer.height - 2));
-      panel.width = w; panel.height = h;
-      panel.left = Math.floor((renderer.width - w) / 2); panel.top = Math.max(0, Math.floor((renderer.height - h) / 2));
-    };
-    return Object.assign(modal, { scrim, panel, content, title, meta, foot, place,
-      open(width: number, height: number) { place(width, height); scrim.visible = panel.visible = true; },
-      close() { scrim.visible = panel.visible = false; } });
-  };
-  const help = makeModal(palette.edgeDim, [fg(palette.accent)("◆ "), fg(palette.text)("Keyboard shortcuts")]);
-  const summary = makeModal(palette.edgeDim, [fg(palette.text)("This session")]);
-  const ask = makeModal(palette.accent, [fg(palette.text)("Ask the agent")]);
-  const goto = makeModal(palette.edgeDim, [fg(palette.text)("Go to view")]);
-  // No backdrop dimming: the diagram behind is the preview.
-  const picker = makeModal(palette.edgeDim, [fg(palette.accent)("◆ "), fg(palette.text)("Theme")], 0);
-  // The question: a field one step darker than the modal that grows to four rows, then scrolls. Enter sends, Alt+Enter adds a line.
-  const askRows = () => Math.min(4, Math.max(1, askInput.virtualLineCount));
-  const askInput = new TextareaRenderable(renderer, { flexGrow: 1, height: 1, wrapMode: "word", placeholder: "What do you want to know about it?", placeholderColor: palette.border,
-    backgroundColor: palette.background, textColor: palette.text, focusedBackgroundColor: palette.background, focusedTextColor: palette.text,
-    cursorColor: palette.accent, cursorStyle: { style: "block", blinking: false },
-    keyBindings: [{ name: "return", meta: true, action: "newline" }, { name: "return", shift: true, action: "newline" }],
-    onContentChange: () => fitAsk() });
-  const askPrompt = new TextRenderable(renderer, { selectable: false, content: "›", fg: palette.accent, wrapMode: "none", flexShrink: 0, width: 1, marginRight: 1 });
-  const askRow = new BoxRenderable(renderer, { height: 3, width: "100%", flexShrink: 0, flexDirection: "row", backgroundColor: palette.background, marginTop: 1, paddingLeft: 1, paddingRight: 1, paddingTop: 1, paddingBottom: 1 });
-  askRow.add(askPrompt); askRow.add(askInput);
-  ask.panel.add(askRow);
-  const fitAsk = () => {
-    const rows = askRows();
-    if (askInput.height === rows) return;
-    askInput.height = rows; askRow.height = rows + 2;
-    if (ask.visible) ask.place(Math.min(76, renderer.width - 4), rows + 9);
-    renderer.requestRender();
-  };
-  // The narrow-terminal view: every node as a row (indented by depth), the selection marked; it replaces the diagram.
-  const listSurface = { backgroundColor: palette.background, rootOptions: { backgroundColor: palette.background }, wrapperOptions: { backgroundColor: palette.background },
-    viewportOptions: { backgroundColor: palette.background }, contentOptions: { backgroundColor: palette.background } };
-  const nodeList = new ScrollBoxRenderable(renderer, { ...listSurface, position: "absolute", left: 0, top: 0, width: "100%", height: "100%", visible: false, scrollX: false, scrollY: true,
-    verticalScrollbarOptions: { showArrows: false, trackOptions: { foregroundColor: palette.edgeDim, backgroundColor: palette.background } } });
-  const nodeListText = new TextRenderable(renderer, { selectable: false, bg: palette.background, width: "100%", flexShrink: 0, fg: palette.body, wrapMode: "none" });
-  nodeList.add(nodeListText);
-  viewport.add(canvas); viewport.add(nodeList); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
-  for (const child of [topBar, body, footer, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel, goto.scrim, goto.panel, picker.scrim, picker.panel]) renderer.root.add(child);
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
   let centerX = diagram.bounds.x + diagram.bounds.width / 2;
   let centerY = diagram.bounds.y + diagram.bounds.height / 2;
@@ -268,56 +143,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // Which key family moves the selection; the other family pans. `v` swaps them.
   let vimTraverses = true;
   const selectKeys = () => vimTraverses ? "h j k l" : "Arrows";
-  // Four groups of keys, two columns when there is room (Diagram on the left; Inspector, Agent and Global stacked on the right).
-  // The group for where the keys are right now is in the accent colour; the rest are dim.
-  const helpContent = () => {
-    const arrows = "← ↑ ↓ →";
-    const groups: { name: string; active: boolean; rows: Hint[] }[] = [
-      { name: "Diagram", active: !focusSection, rows: [[vimTraverses ? "h j k l" : arrows, "select a neighbour"], [vimTraverses ? arrows : "h j k l", "pan"], ["+ -", "zoom"], ["f", "fit everything"],
-        ["0", "actual size"], ["r", "centre the selection"], ["tab", "next node"], ["enter", "into a group / open a link"], ["backspace", "up to the parent"],
-        ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"], ["F", "trace a flow (F again: next, last one leaves)"], ["[ ]", "step through the flow"]] },
-      { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a card"], ["j k", "move / scroll"], ["space", "fold card"],
-        ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files (in a flow: read the step's function)"], ["esc", "back to diagram"]] },
-      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work, and follow it"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
-      { name: "Global", active: false, rows: [["/", "search views, boxes, files"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
-    ];
-    const wide = renderer.width >= 100;
-    const width = Math.min(96, renderer.width - 4), inner = width - 6, column = wide ? Math.floor((inner - 4) / 2) : inner, keyWidth = 12;
-    // One group as lines of chunks, each exactly `column` cells wide.
-    const lines = (group: typeof groups[number]): TextChunk[][] => [
-      [fg(group.active ? palette.accent : palette.muted)(group.name), fg(palette.rule)(` ${"─".repeat(Math.max(2, column - group.name.length - 1))}`)],
-      ...group.rows.map(([key, label]) => {
-        const text = label.slice(0, column - keyWidth);
-        return [fg(palette.text)(key.padEnd(keyWidth)), fg(palette.body)(text.padEnd(column - keyWidth))];
-      })];
-    const stack = (items: typeof groups) => items.flatMap((group, index) => [...index ? [[fg(palette.body)(" ".repeat(column))]] : [], ...lines(group)]);
-    const chunks: TextChunk[] = [];
-    let height: number;
-    if (wide) {
-      const left = stack(groups.slice(0, 1)), right = stack(groups.slice(1));
-      height = Math.max(left.length, right.length);
-      for (let index = 0; index < height; index++) chunks.push(...left[index] ?? [fg(palette.body)(" ".repeat(column))], fg(palette.body)("    "), ...right[index] ?? [], nl);
-    } else {
-      const all = stack(groups);
-      height = all.length;
-      for (const line of all) chunks.push(...line, nl);
-    }
-    chunks.pop();
-    return { content: new StyledText(chunks), height, width,
-      meta: new StyledText([fg(palette.muted)(" in "), fg(palette.accent)(focusSection ? "inspector" : "diagram"), fg(palette.muted)(` · pathlight ${pkg.version} `)]) };
-  };
   const showHelp = () => {
-    const guide = helpContent();
+    const guide = helpContent({ inspector: !!focusSection, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version });
     help.content.content = guide.content; help.meta.content = guide.meta;
     help.foot.content = new StyledText(borderHints([["esc", "close"], ["v", "swap hjkl and arrows"]]));
     if (help.visible) help.place(guide.width, guide.height + 4); else help.open(guide.width, guide.height + 4);
-  };
-  const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
-  const isActive = (event: ActivityEvent) => event.phase === "started" && Date.now() - event.time <= 30_000;
-  const operationColor = (_operation: ActivityEvent["operation"]) => palette.muted;
-  const mix = (from: string | RGBA, to: string | RGBA, amount: number) => {
-    const a = typeof from === "string" ? RGBA.fromHex(from) : from, b = typeof to === "string" ? RGBA.fromHex(to) : to;
-    return RGBA.fromValues(a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount, a.b + (b.b - a.b) * amount, 1);
   };
   // A call seen for the first time flashes: its node's border and its activity row take the accent for a moment.
   const nodeFlashes = new Map<string, number>(), rowFlashes = new Map<string, number>(), seenCalls = new Set<string>();
@@ -399,7 +229,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (replay) return new StyledText([fg(palette.accent)("◀ replay"), fg(palette.border)(` ${liveLabel()} `)]);
     if (!binding && !following) { const only = staleBadge(room); return only.length ? new StyledText(only) : ""; }
     const busy = events.some(isActive);
-    const live = [fg(binding ? palette.incoming : palette.muted)(`${busy ? spinner[Math.floor(Date.now() / 100) % spinner.length] : "●"} live`), fg(palette.border)(` ${liveLabel()} `)];
+    const live = [fg(binding ? palette.incoming : palette.muted)(`${busy ? spinAt(Date.now()) : "●"} live`), fg(palette.border)(` ${liveLabel()} `)];
     return new StyledText([...staleBadge(room - 8 - liveLabel().length), ...live]);
   };
   let activityError = "";
@@ -464,11 +294,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const revealMs = 600;
   let revealStart: number | undefined;
   const revealProgress = () => initialFit ? 0 : revealStart === undefined ? 1 : Math.min(1, (Date.now() - revealStart) / revealMs);
-  const easeOut = (t: number) => 1 - (1 - t) ** 3;
-  const fade = (color: string | RGBA, amount: number) => {
-    const c = typeof color === "string" ? RGBA.fromHex(color) : color, b = RGBA.fromHex(palette.background);
-    return RGBA.fromValues(b.r + (c.r - b.r) * amount, b.g + (c.g - b.g) * amount, b.b + (c.b - b.b) * amount, 1);
-  };
   const cellAspect = () => {
     const resolution = renderer.resolution;
     return resolution && resolution.width > 0 && resolution.height > 0
@@ -478,11 +303,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const p = new THREE.Vector3(x, -y, 10).project(camera);
     return { x: (p.x + 1) * viewport.width / 2, y: (1 - p.y) * viewport.height / 2 };
   };
-  const nl = fg(palette.text)("\n");
   // Section bodies start at the panel's edge; the panel has one column of padding each side and one for a scrollbar.
   const bodyWidth = () => Math.max(16, inspector.width - 2 - 1);
-  const innerWidth = bodyWidth;
-  const section = (title: string, tone: string, right = "") => [fg(tone)(title), fg(palette.border)(` ${"─".repeat(Math.max(2, innerWidth() - title.length - right.length - 2))} `), fg(palette.muted)(right)];
   const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
   // Every open card gets an equal share of the inspector's height; a folded card is a padded header.
   let headRows = 2;
@@ -539,101 +361,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (rows <= 0) return;
     if (line < box.scrollTop) box.scrollTo(line); else if (line >= box.scrollTop + rows) box.scrollTo(line - rows + 1);
   };
-  // "Now": what the selected component's own mapped files saw, newest first. The work elsewhere is the header's line, `w`, `a` and `c`.
+  // "Now", the session summary and the header's activity line are written in viewer/activity-view.ts from what the journal retained.
   const activityContent = () => {
-    const note = (text: string, tone: string = palette.border) => { contentRows.activity = 1; return new StyledText([fg(tone)(text)]); };
-    if (activityError) return note(activityError, palette.failure);
-    if (!binding && !following) return note("○ no live session · model only");
-    if (!config) return note("no file mapping · run pathlight init");
-    if (!binding) return note("waiting for a session");
-    const now = Date.now();
-    const own = String(selected?.modelRef ?? "");
-    const mine = activityRows(events, config, now, 64).filter(row => row.elements.includes(own));
-    if (!mine.length) return note("nothing observed here yet");
-    const width = bodyWidth();
-    const spin = spinner[Math.floor(now / 100) % spinner.length] ?? "●";
-    const collapsed: { row: (typeof mine)[number]; count: number; calls: string[] }[] = [];
-    for (const row of mine) {
-      const same = collapsed.find(entry => entry.row.operation === row.operation && entry.row.target === row.target && entry.row.agent === row.agent);
-      if (same) { same.count++; same.calls.push(row.call); } else collapsed.push({ row, count: 1, calls: [row.call] });
-    }
-    const chunks: TextChunk[] = [];
-    const shown = collapsed.slice(0, 3);
-    for (const { row, count, calls } of shown) {
-      const glyph = row.state === "started" ? spin : row.state === "completed" ? "✓" : row.state === "failed" ? "✗" : "~";
-      const glyphTone = row.state === "failed" ? palette.failure : row.state === "started" ? palette.accent : row.state === "completed" ? palette.green : palette.muted;
-      const op = (row.operation === "command" ? "run" : row.operation).padEnd(5);
-      const first = row.paths[0]?.split("/").at(-1) ?? row.target;
-      const extra = `${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}${row.agent ? ` ·${row.agent.slice(0, 12)}` : ""}`;
-      const age = formatAge(row.age);
-      // Fixed grid: glyph (2) · op (5) · file + count · time, right aligned.
-      const room = Math.max(4, width - 2 - 5 - age.length - 1);
-      const shownFile = first.length + extra.length > room ? `${first.slice(0, Math.max(1, room - extra.length - 1))}…` : first;
-      const gap = Math.max(1, width - 2 - 5 - shownFile.length - extra.length - age.length);
-      const line: TextChunk[] = [fg(glyphTone)(`${glyph} `), fg(row.state === "started" ? palette.accent : palette.muted)(op), fg(palette.body)(shownFile), fg(palette.border)(extra), fg(palette.border)(`${" ".repeat(gap)}${age}`), nl];
-      const flashing = calls.some(call => (rowFlashes.get(call) ?? 0) > now);
-      chunks.push(...(flashing ? line.map(chunk => ({ ...chunk, bg: rowBackground })) : line));
-    }
-    const earlier = collapsed.length - shown.length;
-    if (earlier > 0) chunks.push(fg(palette.border)(`${earlier} earlier · `), fg(palette.muted)("c"), fg(palette.border)(" session\n"));
-    contentRows.activity = shown.length + (earlier > 0 ? 1 : 0);
-    return new StyledText(chunks);
+    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events, element: String(selected?.modelRef ?? ""), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
+    contentRows.activity = card.lines;
+    return new StyledText(card.chunks);
   };
-  // What the retained journal says the agent did: observed counts only, never a claim about outcomes.
   const summaryContent = () => {
-    summary.place(60, 5);
-    if (!binding || !config) return new StyledText([fg(palette.muted)("Not bound to an agent session. Start the viewer with --follow or --session.")]);
-    if (!events.length) return new StyledText([fg(palette.muted)("No calls recorded yet.")]);
-    const now = Date.now();
-    const rows = activityRows(events, config, now, 128);
-    const width = Math.max(30, Math.floor(renderer.width * 0.8) - 8);
-    const byComponent = new Map<string, { reads: number; edits: number; commands: number; last: number }>();
-    const edited = new Map<string, { count: number; element?: string }>();
-    for (const row of rows) {
-      for (const element of row.elements) {
-        const entry = byComponent.get(element) ?? { reads: 0, edits: 0, commands: 0, last: Infinity };
-        if (row.operation === "read") entry.reads++; else if (row.operation === "edit") entry.edits++; else if (row.operation === "command") entry.commands++;
-        entry.last = Math.min(entry.last, row.age);
-        byComponent.set(element, entry);
-      }
-      if (row.operation === "edit") for (const path of row.paths) edited.set(path, { count: (edited.get(path)?.count ?? 0) + 1, element: edited.get(path)?.element ?? row.elements[0] });
-    }
-    const oldest = Math.max(...rows.map(row => row.age));
-    const chunks = [...section(`${binding.source}:${binding.session.slice(0, 8)}`, palette.text, `${rows.length} calls over ${formatAge(oldest)}`), nl, nl,
-      fg(palette.muted)("components touched"), nl];
-    for (const [element, entry] of [...byComponent].sort((a, b) => a[1].last - b[1].last).slice(0, 8)) {
-      const name = elementTitle(element).padEnd(24).slice(0, 24);
-      chunks.push(fg(palette.muted)("  ● "), fg(palette.text)(name), fg(palette.incoming)(`r${entry.reads}`.padEnd(5)), fg(palette.outgoing)(`e${entry.edits}`.padEnd(5)),
-        fg(palette.command)(`c${entry.commands}`.padEnd(6)), fg(palette.muted)(formatAge(entry.last)), nl);
-    }
-    if (!byComponent.size) chunks.push(fg(palette.muted)("  none mapped"), nl);
-    chunks.push(nl, fg(palette.muted)("files edited"), nl);
-    const files = [...edited].sort((a, b) => b[1].count - a[1].count).slice(0, 8);
-    for (const [path, info] of files) {
-      const room = width - 30;
-      chunks.push(fg(palette.outgoing)("  ■ "), fg(info.element ? palette.text : palette.failure)((path.length > room ? `…${path.slice(-(room - 1))}` : path).padEnd(Math.min(room, 40))),
-        fg(palette.muted)(`×${info.count}  ${info.element ? elementTitle(info.element) : "not in the model"}`), nl);
-    }
-    if (!files.length) chunks.push(fg(palette.muted)("  no edits observed"), nl);
-    chunks.push(nl, fg(palette.border)("Counts come from the retained calls, not totals. Commands show files they name."));
-    summary.place(Math.min(100, renderer.width - 6), chunks.filter(chunk => chunk.text.includes("\n")).length + 4);
-    return new StyledText(chunks);
+    const made = sessionSummary({ session: binding ? `${binding.source}:${binding.session.slice(0, 8)}` : undefined, config, events, elementTitle, screenWidth: renderer.width, ruleWidth: bodyWidth(), now: Date.now() });
+    summary.place(...made.size);
+    return new StyledText(made.chunks);
   };
-  // The header's one activity line: "now" while a tool runs, "last" once it has an outcome, then what it did, to which file, in which component.
-  const tickerContent = () => {
-    if (!binding || !config) return undefined;
-    const [row] = activityRows(events, config, Date.now(), 1);
-    if (!row || row.age > 120_000) return undefined;
-    const running = row.state === "started";
-    const verb = row.operation === "command" ? "run" : row.operation;
-    const glyph = running ? (row.operation === "edit" ? "■" : row.operation === "read" ? "◦" : spinner[Math.floor(Date.now() / 100) % spinner.length]!)
-      : row.state === "completed" ? "✓" : row.state === "failed" ? "✗" : "~";
-    const tone = row.state === "failed" ? palette.failure : running ? (row.operation === "edit" ? palette.accent : row.operation === "read" ? palette.incoming : palette.command) : row.state === "completed" ? palette.green : palette.muted;
-    const outcome = row.state === "failed" ? " failed" : row.state === "unconfirmed" ? ", no result" : "";
-    return [fg(palette.border)(running ? "now  " : "last "), fg(tone)(`${glyph} `), fg(running ? tone : palette.body)(verb), fg(palette.body)(` ${row.target}`), fg(row.state === "failed" ? palette.failure : palette.muted)(outcome), fg(palette.muted)(" "),
-      ...(row.agent ? [fg(palette.muted)(`[${row.agent.slice(0, 16)}] `)] : []),
-      ...(row.elements.length ? [fg(palette.border)("in "), fg(palette.body)(row.elements.map(elementTitle).join(", ")), fg(palette.muted)(" ")] : []), fg(palette.border)(running && row.age < 1000 ? "" : formatAge(row.age))];
-  };
+  const tickerContent = () => ticker(binding ? config : undefined, events, elementTitle, Date.now());
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
     let step = 32;
@@ -646,41 +385,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         if (x >= 0 && y >= 0 && x < viewport.width && y < viewport.height) canvas.frameBuffer.setCell(x, y, "·", dot, bg);
       }
     }
-  };
-  // Never show a fragment: if a word cannot fit the node's width, or the wrapped title plus status line cannot fit its
-  // height, the title becomes one line ending in an ellipsis (the observed state keeps its own line).
-  const labelTitle = (title: string, width: number, rows: number, status: boolean) => {
-    const textWidth = Math.max(3, width);
-    const widest = Math.max(...title.split(/\s+/).map(word => word.length));
-    const tooTall = Math.ceil(title.length / textWidth) + (status ? 1 : 0) > Math.max(1, rows);
-    return (widest > textWidth || tooTall) && title.length > textWidth ? `${title.slice(0, textWidth - 1)}…` : title;
-  };
-  // LikeC4's own description, flattened: the model is the single source of what a component is for.
-  const describe = (node: typeof selected) => {
-    const raw = node?.description as { txt?: string; md?: string } | null | undefined;
-    const text = (raw?.txt ?? raw?.md ?? "").replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[#*_`>]/g, "").replace(/\s+/g, " ").trim();
-    return text.length > 420 ? `${text.slice(0, 419)}…` : text;
-  };
-  // What a node's mapped activity is doing right now: a running tool, or how a call that just ended finished.
-  const operationState = (active: ActivityEvent[], recent: ActivityEvent | undefined) => active.length ? active.some(event => event.operation === "edit") ? "edit" : active.some(event => event.operation === "read") ? "read" : "run"
-    : recent?.phase === "failed" ? "failed" : recent?.phase === "completed" ? "done" : "";
-  // How long a finished call stays on its card: long enough to notice a failure after looking away.
-  const outcomeMs = 30_000;
-  // The tag in a card's top border: what a tool is doing to it now, or how the last call ended. Journal facts only: `done` is not `passing`.
-  const cardTag = (related: ActivityEvent[], now: number): { text: string; color: string } | undefined => {
-    const running = related.filter(isActive);
-    if (running.length) {
-      if (running.some(event => event.operation === "edit")) return { text: "■ edit", color: palette.accent };
-      if (running.some(event => event.operation === "read")) return { text: "◦ read", color: palette.incoming };
-      return { text: `▸ ${spinner[Math.floor(now / 100) % spinner.length]}`, color: palette.command };
-    }
-    const newest = related[0];
-    if (newest && now - newest.time <= outcomeMs) {
-      if (newest.phase === "failed") return { text: "✗ failed", color: palette.failure };
-      if (newest.phase === "completed") return { text: "✓ done", color: palette.green };
-    }
-    // A call that started and never reported: not running as far as anyone knows, and not known to have finished.
-    return related.some(event => event.phase === "started" && now - event.time > 30_000 && now - event.time <= 300_000) ? { text: "~ no result", color: palette.muted } : undefined;
   };
   let listSelected = "";
   const renderNodeList = () => {
@@ -821,7 +525,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const what = [selected?.technology, selected && waiting(String(selected.modelRef)) ? "planned: no files yet" : "", ...((selected as { tags?: readonly string[] } | undefined)?.tags ?? []).filter(tag => tag === "bug" || tag === "fixed")].filter(Boolean).join(" · ");
     inspectorHead.content = new StyledText([fg(palette.muted)(what || " ")]);
     inspectorHead.visible = what !== "";
-    const description = describe(selected);
+    const description = describe(selected?.description);
     const opens = selected?.navigateTo ? `o opens ${diagrams.get(String(selected.navigateTo))?.title ?? selected.navigateTo}` : "";
     inspectorId.content = new StyledText([...(description ? [fg(palette.body)(description)] : []), ...(description && opens ? [nl] : []), ...(opens ? [fg(palette.muted)(opens)] : [])]);
     inspectorId.visible = Boolean(description || opens);
@@ -835,159 +539,42 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       ...outgoing.map(edge => ({ node: String(edge.target), arrow: "→", tone: palette.accent, label: edge.label }))];
     connectionItems = links.map(item => item.node);
     cursor.connections = Math.min(cursor.connections, Math.max(0, connectionItems.length - 1));
-    const nameColumn = Math.min(20, Math.max(8, ...links.map(item => name(item.node).length + 2)));
-    const clip = (text: string, room: number) => room <= 0 ? "" : text.length > room ? `${text.slice(0, Math.max(0, room - 1))}…` : text;
-    const wrapWords = (text: string, room: number) => {
-      const lines: string[] = [];
-      for (const word of text.split(" ")) {
-        const last = lines.at(-1);
-        if (last !== undefined && last.length + 1 + word.length <= room) lines[lines.length - 1] = `${last} ${word}`; else lines.push(word);
-      }
-      return lines;
-    };
-    // One row each. The row under the cursor shows its relationship in full, wrapped, so nothing a long description says is out of reach.
-    const connectChunks: TextChunk[] = [], starts: number[] = [];
-    let connectLine = 0;
-    links.forEach((item, index) => {
-      starts.push(connectLine);
-      const here = focusSection === "connections" && cursor.connections === index;
-      const full = item.label?.replace(/\s+/g, " ").trim() ?? "", room = bodyWidth() - 2 - 2 - nameColumn;
-      const expand = here && full.length > room;
-      const lines = [fg(palette.accent)(here ? "› " : "  "), fg(item.tone)(`${item.arrow} `), fg(here ? palette.text : palette.body)(clip(name(item.node), nameColumn - 1).padEnd(nameColumn)), fg(palette.muted)(`${expand ? "" : clip(full, room)}\n`)];
-      connectChunks.push(...(here ? lines.map(chunk => ({ ...chunk, bg: rowBackground })) : lines)); connectLine++;
-      if (expand) for (const part of wrapWords(full, bodyWidth() - 4).slice(0, 6)) { connectChunks.push({ ...fg(palette.muted)(`    ${part}\n`), bg: rowBackground }); connectLine++; }
-    });
-    contentRows.connections = Math.max(1, connectLine);
-    if (focusSection === "connections") followLine("connections", starts[cursor.connections] ?? 0);
-    relations.content = new StyledText(links.length ? connectChunks : [fg(palette.border)("none")]);
+    const connects = connectsCard(links, name, focusSection === "connections" ? cursor.connections : undefined, bodyWidth(), rowBackground);
+    contentRows.connections = connects.lines;
+    if (focusSection === "connections") followLine("connections", connects.starts[cursor.connections] ?? 0);
+    relations.content = new StyledText(connects.chunks);
 
     // In flows: the flows this component is in, and which steps it plays. Nothing is shown for a component no flow touches.
-    const ownElement = String(selected?.modelRef ?? "");
-    flowItems = flowsThrough(flows, ownElement);
+    flowItems = flowsThrough(flows, String(selected?.modelRef ?? ""));
     cursor.flows = Math.min(cursor.flows, Math.max(0, flowItems.length - 1));
-    contentRows.flows = Math.max(1, flowItems.length);
-    flowsText.content = new StyledText(flowItems.flatMap(({ flow, steps }, index) => {
-      const here = focusSection === "flows" && cursor.flows === index;
-      const room = bodyWidth(), at = `${steps.length > 1 ? "steps" : "step"} ${steps.join("·")}`;
-      const lines = [fg(palette.accent)(here ? "› " : "  "), fg(palette.purple)("◇ "), fg(here ? palette.text : palette.body)(clip(flow.title, Math.max(4, room - 4 - at.length - 1)).padEnd(Math.max(4, room - 4 - at.length))), fg(palette.muted)(`${at}\n`)];
-      return here ? lines.map(chunk => ({ ...chunk, bg: rowBackground })) : lines;
-    }));
+    const flowCard = flowsCard(flowItems, focusSection === "flows" ? cursor.flows : undefined, bodyWidth(), rowBackground);
+    contentRows.flows = flowCard.lines;
+    flowsText.content = new StyledText(flowCard.chunks);
     if (focusSection === "flows") followLine("flows", cursor.flows);
 
-    // Steps: the flow being read, one row per step in the order it is told, with the component each lands on. `●` says the agent touched that component's
-    // files (a fact from the journal, not that the step happened); the current step shows its latest call and whether the model backs it.
-    const stepChunks: TextChunk[] = [], stepStarts: number[] = [];
-    let stepLine = 0;
-    if (activeFlow) {
-      const flow = activeFlow, room = bodyWidth(), journey = flow.type === "journey";
-      const syncLine = flow.sync.status === "none" ? "never synced" : flow.sync.status === "unknown" ? `synced at ${flow.sync.sha}, not a commit here`
-        : flow.sync.status === "behind" ? `synced at ${flow.sync.sha} · files changed since` : `synced at ${flow.sync.sha} · files unchanged since`;
-      stepChunks.push(fg(palette.purple)("◇ a reading of the code, not observed\n"), fg(flow.sync.status === "behind" || flow.sync.status === "unknown" ? palette.accent : palette.muted)(`${clip(syncLine, room)}\n`));
-      stepLine += 2;
-      let anyTouched = false;
-      flow.steps.forEach((step, index) => {
-        stepStarts.push(stepLine);
-        const here = index === flowStep;
-        const at = journey ? (step.to ? [step.to] : []) : step.elements;
-        const comp = at.length ? clip(`${elementTitle(at[0]!)}${at.length > 1 ? ` +${at.length - 1}` : ""}`, 16) : "";
-        const touched = at.some(element => (byElement.get(element)?.length ?? 0) > 0);
-        anyTouched ||= touched;
-        const titleRoom = Math.max(6, room - 2 - 3 - 1 - comp.length - 2);
-        const row = [fg(palette.accent)(here ? "› " : "  "), fg(here ? palette.accent : palette.purple)(`${step.n}`.padStart(2) + " "), fg(step.mark === "bug" ? palette.failure : step.mark === "fixed" ? palette.green : here ? palette.text : palette.body)(clip(step.title, titleRoom).padEnd(titleRoom)),
-          fg(palette.muted)(` ${comp}`), fg(palette.accent)(touched ? " ●" : "  "), nl];
-        stepChunks.push(...(here ? row.map(chunk => ({ ...chunk, bg: rowBackground })) : row)); stepLine++;
-        if (here) {
-          const latest = at.flatMap(element => byElement.get(element) ?? []).sort((a, b) => b.time - a.time)[0];
-          if (latest) {
-            const glyph = latest.phase === "started" ? (spinner[Math.floor(Date.now() / 100) % spinner.length] ?? "●") : latest.phase === "completed" ? "✓" : "✗";
-            const tone = latest.phase === "failed" ? palette.failure : latest.phase === "started" ? palette.accent : palette.green;
-            const file = latest.paths[0]?.split("/").at(-1) ?? latest.tool;
-            stepChunks.push(fg(palette.border)("     "), fg(tone)(`${glyph} `), fg(palette.muted)(`${latest.operation === "command" ? "run" : latest.operation} `), fg(palette.body)(clip(file, Math.max(4, room - 12))), fg(palette.border)(` ${formatAge(Date.now() - latest.time)}`), nl); stepLine++;
-          }
-          if (step.mark) { stepChunks.push(fg(palette.border)("     "), fg(step.mark === "bug" ? palette.failure : palette.green)(step.mark === "bug" ? "✗ marked as broken in the diagram\n" : "✓ marked as fixed in the diagram\n")); stepLine++; }
-          if (step.reply) { stepChunks.push(fg(palette.border)("     "), fg(palette.muted)("↩ the answer to an earlier step\n")); stepLine++; }
-          else if (step.backed === false) { stepChunks.push(fg(palette.border)("     "), fg(palette.accent)("≠ "), fg(palette.muted)("no relationship in the model\n")); stepLine++; }
-          if (!step.elements.length) { stepChunks.push(fg(palette.border)("     "), fg(palette.muted)("no component for this step\n")); stepLine++; }
-          if (step.call) {
-            // The function this hop calls, as the file declares it (copied when the flow was written, checked by pathlight flows): a name, where, and the signature wrapped to the panel.
-            // `e` opens it in the editor at its declaration; the hint goes when the name needs the room.
-            const fits = step.call.name.length + 11 <= room - 8;
-            stepChunks.push(fg(palette.border)("     "), fg(palette.purple)("ƒ "), fg(palette.text)(clip(step.call.name, Math.max(4, room - 8))), ...(fits ? [fg(palette.accent)("  e"), fg(palette.muted)(" read it")] : []), nl); stepLine++;
-            const where = `declared in ${step.call.file}`;
-            stepChunks.push(fg(palette.border)("       "), fg(palette.muted)(`${clip(where, Math.max(4, room - 7))}\n`)); stepLine++;
-            const signature = step.call.declaration.replace(/^export\s+(default\s+)?/, ""), width = Math.max(12, room - 7);
-            const lines: string[] = [];
-            for (const word of signature.split(" ")) {
-              const current = lines.at(-1);
-              if (current !== undefined && current.length + 1 + word.length <= width) lines[lines.length - 1] = `${current} ${word}`;
-              else lines.push(word.length > width ? `${word.slice(0, width - 1)}…` : word);
-            }
-            lines.slice(0, 3).forEach((line, index) => {
-              stepChunks.push(fg(palette.border)("       "), fg(palette.body)(`${index === 2 && lines.length > 3 ? `${line.slice(0, Math.max(0, width - 1))}…` : line}\n`)); stepLine++;
-            });
-          }
-        }
-      });
-      if (anyTouched) { stepChunks.push(fg(palette.accent)("●"), fg(palette.border)(" the agent touched its files\n")); stepLine++; }
-      if (flow.findings.length) { stepChunks.push(fg(palette.border)(`${flow.findings.length} to check · pathlight flows\n`)); stepLine++; }
-      followLine("steps", stepStarts[flowStep] ?? 0);
-    }
-    contentRows.steps = Math.max(1, stepLine);
-    stepsText.content = new StyledText(stepChunks);
+    // Steps: the flow being read, with the current step opened up.
+    const steps = activeFlow ? stepsCard(activeFlow, flowStep, byElement, elementTitle, bodyWidth(), Date.now(), rowBackground) : undefined;
+    if (steps) followLine("steps", steps.starts[flowStep] ?? 0);
+    contentRows.steps = steps?.lines ?? 1;
+    stepsText.content = new StyledText(steps?.chunks ?? []);
 
-    // Mapped files as a nested tree: directories dim with a trailing slash (single-child chains joined), files normal, files touched this
-    // session bright with an accent dot at the right edge. Every row sits on one column grid: a two-column cursor slot, then the tree.
+    // Mapped files as a tree; the files the session touched are marked.
     const fileFocus = fileMode || focusSection === "files";
-    const fileChunks: TextChunk[] = fileMode ? [fg(palette.accent)(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`), nl] : [];
-    const firstFileLine = fileChunks.length ? 1 : 0;
-    fileLines = [];
-    type Folder = { dirs: Map<string, Folder>; files: { name: string; index: number }[] };
-    const root: Folder = { dirs: new Map(), files: [] };
-    paths.slice(0, 500).forEach((path, index) => {
-      const parts = path.split("/"), file = parts.pop() ?? path;
-      let folder = root;
-      for (const part of parts) { let next = folder.dirs.get(part); if (!next) { next = { dirs: new Map(), files: [] }; folder.dirs.set(part, next); } folder = next; }
-      folder.files.push({ name: file, index });
-    });
-    let touchedAny = false;
-    const treeRow = (prefix: string, connector: string, label: string, index: number | undefined) => {
-      const recent = index === undefined ? undefined : byPath.get(paths[index] ?? ""), here = index !== undefined && fileFocus && fileCursor === index;
-      const used = 2 + prefix.length + connector.length + label.length;
-      const cells: TextChunk[] = [fg(palette.accent)(here ? "› " : "  "), fg(palette.border)(`${prefix}${connector}`), fg(index === undefined ? palette.muted : recent ? palette.text : palette.body)(label),
-        fg(palette.muted)(" ".repeat(Math.max(1, bodyWidth() - used - 1))), fg(recent ? palette.accent : palette.panel)(recent ? "●" : " "), nl];
-      if (recent) touchedAny = true;
-      fileChunks.push(...(here ? cells.map(chunk => ({ ...chunk, bg: rowBackground })) : cells));
-      fileLines.push(index ?? -1);
-    };
-    const walk = (folder: Folder, prefix: string, top: boolean) => {
-      const items: ({ dir: string; child: Folder } | { file: string; index: number })[] = [
-        ...[...folder.dirs].sort((a, b) => a[0].localeCompare(b[0])).map(([dir, child]) => {
-          let label = dir, node = child;
-          while (node.files.length === 0 && node.dirs.size === 1) { const [only, next] = [...node.dirs][0]!; label += `/${only}`; node = next; }
-          return { dir: label, child: node };
-        }),
-        ...folder.files.sort((a, b) => a.name.localeCompare(b.name)).map(file => ({ file: file.name, index: file.index }))];
-      items.forEach((item, at) => {
-        const last = at === items.length - 1, connector = top ? "" : last ? "└─ " : "├─ ";
-        if ("dir" in item) { treeRow(prefix, connector, `${item.dir}/`, undefined); walk(item.child, top ? "" : prefix + (last ? "   " : "│  "), false); }
-        else treeRow(prefix, connector, item.file, item.index);
-      });
-    };
-    walk(root, "", true);
-    if (!paths.length) fileChunks.push(fg(palette.border)(fileError || (config ? "No files mapped" : "Map files in .pathlight/pathlight.activity.json")));
-    else if (touchedAny) fileChunks.push(fg(palette.border)("● touched this session"));
-    contentRows.files = fileChunks.filter(chunk => chunk.text.includes("\n")).length + (paths.length && touchedAny ? 1 : 0) + (paths.length ? 0 : 1);
-    filesText.content = new StyledText(fileChunks);
+    const fileCard = filesCard({ paths, byPath, cursor: fileFocus ? fileCursor : undefined, counter: fileMode, width: bodyWidth(), background: rowBackground,
+      empty: fileError || (config ? "No files mapped" : "Map files in .pathlight/pathlight.activity.json") });
+    fileLines = fileCard.rows;
+    contentRows.files = fileCard.lines;
+    filesText.content = new StyledText(fileCard.chunks);
     // First click highlights a row; clicking the highlighted row again opens it.
     filesText.onMouseDown = event => {
       event.preventDefault(); event.stopPropagation();
-      const index = fileLines[event.y - filesText.y - firstFileLine] ?? -1, path = paths[index];
+      const index = fileLines[event.y - filesText.y - fileCard.first] ?? -1, path = paths[index];
       if (index < 0 || !path || help.visible || summary.visible) return;
       if (fileMode && clickedFile === index) { openFile(path); return; }
       if (!fileMode) beginFiles();
       fileCursor = clickedFile = index; message = "Click again or Enter to open"; searchInput.focus(); update();
     };
-    if (fileFocus) followLine("files", firstFileLine + Math.max(0, fileLines.indexOf(fileCursor)));
+    if (fileFocus) followLine("files", fileCard.first + Math.max(0, fileLines.indexOf(fileCursor)));
     activityText.content = activityContent();
     if (focusSection === "activity") followLine("activity", cursor.activity);
 

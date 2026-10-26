@@ -39,7 +39,7 @@ Pathlight lets an engineer follow what an AI harness is doing, understand their 
 | --- | --- |
 | CLI, model/view selection, workspace setup (`pathlight setup` is the first run: checks, then draws a first model with `--yes`; `init` wires hooks and recording) | `src/cli.ts`, `src/catalog.ts`, `src/init.ts`, `src/setup.ts`, `src/layout.ts` (the one place that names the `.pathlight/` folder and the files in it) |
 | Owned tmux pane launch/replacement, readiness | `src/tmux.ts`, `src/ready.ts` |
-| Native UI and camera | `src/native-viewer.ts` |
+| Native UI and camera | `src/native-viewer.ts` (state, camera, keys, wiring); `src/viewer/` holds what it shows as pure functions: `cards.ts` (Connects, In flows, Steps, Files), `activity-view.ts` (Now, the session summary, the header line, card tags), `help.ts`, `text.ts` (clipping, wrapping, colour fades), and `widgets.ts` (every widget, built once). New screen text goes in `src/viewer/`, taking what it shows as arguments |
 | Themes: OpenCode-format JSON, derived palette, live recolouring | `src/theme.ts`, `src/retheme.ts`, `src/themes/` (vendored OpenCode themes, see `NOTICE.md`), palette in `src/ui.ts` |
 | Orthogonal connector routing and rasterization | `src/routes.ts` |
 | Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/brief.ts` (`pathlight brief` lists each box's files, imports and contents for an agent to name it; `pathlight name` saves what the agent worked out as `by: "agent"`, never over a person's name), `src/check.ts` (`compareImports`, shared with `src/diff.ts`: changes since a git commit), `src/draft.ts`, `src/stale.ts` (the out-of-date stamp), `src/plan.ts` (the agent's plan, ids only) |
