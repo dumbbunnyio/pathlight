@@ -119,3 +119,24 @@ test("a flow is shown on the screen as text, so an agent can check it", async ()
     expect(screen).toBe(await readFile(file, "utf8"));
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("F in a flow's own view starts with that flow, even when another flow also passes through the selected component", async () => {
+  const directory = await workspace(true);
+  try {
+    // Another journey that sorts first and also passes through the storefront.
+    await writeFile(join(directory, "views.c4"), `${await readFile(join(directory, "views.c4"), "utf8")}
+views {
+  dynamic view aaabrowse {
+    title 'Browsing'
+    description 'Synced at abc1234.'
+    customer -> parcel.storefront 'looks at a parcel page'
+    parcel.storefront -> parcel.commerce.api 'asks for the catalogue'
+  }
+}
+`);
+    const screen = await run(process.execPath, [resolve("src/cli.ts"), "see", "placeorder", "--workspace", directory, "--project", "parcel", "--cols", "150", "--rows", "40", "--select", "parcel.storefront", "--keys", "F"]);
+    expect(screen).toContain("opens checkout");
+    expect(screen).not.toContain("They see their cart");
+    expect(screen).not.toContain("looks at a parcel page");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

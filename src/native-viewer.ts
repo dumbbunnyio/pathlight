@@ -231,7 +231,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   type Visit = { view: string; selected: string | undefined; x: number; y: number; scale: number };
   const history: Visit[] = [];
   let pendingReload: { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; notice: string } | undefined;
-  let pendingVisit: { diagram: ReturnType<typeof getDiagram>; restore?: Visit; select?: string; file?: string } | undefined;
+  let pendingVisit: { diagram: ReturnType<typeof getDiagram>; restore?: Visit; select?: string; file?: string; notice?: string } | undefined;
   let dirty = true;
   let redrawAfterResize = false;
   let targetX = centerX, targetY = centerY, targetScale = scale;
@@ -275,7 +275,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"], ["F", "trace a flow (F again: next, last one leaves)"], ["[ ]", "step through the flow"]] },
       { name: "Inspector", active: !!focusSection, rows: [["i", "toggle the inspector"], ["1-4", "focus a card"], ["j k", "move / scroll"], ["space", "fold card"],
         ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files"], ["esc", "back to diagram"]] },
-      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
+      { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work, and follow it"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
       { name: "Global", active: false, rows: [["/", "search views, boxes, files"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
     ];
     const wide = renderer.width >= 100;
@@ -1041,7 +1041,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       : new StyledText([]);
     // One activity line, top right: an offer when the work is in another view, else the latest call. It is dropped when it would not fit.
     const ticker = tickerContent();
-    const activity: TextChunk[] | undefined = work && "view" in work ? [fg(palette.accent)("● "), fg(palette.text)(`working in ${work.title}`), fg(palette.muted)("  ·  "), fg(palette.accent)("w"), fg(palette.muted)(" to go")] : ticker;
+    const activity: TextChunk[] | undefined = work && "view" in work ? [fg(palette.accent)("● "), fg(palette.text)(`working in ${work.title}`), fg(palette.muted)("  "), pill("w", palette.accent), fg(palette.muted)(" go and follow")] : ticker;
     const crumbWidth = crumbPlain.length;
     const activityWidth = activity?.reduce((sum, chunk) => sum + chunk.text.length, 0) ?? 0;
     const available = renderer.width - 2 - crumbWidth - 3;
@@ -1159,7 +1159,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const flowsHere = () => {
     const present = new Set(diagram.nodes.map(node => String(node.modelRef)));
     const through = new Set(flowsThrough(flows, String(selected?.modelRef ?? "")).map(entry => `${entry.flow.type}/${entry.flow.id}`));
-    return flowsInView(flows, present).sort((a, b) => Number(through.has(`${b.type}/${b.id}`)) - Number(through.has(`${a.type}/${a.id}`)));
+    // The flow this very view draws comes first (its hops are the diagram), then the flows through the selection, then the rest.
+    const rank = (flow: FlowMap) => (flow.view === String(diagram.id) ? 2 : 0) + (through.has(`${flow.type}/${flow.id}`) ? 1 : 0);
+    return flowsInView(flows, present).sort((a, b) => rank(b) - rank(a));
   };
   const cycleFlow = () => {
     const here = flowsHere();
@@ -1759,10 +1761,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!fileMode && key.name === "w" && !key.ctrl) {
       key.preventDefault();
       const work = newestWork();
-      if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } }
+      // Going to the work is asking to watch it, so follow turns on with the jump (`a` stops it); a viewer with no session has nothing to follow.
+      const startFollow = () => { if (binding || following) { followCamera = true; followPaused = false; focusedCall = ""; followSince = Date.now(); } };
+      if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); if (followCamera) message = "Following the work (a to stop)"; update(); }
       else if (work) {
         history.push(visit()); if (history.length > 32) history.shift();
-        animating = false; pendingVisit = { diagram: getDiagram(work.view), select: work.element }; message = `Went to ${work.title}`; update();
+        animating = false; startFollow(); pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: `Went to ${work.title}${followCamera ? " · following (a to stop)" : ""}` }; update();
       } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
       return;
     }
@@ -1882,7 +1886,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
       diagram = next.diagram;
       nodeObjects = mountNodes(); routes = computeRoutes();
-      selected = firstNode(diagram); fileCursor = 0; resetInspectorScroll(); message = "";
+      selected = firstNode(diagram); fileCursor = 0; resetInspectorScroll(); message = next.notice ?? "";
       initialFit = false; animating = false;
       if (next.restore) restore(next.restore);
       else { autoFit = true; fit(); targetX = centerX; targetY = centerY; targetScale = scale; }

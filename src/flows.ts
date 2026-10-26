@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, lstatSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -45,6 +46,13 @@ export interface FlowReport {
 }
 
 const syncPattern = /\bSynced at ([0-9a-f]{7,40})\b/i;
+/**
+ * Files an agent read while they had changes not yet committed, as `path@hash` of what it read. `Synced at` names a commit, but the reading was of the
+ * working tree; without this, those files would show as "changed since" the moment the flow is written. A file is still reported if it differs from what was read.
+ */
+const dirtyPattern = /Read with uncommitted changes: ([^\n]*?)\.(?:\s|$)/;
+export const dirtyOf = (description: string) => new Map((dirtyPattern.exec(description)?.[1] ?? "").split(", ").flatMap(entry => { const at = entry.lastIndexOf("@"); return at > 0 ? [[entry.slice(0, at), entry.slice(at + 1)] as const] : []; }));
+export const contentHash = (content: string | Uint8Array) => createHash("sha1").update(content).digest("hex").slice(0, 8);
 export const syncOf = (description: string) => syncPattern.exec(description)?.[1]?.toLowerCase();
 
 /**
@@ -182,14 +190,21 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
     const exists = yield* run("git", ["-C", root, "cat-file", "-e", `${sha}^{commit}`]).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)));
     changedSince.set(sha, exists ? new Set((yield* run("git", ["-C", root, "diff", "--name-only", sha]).pipe(Effect.catch(() => Effect.succeed("")))).split("\n").filter(Boolean)) : undefined);
   }
+  // Files that differ from the sync commit, minus those the agent read in exactly their current uncommitted state.
+  const changedFor = new Map<object, Set<string>>();
+  for (const input of [...inputs, ...journeyInputs]) {
+    const sha = syncOf(input.viewDescription), differing = (sha && changedSince.get(sha)) || new Set<string>(), read = dirtyOf(input.viewDescription), kept = new Set<string>();
+    for (const path of differing) {
+      const recorded = read.get(path);
+      const now = recorded === undefined || path.startsWith("/") || path.includes("..") ? undefined : yield* io("Flows.hash", () => readFile(join(root, path))).pipe(Effect.map(contentHash), Effect.catch(() => Effect.succeed(undefined)));
+      if (now === undefined || now !== recorded) kept.add(path);
+    }
+    changedFor.set(input, kept);
+  }
   const flows = inputs.map(input => {
-    const sha = syncOf(input.viewDescription);
-    return assessFlow(input, exists, config, { changed: (sha && changedSince.get(sha)) || new Set(), known: candidate => changedSince.get(candidate) !== undefined });
+    return assessFlow(input, exists, config, { changed: changedFor.get(input) ?? new Set(), known: candidate => changedSince.get(candidate) !== undefined });
   }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  const elementsChanged = (sha: string | undefined) => {
-    const changed = (sha && changedSince.get(sha)) || new Set<string>();
-    return new Set([...changed].flatMap(path => elementsOf(config, path)));
-  };
+  const elementsChanged = (changed: ReadonlySet<string>) => new Set([...changed].flatMap(path => elementsOf(config, path)));
   const callFiles = new Map<string, string | undefined>();
   for (const file of new Set(journeyInputs.flatMap(input => input.steps.flatMap(step => parseCall(step.notes)?.file ?? [])))) {
     callFiles.set(file, file.startsWith("/") || file.includes("..") ? undefined : yield* io("Flows.call", () => readFile(join(root, file), "utf8")).pipe(Effect.catch(() => Effect.succeed(undefined))));
@@ -197,7 +212,7 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
   const declared = (file: string, name: string) => { const text = callFiles.get(file); return text === undefined ? undefined : declarationOf(text, name); };
   const journeys = journeyInputs.map(input => {
     const sha = syncOf(input.viewDescription);
-    return assessJourney(input, { declared, changedElements: elementsChanged(sha), known: candidate => changedSince.get(candidate) !== undefined });
+    return assessJourney(input, { declared, changedElements: elementsChanged(changedFor.get(input) ?? new Set()), known: candidate => changedSince.get(candidate) !== undefined });
   }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const all = [...flows, ...journeys];
   return {

@@ -37,10 +37,13 @@ test("work outside the view shows a hint and w switches to the view that has it"
     expect(await tmux("capture-pane", "-p", "-t", pane)).not.toContain("working in");
     await call("two", "src/activity.ts");
     await until("working in Pathlight implementation");
+    expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("go and follow");
     // Nothing moved by itself.
     expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("Launch path");
     await tmux("send-keys", "-t", pane, "w");
     await until("Selected: activity");
+    // Going to the work is asking to watch it: follow is on, and `a` stops it.
+    await until("following (a to stop)");
     expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("Pathlight implementation");
   } finally {
     await tmux("kill-server").catch(() => {});

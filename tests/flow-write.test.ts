@@ -140,3 +140,27 @@ test("a journey is not reported by check as a view nothing links to", async () =
     expect(await unlinked()).toBe(before);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("a flow written from uncommitted files is not behind until one of them changes again", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-flow-dirty-"));
+  try {
+    await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
+    await mkdir(join(directory, "src"), { recursive: true });
+    await writeFile(join(directory, "src/checkout.ts"), "export const a = 1;\n");
+    await mappingIn(directory) && await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "parcel", mappings: [{ glob: "src/checkout.ts", element: "parcel.storefront" }] }));
+    const git = (...args: string[]) => run("git", ["-C", directory, "-c", "user.email=t@t", "-c", "user.name=t", ...args]);
+    await git("init", "-q"); await git("add", "-A"); await git("commit", "-q", "-m", "first");
+    // The agent reads the working tree, which already differs from HEAD.
+    await writeFile(join(directory, "src/checkout.ts"), "export const a = 2;\n");
+    await cli("flow", "add", "place-order", "--workspace", directory, "--title", "Placing an order", "--reads", "src/checkout.ts",
+      "--step", "customer -> parcel.storefront: opens checkout", "--step", "parcel.storefront -> parcel.commerce.api: submits the cart");
+    expect(await readFile(join(directory, "place-order.behavior.c4"), "utf8")).toMatch(/Read with uncommitted changes: src\/checkout\.ts@[0-9a-f]{8}\./);
+    const { checkFlows } = await import("../src/flows");
+    const { Effect } = await import("effect");
+    const read = async () => (await Effect.runPromise(checkFlows(directory))).journeys[0]!;
+    expect((await read()).sync.status).toBe("current");
+    expect((await read()).findings).toEqual([]);
+    await writeFile(join(directory, "src/checkout.ts"), "export const a = 3;\n");
+    expect((await read()).sync.status).toBe("behind");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
