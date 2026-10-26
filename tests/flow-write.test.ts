@@ -164,3 +164,27 @@ test("a flow written from uncommitted files is not behind until one of them chan
     expect((await read()).sync.status).toBe("behind");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("a workspace inside a larger repository still sees uncommitted and later changes to the files a flow read", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-flow-nested-"));
+  const workspace = join(directory, "apps/shop");
+  try {
+    await cp("examples/parcel", workspace, { recursive: true, filter: path => !path.includes(".cache") });
+    await mkdir(join(workspace, "src"), { recursive: true });
+    await writeFile(join(workspace, "src/checkout.ts"), "export const a = 1;\n");
+    await writeFile(mappingIn(workspace), JSON.stringify({ version: 1, project: "parcel", mappings: [{ glob: "src/checkout.ts", element: "parcel.storefront" }] }));
+    // git paths are printed from the repository's top, not from the workspace.
+    const git = (...args: string[]) => run("git", ["-C", directory, "-c", "user.email=t@t", "-c", "user.name=t", ...args]);
+    await git("init", "-q"); await git("add", "-A"); await git("commit", "-q", "-m", "first");
+    await writeFile(join(workspace, "src/checkout.ts"), "export const a = 2;\n");
+    await cli("flow", "add", "place-order", "--workspace", workspace, "--title", "Placing an order", "--reads", "src/checkout.ts",
+      "--step", "customer -> parcel.storefront: opens checkout", "--step", "parcel.storefront -> parcel.commerce.api: submits the cart");
+    expect(await readFile(join(workspace, "place-order.behavior.c4"), "utf8")).toMatch(/Read with uncommitted changes: src\/checkout\.ts@[0-9a-f]{8}\./);
+    const { checkFlows } = await import("../src/flows");
+    const { Effect } = await import("effect");
+    const read = async () => (await Effect.runPromise(checkFlows(workspace))).journeys[0]!;
+    expect((await read()).sync.status).toBe("current");
+    await writeFile(join(workspace, "src/checkout.ts"), "export const a = 3;\n");
+    expect((await read()).sync.status).toBe("behind");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

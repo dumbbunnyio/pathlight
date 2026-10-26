@@ -40,7 +40,7 @@ Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask th
 2. `pathlight show VIEW --workspace . --follow`. If the user named a view (for example `/pathlight services`), show that one.
 3. Report only whether it opened.
 
-If `list` returns no views the workspace has no model yet. Say so, and offer to draft one. Name the files you would write before writing them (`likec4.config.json`, `model.c4`, `views.c4` or similar, and `pathlight.activity.json`), and where. Everything pathlight writes goes in one folder, `.pathlight/` at the repository root, so nothing lands loose in the root; put your own model files there too unless the project already keeps its documentation elsewhere. Write nothing until the user agrees, then follow the draft workflow below.
+If `list` returns no views the workspace has no model yet: follow **First run** above. Write a model by hand (below) only when the user asks for one instead of the draft; then name the files you would write, in `.pathlight/` (everything pathlight writes goes there, so nothing lands loose in the root), and write nothing until they agree.
 
 ## After the draft: name the boxes
 

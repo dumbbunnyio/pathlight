@@ -2,6 +2,8 @@
 
 ## Purpose and reading order
 
+The latest working handoff (state, uncommitted work, decisions waiting on the user) is `docs/internal/handoff-*.md` (ignored, local), newest date first.
+
 Pathlight puts an interactive architecture explorer beside an AI coding
 conversation in tmux. It connects architecture, mapped source files, and observed
 agent tool activity without pretending to observe runtime traffic.
@@ -29,7 +31,7 @@ intentional redesigns separately; do not quietly substitute another camera.
 
 ## Design principle: informative, not a data dump
 
-Pathlight lets an engineer follow what an AI harness is doing, understand their app, and trust an accurate picture of the code and its architecture, simply and intuitively. Show the few things that matter at a glance and keep the rest one deliberate step away (a key, a section, a command). Every new signal (badges, counts, tags, panels) must justify the space it takes, say nothing when there is nothing to say, and never crowd the line or panel it shares. The sidebar was redesigned on 2026-10-24 (Phase 1, from the Claude Design project): a ranked inspector with the component's name and purpose, then Now (its own recent calls), Connects (one row per relationship) and, on request, Files, with the actions and the question field pinned beneath, plus a status tag in each card's top border and a `now`/`last` line in the header. Phase 2 (2026-10-24) added flow mode: `F` draws a flow (a LikeC4 dynamic view, or an agent-written `*.behavior.c4` state diagram) as numbered steps on the diagram with a step reader in the sidebar, dims cards off the path and shows `≠` where a journey hop has no model relationship; flows are readings, drawn in the agent colour and kept apart from observed activity (`src/flow-view.ts`, data from `src/flows.ts`). Do not add sections or lines to this layout unless a feature cannot work without it, and treat anything added now as provisional.
+Pathlight lets an engineer follow what an AI harness is doing, understand their app, and trust an accurate picture of the code and its architecture, simply and intuitively. Show the few things that matter at a glance and keep the rest one deliberate step away (a key, a section, a command). Every new signal (badges, counts, tags, panels) must justify the space it takes, say nothing when there is nothing to say, and never crowd the line or panel it shares. The sidebar was redesigned on 2026-10-24 (Phase 1, from the Claude Design project): a ranked inspector with the component's name and purpose, then Now (its own recent calls), Connects (one row per relationship) and, on request, Files, with the actions and the question field pinned beneath, plus a status tag in each card's top border and a `now`/`last` line in the header. Phase 2 (2026-10-24) added flow mode: `F` draws a flow (a LikeC4 dynamic view, or an agent-written `*.behavior.c4` state diagram) as numbered steps on the diagram with a step reader in the sidebar, dims cards off the path and shows `≠` where a journey hop has no model relationship (a hop back over a pair an earlier step opened is its answer, `↩`, and repeated hops over one pair are one finding); flows are readings, drawn in the agent colour and kept apart from observed activity (`src/flow-view.ts`, data from `src/flows.ts`). Do not add sections or lines to this layout unless a feature cannot work without it, and treat anything added now as provisional.
 
 ## Code ownership
 

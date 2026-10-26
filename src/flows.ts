@@ -201,7 +201,7 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
   const changedSince = new Map<string, Set<string> | undefined>();
   for (const sha of new Set([...inputs, ...journeyInputs].flatMap(input => syncOf(input.viewDescription) ?? []))) {
     const exists = yield* run("git", ["-C", root, "cat-file", "-e", `${sha}^{commit}`]).pipe(Effect.as(true), Effect.catch(() => Effect.succeed(false)));
-    changedSince.set(sha, exists ? new Set((yield* run("git", ["-C", root, "diff", "--name-only", sha]).pipe(Effect.catch(() => Effect.succeed("")))).split("\n").filter(Boolean)) : undefined);
+    changedSince.set(sha, exists ? new Set((yield* run("git", ["-C", root, "diff", "--relative", "--name-only", sha]).pipe(Effect.catch(() => Effect.succeed("")))).split("\n").filter(Boolean)) : undefined);
   }
   // Files that differ from the sync commit, minus those the agent read in exactly their current uncommitted state.
   const changedFor = new Map<object, Set<string>>();

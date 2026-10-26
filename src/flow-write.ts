@@ -148,7 +148,7 @@ export const addFlow = Effect.fn("Flow.add")(function* (workspace: string, optio
   const sha = yield* run("git", ["-C", root, "rev-parse", "--short", "HEAD"]).pipe(Effect.map(text => text.trim() || undefined), Effect.catch(() => Effect.succeed(undefined)));
   // Files read with changes not yet committed: stamped with what they were, so only a later edit counts as the flow being behind.
   const gitNames = (args: string[]) => run("git", ["-C", root, ...args, "--", ...reads]).pipe(Effect.map(text => text.split("\n").map(line => line.trim()).filter(Boolean)), Effect.catch(() => Effect.succeed([] as string[])));
-  const dirty = sha ? [...(yield* gitNames(["diff", "--name-only", "HEAD"])), ...(yield* gitNames(["ls-files", "--others", "--exclude-standard"]))] : [];
+  const dirty = sha ? [...(yield* gitNames(["diff", "--relative", "--name-only", "HEAD"])), ...(yield* gitNames(["ls-files", "--others", "--exclude-standard"]))] : [];
   const uncommitted = yield* Effect.forEach(reads.filter(path => dirty.includes(path)), file => io("Flow.hash", () => readFile(join(root, file))).pipe(Effect.map(content => ({ path: file, hash: contentHash(content) }))));
   yield* io("Flow.write", () => writeFile(path, renderJourney({ id: options.id!, title: options.title!.trim(), reads, sha, uncommitted, steps: steps.map((step, index) => ({ ...step, declared: declared[index] })) })));
   const restore = io("Flow.restore", () => previous === undefined ? rm(path, { force: true }) : writeFile(path, previous)).pipe(Effect.ignore);

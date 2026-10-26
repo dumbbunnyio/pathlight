@@ -36,8 +36,9 @@ not require losing orientation or reopening the viewer.
    selection and camera. Reuse the owned pane for a new requested view safely.
 
 This loop is supported today through the CLI, with OpenCode integration and a
-Claude hook adapter. The Claude adapter has payload-based tests; a complete
-interactive Claude session has not been verified.
+Claude hook adapter. The Claude adapter has payload-based tests and records
+real interactive Claude Code sessions on Linux (its plugin hooks wrote this
+repository's own journals).
 
 ## Accepted design
 

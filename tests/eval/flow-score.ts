@@ -112,7 +112,8 @@ export const scoreFlows = Effect.fn("Eval.flows")(function* (workspace: string, 
     scores.push(scoreFlow({
       question, supported,
       written: journey ? {
-        hops: journey.steps.map(step => ({ from: step.from!, to: step.to!, backed: step.backed === true })),
+        // A reply (a hop back over a pair an earlier step opened) is that step's answer, as `pathlight flows` reads it, not a hop the model must declare.
+        hops: journey.steps.map(step => ({ from: step.from!, to: step.to!, backed: step.backed === true || step.reply === true })),
         cited: named.filter(file => file.exists).map(file => file.path), missingFiles: named.filter(file => !file.exists).map(file => file.path), findings: journey.findings,
       } : undefined,
     }));

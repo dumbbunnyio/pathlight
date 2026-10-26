@@ -21,7 +21,7 @@ Only open trusted LikeC4 workspaces. LikeC4 can load executable JavaScript or Ty
 
 ## Install as a Claude Code plugin
 
-Install the `pathlight` binary (Linux and macOS; needs tmux), then the plugin:
+Install the `pathlight` binary (needs tmux; verified on Linux x64, and the macOS builds the release publishes have not been tried), then the plugin:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/lennox-davidlevy/pathlight/main/install.sh | sh
@@ -92,7 +92,7 @@ bun run pathlight list --workspace examples/parcel
 bun run pathlight show services --workspace examples/parcel
 ```
 
-Select nodes with the mouse, Tab, or `h` `j` `k` `l`, which move to the nearest node in that direction. Arrow keys pan the Three camera (press `v` to swap the two). Connections are orthogonal thin lines with rounded bends. Press `/` to search the current view by name or ID.
+Select nodes with the mouse, Tab, or `h` `j` `k` `l`, which move to the nearest node in that direction. Arrow keys pan the Three camera (press `v` to swap the two). Connections are orthogonal thin lines with rounded bends. Press `/` to search every view, box and mapped file.
 The selected node's connections are solid, cyan for incoming and amber for outgoing; the rest are dotted. Move the Connects cursor (`2`) onto a row to read a long relationship in full.
 Press `e` to browse the selected node's mapped files, then Enter to open one in your external editor.
 Set `VISUAL` or `EDITOR` before starting the viewer. File browsing does not require live recording.
@@ -171,7 +171,7 @@ OpenCode status: `tests/opencode-live.test.ts` runs the real OpenCode binary (`-
 
 ## Observe live activity
 
-Place `.pathlight/pathlight.activity.json` in the agent's workspace. This repository includes a mapping to its own `viewer` LikeC4 project.
+Place `.pathlight/pathlight.activity.json` in the agent's workspace. This repository includes a mapping to its own `pathlight` LikeC4 project (`examples/viewer`).
 Mappings use workspace-relative path globs and exact LikeC4 element IDs:
 
 ```json
@@ -186,9 +186,9 @@ Mappings use workspace-relative path globs and exact LikeC4 element IDs:
 
 `ignore` lists files deliberately outside the model (the viewer leaves their activity out too), and `shared` lists elements anything may import (so `pathlight check` expects no relationship to them). `planned` lists elements designed but not built yet (their mappings may match no files without being a mistake; `check` reports how much of the plan exists and the viewer draws them dashed with a `[planned]` tag until they have files). `entries` lists views meant to be opened directly (not linked from another), which `check` does not count as a second entry point. `check` reads these; the viewer also reads `ignore` and `planned`.
 
-In OpenCode with `record: true`, just run `/pathlight-open live`. Without it, ask the agent to show the `viewer` project's `live` view with `live: true` and your current pane ID.
+In OpenCode with `record: true`, just run `/pathlight-open live`. Without it, ask the agent to show the `pathlight` project's `live` view with `live: true` and your current pane ID.
 The plugin binds the panel to the session. It records that session's subsequent tool starts, completions, and failures automatically.
-Call `pathlight.stop` to stop recording. Closing the viewer alone does not stop recording.
+Call `pathlight_stop` to stop recording. Closing the viewer alone does not stop recording.
 Plugin reloads stop recording; call `show` with `live: true` again to resume.
 Subagent sessions are separate and are not automatically included.
 
@@ -202,7 +202,7 @@ Selection, pan and zoom remain unchanged as activity arrives. Reopening the view
 For Claude Code, `pathlight init` installs these hooks. To do it by hand, copy the hooks from `plugins/claude/hooks.example.json` into your project settings and replace the absolute plugin path.
 Merge the hooks with existing settings; do not replace unrelated configuration.
 The hook runs asynchronously and exits successfully even if observation fails.
-`pathlight plan <element ids>` lets an agent say where it is about to work; the viewer outlines those elements and marks activity outside them `off plan`. A `Stop` hook runs `pathlight check --quiet` and `pathlight diff --quiet` after each turn, so the viewer can show an out-of-date badge when the model no longer matches the code and mark connectors whose imports changed since the last commit (`pathlight diff [--base REV]` prints the same list) (see [native viewer](docs/native-viewer.md)). The adapter accepts `PreToolUse`, `PostToolUse`, and `PostToolUseFailure`; it has been tested with hook payloads, not an interactive Claude session.
+`pathlight plan <element ids>` lets an agent say where it is about to work; the viewer outlines those elements and marks activity outside them `off plan`. A `Stop` hook runs `pathlight check --quiet` and `pathlight diff --quiet` after each turn, so the viewer can show an out-of-date badge when the model no longer matches the code and mark connectors whose imports changed since the last commit (`pathlight diff [--base REV]` prints the same list) (see [native viewer](docs/native-viewer.md)). The adapter accepts `PreToolUse`, `PostToolUse`, and `PostToolUseFailure`; the tests use hook payloads, and it records real interactive Claude Code sessions on Linux.
 With the Claude session ID, open a bound viewer:
 
 ```sh
@@ -212,7 +212,7 @@ bun run pathlight show VIEW --workspace /path/to/project --project PROJECT --pan
 Only tool names, call/session IDs, workspace-relative paths, operation categories, timestamps, and lifecycle states are retained.
 Tool arguments, command strings, source contents, tool results, and error text are not stored.
 Records live under `.cache/pathlight/activity` in directories created with private permissions.
-Each source/session retains at most 256 event files after writers settle; readers reduce these to the latest 128 calls.
+Each source/session retains at most 2048 event files after writers settle (what replay walks); the live view reads the newest 256 and reduces them to the latest 128 calls.
 The OpenCode observer uses a bounded 128-event queue and supports eight opted-in sessions per plugin instance.
 Collection is best-effort: overload or disk failures may lose events, and old history is pruned. It is not an audit log.
 All activity remains local. No background service or network endpoint is installed.
