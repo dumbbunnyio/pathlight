@@ -18,7 +18,7 @@ import { setPlan } from "./plan";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
 import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
-import { briefOf, changedBoxes, contextOf, formatBrief, formatContext, formatNamed, nameBoxes, select, type NameEntry } from "./brief";
+import { briefOf, changedBoxes, contextOf, entryPointsOf, formatBrief, formatContext, formatEntryPoints, formatNamed, nameBoxes, select, type NameEntry } from "./brief";
 import { addFlow, formatAdded, removeFlow } from "./flow-write";
 import { doctor, formatDoctor, hasFailures } from "./doctor";
 import { setup } from "./setup";
@@ -150,7 +150,7 @@ try {
         if (!values.json) process.stdout.write(changed.tracked ? (changed.boxes.length ? `${changed.boxes.length} of ${all.length} boxes are new or have changed files since they were named.\n\n` : "Every box is named and its files are unchanged since.\n") : "Nothing records when these boxes were named, so every box a person did not name is listed. Naming them once starts the record.\n\n");
       }
       if (chosen.missing.length) return yield* invalid(`No box has the key ${chosen.missing.join(", ")}. Run pathlight brief with no keys to see them.`);
-      process.stdout.write(values.json ? `${JSON.stringify(chosen.boxes, null, 2)}\n` : `${id || extra.length ? "" : formatContext(yield* contextOf(values.workspace))}${formatBrief(chosen.boxes, all)}`);
+      process.stdout.write(values.json ? `${JSON.stringify(chosen.boxes, null, 2)}\n` : `${id || extra.length ? "" : `${formatContext(yield* contextOf(values.workspace))}${formatEntryPoints(yield* entryPointsOf(values.workspace, all))}`}${formatBrief(chosen.boxes, all)}`);
     } else if (command === "name") {
       const entries: NameEntry[] = [];
       if (values.from) {

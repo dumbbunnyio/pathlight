@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { Effect, Schema } from "effect";
 import { draftOf, draftWorkspace, Overlay, readManifests } from "./draft";
 import { readOverlay } from "./edit";
@@ -59,6 +59,48 @@ export const contextOf = Effect.fn("Brief.context")(function* (workspace: string
   const docs = [...docNames.filter(file => top.includes(file)), ...(yield* io("Brief.docs", () => readdir(join(root, "docs"))).pipe(Effect.catch(() => Effect.succeed([] as string[])))).filter(file => file.endsWith(".md")).sort().slice(0, 12).map(file => `docs/${file}`)];
   return { ...(name ? { name } : {}), ...(description ? { description } : {}), ...(readme ? { readme } : {}), docs } satisfies AppContext;
 });
+
+/**
+ * Where a person or a process can start the code: what the project itself declares (package.json scripts, `bin`, `main`) and, from the import graph,
+ * the source files no other file imports. Facts, not a guess about what the app does; each is shown with the box that holds the file.
+ */
+export interface EntryPoint { file: string; box?: string; why: string }
+const notEntry = /(^|\/)(tests?|__tests__|spec|fixtures?|mocks?)\/|\.(test|spec|d|config|stories)\.[cm]?[jt]sx?$|(^|\/)(vite|vitest|jest|tsup|rollup|webpack|eslint|oxlint)[.\w-]*\.[cm]?[jt]s$/;
+const scriptSkipped = /^(test|check|lint|format|fmt|build|prepare|prepublish|postinstall|typecheck|types|clean)\b/;
+export const entryPointsOf = Effect.fn("Brief.entryPoints")(function* (workspace: string, boxes: readonly BriefBox[]) {
+  const root = yield* io("Brief.workspace", () => realpath(workspace));
+  const scan = yield* scanWorkspace(root);
+  const { paths } = yield* listFiles(root);
+  const sources = new Set(scan.files.map(file => file.path));
+  const boxOf = new Map<string, string>();
+  for (const box of [...boxes].sort((a, b) => b.depth - a.depth)) for (const file of box.files) if (!boxOf.has(file.path)) boxOf.set(file.path, box.key);
+  const found = new Map<string, EntryPoint>();
+  const add = (file: string, why: string) => { if (sources.has(file) && !found.has(file)) found.set(file, { file, ...(boxOf.has(file) ? { box: boxOf.get(file)! } : {}), why }); };
+  for (const manifest of paths.filter(path => posix.basename(path) === "package.json" && !path.includes("node_modules/"))) {
+    const directory = posix.dirname(manifest) === "." ? "" : posix.dirname(manifest);
+    const parsed = yield* io("Brief.manifest", () => readFile(join(root, manifest), "utf8")).pipe(Effect.map((text): unknown => { try { return JSON.parse(text); } catch { return undefined; } }), Effect.catch(() => Effect.succeed(undefined as unknown)));
+    if (typeof parsed !== "object" || !parsed) continue;
+    const record = parsed as Record<string, unknown>;
+    const resolveIn = (reference: string) => posix.normalize(posix.join(directory, reference.replace(/^\.\//, "")));
+    const scripts = typeof record.scripts === "object" && record.scripts ? Object.entries(record.scripts as Record<string, unknown>) : [];
+    for (const [name, command] of scripts) {
+      if (typeof command !== "string" || scriptSkipped.test(name)) continue;
+      for (const word of command.split(/\s+/)) if (/\.[cm]?[jt]sx?$/.test(word) && !word.startsWith("-")) add(resolveIn(word), `script “${name}”${directory ? ` in ${directory}` : ""}`);
+    }
+    const bins = typeof record.bin === "string" ? [["bin", record.bin]] : typeof record.bin === "object" && record.bin ? Object.entries(record.bin as Record<string, unknown>) : [];
+    for (const [name, target] of bins) if (typeof target === "string") add(resolveIn(target), `bin “${name}”`);
+    for (const key of ["main", "module"]) if (typeof record[key] === "string") add(resolveIn(record[key] as string), `package ${key}`);
+  }
+  const imported = new Set(scan.imports.map(edge => edge.to));
+  const roots = scan.files.filter(file => !imported.has(file.path) && !notEntry.test(file.path) && !found.has(file.path)).sort((a, b) => b.lines - a.lines || (a.path < b.path ? -1 : 1)).slice(0, 12);
+  for (const file of roots) add(file.path, "no other file imports it");
+  return [...found.values()];
+});
+
+export function formatEntryPoints(entries: readonly EntryPoint[]) {
+  if (!entries.length) return "";
+  return `# Where the code can be started (declared by the project, or files nothing imports)\n${entries.map(entry => `${entry.file}${entry.box ? ` [${entry.box}]` : ""} — ${entry.why}`).join("\n")}\n\n`;
+}
 
 export function formatContext(context: AppContext) {
   if (!context.description && !context.readme && !context.docs.length) return "";

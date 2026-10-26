@@ -137,3 +137,21 @@ test("brief --changed lists only boxes whose files changed since they were named
     expect(await cli("brief", "--changed", "src/session", "--workspace", directory).catch((error: Error) => error.message)).toContain("takes no keys");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 90_000);
+
+test("the brief lists where the code can start: what package.json declares, then files nothing imports, each with its box", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-entry-"));
+  try {
+    await write(directory);
+    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "demo", scripts: { serve: "bun run src/index.ts --port 1", test: "bun test src/session/stop.ts" }, bin: { demo: "./src/session/run.ts" } }));
+    await writeFile(join(directory, "src/orphan.test.ts"), `import { db } from "./database/db";\nexport const t = db;\n`);
+    await Effect.runPromise(draftWorkspace(directory));
+    const text = await cli("brief", "--workspace", directory);
+    expect(text).toContain("# Where the code can be started");
+    expect(text).toContain("src/index.ts [.#loose] — script “serve”");
+    expect(text).toContain("src/session/run.ts [src/session] — bin “demo”");
+    expect(text).not.toContain("script “test”");
+    expect(text).not.toContain("orphan.test.ts");
+    expect(text).toContain("benchmarks/bench.ts [benchmarks] — no other file imports it");
+    expect(await cli("brief", "src/session", "--workspace", directory)).not.toContain("Where the code can be started");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
