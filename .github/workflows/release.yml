@@ -55,31 +55,36 @@ jobs:
             NOTICE.md
 
   # The npm packages: `@dumbbunnyio/pathlight` (the CLI, scripts/build-npm.sh: a launcher and one package per platform holding its binary), `pathlight`
-  # (unscoped, a pointer to it) and `@dumbbunnyio/pathlight-opencode` (the OpenCode plugin, scripts/build-opencode.sh). Inert until the repository has an
-  # NPM_TOKEN secret: without one this job says so and passes. Each package goes after the ones it names, so none points at one that is not there.
+  # (unscoped, a pointer to it) and `@dumbbunnyio/pathlight-opencode` (the OpenCode plugin, scripts/build-opencode.sh). Published by npm trusted
+  # publishing: each package trusts this workflow in dumbbunnyio/pathlight (`npm trust list PACKAGE`), GitHub's OIDC token proves the run, and no npm
+  # token is stored; npm adds provenance itself. Each package goes after the ones it names, so none points at one that is not there.
   # A version already on npm is skipped, so a re-run finishes the rest.
   # A tag with a hyphen (v0.1.0-rc7) publishes under the `next` dist-tag, so `npm i` never picks up a pre-release.
   npm:
     needs: build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: "1.4.2" }
       - run: bun install --frozen-lockfile
+      # Trusted publishing needs npm 11.5.1 or later.
+      - uses: actions/setup-node@v5
+        with: { node-version: "24" }
+      - run: npm install -g npm@11 && npm --version
       - uses: actions/download-artifact@v7
         with: { path: dist, merge-multiple: true }
       - name: Publish
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          if [ -z "$NPM_TOKEN" ]; then echo "No NPM_TOKEN secret: not publishing to npm."; exit 0; fi
           version="${TAG#v}"
           [ "$(ls dist/pathlight-* | wc -l)" -eq 4 ] || { echo "expected four binaries:"; ls dist; exit 1; }
           sh scripts/build-npm.sh "$version" dist
           sh scripts/build-opencode.sh "$version"
-          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$HOME/.npmrc"
           publish() {
             name=$(node -p "require('./$1/package.json').name")
             if npm view "$name@$version" version >/dev/null 2>&1; then echo "$name@$version is already published"; return; fi
