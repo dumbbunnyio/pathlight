@@ -156,10 +156,10 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
 export const openCodeConfigDir = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
 
 // From a checkout the plugin is its folder; the compiled binary has none, so it registers the npm package, which OpenCode installs itself.
-const openCodePlugin = () => hasCheckout("opencode/index.ts") ? join(pluginRoot, "opencode") : "pathlight-opencode";
+const openCodePlugin = () => hasCheckout("opencode/index.ts") ? join(pluginRoot, "opencode") : "@dumbbunnyio/pathlight-opencode";
 const isPathlightPlugin = (entry: unknown) => {
   const name = isRecord(entry) ? entry.package : entry;
-  return typeof name === "string" && (/^pathlight-opencode(@|$)/.test(name) || name === openCodePlugin());
+  return typeof name === "string" && (/^@dumbbunnyio\/pathlight-opencode(@|$)/.test(name) || name === openCodePlugin());
 };
 
 /** The pathlight entry of an OpenCode configuration file, with its options, if it has one. */
@@ -196,7 +196,7 @@ export const initGlobal = Effect.fn("Init.global")(function* () {
   const path = join(openCodeConfigDir(), "opencode.json");
   return [
     yield* registerOpenCode(path, path),
-    "Claude Code: install the plugin once for every project: claude plugin marketplace add lennox-davidlevy/pathlight && claude plugin install pathlight@pathlight",
+    "Claude Code: install the plugin once for every project: claude plugin marketplace add dumbbunnyio/pathlight && claude plugin install pathlight@pathlight",
     "Then in a project: /pathlight in your agent, or pathlight setup --yes.",
   ];
 });

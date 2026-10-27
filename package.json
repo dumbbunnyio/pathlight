@@ -6,7 +6,7 @@
   "bin": {
     "pathlight": "src/cli.ts"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "scripts": {
     "pathlight": "bun src/cli.ts",
     "build": "./scripts/build.sh",

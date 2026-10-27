@@ -28,7 +28,7 @@ export default Plugin.define({
     const pathlight = async (args: string[], signal?: AbortSignal) => {
       try { return await Effect.runPromise(run("pathlight", args), { signal }); }
       catch (error) {
-        if (/ENOENT/.test(String(error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : error))) throw new Error("pathlight is not installed or not on the PATH. Install it: curl -fsSL https://raw.githubusercontent.com/lennox-davidlevy/pathlight/main/install.sh | sh");
+        if (/ENOENT/.test(String(error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : error))) throw new Error("pathlight is not installed or not on the PATH. Install it: npm i -g @dumbbunnyio/pathlight");
         throw error;
       }
     };

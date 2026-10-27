@@ -24,9 +24,9 @@ Only open trusted LikeC4 workspaces. LikeC4 can load executable JavaScript or Ty
 Install the `pathlight` command (needs tmux; verified on Linux x64, and the macOS builds the release publishes have not been tried), with npm or the install script:
 
 ```sh
-npm i -g pathlight
+npm i -g @dumbbunnyio/pathlight     # npm i -g pathlight installs the same
 # or
-curl -fsSL https://raw.githubusercontent.com/lennox-davidlevy/pathlight/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dumbbunnyio/pathlight/main/install.sh | sh
 ```
 
 Then add it to your agent once, for every project.
@@ -34,7 +34,7 @@ Then add it to your agent once, for every project.
 Claude Code:
 
 ```sh
-claude plugin marketplace add lennox-davidlevy/pathlight
+claude plugin marketplace add dumbbunnyio/pathlight
 claude plugin install pathlight@pathlight
 ```
 
@@ -44,7 +44,7 @@ OpenCode:
 pathlight init --global
 ```
 
-`init --global` adds the `pathlight-opencode` plugin to OpenCode's own `~/.config/opencode/opencode.json` with recording on (the same line you could add yourself: `{ "package": "pathlight-opencode", "options": { "record": true } }` in `"plugins"`). Like the Claude plugin, it records only in projects that have a map. Restart OpenCode after adding it.
+`init --global` adds the `@dumbbunnyio/pathlight-opencode` plugin to OpenCode's own `~/.config/opencode/opencode.json` with recording on (the same line you could add yourself: `{ "package": "@dumbbunnyio/pathlight-opencode", "options": { "record": true } }` in `"plugins"`). Like the Claude plugin, it records only in projects that have a map. Restart OpenCode after adding it.
 
 Then, in a project, type `/pathlight` in your agent (or run `pathlight setup --yes`), and `pathlight doctor` if anything is missing. Other agents (Codex, Pi, …) have no plugin yet: the map, the viewer and `check`/`diff` work beside any of them, but the viewer cannot see what they touch.
 
@@ -75,7 +75,7 @@ pathlight init --workspace .
 ```
 
 `init` adds the Claude Code hooks to `.claude/settings.local.json` (per-user), copies the `pathlight` skill (the `/pathlight` command),
-registers the OpenCode plugin (the `pathlight-opencode` npm package; from a checkout, its `plugins/opencode` folder), and creates `.pathlight/pathlight.activity.json` if absent and there is a model to map (with none, it says to run `pathlight setup --yes`). It maps only elements whose name matches
+registers the OpenCode plugin (the `@dumbbunnyio/pathlight-opencode` npm package; from a checkout, its `plugins/opencode` folder), and creates `.pathlight/pathlight.activity.json` if absent and there is a model to map (with none, it says to run `pathlight setup --yes`). It maps only elements whose name matches
 a directory or file that exists; review it and add globs for the rest. Re-running `init` is safe and never overwrites an existing mapping.
 
 To reopen the viewer yourself, with no agent involved:
@@ -168,7 +168,7 @@ Use `--project NAME` when multiple projects have the same view ID.
 
 ## Use from OpenCode
 
-Targets OpenCode V2 (verified against 2.1.4, with its own test suite and a real first run). `pathlight init --global` registers `pathlight-opencode` (from a checkout, `plugins/opencode`) in OpenCode's own `opencode.json` (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`) for every project, and `pathlight init` in one workspace's `opencode.json` (none is added there when the global entry exists, which would load it twice), both with `"options": { "record": true }`. A configuration with comments (`opencode.jsonc`) is not rewritten: init prints the entry to add. Restart OpenCode after adding it.
+Targets OpenCode V2 (verified against 2.1.4, with its own test suite and a real first run). `pathlight init --global` registers `@dumbbunnyio/pathlight-opencode` (from a checkout, `plugins/opencode`) in OpenCode's own `opencode.json` (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`) for every project, and `pathlight init` in one workspace's `opencode.json` (none is added there when the global entry exists, which would load it twice), both with `"options": { "record": true }`. A configuration with comments (`opencode.jsonc`) is not rewritten: init prints the entry to add. Restart OpenCode after adding it.
 The plugin has two halves, both loaded from that one entry:
 
 - **Server plugin** (`plugins/opencode/index.ts`): records tool calls through OpenCode's `tool.hook` events, offers the `pathlight` skill to the agent (unless the workspace already has one), and provides the `pathlight_list`, `pathlight_show` and `pathlight_stop` tools.
@@ -181,7 +181,7 @@ The plugin has two halves, both loaded from that one entry:
 | `/pathlight [VIEW]` | `/pathlight [VIEW]` | Asks the agent to use the pathlight skill (draft, check, show), telling it your pane and tmux socket so it passes `--pane`. |
 | `! pathlight open [VIEW]` | the same | Shell escape. |
 
-Package: the plugin calls the `pathlight` binary on your PATH, never a checkout, and `sh scripts/build-opencode.sh [VERSION]` bundles it with the skills and tracer prompt into `plugins/opencode/dist`, the npm package `pathlight-opencode`. The release workflow publishes it with the CLI packages (`sh scripts/build-npm.sh`: `pathlight`, a small launcher, and `pathlight-linux-x64`, `-linux-arm64`, `-darwin-x64`, `-darwin-arm64`, each holding its binary, of which npm installs only the matching one) when the repository has an `NPM_TOKEN` secret (pre-releases under the `next` tag). When a turn ends the plugin runs `pathlight check` and `pathlight diff`, as the Claude plugin's Stop hook does, so the out-of-date badge and the review of new dependencies work the same in both.
+Package: the plugin calls the `pathlight` binary on your PATH, never a checkout, and `sh scripts/build-opencode.sh [VERSION]` bundles it with the skills and tracer prompt into `plugins/opencode/dist`, the npm package `@dumbbunnyio/pathlight-opencode`. The release workflow publishes it with the CLI packages (`sh scripts/build-npm.sh`: `@dumbbunnyio/pathlight`, a small launcher, and `@dumbbunnyio/pathlight-linux-x64`, `-linux-arm64`, `-darwin-x64`, `-darwin-arm64`, each holding its binary, of which npm installs only the matching one; the unscoped `pathlight` only points at `@dumbbunnyio/pathlight`) when the repository has an `NPM_TOKEN` secret (pre-releases under the `next` tag). When a turn ends the plugin runs `pathlight check` and `pathlight diff`, as the Claude plugin's Stop hook does, so the out-of-date badge and the review of new dependencies work the same in both.
 
 Recording: with `record: true` every root session in a workspace with a mapping (`.pathlight/pathlight.activity.json`) is recorded without a request, the counterpart of installing the Claude hooks; a workspace without one gets nothing written. Subagent sessions and sessions in other workspaces are never recorded, and `pathlight_stop` stops one session. Without the option, recording starts only when an agent calls `pathlight_show` with `live: true`.
 Each tool requests permission before loading a workspace or opening a pane. `pathlight_show` needs an explicit pane (`%2`) because OpenCode's background service may not share your terminal's environment; the slash commands supply it for you.

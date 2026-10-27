@@ -41,7 +41,7 @@ export const doctor = Effect.fn("Doctor.run")(function* (workspace: string) {
     const plugins = yield* run("claude", ["plugin", "list"]).pipe(Effect.option);
     add(plugins._tag === "Some" && /pathlight/.test(plugins.value)
       ? { name: "Claude Code", status: "ok", detail: "the pathlight plugin is installed" }
-      : { name: "Claude Code", status: "info", detail: "the pathlight plugin was not found (hooks are what record activity)", fix: "Run `claude plugin marketplace add lennox-davidlevy/pathlight` then `claude plugin install pathlight`." });
+      : { name: "Claude Code", status: "info", detail: "the pathlight plugin was not found (hooks are what record activity)", fix: "Run `claude plugin marketplace add dumbbunnyio/pathlight` then `claude plugin install pathlight`." });
   } else add({ name: "Claude Code", status: "info", detail: "not installed here" });
   if (claudePluginInstalled() && projectSkillCopies(root).length) add({ name: "old skills", status: "fail", detail: "this project has its own copy of the pathlight skills in .claude/skills, which hides the plugin's newer ones", fix: "Run `pathlight init` to remove them, or delete .claude/skills/pathlight and .claude/skills/pathlight-behavior." });
   const editor = yield* Config.String("VISUAL").pipe(Config.withDefault(""), Effect.flatMap(visual => visual ? Effect.succeed(visual) : Config.String("EDITOR").pipe(Config.withDefault(""))));

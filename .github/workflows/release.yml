@@ -54,9 +54,10 @@ jobs:
             LICENSE
             NOTICE.md
 
-  # The npm packages: `pathlight` (the CLI, scripts/build-npm.sh: a launcher and one package per platform holding its binary) and `pathlight-opencode`
-  # (the OpenCode plugin, scripts/build-opencode.sh). Inert until the repository has an NPM_TOKEN secret: without one this job says so and passes.
-  # The platform packages go first, so `pathlight` never names one that is not there. A version already on npm is skipped, so a re-run finishes the rest.
+  # The npm packages: `@dumbbunnyio/pathlight` (the CLI, scripts/build-npm.sh: a launcher and one package per platform holding its binary), `pathlight`
+  # (unscoped, a pointer to it) and `@dumbbunnyio/pathlight-opencode` (the OpenCode plugin, scripts/build-opencode.sh). Inert until the repository has an
+  # NPM_TOKEN secret: without one this job says so and passes. Each package goes after the ones it names, so none points at one that is not there.
+  # A version already on npm is skipped, so a re-run finishes the rest.
   # A tag with a hyphen (v0.1.0-rc7) publishes under the `next` dist-tag, so `npm i` never picks up a pre-release.
   npm:
     needs: build
@@ -84,6 +85,7 @@ jobs:
             if npm view "$name@$version" version >/dev/null 2>&1; then echo "$name@$version is already published"; return; fi
             case "$version" in *-*) (cd "$1" && npm publish --access public --tag next) ;; *) (cd "$1" && npm publish --access public) ;; esac
           }
-          for package in dist/npm/pathlight-*/; do publish "$package"; done
+          for package in dist/npm/linux-* dist/npm/darwin-*; do publish "$package"; done
           publish dist/npm/pathlight
+          publish dist/npm/pointer
           publish plugins/opencode/dist

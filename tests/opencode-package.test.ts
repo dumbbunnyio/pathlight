@@ -14,12 +14,12 @@ test.skipIf(!Bun.which("opencode"))("the packed OpenCode plugin loads on its own
     const dist = resolve("plugins/opencode/dist");
     await run("sh", ["-c", `cd "${dist}" && bun pm pack --destination "${work}"`]);
     const tarball = (await readdir(work)).find(name => name.endsWith(".tgz"))!;
-    expect(tarball).toBe("pathlight-opencode-9.9.9.tgz");
+    expect(tarball).toBe("dumbbunnyio-pathlight-opencode-9.9.9.tgz");
     await run("tar", ["-xzf", join(work, tarball), "-C", work]);
     const unpacked = join(work, "package");
     expect((await readdir(unpacked)).sort()).toEqual(["LICENSE", "NOTICE.md", "README.md", "index.js", "package.json", "skills", "tui.js"]);
     const manifest = JSON.parse(await readFile(join(unpacked, "package.json"), "utf8")) as Record<string, unknown>;
-    expect(manifest).toMatchObject({ name: "pathlight-opencode", version: "9.9.9", exports: { ".": "./index.js", "./tui": "./tui.js" }, peerDependencies: { effect: "^4.0.0" } });
+    expect(manifest).toMatchObject({ name: "@dumbbunnyio/pathlight-opencode", version: "9.9.9", exports: { ".": "./index.js", "./tui": "./tui.js" }, peerDependencies: { effect: "^4.0.0" } });
     expect(manifest.license).toBe("MIT");
     const code = await readFile(join(unpacked, "index.js"), "utf8") + await readFile(join(unpacked, "tui.js"), "utf8");
     expect(code).not.toContain(resolve("."));

@@ -14,7 +14,7 @@ cp -R plugins/claude/skills/. "$out/skills/"
 cp LICENSE NOTICE.md "$out/"
 cat > "$out/package.json" <<JSON
 {
-  "name": "pathlight-opencode",
+  "name": "@dumbbunnyio/pathlight-opencode",
   "version": "$version",
   "description": "Pathlight for OpenCode: records which components the agent touches, opens the architecture viewer beside the conversation, and a Sonnet-sized tracer agent that records flows.",
   "license": "MIT",
@@ -23,7 +23,7 @@ cat > "$out/package.json" <<JSON
   "files": ["index.js", "tui.js", "skills", "README.md", "LICENSE", "NOTICE.md"],
   "peerDependencies": { "effect": "^4.0.0" },
   "keywords": ["opencode", "opencode-plugin", "architecture", "likec4", "tmux"],
-  "repository": { "type": "git", "url": "git+https://github.com/lennox-davidlevy/pathlight.git", "directory": "plugins/opencode" }
+  "repository": { "type": "git", "url": "git+https://github.com/dumbbunnyio/pathlight.git", "directory": "plugins/opencode" }
 }
 JSON
 cp plugins/opencode/README.md "$out/README.md"

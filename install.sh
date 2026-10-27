@@ -1,9 +1,9 @@
 #!/bin/sh
 # Installs the pathlight binary from the latest GitHub Release into ~/.local/bin (or $PATHLIGHT_INSTALL_DIR).
-#   curl -fsSL https://raw.githubusercontent.com/lennox-davidlevy/pathlight/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/dumbbunnyio/pathlight/main/install.sh | sh
 # Set PATHLIGHT_VERSION=v0.1.0 to pin a release (PATHLIGHT_BASE_URL points at another download location, for testing).
 set -eu
-repo="lennox-davidlevy/pathlight"
+repo="dumbbunnyio/pathlight"
 dir="${PATHLIGHT_INSTALL_DIR:-$HOME/.local/bin}"
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 case "$os" in linux|darwin) ;; *) echo "pathlight supports Linux and macOS, not $os." >&2; exit 1 ;; esac

@@ -1,5 +1,5 @@
 {
-  "name": "pathlight-opencode",
+  "name": "@dumbbunnyio/pathlight-opencode",
   "private": true,
   "type": "module",
   "exports": {
