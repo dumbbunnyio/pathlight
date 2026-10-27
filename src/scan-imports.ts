@@ -1,5 +1,12 @@
 export type ImportKind = "import" | "type" | "reexport" | "dynamic" | "require";
-export interface ImportRef { readonly specifier: string; readonly line: number; readonly kind: ImportKind }
+/**
+ * The names a statement takes from the module it names: `imported` is the name in that module (`default` for a default import), `exported` the name it is
+ * offered under again (for `export … from`; an import's own name otherwise). `"*"` is the whole module (`import * as`, `export *`). Absent when the statement
+ * names nothing (`import "x"`, `import("x")`, `require("x")`).
+ */
+export type ImportNames = "*" | readonly { readonly imported: string; readonly exported: string }[];
+/** `reexport` marks `export … from` (including `export type … from`): the file offers those names on, so an import of them can be followed through it. */
+export interface ImportRef { readonly specifier: string; readonly line: number; readonly kind: ImportKind; readonly names?: ImportNames; readonly reexport?: true }
 
 type Token = { readonly kind: "word" | "punct" | "string"; readonly text: string; readonly line: number };
 
@@ -93,6 +100,31 @@ function tokenize(source: string): Token[] {
   return tokens;
 }
 
+/** The names an import or re-export clause takes (the tokens between `import`/`export` and `from`, a leading `type` removed). */
+function importedNames(clause: readonly Token[], reexport: boolean): ImportNames {
+  const names: { imported: string; exported: string }[] = [];
+  let index = 0;
+  // `* as ns`: the whole module, under one name. A namespace import cannot be followed name by name.
+  if (clause[0]?.text === "*") return reexport && clause[1]?.text === "as" && clause[2] ? [{ imported: "*", exported: clause[2].text }] : "*";
+  // A default import comes first: `import X from`, `import X, { a } from`, `import X, * as ns from`.
+  if (clause[0]?.kind === "word" && clause[0].text !== "type") {
+    names.push({ imported: "default", exported: clause[0].text });
+    index = clause[1]?.text === "," ? 2 : 1;
+    if (clause[index]?.text === "*") return "*";
+  }
+  if (clause[index]?.text === "{") {
+    let parts: Token[] = [];
+    const take = () => {
+      const words = parts[0]?.text === "type" && parts.length > 1 && parts[1]!.text !== "as" ? parts.slice(1) : parts;
+      if (words[0]) names.push({ imported: words[0].text, exported: words[1]?.text === "as" && words[2] ? words[2].text : words[0].text });
+      parts = [];
+    };
+    for (const item of clause.slice(index + 1)) { if (item.text === "}") break; if (item.text === ",") take(); else parts.push(item); }
+    take();
+  }
+  return names;
+}
+
 /**
  * Every module specifier a file names with a literal: `import`, `import type`, `export … from`, `import("x")` and
  * `require("x")`, in source order, each with the line its statement starts on. Specifiers built at run time cannot
@@ -134,7 +166,7 @@ export function importsOf(source: string): ImportRef[] {
       if (open === 0) for (const item of clause.slice(1)) { if (item.text === "}") break; if (item.text === ",") named.push([]); else named.at(-1)!.push(item); }
       const bindings = named.filter(parts => parts.length > 0);
       const inlineTypes = open === 0 && bindings.length > 0 && bindings.every(parts => parts[0]!.text === "type" && parts.length > 1 && parts[1]!.text !== "as");
-      found.push({ specifier: at(end + 1)!.text, line: token.line, kind: typeOnly || inlineTypes ? "type" : "import" });
+      found.push({ specifier: at(end + 1)!.text, line: token.line, kind: typeOnly || inlineTypes ? "type" : "import", names: importedNames(typeOnly ? clause.slice(1) : clause, false) });
       index = end + 1;
     } else if (token.text === "export") {
       const typeOnly = is(index + 1, "type") && (is(index + 2, "{") || is(index + 2, "*"));
@@ -142,7 +174,7 @@ export function importsOf(source: string): ImportRef[] {
       if (!is(start, "{") && !is(start, "*")) continue;
       const end = clauseEnd(start);
       if (end < 0) continue;
-      found.push({ specifier: at(end + 1)!.text, line: token.line, kind: typeOnly ? "type" : "reexport" });
+      found.push({ specifier: at(end + 1)!.text, line: token.line, kind: typeOnly ? "type" : "reexport", names: importedNames(tokens.slice(start, end), true), reexport: true });
       index = end + 1;
     } else if (token.text === "require" && is(index + 1, "(") && at(index + 2)?.kind === "string" && is(index + 3, ")")) {
       found.push({ specifier: at(index + 2)!.text, line: token.line, kind: "require" });

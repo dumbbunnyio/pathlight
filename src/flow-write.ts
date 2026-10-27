@@ -3,7 +3,7 @@ import { readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { Effect } from "effect";
 import { readActivityConfig } from "./activity";
-import { acquireModel } from "./catalog";
+import { acquireModel, invalidModel } from "./catalog";
 import { failure, io } from "./effects";
 import { checkFlows, contentHash, type JourneyReport } from "./flows";
 import { run } from "./process";
@@ -106,7 +106,7 @@ export const addFlow = Effect.fn("Flow.add")(function* (workspace: string, optio
   // The components must be the model's own; a name that is nearly right is the usual mistake, so it is offered back.
   const before = yield* Effect.scoped(Effect.gen(function* () {
     const source = yield* acquireModel(root);
-    if (source.hasErrors()) return yield* invalid("Invalid LikeC4 model. Run likec4 validate in the workspace first.");
+    if (source.hasErrors()) return yield* invalid(invalidModel(source, root));
     const projects = source.projects();
     const mapped = options.project ?? (yield* readActivityConfig(root).pipe(Effect.map(config => config.project), Effect.catch(() => Effect.succeed(undefined))));
     const project = mapped && projects.includes(mapped as never) ? mapped : projects.length === 1 ? projects[0] : undefined;

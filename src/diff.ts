@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
 import { readActivityConfig } from "./activity";
-import { acquireModel } from "./catalog";
+import { acquireModel, invalidModel } from "./catalog";
 import { compareImports } from "./check";
 import { failure, io, json } from "./effects";
 import { run } from "./process";
@@ -19,7 +19,9 @@ const Name = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))
 export const Diff = Schema.Struct({
   version: Schema.Literal(1), basis: Schema.Literal("static"), base: Schema.String, sha: Schema.String, time: Count,
   relationships: Schema.Array(Schema.Struct({ source: Name, target: Name, change: Schema.Literals(["added", "removed"]) })).check(Schema.isMaxLength(4096)),
-  undeclared: Schema.Array(Schema.Struct({ source: Name, target: Name, imports: Count })).check(Schema.isMaxLength(4096)),
+  // `example` is one import that makes the pair, so a person deciding about it (and an agent asked to remove it) can find it.
+  undeclared: Schema.Array(Schema.Struct({ source: Name, target: Name, imports: Count,
+    example: Schema.optionalKey(Schema.Struct({ from: Name, line: Count, to: Name })) })).check(Schema.isMaxLength(4096)),
 });
 export interface Diff extends Schema.Schema.Type<typeof Diff> {}
 
@@ -66,7 +68,7 @@ export const diffWorkspace = Effect.fn("Diff.workspace")(function* (workspace: s
     Effect.catch(() => Effect.fail(failure("Diff.base", `'${base}' is not a commit in this repository (diff compares with git history).`))))).trim();
   const config = yield* readActivityConfig(root);
   const source = yield* acquireModel(root);
-  if (source.hasErrors()) return yield* Effect.fail(failure("Diff.model", "Invalid LikeC4 model. Run likec4 validate in the workspace first."));
+  if (source.hasErrors()) return yield* Effect.fail(failure("Diff.model", invalidModel(source, root)));
   const model = yield* io("LikeC4.compute", () => source.computedModel(config.project));
   const declared = [...model.relationships()].map(item => ({ source: String(item.source.id), target: String(item.target.id), title: item.title ?? null }));
 
@@ -81,7 +83,8 @@ export const diffWorkspace = Effect.fn("Diff.workspace")(function* (workspace: s
     return was === is ? [] : [{ source: item.source, target: item.target, change: is ? "added" as const : "removed" as const }];
   });
   const hadUndeclared = new Set(before.undeclared.map(key));
-  const undeclared = now.undeclared.filter(item => !hadUndeclared.has(key(item))).map(({ source, target, imports }) => ({ source, target, imports }));
+  const undeclared = now.undeclared.filter(item => !hadUndeclared.has(key(item))).map(({ source, target, imports, examples }) =>
+    ({ source, target, imports, ...(examples[0] ? { example: { from: examples[0].from, line: examples[0].line, to: examples[0].to } } : {}) }));
   return Diff.make({ version: 1, basis: "static", base, sha, time: Date.now(),
     relationships: relationships.sort((a, b) => order(a.source, b.source) || order(a.target, b.target)).slice(0, 4096), undeclared: undeclared.slice(0, 4096) });
 }, Effect.scoped);

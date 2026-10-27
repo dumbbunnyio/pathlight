@@ -18,7 +18,7 @@ These are the pathlight-behavior skill's steps for a journey, complete; you do n
    Add `--project NAME` if the repository has several LikeC4 projects. Use a short lowercase id such as `place-order`.
 5. If the command reports a hop with no relationship in the model, leave it and say which you think is wrong, the story or the model. A hop over HTTP, a message or a return value is not an import, so it often shows as one; a step back along the way an earlier step went is read as that step's answer and is not reported. Never edit the model to silence it.
 
-Rules: read-only except for the one `pathlight flow add` command. Do not change product code. Do not run the viewer. Do not use Bash for anything but `pathlight` commands and read-only commands such as `git log`, `ls` and `grep`.
+Rules: read-only except for the one `pathlight flow add` command. Do not change product code. Do not run the viewer. Read and search files with the Read, Grep and Glob tools, not the shell. Use the shell only for `pathlight` commands and `git log`, `git show` or `ls`: some hosts refuse anything else, and a refused command does not mean the `pathlight` one will be refused, so still run it.
 
 Reply in this shape and nothing else:
 

@@ -13,8 +13,9 @@ export interface Observed {
  * The real OpenCode runtime, offline, with `plugin` (a folder) loaded as the plugin under test. A second plugin, loaded after it, reads back from the host
  * what the first registered: the tracer agent and the skills. Providers need credentials to count as enabled, so a placeholder Anthropic key in `env` is
  * enough for the host to list its models; no request is ever made. `pathlight` on the PATH is the repository's CLI.
+ * With `global`, the plugin is not in the project's configuration: `pathlight init --global` registers it in OpenCode's own (isolated) one.
  */
-export async function observeOpenCode(plugin: string, env: string[]): Promise<Observed> {
+export async function observeOpenCode(plugin: string, env: string[], options: { global?: boolean } = {}): Promise<Observed> {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-opencode-observe-"));
   const socket = join("/tmp", `c4ob-${process.pid}-${Math.random().toString(36).slice(2, 8)}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
@@ -35,8 +36,9 @@ export default Plugin.define({ id: "probe", setup: async ctx => {
     await writeFile(join(workspace, "opencode.json"), JSON.stringify({
       $schema: "https://opencode.ai/config.json", model: "fake/m",
       providers: { fake: { name: "Fake", env: ["FAKE_KEY"], package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: "http://127.0.0.1:9/v1" }, models: { m: { name: "Fake" } } } },
-      plugins: [{ package: plugin, options: {} }, { package: probe, options: {} }],
+      plugins: [...options.global ? [] : [{ package: plugin, options: {} }], { package: probe, options: {} }],
     }));
+    if (options.global) await run("env", [`XDG_CONFIG_HOME=${join(directory, "config")}`, process.execPath, resolve("src/cli.ts"), "init", "--global"]);
     await writeFile(join(directory, "bin", "pathlight"), `#!/bin/sh\nexec ${process.execPath} ${resolve("src/cli.ts")} "$@"\n`);
     await chmod(join(directory, "bin", "pathlight"), 0o755);
     const dirs = ["config", "data", "state", "cache"].map(name => `XDG_${name.toUpperCase()}_HOME=${join(directory, name)}`);

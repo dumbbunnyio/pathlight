@@ -13,11 +13,14 @@ import { Ready } from "./ready";
  * True when this process was typed at a shell prompt in `pane`, so that pane holds nothing but the shell and can become
  * the viewer. A command run by an agent (`! pathlight open` inside Claude Code, a tool call) has the agent between the
  * pane's shell and itself, so it is not the shell's direct child. Anything unclear answers false, which means "split".
+ * Installed from npm, the binary is started by a small launcher (npm/launcher.cjs), which says whose child it is; that is
+ * trusted only when the launcher is this process's own parent, so a stale value inherited further down is ignored.
  */
 export const atShellPrompt = Effect.fn("Tmux.atShellPrompt")(function* (pane: string, socket?: string) {
   if (!/^%\d+$/.test(pane)) return false;
   const pid = yield* run("tmux", [...(socket ? ["-S", socket] : []), "display-message", "-p", "-t", pane, "#{pane_pid}"]).pipe(Effect.catch(() => Effect.succeed("")));
-  return pid.trim() === String(process.ppid);
+  const launched = process.env.PATHLIGHT_LAUNCHER_PID === String(process.ppid) ? process.env.PATHLIGHT_LAUNCHER_PPID : undefined;
+  return pid.trim() === (launched ?? String(process.ppid));
 });
 
 /**

@@ -22,8 +22,9 @@ Everything in it is a **static** reading of source text (`"basis": "static"`). I
 - Relative imports, including `.js` specifiers that name a `.ts` file, directory indexes, and non-source files such as `.css` and `.json`.
 - The nearest `tsconfig.json`/`jsconfig.json` `baseUrl` and `paths` (comments and trailing commas allowed).
 - Packages with a `package.json` inside the workspace (monorepo packages), through `exports`, `main`, `module` and `types`; an entry that names built output (`dist/…`) is looked up under `src/…`.
+- Re-exports. A package's entry file usually declares nothing and re-exports everything, so an import of it only says which barrel was named. Each name an import takes is followed through `export * from`, `export { a as b } from` and their `type` forms (and nested barrels) to the file that declares it, and the import is recorded against that file, one record per file reached (same `line` and `specifier`). A namespace import (`import * as`), a side-effect import, or a name that cannot be followed stays on the file it named. The barrel's own `export … from` lines are kept as they are.
 
-It does not follow `extends` chains, `exports` patterns (`./*`), bundler or framework aliases, or anything built at run time. What that leaves behind is in `unresolved` or `coverage.unscanned`, not guessed.
+It does not follow `extends` chains, bundler or framework aliases, or anything built at run time. What that leaves behind is in `unresolved` or `coverage.unscanned`, not guessed.
 
 Files come from `git ls-files` (tracked plus untracked, ignoring what `.gitignore` excludes) or, outside a repository, a walk that skips `.git`, `.cache` and `node_modules`. Symlinks and files over 2 MiB are skipped and counted. A workspace listing more than 50,000 files is refused; scan a subdirectory.
 

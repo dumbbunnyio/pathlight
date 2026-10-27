@@ -33,7 +33,7 @@ test("diff reports relationships an import backs now and did not at the base, on
     const diff = await Effect.runPromise(diffWorkspace(directory));
     expect(diff.basis).toBe("static");
     expect(diff.relationships).toEqual([{ source: "a", target: "b", change: "added" }, { source: "b", target: "c", change: "removed" }]);
-    expect(diff.undeclared).toEqual([{ source: "c", target: "a", imports: 1 }]);
+    expect(diff.undeclared).toEqual([{ source: "c", target: "a", imports: 1, example: { from: "src/c.ts", line: 1, to: "src/a.ts" } }]);
     const text = formatDiff(diff);
     expect(text).toContain("+ a → b");
     expect(text).toContain("− b → c");
@@ -75,7 +75,10 @@ test("the viewer says what changed against the base commit, labelled static, and
       process.execPath, resolve("src/cli.ts"), "view", "index", "--workspace", directory);
     let screen = "";
     for (let attempt = 0; attempt < 200 && !screen.includes("vs HEAD"); attempt++) { screen = await tmux("capture-pane", "-p", "-t", pane); await delay(50); }
-    expect(screen).toContain("vs HEAD (static) +1 1 undeclared");
+    // The new pair is the header's review, not repeated in the breadcrumb.
+    expect(screen).toContain("vs HEAD (static) +1");
+    expect(screen).not.toContain("undeclared");
+    expect(screen).toContain("▲ 1 new dependency · c review");
     // Committing everything leaves nothing to show, and the line goes quiet again.
     await git(directory, "add", "-A"); await git(directory, "commit", "-q", "-m", "now");
     await run(process.execPath, [resolve("src/cli.ts"), "diff", "--workspace", directory, "--quiet"]);

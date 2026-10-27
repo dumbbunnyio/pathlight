@@ -1,5 +1,6 @@
 import { Plugin } from "@opencode/plugin";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { z } from "zod";
 import { run } from "../../src/process";
 import { existsSync } from "node:fs";
@@ -38,7 +39,9 @@ export default Plugin.define({
     type SkillInfo = Parameters<Parameters<Parameters<typeof ctx.skill.transform>[0]>[0]["add"]>[0];
     // `record: true` in the plugin's options is the workspace-wide opt-in (what `pathlight init` writes, the counterpart of installing the Claude hooks):
     // every root session in this workspace is recorded without a `live` request. Subagent sessions are never aggregated, and `pathlight_stop` still stops one.
+    // A plugin registered for every project (`pathlight init --global`) records only in a workspace with a mapping, as the Claude hooks do.
     const record = ctx.options?.record === true;
+    const mapped = () => existsSync(join(workspace, ".pathlight", "pathlight.activity.json"));
     const stopped = new Set<SessionID>();
     const eligibility = new Map<SessionID, { inWorkspace: boolean; root: boolean }>();
     const queue = Effect.runSync(Queue.sliding<{ event: ActivityEvent; sessionID: SessionID; recording: { active: boolean }; auto: boolean }>(128));
@@ -57,7 +60,7 @@ export default Plugin.define({
     }).pipe(Effect.ignore))));
     const enqueue = (sessionID: SessionID, make: () => ActivityEvent) => {
       const watched = subscriptions.watching(sessionID);
-      if (disposed || !(watched || record && !stopped.has(sessionID))) return;
+      if (disposed || !(watched || record && !stopped.has(sessionID) && mapped())) return;
       try {
         let recording = recordings.get(sessionID);
         if (!recording) { recording = { active: true }; recordings.set(sessionID, recording); }
@@ -68,11 +71,24 @@ export default Plugin.define({
       if (event.tool.startsWith("pathlight")) return;
       enqueue(event.sessionID, () => Effect.runSync(toolActivity(workspace, { source: "opencode", session: event.sessionID }, event.id, event.tool, event.input, phase)));
     };
+    // When a turn ends, `check` and `diff` run, as the Claude plugin's Stop hook does: the viewer's out-of-date badge and its review of new dependencies
+    // come from them. Only in a workspace with a mapping, one run at a time (a turn that ends during a run gets one more), and nothing is reported.
+    let checking = false, again = false;
+    const endOfTurn = async () => {
+      if (checking) { again = true; return; }
+      if (!mapped()) return;
+      checking = true;
+      try {
+        for (const command of ["check", "diff"]) await pathlight([command, "--workspace", workspace, "--quiet"], listening.signal).catch(() => undefined);
+      } finally { checking = false; if (again && !disposed) { again = false; void endOfTurn(); } }
+    };
+    const turnEnded = new Set(["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"]);
     // A new run of a session is a new turn. Only the fact is recorded, never the prompt.
     const listening = new AbortController();
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: listening.signal })) {
+          if (turnEnded.has(event.type)) { void endOfTurn(); continue; }
           if (event.type !== "session.execution.started") continue;
           const sessionID = (event.data as { sessionID: SessionID }).sessionID;
           enqueue(sessionID, () => Effect.runSync(turnActivity({ source: "opencode", session: sessionID })));

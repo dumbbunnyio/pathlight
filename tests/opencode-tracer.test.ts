@@ -12,3 +12,9 @@ test.skipIf(!Bun.which("opencode"))("in the real OpenCode the tracer is a subage
   expect(withKey.agent).toMatchObject({ mode: "subagent", model: { providerID: "anthropic" } });
   expect(withKey.agent!.model!.id).toMatch(/^claude-sonnet/);
 }, 120_000);
+
+test.skipIf(!Bun.which("opencode"))("registered by init --global in OpenCode's own configuration, the plugin loads in a project that names it nowhere", async () => {
+  const observed = await observeOpenCode(resolve("plugins/opencode"), ["PATHLIGHT_TEST=1"], { global: true });
+  expect(observed.agent).toMatchObject({ mode: "subagent" });
+  expect(observed.skills).toEqual(expect.arrayContaining(["pathlight", "pathlight-behavior"]));
+}, 60_000);

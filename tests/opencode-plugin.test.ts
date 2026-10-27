@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -128,6 +128,33 @@ test("with record: true the plugin records root sessions in its workspace withou
     await rm(elsewhere, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("registered for every project, the plugin records nothing in a workspace without a mapping, and nothing is written there", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "pathlight-opencode-unmapped-"));
+  const hooks = new Map<string, (event: unknown) => unknown>();
+  let cleanup: void | (() => Promise<void> | void) = undefined;
+  try {
+    await writeFile(join(workspace, "notes.md"), "# a project that never set up pathlight\n");
+    const context = {
+      location: { directory: workspace }, options: { record: true },
+      session: { get: async () => ({ location: { directory: workspace } }) },
+      permission: { assert: async () => undefined },
+      skill: { list: async () => ({ data: [] }), transform: async () => undefined },
+      tool: {
+        hook: async (name: string, handler: (event: unknown) => unknown) => { hooks.set(name, handler); },
+        transform: async (apply: (editor: unknown) => void) => apply({ namespace: () => undefined, add: () => undefined }),
+      },
+    };
+    cleanup = await plugin.setup(context as never);
+    const event = { sessionID: "root", id: "r1", tool: "read", input: { path: "notes.md" }, status: "completed" };
+    await hooks.get("execute.before")!(event); await hooks.get("execute.after")!(event);
+    await delay(400);
+    expect(await readdir(workspace)).toEqual(["notes.md"]);
+  } finally {
+    await cleanup?.();
+    await rm(workspace, { recursive: true, force: true });
+  }
+}, 30_000);
 
 test("the plugin registers a read-only tracer subagent pinned to the newest enabled Sonnet, reports the choice in pathlight_models, and rebuilds the agent when the model list arrives late", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "pathlight-opencode-agent-"));

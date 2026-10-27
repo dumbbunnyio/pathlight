@@ -5,12 +5,15 @@ import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type View, acquireModel, validateActivityMapping } from "./catalog";
-import { type ActivityBinding, type ActivityEvent, formatAge, latestBinding, readActivity, readActivityConfig, readReplay, type Replay } from "./activity";
-import { type Diff, readDiff } from "./diff";
+import { type ActivityBinding, type ActivityEvent, formatAge, latestBinding, readActivity, readActivityConfig, readReplay, type Replay, sessionStart } from "./activity";
+import { type Diff, diffWorkspace, readDiff, recordDiff } from "./diff";
+import { draftWorkspace, generatedMarker } from "./draft";
+import { home, modelFile } from "./layout";
+import { type Decisions, decide, pending, readDecisions, reviewItems, reviewMessage, type Verdict } from "./review";
 import { type Plan, readPlan } from "./plan";
 import { readStale, type Stale, staleText } from "./stale";
 import { nodeFiles } from "./node-files";
-import { openEditor } from "./editor";
+import { firstChange, openEditor } from "./editor";
 import { askMessage, flowMessage, mapMessage, sendToPane } from "./ask";
 import { readEntry, readKeys, saveElement } from "./edit";
 import pkg from "../package.json" with { type: "json" };
@@ -27,6 +30,7 @@ import { declarationLine } from "./scan-imports";
 import { cardTag, isActive, nowCard, operationState, outcomeMs, sessionSummary, ticker } from "./viewer/activity-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { helpContent } from "./viewer/help";
+import { reviewSection } from "./viewer/review-view";
 import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { clip, describe, easeOut, fade, labelTitle, nl, spinAt } from "./viewer/text";
 
@@ -182,6 +186,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let stale: Stale | undefined;
   // What the last `pathlight diff` found against a git commit: connectors whose imports were added or lost are marked, and pairs that import each other with no relationship are counted.
   let diff: Diff | undefined;
+  // The review (`c`): the person's verdicts on the new dependencies `diff` lists. `drafted` is whether the map is a draft (its arrows are the imports,
+  // so it is redrawn rather than edited), and `redrawnFor` the diff it was last redrawn for, so a redraw that changes nothing is not repeated.
+  let decisions: Decisions = { version: 1, decisions: [] }, reviewCursor = 0, drafted = false, redrawnFor = -1;
   // The elements the agent said it is about to work on (`pathlight plan`): outlined, and activity on anything else is marked off-plan.
   let plan: Plan | undefined;
   // Flows: readings of the code (a journey is a LikeC4 dynamic view, a state diagram is what an agent wrote). They are loaded in the background after the first frame
@@ -210,8 +217,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const diffText = () => {
     if (!diff) return "";
     const added = diff.relationships.filter(item => item.change === "added").length, lost = diff.relationships.length - added;
-    // Nothing changed, nothing said: the check badge on the right already shows the hooks are running.
-    const parts = [added ? `+${added}` : "", lost ? `−${lost}` : "", diff.undeclared.length ? `${diff.undeclared.length} undeclared` : ""].filter(Boolean);
+    // Nothing changed, nothing said: the check badge on the right already shows the hooks are running. New dependencies are the header's review, not repeated here.
+    const parts = [added ? `+${added}` : "", lost ? `−${lost}` : ""].filter(Boolean);
     return parts.length ? ` · vs ${diff.base} (static) ${parts.join(" ")}` : "";
   };
   const ago = (time: number) => { const age = formatAge(Date.now() - time); return age === "now" ? "just now" : `${age} ago`; };
@@ -227,10 +234,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const badgeContent = () => {
     const room = Math.max(0, renderer.width - 40);
     if (replay) return new StyledText([fg(palette.accent)("◀ replay"), fg(palette.border)(` ${liveLabel()} `)]);
-    if (!binding && !following) { const only = staleBadge(room); return only.length ? new StyledText(only) : ""; }
+    // New dependencies waiting for a verdict come first: they are the one thing in the header that asks for a decision.
+    const open = pending(reviewItems(diff, decisions)).length, ask = open ? `▲ ${open} new dependenc${open === 1 ? "y" : "ies"} · c review ` : "";
+    const review = ask && ask.length <= room ? [fg(palette.accent)(ask)] : [];
+    const left = room - (review.length ? ask.length : 0);
+    if (!binding && !following) { const only = [...review, ...staleBadge(left)]; return only.length ? new StyledText(only) : ""; }
     const busy = events.some(isActive);
     const live = [fg(binding ? palette.incoming : palette.muted)(`${busy ? spinAt(Date.now()) : "●"} live`), fg(palette.border)(` ${liveLabel()} `)];
-    return new StyledText([...staleBadge(room - 8 - liveLabel().length), ...live]);
+    return new StyledText([...review, ...staleBadge(left - 8 - liveLabel().length), ...live]);
   };
   let activityError = "";
   const layout = () => {
@@ -305,7 +316,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // Section bodies start at the panel's edge; the panel has one column of padding each side and one for a scrollbar.
   const bodyWidth = () => Math.max(16, inspector.width - 2 - 1);
-  const elementTitle = (id: string) => diagram.nodes.find(node => String(node.modelRef) === id)?.title ?? id.split(".").at(-1) ?? id;
+  // A component's title from this view, else from any view that draws it (the review and the header name components this view may not show), else its id.
+  let titles: { of: typeof diagrams; byRef: Map<string, string> } | undefined;
+  const elementTitle = (id: string) => {
+    const here = diagram.nodes.find(node => String(node.modelRef) === id)?.title;
+    if (here) return here;
+    if (titles?.of !== diagrams) titles = { of: diagrams, byRef: new Map([...diagrams.values()].flatMap(scene => scene.nodes.map(node => [String(node.modelRef), node.title] as const)).reverse()) };
+    return titles.byRef.get(id) ?? id.split(".").at(-1) ?? id;
+  };
   // Every open card gets an equal share of the inspector's height; a folded card is a padded header.
   let headRows = 2;
   const bodyRows: Record<SectionKey, number> = { connections: 4, files: 4, activity: 4, steps: 4, flows: 2 };
@@ -367,10 +385,45 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     contentRows.activity = card.lines;
     return new StyledText(card.chunks);
   };
+  // `c`: the review of new dependencies on top (when there are any), then what the session touched.
   const summaryContent = () => {
+    const items = reviewItems(diff, decisions), frame = Math.min(100, renderer.width - 6);
+    reviewCursor = Math.min(reviewCursor, Math.max(0, items.length - 1));
+    const head = reviewSection(items, { base: diff?.base ?? "HEAD", cursor: reviewCursor, width: frame - 6, title: elementTitle, drawnLater: drafted, background: rowBackground });
     const made = sessionSummary({ session: binding ? `${binding.source}:${binding.session.slice(0, 8)}` : undefined, config, events, elementTitle, screenWidth: renderer.width, ruleWidth: bodyWidth(), now: Date.now() });
-    summary.place(...made.size);
-    return new StyledText(made.chunks);
+    summary.place(items.length ? frame : made.size[0], made.size[1] + head.lines);
+    summary.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(items.length ? "Review" : "This session"), fg(palette.muted)(" ")]);
+    summary.foot.content = new StyledText(borderHints(items.length ? [["j k", "move"], ["e", "read it"], ["y", "accept"], ["n", "reject"], ["esc", "close"]] : [["esc", "close"]]));
+    return new StyledText([...head.chunks, ...made.chunks]);
+  };
+  // A drafted map draws every import, so redrawing it for one accepted dependency would also draw the ones not yet decided. It is redrawn once every
+  // new dependency is accepted (none undecided, none rejected and still in the code), and once per diff.
+  const settleReview = Effect.gen(function* () {
+    const items = reviewItems(diff, decisions);
+    if (!drafted || !diff || !items.length || !items.every(item => item.verdict === "accepted") || redrawnFor === diff.time) return;
+    redrawnFor = diff.time;
+    yield* draftWorkspace(view.workspace);
+    const fresh = yield* diffWorkspace(view.workspace);
+    yield* recordDiff(view.workspace, fresh);
+    diff = fresh;
+    message = `The map now draws the ${items.length === 1 ? "dependency" : `${items.length} dependencies`} you accepted`;
+  });
+  // A verdict on the dependency under the cursor. Rejecting one asks the agent to take it out; accepting one on a model a person wrote asks it to add the
+  // relationship. Both are typed into the agent's pane and submitted, as `t` does.
+  const decideOn = (verdict: Verdict) => {
+    const item = reviewItems(diff, decisions)[reviewCursor];
+    if (!item) return;
+    const pair = `${elementTitle(item.source)} → ${elementTitle(item.target)}`;
+    runTask(Effect.gen(function* () {
+      decisions = yield* decide(view.workspace, item, verdict);
+      if (verdict === "accepted" && drafted) message = `Accepted ${pair}`;
+      else if (options.parent) {
+        yield* sendToPane(options.parent, reviewMessage(item, verdict, elementTitle), true);
+        message = verdict === "accepted" ? `Accepted ${pair}: asked the agent to add it to the model` : `Rejected ${pair}: asked the agent to take it out`;
+      } else message = `${verdict === "accepted" ? "Accepted" : "Rejected"} ${pair}; there is no agent pane to tell (open the viewer with pathlight show)`;
+      yield* settleReview;
+    }).pipe(Effect.catch(error => Effect.sync(() => { message = error.message; })),
+      Effect.ensuring(Effect.sync(() => { if (summary.visible) summary.content.content = summaryContent(); if (!editorActive) update(); }))));
   };
   const tickerContent = () => ticker(binding ? config : undefined, events, elementTitle, Date.now());
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
@@ -570,7 +623,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       event.preventDefault(); event.stopPropagation();
       const index = fileLines[event.y - filesText.y - fileCard.first] ?? -1, path = paths[index];
       if (index < 0 || !path || help.visible || summary.visible) return;
-      if (fileMode && clickedFile === index) { openFile(path); return; }
+      if (fileMode && clickedFile === index) { openAtChange(path); return; }
       if (!fileMode) beginFiles();
       fileCursor = clickedFile = index; message = "Click again or Enter to open"; searchInput.focus(); update();
     };
@@ -1189,6 +1242,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         Effect.catch(error => Effect.sync(() => { message = error.message; })));
     }).pipe(Effect.scoped, Effect.catch(error => Effect.sync(() => { editorActive = false; message = error.message; searchInput.focus(); update(); }))));
   };
+  // A mapped file with uncommitted changes opens at its first change: what changed is what there is to read.
+  const openAtChange = (path: string) => runTask(firstChange(view.workspace, path).pipe(
+    Effect.tap(line => Effect.sync(() => openFile(path, line, line ? `Returned from ${path} (opened at its first change, line ${line})` : undefined)))));
   const beginFiles = () => {
     fileMode = true; fileCursor = 0; fileQuery = ""; sections.files.open = true; touched.add("files"); focusSection = "files"; scrollToSection = "files"; inspectorPreference = "open"; message = fileError;
     searchInput.placeholder = "Filter mapped files"; searchInput.value = ""; searchPrompt.content = " files › "; searchPrompt.fg = palette.outgoing;
@@ -1272,6 +1328,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (summary.visible) {
       key.preventDefault();
       if (key.name === "escape" || key.name === "c" || key.sequence === "?") { summary.close(); update(); }
+      else if (key.name === "j" || key.name === "down") { reviewCursor++; summary.content.content = summaryContent(); update(); }
+      else if (key.name === "k" || key.name === "up") { reviewCursor = Math.max(0, reviewCursor - 1); summary.content.content = summaryContent(); update(); }
+      else if (key.name === "y") decideOn("accepted");
+      else if (key.name === "n") decideOn("rejected");
+      // Read before deciding: the import that makes the dependency, at its line.
+      else if (key.name === "e") { const example = reviewItems(diff, decisions)[reviewCursor]?.example; if (example) openFile(example.from, example.line, `Returned from ${example.from}:${example.line}`); }
       return;
     }
     if (help.visible) { key.preventDefault(); if (key.name === "escape" || key.sequence === "?") help.close();
@@ -1309,7 +1371,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
           if (target) { message = ""; selectNode(target, true); }
         } else if (key_ === "files") {
           const path = selectedPaths()[fileCursor];
-          if (path) openFile(path);
+          if (path) openAtChange(path);
         } else if (key_ === "steps") goToStep(flowStep);
         else if (key_ === "flows") {
           const entry = flowItems[cursor.flows];
@@ -1400,7 +1462,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       else if (key.name === "return") {
         key.preventDefault();
         const path = paths[fileCursor];
-        if (path) openFile(path);
+        if (path) openAtChange(path);
       }
     } else if (key.sequence === "?") showHelp();
     else if (key.name === "i") { inspectorPreference = inspector.visible ? "closed" : "open"; }
@@ -1574,9 +1636,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     Effect.catch(() => Effect.sync(() => { message = "Live reload unavailable: the model will not update until the viewer is reopened"; return undefined; }))),
     watcher => Effect.sync(() => { clearTimeout(reloadTimer); watcher?.close(); }));
   yield* Effect.gen(function* () {
-    const next = yield* readStale(view.workspace), nextDiff = yield* readDiff(view.workspace), nextPlan = yield* readPlan(view.workspace);
+    const next = yield* readStale(view.workspace), nextDiff = yield* readDiff(view.workspace), nextDecisions = yield* readDecisions(view.workspace);
+    // A plan belongs to the work it was set for: one set more than two hours before the watched session began (or, watching none, before now) is not
+    // shown, so an old plan never marks today's work `off plan`. The two hours leave room for a person to state the scope and then start the agent.
+    const set = yield* readPlan(view.workspace);
+    const started = binding && set ? yield* sessionStart(view.workspace, binding).pipe(Effect.catch(() => Effect.succeed(undefined))) : undefined;
+    const nextPlan = set && set.time >= (started ?? Date.now()) - 7_200_000 ? set : undefined;
+    drafted = yield* io("Native.drafted", () => readFile(join(view.workspace, home, modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
     if (next?.time !== stale?.time && stale !== undefined) loadFlows();
-    if (JSON.stringify(next) !== JSON.stringify(stale) || JSON.stringify(nextDiff) !== JSON.stringify(diff) || JSON.stringify(nextPlan) !== JSON.stringify(plan)) { stale = next; diff = nextDiff; plan = nextPlan; dirty = true; if (!editorActive) update(); }
+    if (JSON.stringify(next) !== JSON.stringify(stale) || JSON.stringify(nextDiff) !== JSON.stringify(diff) || JSON.stringify(nextPlan) !== JSON.stringify(plan) || JSON.stringify(nextDecisions) !== JSON.stringify(decisions)) {
+      stale = next; diff = nextDiff; plan = nextPlan; decisions = nextDecisions; dirty = true;
+      yield* settleReview.pipe(Effect.catch(error => Effect.sync(() => { message = error.message; })));
+      if (summary.visible) summary.content.content = summaryContent();
+      if (!editorActive) update();
+    }
   }).pipe(Effect.repeat(Schedule.spaced("3 seconds")), Effect.forkScoped);
   if (binding || following) yield* Effect.gen(function* () {
     if (replay) {

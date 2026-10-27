@@ -39,6 +39,7 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v7
         with: { path: dist, merge-multiple: true }
       - name: Checksums
@@ -50,8 +51,12 @@ jobs:
           files: |
             dist/pathlight-*
             dist/SHA256SUMS
+            LICENSE
+            NOTICE.md
 
-  # The OpenCode plugin as an npm package (see scripts/build-opencode.sh). Inert until the repository has an NPM_TOKEN secret: without one this job says so and passes.
+  # The npm packages: `pathlight` (the CLI, scripts/build-npm.sh: a launcher and one package per platform holding its binary) and `pathlight-opencode`
+  # (the OpenCode plugin, scripts/build-opencode.sh). Inert until the repository has an NPM_TOKEN secret: without one this job says so and passes.
+  # The platform packages go first, so `pathlight` never names one that is not there. A version already on npm is skipped, so a re-run finishes the rest.
   # A tag with a hyphen (v0.1.0-rc7) publishes under the `next` dist-tag, so `npm i` never picks up a pre-release.
   npm:
     needs: build
@@ -61,14 +66,24 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: "1.4.2" }
       - run: bun install --frozen-lockfile
-      - name: Publish pathlight-opencode
+      - uses: actions/download-artifact@v7
+        with: { path: dist, merge-multiple: true }
+      - name: Publish
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          if [ -z "$NPM_TOKEN" ]; then echo "No NPM_TOKEN secret: not publishing pathlight-opencode."; exit 0; fi
+          if [ -z "$NPM_TOKEN" ]; then echo "No NPM_TOKEN secret: not publishing to npm."; exit 0; fi
           version="${TAG#v}"
+          [ "$(ls dist/pathlight-* | wc -l)" -eq 4 ] || { echo "expected four binaries:"; ls dist; exit 1; }
+          sh scripts/build-npm.sh "$version" dist
           sh scripts/build-opencode.sh "$version"
           printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$HOME/.npmrc"
-          cd plugins/opencode/dist
-          case "$version" in *-*) npm publish --access public --tag next ;; *) npm publish --access public ;; esac
+          publish() {
+            name=$(node -p "require('./$1/package.json').name")
+            if npm view "$name@$version" version >/dev/null 2>&1; then echo "$name@$version is already published"; return; fi
+            case "$version" in *-*) (cd "$1" && npm publish --access public --tag next) ;; *) (cd "$1" && npm publish --access public) ;; esac
+          }
+          for package in dist/npm/pathlight-*/; do publish "$package"; done
+          publish dist/npm/pathlight
+          publish plugins/opencode/dist

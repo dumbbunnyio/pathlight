@@ -58,3 +58,17 @@ test("the viewer outlines the plan in its breadcrumb and marks activity on an el
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("a plan left from days ago is not shown, so it never marks today's work off plan", async () => {
+  const directory = await workspace();
+  try {
+    await mkdir(join(directory, ".cache/pathlight"), { recursive: true });
+    await writeFile(join(directory, ".cache/pathlight/plan.json"), JSON.stringify({ version: 1, time: Date.now() - 3 * 86_400_000, elements: ["a"] }));
+    const binding = { source: "claude" as const, session: "today" };
+    await writeActivity(directory, toolActivity(directory, binding, "one", "Read", { file_path: "src/c.ts" }, "completed"));
+    const screen = await cli("see", "index", "--workspace", directory, "--cols", "160", "--rows", "40", "--follow");
+    expect(screen).toContain("Gamma");
+    expect(screen).not.toContain("plan 1");
+    expect(screen).not.toContain("off plan");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

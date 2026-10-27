@@ -137,32 +137,66 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
       const elements = [...model.elements()].map(element => ({ id: String(element.id), title: element.title }));
       return { project, mappings: proposeMappings(elements, yield* listFiles(workspace)), elements: elements.length };
     }).pipe(Effect.scoped, Effect.catch(() => Effect.succeed(undefined)));
-    if (!proposal) notes.push("Activity: no LikeC4 project found, so .pathlight/pathlight.activity.json was not created.");
+    // With no model files LikeC4 still reports an empty default project: a mapping of nothing would only stop `setup` from drawing a first model.
+    if (!proposal || proposal.elements === 0) notes.push("Activity: no model yet, so .pathlight/pathlight.activity.json was not created. Run pathlight setup --yes to draw one from the code (it writes the mapping too).");
     else {
       yield* writeText(configPath, `${JSON.stringify({ version: 1, project: proposal.project, mappings: proposal.mappings }, null, 2)}\n`);
       notes.push(`Activity: mapped ${proposal.mappings.length} of ${proposal.elements} elements by matching names on disk. Review .pathlight/pathlight.activity.json and add globs for the rest.`);
     }
   }
 
-  const opencodePath = join(workspace, "opencode.json");
-  const opencode = yield* readOptional(opencodePath);
-  const config = opencode ? yield* json(opencode) : { $schema: "https://opencode.ai/config.json" };
-  if (isRecord(config) && !hasCheckout("opencode/index.ts")) notes.push("OpenCode: add the pathlight plugin to opencode.json (none was registered from this binary).");
-  else if (isRecord(config)) {
-    const plugin = join(pluginRoot, "opencode");
-    const plugins: unknown[] = Array.isArray(config.plugins) ? [...config.plugins] : [];
-    // `record: true` is the OpenCode counterpart of installing the Claude hooks: running init is the opt-in to record this workspace's root sessions.
-    const index = plugins.findIndex(entry => entry === plugin || (isRecord(entry) && entry.package === plugin));
-    const entry = plugins[index];
-    const options = isRecord(entry) && isRecord(entry.options) ? entry.options : {};
-    if (index < 0) {
-      plugins.push({ package: plugin, options: { record: true } });
-      notes.push("OpenCode: plugin registered in opencode.json with recording on (restart the OpenCode service). Use /pathlight-open, or /pathlight to ask the agent.");
-    } else if (options.record === undefined) {
-      plugins[index] = { ...(isRecord(entry) ? entry : { package: plugin }), options: { ...options, record: true } };
-      notes.push("OpenCode: plugin was registered; recording turned on (restart the OpenCode service).");
-    } else notes.push(`OpenCode: plugin already registered (recording ${options.record === true ? "on" : "off, as configured"}).`);
-    if (index < 0 || options.record === undefined) yield* writeText(opencodePath, `${JSON.stringify({ ...config, plugins }, null, 2)}\n`);
-  }
+  // Registered for every project already, a second entry here would load the plugin twice and record every call twice.
+  const global = yield* openCodeEntry(join(openCodeConfigDir(), "opencode.json"));
+  if (global) notes.push(`OpenCode: the plugin is registered for every project in ${join(openCodeConfigDir(), "opencode.json")} (recording ${global.record === true ? "on" : "off, as configured"}), so none was added to this one.`);
+  else notes.push(yield* registerOpenCode(join(workspace, "opencode.json"), "opencode.json"));
   return notes;
+});
+
+/** OpenCode's own configuration folder, where it looks for the configuration that applies to every project. */
+export const openCodeConfigDir = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
+
+// From a checkout the plugin is its folder; the compiled binary has none, so it registers the npm package, which OpenCode installs itself.
+const openCodePlugin = () => hasCheckout("opencode/index.ts") ? join(pluginRoot, "opencode") : "pathlight-opencode";
+const isPathlightPlugin = (entry: unknown) => {
+  const name = isRecord(entry) ? entry.package : entry;
+  return typeof name === "string" && (/^pathlight-opencode(@|$)/.test(name) || name === openCodePlugin());
+};
+
+/** The pathlight entry of an OpenCode configuration file, with its options, if it has one. */
+const openCodeEntry = (path: string) => readOptional(path).pipe(Effect.map(text => {
+  try {
+    const config: unknown = text === undefined ? undefined : JSON.parse(text);
+    const entry = isRecord(config) && Array.isArray(config.plugins) ? config.plugins.find(isPathlightPlugin) : undefined;
+    return entry === undefined ? undefined : isRecord(entry) && isRecord(entry.options) ? entry.options : {};
+  } catch { return undefined; }
+}));
+
+/** Adds the plugin to an OpenCode configuration file with recording on, keeping everything else in it. */
+const registerOpenCode = Effect.fn("Init.opencode")(function* (path: string, shown: string) {
+  // OpenCode also reads opencode.jsonc; a file with comments is left to the person rather than rewritten without them.
+  if (!(yield* readOptional(path)) && (yield* readOptional(`${path}c`))) return `OpenCode: ${shown}c has comments pathlight will not rewrite. Add to its "plugins": { "package": "${openCodePlugin()}", "options": { "record": true } }`;
+  const opencode = yield* readOptional(path);
+  const config = opencode ? yield* json(opencode) : { $schema: "https://opencode.ai/config.json" };
+  if (!isRecord(config)) return `OpenCode: ${shown} is not a JSON object; left as it is.`;
+  const plugins: unknown[] = Array.isArray(config.plugins) ? [...config.plugins] : [];
+  // `record: true` is the OpenCode counterpart of installing the Claude hooks: running init is the opt-in to record root sessions (the plugin records only where there is a mapping).
+  const index = plugins.findIndex(isPathlightPlugin);
+  const entry = plugins[index];
+  const options = isRecord(entry) && isRecord(entry.options) ? entry.options : {};
+  if (index >= 0 && options.record !== undefined) return `OpenCode: plugin already registered (recording ${options.record === true ? "on" : "off, as configured"}) in ${shown}.`;
+  if (index < 0) plugins.push({ package: openCodePlugin(), options: { record: true } });
+  else plugins[index] = { ...(isRecord(entry) ? entry : { package: entry }), options: { ...options, record: true } };
+  yield* writeText(path, `${JSON.stringify({ ...config, plugins }, null, 2)}\n`);
+  return index < 0 ? `OpenCode: plugin registered in ${shown} with recording on (restart OpenCode). Use /pathlight-open, or /pathlight to ask the agent.`
+    : `OpenCode: plugin was registered in ${shown}; recording turned on (restart OpenCode).`;
+});
+
+/** `init --global`: the OpenCode plugin for every project, the counterpart of installing the Claude plugin once. It records only in projects with a mapping. */
+export const initGlobal = Effect.fn("Init.global")(function* () {
+  const path = join(openCodeConfigDir(), "opencode.json");
+  return [
+    yield* registerOpenCode(path, path),
+    "Claude Code: install the plugin once for every project: claude plugin marketplace add lennox-davidlevy/pathlight && claude plugin install pathlight@pathlight",
+    "Then in a project: /pathlight in your agent, or pathlight setup --yes.",
+  ];
 });

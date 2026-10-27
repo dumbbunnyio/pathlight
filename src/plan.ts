@@ -2,7 +2,7 @@ import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
 import { readActivityConfig } from "./activity";
-import { acquireModel } from "./catalog";
+import { acquireModel, invalidModel } from "./catalog";
 import { failure, io, json } from "./effects";
 
 /**
@@ -26,7 +26,7 @@ export const setPlan = Effect.fn("Plan.set")(function* (workspace: string, eleme
   }
   const config = yield* readActivityConfig(root);
   const source = yield* acquireModel(root);
-  if (source.hasErrors()) return yield* Effect.fail(failure("Plan.model", "Invalid LikeC4 model. Run likec4 validate in the workspace first."));
+  if (source.hasErrors()) return yield* Effect.fail(failure("Plan.model", invalidModel(source, root)));
   const model = yield* io("LikeC4.compute", () => source.computedModel(config.project));
   const known = new Set([...model.elements()].map(element => String(element.id)));
   const unknown = elements.filter(id => !known.has(id));

@@ -8,6 +8,10 @@ This document records the product direction and accepted design as of
 
 The viewer must be informative, not a data dump: an engineer following a harness's work should see an elegant, intuitive picture with the detail available on request. The inspector was redesigned on 2026-10-24 (Phase 1): it ranks what it shows (the component, what it is doing now, what it connects to) and keeps files, history and the session summary one key away, and live work appears as a tag in each card's border and a `now`/`last` line in the header. Phase 2 (flow mode: a flow drawn on the diagram with a step reader, cards off the path dimmed, `≠` where a journey hop has no relationship in the model) was added the same day; flows are readings of the code, labelled so and kept apart from what the journal observed. The out-of-date badge, diff marks, plan outline and `off plan` tags added on 2026-10-21 are provisional and may still move or merge.
 
+## Involvement, not spectating (user decision, 2026-10-26)
+
+With agents writing most of the code, a developer risks only watching text and diffs roll by. Pathlight's two use cases are understanding a repository you have never seen, visually, and making changes to it while seeing what is touched. It involves the person at the moments that need their judgement, and is quiet otherwise: the end-of-turn review asks them to accept or reject each new dependency the code gained (static imports, never a claim about behaviour), and reading the code behind a decision is one key away in their own editor (`e` on a flow step, on a dependency under review, or a changed file). Accuracy comes first, and options are added only when a decision cannot be made without them.
+
 ## What we are trying to achieve
 
 Give a developer working with an AI coding agent a persistent, navigable view of

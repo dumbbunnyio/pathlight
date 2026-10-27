@@ -15,7 +15,7 @@ export function helpContent(options: { inspector: boolean; vim: boolean; screenW
       ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"], ["F", "trace a flow (F again: next, last one leaves)"], ["[ ]", "step through the flow"]] },
     { name: "Inspector", active: options.inspector, rows: [["i", "toggle the inspector"], ["1-4", "focus a card"], ["j k", "move / scroll"], ["space", "fold card"],
       ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files (in a flow: read the step's function)"], ["esc", "back to diagram"]] },
-    { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work, and follow it"], ["c", "what this session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
+    { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work, and follow it"], ["c", "review new dependencies, and what the session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
     { name: "Global", active: false, rows: [["/", "search views, boxes, files"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
   ];
   const wide = options.screenWidth >= 100;

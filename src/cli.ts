@@ -10,7 +10,7 @@ import { atShellPrompt, showView } from "./tmux";
 import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
 import { mappingPath } from "./layout";
 import { claudeActivity, claudeIgnores } from "./claude";
-import { initWorkspace } from "./init";
+import { initGlobal, initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
 import { draftWorkspace } from "./draft";
 import { checkAndRecord } from "./stale";
@@ -37,6 +37,7 @@ pathlight name --from FILE|- [--workspace PATH]
 pathlight plan [ELEMENT ...] [--workspace PATH]
 pathlight draft [--workspace PATH] [--out DIR] [--force]
 pathlight init [--workspace PATH] [--no-claude-hooks]
+pathlight init --global
 pathlight show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
 pathlight view VIEW [--workspace PATH] [--project NAME] [--select ELEMENT]
 pathlight see VIEW [--workspace PATH] [--project NAME] [--cols N] [--rows N] [--select ELEMENT] [--keys KEY,KEY] [--ansi] [--follow]
@@ -56,7 +57,7 @@ plan says which elements you are about to work on (ids from the model); the view
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
 setup is the first run: it checks the machine and the workspace, says what it would write, and with --yes draws a first model from the code when there is none. It never rewrites a model you wrote and leaves hooks and recording to init.
-init wires Claude Code hooks, the pathlight skill and the OpenCode plugin into a workspace.
+init wires Claude Code hooks, the pathlight skill and the OpenCode plugin into a workspace. init --global registers the OpenCode plugin for every project instead (in OpenCode's own opencode.json); it records only in projects with a mapping.
 show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
 see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. For agents and tests.
 open follows the most recent session and shows VIEW if given, else the view named index, else the first view.
@@ -92,7 +93,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -184,8 +185,9 @@ try {
       if (id) return yield* invalid("setup takes no argument. Use --workspace PATH and --yes.");
       process.stdout.write(yield* setup(values.workspace, { yes: values.yes === true }));
     } else if (command === "init") {
-      if (id) return yield* invalid("init takes no argument. Use --workspace PATH.");
-      process.stdout.write(`${(yield* initWorkspace(values.workspace, { claudeHooks: !values["no-claude-hooks"] })).join("\n")}\n`);
+      if (id) return yield* invalid("init takes no argument. Use --workspace PATH, or --global.");
+      const notes = values.global ? yield* initGlobal() : yield* initWorkspace(values.workspace, { claudeHooks: !values["no-claude-hooks"] });
+      process.stdout.write(`${notes.join("\n")}\n`);
     } else if (command === "record") {
       yield* readActivityConfig(values.workspace);
       const input = yield* json(yield* readStdin);

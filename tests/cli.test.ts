@@ -158,6 +158,30 @@ test("init registers the OpenCode plugin with recording on, upgrades a bare entr
   expect((await read()).plugins).toEqual([{ package: plugin, options: { record: false } }]);
 });
 
+test("init --global registers the OpenCode plugin for every project, keeps the rest of that file, and a project init then adds no second entry", async () => {
+  const global = join(process.env.XDG_CONFIG_HOME!, "opencode", "opencode.json");
+  const plugin = resolve("plugins/opencode");
+  await mkdir(dirname(global), { recursive: true });
+  await writeFile(global, JSON.stringify({ $schema: "https://opencode.ai/config.json", model: "anthropic/claude-sonnet-5-5", plugins: ["opencode-other@1.0.0"] }));
+  try {
+    expect((await invoke("init", "--global")).stdout).toContain("recording on");
+    expect(JSON.parse(await Bun.file(global).text())).toEqual({ $schema: "https://opencode.ai/config.json", model: "anthropic/claude-sonnet-5-5", plugins: ["opencode-other@1.0.0", { package: plugin, options: { record: true } }] });
+    expect((await invoke("init", "--global")).stdout).toContain("already registered (recording on)");
+    const project = join(directory, "init-under-global");
+    await cp("examples/parcel", project, { recursive: true, filter: path => !path.includes(".cache") });
+    expect((await invoke("init", "--workspace", project, "--no-claude-hooks")).stdout).toContain("registered for every project");
+    expect(await Bun.file(join(project, "opencode.json")).exists()).toBe(false);
+    // A configuration with comments is not rewritten: init says what to add.
+    await rm(global);
+    await writeFile(`${global}c`, "{\n  // mine\n  \"plugins\": []\n}\n");
+    expect((await invoke("init", "--global")).stdout).toContain("has comments");
+    expect(await Bun.file(`${global}c`).text()).toContain("// mine");
+    expect(await Bun.file(global).exists()).toBe(false);
+  } finally {
+    await rm(dirname(global), { recursive: true, force: true });
+  }
+});
+
 test("show and open take the project from pathlight.activity.json when the workspace has several LikeC4 projects", async () => {
   const project = join(directory, "two-projects");
   await cp("examples/parcel", join(project, "parcel"), { recursive: true, filter: path => !path.includes(".cache") });

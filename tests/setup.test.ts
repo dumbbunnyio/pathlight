@@ -54,3 +54,13 @@ test("setup never draws over a model somebody wrote, and says what to do instead
     expect(await readFile(join(directory, "model.c4"), "utf8")).toContain("component 'Web'");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("init run before there is a model writes no mapping, so setup can still draw one", async () => {
+  const directory = await project();
+  try {
+    expect(await cli("init", "--workspace", directory, "--no-claude-hooks")).toContain("no model yet");
+    expect(existsSync(join(directory, ".pathlight", "pathlight.activity.json"))).toBe(false);
+    expect(await cli("setup", "--workspace", directory, "--yes")).toContain("Drew ");
+    expect(existsSync(join(directory, ".pathlight", "pathlight.model.c4"))).toBe(true);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

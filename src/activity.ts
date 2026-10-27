@@ -132,6 +132,17 @@ export const readActivity = Effect.fn("Activity.read")(function* (workspace: str
   return [...calls.values()].sort((a, b) => b.time - a.time).slice(0, 128);
 });
 
+/**
+ * When a session's oldest retained event happened (event files are named by time), or undefined with none. After pruning it is later than the session's
+ * real start, so anything compared with it errs towards "older than this session".
+ */
+export const sessionStart = Effect.fn("Activity.start")(function* (workspace: string, binding: ActivityBinding) {
+  const directory = yield* activityDirectory(workspace, binding);
+  const files = yield* io("Activity.entries", () => readdir(directory)).pipe(Effect.catch(() => Effect.succeed([] as string[])));
+  const first = files.filter(file => file.endsWith(".json")).sort()[0];
+  return first ? Number(first.slice(0, 16)) : undefined;
+});
+
 /** A session's retained calls in the order they began, grouped into turns. */
 export interface Replay { steps: ActivityEvent[]; turns: number[] }
 const turnGap = 90_000;

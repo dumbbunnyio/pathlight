@@ -148,7 +148,9 @@ Run `pathlight check` again after any later change to the code or the model, and
 
 ## Say where you are about to work
 
-Before a change that spans several parts, run `pathlight plan <element id> [...]` with the ids from the model you expect to touch (ids only, no text), and `pathlight plan` with none when you finish. The viewer outlines those elements in purple and marks activity on any other element `off plan`, so the user sees at once when the work wandered. Unknown ids are refused. It is a statement of intent, not a record: if the plan turns out wrong, set a new one.
+Before a change that spans several parts, run `pathlight plan <element id> [...]` with the ids from the model you expect to touch (ids only, no text), and `pathlight plan` with none when you finish. The viewer outlines those elements in purple and marks activity on any other element `off plan`, so the user sees at once when the work wandered. Unknown ids are refused. It is a statement of intent, not a record: if the plan turns out wrong, set a new one. A plan from an earlier session is not shown.
+
+At the end of a turn the person may review new dependencies in the viewer (`c`). A request that starts "I reviewed the architecture change" is their verdict: take a rejected dependency out (or say what bigger change that needs and wait), or add an accepted one to a model they wrote, then run `pathlight check`.
 
 ## What changed since the last commit
 

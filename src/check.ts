@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 import { type ActivityConfig, readActivityConfig } from "./activity";
-import { acquireModel } from "./catalog";
+import { acquireModel, invalidModel } from "./catalog";
 import { failure, io } from "./effects";
 import { listFiles, scanWorkspace, type Scan } from "./scan";
 
@@ -125,7 +125,7 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   const scan = yield* scanWorkspace(root);
   const { paths } = yield* listFiles(root);
   const source = yield* acquireModel(root);
-  if (source.hasErrors()) return yield* Effect.fail(failure("Check.model", "Invalid LikeC4 model. Run likec4 validate in the workspace first."));
+  if (source.hasErrors()) return yield* Effect.fail(failure("Check.model", invalidModel(source, root)));
   const model = yield* io("LikeC4.compute", () => source.computedModel(config.project));
   const elements = new Set([...model.elements()].map(element => String(element.id)));
   for (const mapping of config.mappings) {

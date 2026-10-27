@@ -4,7 +4,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { readActivityConfig, type ActivityConfig } from "./activity";
-import { acquireModel } from "./catalog";
+import { acquireModel, invalidModel } from "./catalog";
 import { failure, io } from "./effects";
 import { run } from "./process";
 import { declarationOf } from "./scan-imports";
@@ -169,7 +169,7 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
   // The file listing comes from git, which still lists a tracked file that was deleted from disk, so existence is asked of the filesystem.
   const exists = (path: string) => existsSync(join(root, path)) && lstatSync(join(root, path)).isFile();
   const source = yield* acquireModel(root);
-  if (source.hasErrors()) return yield* Effect.fail(failure("Flows.model", "Invalid LikeC4 model. Run likec4 validate in the workspace first."));
+  if (source.hasErrors()) return yield* Effect.fail(failure("Flows.model", invalidModel(source, root)));
   const inputs: FlowInput[] = [];
   for (const project of source.projects()) {
     const model = yield* io("LikeC4.compute", () => source.computedModel(project));

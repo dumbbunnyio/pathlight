@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { Config, Effect } from "effect";
 import { editorFile } from "./node-files";
 import { attempt, failure, hasCode, io } from "./effects";
+import { run } from "./process";
 
 /**
  * The shell command that opens `$1` in the editor, at `line` when the editor is one whose way of taking a line we know (`+N file` for the vi family,
@@ -14,6 +15,11 @@ export function editorCommand(editor: string, line?: number) {
   if (/^(hx|helix)$/.test(program)) return `exec ${editor} "$1:${line}"`;
   return `exec ${editor} "$1"`;
 }
+
+/** The first line a file's uncommitted changes touch (against HEAD), so opening it lands on what changed; undefined when it has none or is not in git. */
+export const firstChange = (workspace: string, path: string) => run("git", ["-C", workspace, "diff", "--relative", "--no-color", "-U0", "HEAD", "--", path]).pipe(
+  Effect.map(text => { const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)/m.exec(text); return hunk ? Math.max(1, Number(hunk[1])) : undefined; }),
+  Effect.catch(() => Effect.succeed(undefined)));
 
 export const openEditor = Effect.fn("Editor.open")(function* (options: { workspace: string; path: string; line?: number }) {
   const file = yield* editorFile(options.workspace, options.path);

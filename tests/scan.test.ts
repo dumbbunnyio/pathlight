@@ -254,3 +254,34 @@ export default class Main {}
   expect(names("// export const nope = 1;\nconst text = `export function inside() {}`;\nobj.export = 1;\nconst s = 'export const quoted';")).toEqual([]);
   expect(exportsOf(Array.from({ length: 200 }, (_, index) => `export const n${index} = 1;`).join("\n"), 10)).toHaveLength(10);
 });
+
+test("an import of a package's entry file is followed through its re-exports to the files that declare what it takes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-reexports-"));
+  try {
+    const files: Record<string, string> = {
+      "package.json": JSON.stringify({ name: "root", private: true, workspaces: ["packages/*"] }),
+      "packages/lib/package.json": JSON.stringify({ name: "lib", main: "src/index.ts" }),
+      // A barrel: everything comes from elsewhere, through `export *`, an alias, a default, a nested barrel and a namespace.
+      "packages/lib/src/index.ts": `export * from "./renderer";\nexport { Box as Container, default as Theme } from "./box";\nexport * from "./widgets";\nexport * as colors from "./colors";\nexport type { Size } from "./size";\nexport const version = 1;\n`,
+      "packages/lib/src/renderer.ts": `export function render() {}\n`,
+      "packages/lib/src/box.ts": `export class Box {}\nexport default {};\n`,
+      "packages/lib/src/widgets/index.ts": `export { Input } from "./input";\n`,
+      "packages/lib/src/widgets/input.ts": `export const Input = 1;\n`,
+      "packages/lib/src/colors.ts": `export const red = 1;\n`,
+      "packages/lib/src/size.ts": `export interface Size { width: number }\n`,
+      "packages/app/package.json": JSON.stringify({ name: "app" }),
+      "packages/app/src/main.ts": `import { render, Container, Input, colors, version } from "lib";\nimport type { Size } from "lib";\nimport * as everything from "lib";\nexport const main = [render, Container, Input, colors, version, everything];\n`,
+    };
+    for (const [path, text] of Object.entries(files)) { await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), text); }
+    const scan = await Effect.runPromise(scanWorkspace(directory));
+    const from = (line: number) => scan.imports.filter(item => item.from === "packages/app/src/main.ts" && item.line === line).map(item => item.to).sort();
+    // Named imports land where each name is declared; `version` is declared in the barrel itself, and `colors` is the module `export * as` offers.
+    expect(from(1)).toEqual(["packages/lib/src/box.ts", "packages/lib/src/colors.ts", "packages/lib/src/index.ts", "packages/lib/src/renderer.ts", "packages/lib/src/widgets/input.ts"]);
+    expect(from(2)).toEqual(["packages/lib/src/size.ts"]);
+    // A namespace import takes the whole module: it stays on the file it named.
+    expect(from(3)).toEqual(["packages/lib/src/index.ts"]);
+    // The barrel's own re-exports are kept as they are.
+    expect(scan.imports.filter(item => item.from === "packages/lib/src/index.ts").map(item => item.to).sort()).toEqual([
+      "packages/lib/src/box.ts", "packages/lib/src/colors.ts", "packages/lib/src/renderer.ts", "packages/lib/src/size.ts", "packages/lib/src/widgets/index.ts"]);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

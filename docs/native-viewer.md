@@ -209,7 +209,16 @@ Every `pathlight check` records its counts in `.cache/pathlight/stale.json`, and
 
 ## Plan
 
-`pathlight plan ELEMENT ...` records the elements an agent is about to work on in `.cache/pathlight/plan.json` (ids only, at most 64, each checked against the model; no ids clears it). The viewer outlines those nodes (and their containers) in purple, adds `plan N` to the breadcrumb, and tags any node with observed activity that is outside the plan `off plan`. It is intent, not observation: it never changes what the activity shows, and a stale plan stays until replaced or cleared.
+`pathlight plan ELEMENT ...` records the elements an agent is about to work on in `.cache/pathlight/plan.json` (ids only, at most 64, each checked against the model; no ids clears it). The viewer outlines those nodes (and their containers) in purple, adds `plan N` to the breadcrumb, and tags any node with observed activity that is outside the plan `off plan`. It is intent, not observation: it never changes what the activity shows. A plan set more than two hours before the watched session began (or, with no session, more than two hours ago) is not shown, so one left over from earlier work never tags today's.
+
+## Review: new dependencies
+
+After each turn the Stop hook runs `pathlight diff`, which lists imports between two components that the model has no relationship for and that the last commit did not have. While any wait for a verdict the header says `▲ N new dependencies · c review`, and `c` opens the review above the session summary: one row per dependency with an import that makes it. `j`/`k` move, `e` opens that import in the editor at its line, `y` accepts and `n` rejects.
+
+- Rejecting types a request into the agent's pane (the one `pathlight show` was given) to take the dependency out, or to say what bigger change that needs and wait. The row stays, marked `rejected · still in the code`, until a later diff no longer finds it.
+- Accepting on a map someone wrote asks the agent to add the relationship to the model. On a drafted map (whose arrows are the imports) nothing is sent: once every new dependency is accepted, and none rejected is still in the code, the map is redrawn from the code, so a redraw never draws one you have not seen.
+- Verdicts are kept in `.cache/pathlight/decisions.json`, so a pair is never asked about twice. They record what the person decided, not whether the code is right; the evidence is static imports only.
+
 
 ## Rendering limits
 

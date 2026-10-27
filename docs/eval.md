@@ -27,6 +27,8 @@ bun tests/eval/run.ts --workspace .cache/eval/opencode-installed --reference tes
 
 Reports, for any workspace's model and mapping: files claimed, relationships an import supports, element pairs the imports connect that no relationship declares, how many dependency rules the authors state still hold (`tests/eval/references/opencode.json`: each rule quotes the document line it comes from), and how many boxes the busiest views hold. For a draft made from imports the first three are true by construction; they matter for agent-written and hand-written models. The rules and the view sizes are the informative numbers for a draft.
 
+**Re-exports followed (2026-10-26).** The scan now follows each imported name through a package's barrel files to the file that declares it (see [scan format](scan.md#what-it-follows)), found when a live first run on opentui drew every binding pointing only at `core`'s `index.ts`. On the pinned `opencode` a fresh draft scores 4,168 of 4,168 files claimed, 2,826 of 2,826 edges supported, 0 pairs undeclared, and 16 of 16 of the authors' rules holding. The facts comparison above predates it: its reference resolver stops at the barrel, so pairs the scan now reaches through one are expected as "scan only" until the reference does the same.
+
 `tests/eval.test.ts` plants one defect at a time (a missing relationship, an invented one, a dropped mapping, a crowded view) and requires the scorer to notice each, so a scorer that stops noticing fails the suite.
 
 ## Baseline: what an agent following the skill produces (2026-10-21)

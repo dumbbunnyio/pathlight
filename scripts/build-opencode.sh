@@ -11,16 +11,16 @@ mkdir -p "$out/skills"
 bun build plugins/opencode/index.ts plugins/opencode/tui.ts --outdir "$out" --target bun \
   --external effect --external 'effect/*' --external @opencode/plugin --external '@opencode/plugin/*'
 cp -R plugins/claude/skills/. "$out/skills/"
-# No license field or file is written: the repository has none yet, and the package must not claim one.
-[ ! -f LICENSE ] || cp LICENSE "$out/LICENSE"
+cp LICENSE NOTICE.md "$out/"
 cat > "$out/package.json" <<JSON
 {
   "name": "pathlight-opencode",
   "version": "$version",
   "description": "Pathlight for OpenCode: records which components the agent touches, opens the architecture viewer beside the conversation, and a Sonnet-sized tracer agent that records flows.",
+  "license": "MIT",
   "type": "module",
   "exports": { ".": "./index.js", "./tui": "./tui.js" },
-  "files": ["index.js", "tui.js", "skills", "README.md", "LICENSE"],
+  "files": ["index.js", "tui.js", "skills", "README.md", "LICENSE", "NOTICE.md"],
   "peerDependencies": { "effect": "^4.0.0" },
   "keywords": ["opencode", "opencode-plugin", "architecture", "likec4", "tmux"],
   "repository": { "type": "git", "url": "git+https://github.com/lennox-davidlevy/pathlight.git", "directory": "plugins/opencode" }

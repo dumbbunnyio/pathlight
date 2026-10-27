@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -117,6 +118,9 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     expect(summary(await events(5))).toEqual([
       "edit completed edit src/launcher.ts", "read completed read src/activity.ts", "read completed read src/launcher.ts",
       "read failed read src/missing.ts", "shell completed command src/activity.ts"]);
+
+    // When a turn ends the plugin runs `pathlight check`, as Claude's Stop hook does: the viewer's out-of-date badge and review come from it.
+    await until(async () => existsSync(join(workspace, ".cache", "pathlight", "stale.json")), "the end-of-turn check");
 
     // Each prompt that ran tools is a turn of its own (two reads, then the three calls of the list), so replay can step by turn.
     expect((await Effect.runPromise(readReplay(workspace, binding))).turns).toEqual([0, 2]);

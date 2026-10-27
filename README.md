@@ -19,18 +19,38 @@ bun install
 Native mode needs no browser, GPU backend or terminal image protocol.
 Only open trusted LikeC4 workspaces. LikeC4 can load executable JavaScript or TypeScript project configuration.
 
-## Install as a Claude Code plugin
+## Install
 
-Install the `pathlight` binary (needs tmux; verified on Linux x64, and the macOS builds the release publishes have not been tried), then the plugin:
+Install the `pathlight` command (needs tmux; verified on Linux x64, and the macOS builds the release publishes have not been tried), with npm or the install script:
 
 ```sh
+npm i -g pathlight
+# or
 curl -fsSL https://raw.githubusercontent.com/lennox-davidlevy/pathlight/main/install.sh | sh
-claude plugin marketplace add lennox-davidlevy/pathlight
-claude plugin install pathlight@pathlight
-pathlight doctor
 ```
 
+Then add it to your agent once, for every project.
+
+Claude Code:
+
+```sh
+claude plugin marketplace add lennox-davidlevy/pathlight
+claude plugin install pathlight@pathlight
+```
+
+OpenCode:
+
+```sh
+pathlight init --global
+```
+
+`init --global` adds the `pathlight-opencode` plugin to OpenCode's own `~/.config/opencode/opencode.json` with recording on (the same line you could add yourself: `{ "package": "pathlight-opencode", "options": { "record": true } }` in `"plugins"`). Like the Claude plugin, it records only in projects that have a map. Restart OpenCode after adding it.
+
+Then, in a project, type `/pathlight` in your agent (or run `pathlight setup --yes`), and `pathlight doctor` if anything is missing. Other agents (Codex, Pi, …) have no plugin yet: the map, the viewer and `check`/`diff` work beside any of them, but the viewer cannot see what they touch.
+
 From a checkout instead: `bun install && bun link`, then `claude plugin marketplace add /path/to/pathlight`.
+
+## Claude Code plugin
 
 The plugin adds the recording hooks and the `/pathlight` skill. Hooks do nothing in a project without `.pathlight/pathlight.activity.json`, so enabling the plugin globally is safe. Create the mapping with `pathlight init --workspace . --no-claude-hooks` (the flag keeps `init` from also writing project-local hooks, which would record every event twice).
 Use either this route or the project-local route below, not both.
@@ -48,14 +68,14 @@ Or type `/pathlight` in Claude Code or OpenCode and let the agent run both for y
 
 ## Quick start (Claude Code and OpenCode)
 
-From the project you work in, with its LikeC4 model:
+From the project you work in, after `pathlight setup --yes` has drawn a model (or with one you wrote):
 
 ```sh
-bun run --cwd /path/to/pathlight pathlight init --workspace /path/to/project
+pathlight init --workspace .
 ```
 
 `init` adds the Claude Code hooks to `.claude/settings.local.json` (per-user), copies the `pathlight` skill (the `/pathlight` command),
-registers the OpenCode plugin, and creates `.pathlight/pathlight.activity.json` if absent. It maps only elements whose name matches
+registers the OpenCode plugin (the `pathlight-opencode` npm package; from a checkout, its `plugins/opencode` folder), and creates `.pathlight/pathlight.activity.json` if absent and there is a model to map (with none, it says to run `pathlight setup --yes`). It maps only elements whose name matches
 a directory or file that exists; review it and add globs for the rest. Re-running `init` is safe and never overwrites an existing mapping.
 
 To reopen the viewer yourself, with no agent involved:
@@ -79,7 +99,7 @@ bun run pathlight show VIEW --workspace /path/to/project --follow
 Installing the Claude hooks is the opt-in for Claude recording; remove them to stop. For OpenCode the opt-in is `record: true` on the plugin entry (what `init` writes) or a `live: true` request.
 `--follow` only reads journals: it never starts recording, and it switches to whichever recorded session wrote last. A Claude subagent's calls share the conversation's session and carry a label; OpenCode child sessions are not recorded.
 The header shows `LIVE source:session` with a spinner while a tool runs, the header's second row shows the latest call (`now`/`last`), and the Now card in the inspector lists the selected component's recent calls with their age.
-Nodes show `r`/`e` counts of retained reads and edits. Press `t` to ask the agent about the selected node (typed into your agent's pane, with the component's files, connections and, if you choose, recent activity; Enter sends and submits it, Alt+Enter adds a line). Press `d` to ask the agent to trace how something works from that box and record it as a journey (it reads the code and runs `pathlight flow add`, in the Claude plugin's Sonnet-sized `pathlight-tracer` agent so the reading does not run on your larger model; `F` shows it once written). Press `m` to ask the agent to improve the map for that box (it reads the files, then names and describes it in the overlay) or `n` to name and describe it yourself; both need a map made by `pathlight draft`. Press `1`–`4` to focus an inspector card (Now, Connects or Steps, Files, In flows; `e` shows the files), `F` to trace a flow on the diagram, `/` to search every view, box and mapped file (this view's first, exact matches before all) and `g` to jump to a view, and `T` to choose a theme (OpenCode-format JSON themes, previewed live). Press `w` to select the node the agent is working on; when that work is in a component this view does not show, the header says "working in VIEW" beside a highlighted `w` ("go and follow"), and `w` goes there and turns follow on (a view this one links to with `navigateTo` first, else the smallest view containing it), never on its own (or click its row in the activity list), and `c` for a one-screen summary of what the session touched. Press `a` to follow the work: the viewer selects the node of the newest tool call, running or finished, and glides the camera to it. Only work that happens after you turn it on (or resume it) counts; `w` jumps to the last work done. It is off by default, never changes the view, and pauses when you select, pan or zoom (`a` resumes). Calls made inside a Claude subagent are recorded with its type (never its id or prompt) and shown with that label, for example `·Explore`; they land in the same journal as the conversation's own calls. Press `s` to hide or show them.
+Nodes show `r`/`e` counts of retained reads and edits. Press `t` to ask the agent about the selected node (typed into your agent's pane, with the component's files, connections and, if you choose, recent activity; Enter sends and submits it, Alt+Enter adds a line). Press `d` to ask the agent to trace how something works from that box and record it as a journey (it reads the code and runs `pathlight flow add`, in the Claude plugin's Sonnet-sized `pathlight-tracer` agent so the reading does not run on your larger model; `F` shows it once written). Press `m` to ask the agent to improve the map for that box (it reads the files, then names and describes it in the overlay) or `n` to name and describe it yourself; both need a map made by `pathlight draft`. Press `1`–`4` to focus an inspector card (Now, Connects or Steps, Files, In flows; `e` shows the files), `F` to trace a flow on the diagram, `/` to search every view, box and mapped file (this view's first, exact matches before all) and `g` to jump to a view, and `T` to choose a theme (OpenCode-format JSON themes, previewed live). Press `w` to select the node the agent is working on; when that work is in a component this view does not show, the header says "working in VIEW" beside a highlighted `w` ("go and follow"), and `w` goes there and turns follow on (a view this one links to with `navigateTo` first, else the smallest view containing it), never on its own (or click its row in the activity list), and `c` to review the session: new dependencies the code gained since the last commit that the model does not have, each to accept (`y`) or reject (`n`, which asks the agent to take it out), then what the session touched (see [native viewer](docs/native-viewer.md#review-new-dependencies)). Press `a` to follow the work: the viewer selects the node of the newest tool call, running or finished, and glides the camera to it. Only work that happens after you turn it on (or resume it) counts; `w` jumps to the last work done. It is off by default, never changes the view, and pauses when you select, pan or zoom (`a` resumes). Calls made inside a Claude subagent are recorded with its type (never its id or prompt) and shown with that label, for example `·Explore`; they land in the same journal as the conversation's own calls. Press `s` to hide or show them.
 
 Press `p` to replay the session: the viewer steps through the recorded calls in order, one call per step, with the component of each step selected and the counts building up as they did. `←`/`→` step, `[`/`]` jump between turns (a turn is one prompt and the work after it), `space` plays and pauses, `s` sets the speed, `esc` returns to live. Replay covers what the journal retained (the last 2048 events of a session) and only the calls, never the prompts.
 
@@ -94,7 +114,7 @@ bun run pathlight show services --workspace examples/parcel
 
 Select nodes with the mouse, Tab, or `h` `j` `k` `l`, which move to the nearest node in that direction. Arrow keys pan the Three camera (press `v` to swap the two). Connections are orthogonal thin lines with rounded bends. Press `/` to search every view, box and mapped file.
 The selected node's connections are solid, cyan for incoming and amber for outgoing; the rest are dotted. Move the Connects cursor (`2`) onto a row to read a long relationship in full.
-Press `e` to browse the selected node's mapped files, then Enter to open one in your external editor.
+Press `e` to browse the selected node's mapped files, then Enter to open one in your external editor (at its first uncommitted change, if it has one).
 Set `VISUAL` or `EDITOR` before starting the viewer. File browsing does not require live recording.
 Enter selects a group's first child or opens a leaf's linked view. Press `o` to open a group's linked view, `b` for view history, or Backspace for the parent group.
 Use `f` to fit, `r` to center the selection, and `q` to quit. Press `i` to show or hide the inspector (docked from 120 columns, an overlay below that; under 80 columns the nodes are a list) or `?` for help. The diagram refits on resize until you pan or zoom; `f` fits again. Set `PATHLIGHT_COLORS=256` if your terminal lacks 24-bit colour and is not detected. Ctrl+C quits even while search is active.
@@ -148,7 +168,7 @@ Use `--project NAME` when multiple projects have the same view ID.
 
 ## Use from OpenCode
 
-Targets OpenCode V2 (verified against 2.0.32). `pathlight init` registers `plugins/opencode` in the workspace's `opencode.json` with `"options": { "record": true }`; restart the OpenCode service after adding it.
+Targets OpenCode V2 (verified against 2.1.4, with its own test suite and a real first run). `pathlight init --global` registers `pathlight-opencode` (from a checkout, `plugins/opencode`) in OpenCode's own `opencode.json` (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`) for every project, and `pathlight init` in one workspace's `opencode.json` (none is added there when the global entry exists, which would load it twice), both with `"options": { "record": true }`. A configuration with comments (`opencode.jsonc`) is not rewritten: init prints the entry to add. Restart OpenCode after adding it.
 The plugin has two halves, both loaded from that one entry:
 
 - **Server plugin** (`plugins/opencode/index.ts`): records tool calls through OpenCode's `tool.hook` events, offers the `pathlight` skill to the agent (unless the workspace already has one), and provides the `pathlight_list`, `pathlight_show` and `pathlight_stop` tools.
@@ -161,9 +181,9 @@ The plugin has two halves, both loaded from that one entry:
 | `/pathlight [VIEW]` | `/pathlight [VIEW]` | Asks the agent to use the pathlight skill (draft, check, show), telling it your pane and tmux socket so it passes `--pane`. |
 | `! pathlight open [VIEW]` | the same | Shell escape. |
 
-Package: the plugin calls the `pathlight` binary on your PATH, never a checkout, and `sh scripts/build-opencode.sh [VERSION]` bundles it with the skills and tracer prompt into `plugins/opencode/dist`, the npm package `pathlight-opencode`. The release workflow publishes it when the repository has an `NPM_TOKEN` secret (pre-releases under the `next` tag); it has not been published yet, so use the folder form `pathlight init` writes until it is.
+Package: the plugin calls the `pathlight` binary on your PATH, never a checkout, and `sh scripts/build-opencode.sh [VERSION]` bundles it with the skills and tracer prompt into `plugins/opencode/dist`, the npm package `pathlight-opencode`. The release workflow publishes it with the CLI packages (`sh scripts/build-npm.sh`: `pathlight`, a small launcher, and `pathlight-linux-x64`, `-linux-arm64`, `-darwin-x64`, `-darwin-arm64`, each holding its binary, of which npm installs only the matching one) when the repository has an `NPM_TOKEN` secret (pre-releases under the `next` tag). When a turn ends the plugin runs `pathlight check` and `pathlight diff`, as the Claude plugin's Stop hook does, so the out-of-date badge and the review of new dependencies work the same in both.
 
-Recording: with `record: true` every root session in the workspace is recorded without a request, the counterpart of installing the Claude hooks. Subagent sessions and sessions in other workspaces are never recorded, and `pathlight_stop` stops one session. Without the option, recording starts only when an agent calls `pathlight_show` with `live: true`.
+Recording: with `record: true` every root session in a workspace with a mapping (`.pathlight/pathlight.activity.json`) is recorded without a request, the counterpart of installing the Claude hooks; a workspace without one gets nothing written. Subagent sessions and sessions in other workspaces are never recorded, and `pathlight_stop` stops one session. Without the option, recording starts only when an agent calls `pathlight_show` with `live: true`.
 Each tool requests permission before loading a workspace or opening a pane. `pathlight_show` needs an explicit pane (`%2`) because OpenCode's background service may not share your terminal's environment; the slash commands supply it for you.
 It uses the plugin location as the workspace and passes only identifiers to the CLI, not diagram geometry through model context. A new `show` request reuses the owned viewer pane and resets the view, selection, and scroll position.
 
@@ -229,3 +249,7 @@ They cover pane reuse, protecting a repurposed pane, zoom, fit, quit and activit
 
 Per-request readiness files remain under the selected workspace's `.cache/pathlight` directory. Close viewers before removing old cache directories.
 Concurrent requests for the same parent pane and workspace return a busy error. Retry after the active request finishes.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Third-party notices are in [NOTICE.md](NOTICE.md).

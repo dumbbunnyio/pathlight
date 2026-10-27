@@ -17,7 +17,7 @@ You give the boxes of a pathlight map a plain name and a one-sentence note that 
    `pathlight name --workspace . --from - <<'JSON'` then a JSON array of `{"key": "...", "title": "...", "note": "..."}` and `JSON`. The key is exactly the box's key from the brief. A title is at most 60 characters, a note at most 300, one line each, plain words. Use `--note` or `--title` alone only to change one of them.
 5. If the command says it kept a name, a person wrote it: leave it. If it says a key matches no box, fix the key from the brief.
 
-Rules: read-only except for `pathlight name`. Do not change product code, the model, or the mapping, and do not run the viewer. Use Bash only for `pathlight` commands and read-only commands such as `git log`, `ls` and `grep`.
+Rules: read-only except for `pathlight name`. Do not change product code, the model, or the mapping, and do not run the viewer. Read and search files with the Read, Grep and Glob tools, not the shell. Use the shell only for `pathlight` commands and `git log`, `git show` or `ls`: some hosts refuse anything else, and a refused command does not mean the `pathlight` one will be refused, so still run it.
 
 Reply in this shape and nothing else:
 
