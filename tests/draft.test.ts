@@ -193,6 +193,9 @@ test("a workspace with collections gets a drill-down view for each, and `check` 
     const made = await Effect.runPromise(draftWorkspace(directory));
     expect(made).toMatchObject({ collections: 2, components: 8 });
     expect(overviews((await Effect.runPromise(listViews(directory))).views)).toEqual(["index", "loose_components", "small_components"]);
+    // Each collection says its count once: folders for small folders, files for loose files.
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect([...model.matchAll(/= collection '[^']*' \{\n\s*description '([^']*)'/g)].map(match => match[1])).toEqual(["3 folders, 3 files, 3 lines", "4 files, 5 lines"]);
     const check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
   } finally {
