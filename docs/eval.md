@@ -27,7 +27,7 @@ bun tests/eval/run.ts --workspace .cache/eval/opencode-installed --reference tes
 
 Reports, for any workspace's model and mapping: files claimed, relationships an import supports, element pairs the imports connect that no relationship declares, how many dependency rules the authors state still hold (`tests/eval/references/opencode.json`: each rule quotes the document line it comes from), and how many boxes the busiest views hold. For a draft made from imports the first three are true by construction; they matter for agent-written and hand-written models. The rules and the view sizes are the informative numbers for a draft.
 
-**Re-exports followed (2026-10-26).** The scan now follows each imported name through a package's barrel files to the file that declares it (see [scan format](scan.md#what-it-follows)), found when a live first run on opentui drew every binding pointing only at `core`'s `index.ts`. On the pinned `opencode` a fresh draft scores 4,168 of 4,168 files claimed, 2,826 of 2,826 edges supported, 0 pairs undeclared, and 16 of 16 of the authors' rules holding. The facts comparison above predates it: its reference resolver stops at the barrel, so pairs the scan now reaches through one are expected as "scan only" until the reference does the same.
+**Re-exports followed (2026-10-26).** The scan now follows each imported name through a package's barrel files to the file that declares it (see [scan format](scan.md#what-it-follows)), found when a live first run on opentui drew every binding pointing only at `core`'s `index.ts`. On the pinned `opencode` a fresh draft scores 4,168 of 4,168 files claimed, 2,826 of 2,826 edges supported, 0 pairs undeclared, and 16 of 16 of the authors' rules holding. The facts reference has followed re-exports too since 2026-10-28 (see "Instruments corrected" below).
 
 `tests/eval.test.ts` plants one defect at a time (a missing relationship, an invented one, a dropped mapping, a crowded view) and requires the scorer to notice each, so a scorer that stops noticing fails the suite.
 
@@ -62,7 +62,7 @@ bun tests/eval/flows.ts --workspace DIR --reference tests/eval/references/flows.
 - **Unbacked / unsupported**: hops without a model relationship; hops without an import in either direction (data can flow against the import, as in the viewer reading the journal).
 - **Files**: cited files that do not exist, and whether the key files were read.
 
-A run passes when every hop of the answer is present and in order, nothing is invented, every hop is backed and supported, no cited file is missing and every key file was read. `tests/eval-flows.test.ts` plants one defect at a time (no journey, a missing hop, hops in the wrong order, an invented hop, a hop with a relationship but no import, a missing file, an unread key file) and requires the scorer to notice each.
+A run passes when every hop of the answer is present and in order, nothing is invented, every hop is backed and supported, no cited file is missing and every key file was read. A hop the answer marks `over` (http, websocket, process) is exempt from backed and supported, because the import-drawn map cannot hold it. It is still required and reported on its own line (since 2026-10-28). `tests/eval-flows.test.ts` plants one defect at a time (no journey, a missing hop, hops in the wrong order, an invented hop, a hop with a relationship but no import, a missing file, an unread key file) and requires the scorer to notice each.
 
 What each check can and cannot see:
 
@@ -269,3 +269,65 @@ New references, written from the code before the namer ran: `names-outline.json`
 Tracer runs took 19–41 s and 18,000–30,000 tokens each.
 
 What this baseline cannot show: one run per agent and question; three repositories; references written by one person in one sitting, before (and for Mealie's tightening, after) seeing the agents' output. It shows where the current pipeline stops on code it has not seen: languages the scan does not read (Phase 4), runtime edges no phase yet owns, and scores that pass because they count only what the scan reads.
+
+## Instruments corrected (2026-10-28)
+
+Phase 2b fixed the instruments the Phase 1 review found wrong before anything is scored against them again (`docs/internal/plans/phase-2b-instruments.md`). Every run below was on scratch clones of the three reference repositories (each with its Phase 1 `.pathlight/` copied in), not on the clones themselves. No namer or tracer was run: the overlays and journeys are Phase 1's.
+
+### Files with `...` in their names
+
+`pathlight flows` skipped any file name containing `..`, so `frontend/server/api/[...].ts` (Mealie's Nuxt catch-all route) was never read from a flow's text. It now refuses only a `..` path segment, as `pathlight flow add` does. On Mealie's `api-proxy` journey the description names three files, and the scorer now finds all three (it found two before). A journey's out-of-date check was already right: it goes by the components whose files changed, and `frontend/server/**` maps to `server`, so editing the file marked the journey `behind` before and after. `pathlight flows --json` for journeys has not changed (it lists components, not files).
+
+### Flows: hops that are not imports
+
+```sh
+bun tests/eval/flows.ts --workspace outline --reference tests/eval/references/flows-outline.json
+bun tests/eval/flows.ts --workspace . --reference tests/eval/references/flows.json
+```
+
+A reference hop can now carry `"over": "http" | "websocket" | "process"`, written in by hand from reading the code (each question's `note` names the file and line). The scorer still requires such a hop to be present, in order, with the key files read, but not backed by a model relationship or an import. It reports these hops on a line of their own (`runtime hops: N, of which M unbacked in the model`). The same hop without `over` still fails (`tests/eval-flows.test.ts`). The Slack answer was corrected as the Phase 1 review decided, after reading the tracer's trace: `app → server` (http), `server → plugins`, `plugins → server`, `server → app` optional (http).
+
+| Outline question | before | after |
+| --- | --- | --- |
+| `collab-keystroke` | ✗ 1 without a model relationship, 2 without an import; key files 3/4 | ✗ runtime hops 2 (1 unbacked in the model); key files 3/4 (`server/collaboration/PersistenceExtension.ts` unread) |
+| `create-document` | ✗ 1 without a model relationship, 2 without an import | **✓** runtime hops 2 (1 unbacked) |
+| `slack-sign-in` | ✗ `app → plugins` missed; 1 without a relationship, 2 without an import; key files 4/5 | ✗ 4 of 4 hops in order, runtime hops 2 (1 unbacked); key files 4/5 (`server/commands/accountProvisioner.ts` not cited, though step 3's text names `accountProvisioner`) |
+| passes | 0 of 3 | **1 of 3** |
+
+The review expected about 2 of 3. The difference is Slack's key file. Before the correction the trace failed for its hops, so the unread file was never the only reason. The key files were not changed to fit the trace. On this repository the five questions have no journeys written (the 2026-10-24 traces were made in scratch checkouts that are gone), so the score is "no journey written" for all five before and after. Its three `plugin → launcher` hops are now `over: "process"`: the Claude hooks run the `pathlight` binary (`plugins/claude/hooks/hooks.json` lines 8, 19, 30 and 60; `plugins/claude/open-hook.sh` line 16). There is no Mealie flows reference.
+
+### Facts: the reference follows re-exports
+
+```sh
+bun tests/eval/facts.ts --workspace outline --out /tmp/facts-outline.json
+bun tests/eval/facts.ts --workspace .cache/eval/opencode-installed --out /tmp/facts-opencode.json
+```
+
+The independent reference now follows each imported name through `export * from`, `export { a as b } from`, `export * as ns from` and their type forms to the file that declares it, as the scan does. It uses its own patterns and `oxc-resolver`, not the scanner's tokenizer or `throughReexports`.
+
+| | scan pairs | reference pairs | both | scan only | reference only |
+| --- | --- | --- | --- | --- | --- |
+| Outline, before | 13,154 | 12,246 | 11,123 | 2,031 | 1,123 |
+| Outline, after | 13,154 | 13,154 | 13,154 | **0** | **0** |
+| opencode `5fa426f68d`, before | 20,538 | 19,405 | 17,758 | 2,780 | 1,647 |
+| opencode, after | 20,538 | 20,518 | 20,507 | **31** | **11** |
+
+On Outline the two now agree on every pair, so the 15% band that could hide a regression is gone. On opencode every remaining pair is one of the known kinds, each read in the source:
+- **Scan only (31):** 20 are `?raw` or `?inline` imports, which oxc-resolver does not resolve (`fixture.tsx` importing `edit.ts?raw`, `notices.ts` importing `.txt?raw`, the `gui-extensions` stylesheets as `.css?inline`, `desktop-cli.ts` importing `install?raw`). 11 reach `packages/console/resource/resource.cloudflare.ts` through a `production` export condition, which is not among the reference's conditions.
+- **Reference only (11):** import text inside template strings, which the reference's pattern match counts and the scan does not (`packages/sdk/script/verify-package.ts` line 104, `packages/core/test/plugin/module.test.ts` line 160, `packages/client/script/build.ts` line 116, and so on).
+
+While this was being written, the first version of the reference disagreed on 117 opencode pairs. Most came from files that re-export themselves as a namespace (`export * as RequestExecutor from "./executor.js"` inside `executor.ts`): the reference had dropped a file's own import before it could carry the name. The scan was right, and the reference was fixed.
+
+### Brief: files that are not code
+
+```sh
+bun src/cli.ts brief --workspace v2 .github internal
+bun src/cli.ts brief --workspace mealie docs mealie
+```
+
+Source files in languages the scan does not read (Go, Python, Vue) were already listed in each box. What a box never showed was its files in no programming language. `pathlight brief` now names every file a box's mapping claims and the brief does not otherwise list (minus what the draft ignores, such as tests), with its kind. It shows at most 40, one from each folder in turn (shallowest first, images and fonts last), then `… and N more`.
+
+- Miniflux `.github`, before: one file, `commit-checker.py`. After: also `dependabot.yml`, the 6 issue templates, `pull_request_template.md` and the 9 workflows (17 files).
+- Mealie `docs`, before: `extra.js`, `analytics.js`. After: these lead the new list: `docs/mkdocs.yml [YAML]`, `docs/docs/index.md [Markdown]`, `docs/overrides/home.html [HTML]`, the contributor and user guides…
+- The Phase 1 name scores, re-scored with `bun tests/eval/names.ts --workspace W --reference tests/eval/references/names-R.json`, are unchanged: Outline 12 of 12, Mealie 8 of 10, Miniflux 3 of 4. The overlays are Phase 1's, so they could not move. Whether the two misses this was for (`.github` as a commit checker, Mealie `docs` as JavaScript assets) now pass needs the next naming run.
+- Limit: on a large box such as Mealie's backend or Miniflux's `internal` the 40 still go mostly to translation JSON and test data, one folder at a time. The list says what is there; it does not rank what matters.
