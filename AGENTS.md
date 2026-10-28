@@ -2,7 +2,7 @@
 
 ## Purpose and reading order
 
-The latest working handoff (state, uncommitted work, decisions waiting on the user) is `docs/internal/handoff-*.md` (ignored, local), newest date first.
+The latest working handoff (state, uncommitted work, decisions waiting on the user) is `docs/internal/handoff-*.md` (ignored, local), newest date first. `docs/internal/board.md` (ignored, local) says where each phase of the current plan stands, who does what next (Fable plans and reviews, Opus builds, David merges), and holds the prompt for the next session.
 
 Pathlight puts an interactive architecture explorer beside an AI coding
 conversation in tmux. It connects architecture, mapped source files, and observed

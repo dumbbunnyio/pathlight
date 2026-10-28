@@ -70,3 +70,19 @@ test("an optional hop of the answer is never missed, and counts as matched when 
   // A required hop is still required.
   expect(passes(score([good[0]!, good[2]!]))).toBe(false);
 });
+
+test("planted: a hop the answer marks `over` passes with no relationship and no import, still has to be there, and the same hop unmarked fails", () => {
+  // The browser asks the server over HTTP: no import joins app and server, and the import-drawn model has no arrow for it.
+  const web = { id: "sign-in", question: "q", files: ["app/login.tsx"], hops: [{ from: "app", to: "server", over: "http" as const }, { from: "server", to: "plugins" }] };
+  const hops: Hop[] = [{ from: "app", to: "server", backed: false }, { from: "server", to: "plugins", backed: true }];
+  const linked = (from: string, to: string) => `${from}|${to}` === "server|plugins";
+  const score = (question: typeof web | Omit<typeof web, "hops"> & { hops: { from: string; to: string }[] }, drawn = hops) => scoreFlow({ question, supported: linked, written: { hops: drawn, cited: ["app/login.tsx"], missingFiles: [], findings: [] } });
+  const marked = score(web);
+  expect(marked).toMatchObject({ unbacked: 0, unsupported: 0, runtime: ["app → server over http"], runtimeUnbacked: 1, missed: [] });
+  expect(passes(marked)).toBe(true);
+  // Marking a hop excuses the missing edge, not the hop: leaving it out is still a miss.
+  expect(passes(score(web, hops.slice(1)))).toBe(false);
+  const unmarked = score({ ...web, hops: [{ from: "app", to: "server" }, web.hops[1]!] });
+  expect(unmarked).toMatchObject({ unbacked: 1, unsupported: 1, runtime: [] });
+  expect(passes(unmarked)).toBe(false);
+});

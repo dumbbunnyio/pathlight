@@ -423,9 +423,10 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   const block = (item: DraftPackage, indent: string, parent: string) => {
     const result: string[] = [];
     for (const entry of item.components.filter(candidate => !candidate.group)) result.push(`${indent}${local(entry.id, parent)} = component ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}  `), `${indent}  description ${quote(said(entry.note, facts(entry.files)))}`, `${indent}}`);
+    // A collection of small folders says how many folders; one of loose files would only say its file count twice.
     for (const group of item.groups) {
       const members = item.components.filter(candidate => candidate.group === group.id);
-      result.push(`${indent}${local(group.id, parent)} = collection ${quote(group.title)} {`, `${indent}  description ${quote(said(group.note, `${plural(members.length, group.kind === "small" ? "folder" : "file")}, ${facts(members.flatMap(entry => entry.files))}`))}`);
+      result.push(`${indent}${local(group.id, parent)} = collection ${quote(group.title)} {`, `${indent}  description ${quote(said(group.note, `${group.kind === "small" ? `${plural(members.length, "folder")}, ` : ""}${facts(members.flatMap(entry => entry.files))}`))}`);
       for (const entry of members) result.push(`${indent}  ${local(entry.id, group.id)} = component ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}    `), `${indent}    description ${quote(said(entry.note, facts(entry.files)))}`, `${indent}  }`);
       result.push(`${indent}}`);
     }

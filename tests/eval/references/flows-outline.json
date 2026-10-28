@@ -1,16 +1,17 @@
 {
   "repo": "outline",
   "commit": "d3b094352",
-  "note": "Phase 1 baseline (2026-10-27). Hand-traced from the code by the person scoring, before reading any journey the tracer wrote. Components are the boxes `pathlight setup --yes` draws for this repo (app, server, shared, plugins). Two of the three answers cross the network (HTTP and a websocket), so their main hops have no import behind them and no relationship in the drafted model: a trace that only draws model-backed hops cannot match them. 'files' are the files a correct trace has to read.",
+  "note": "Phase 1 baseline (2026-10-27). Hand-traced from the code by the person scoring, before reading any journey the tracer wrote. Components are the boxes `pathlight setup --yes` draws for this repo (app, server, shared, plugins). Every answer crosses the network, so its main hops have no import behind them and no relationship in the drafted model: a trace that only draws model-backed hops cannot match them. Since Phase 2b (2026-10-28) those hops carry `over` (http, websocket), written in by hand from the lines named in each question's note; the scorer requires them present and in order but not backed by the model or an import. 'files' are the files a correct trace has to read.",
   "questions": [
     {
       "id": "collab-keystroke",
       "question": "What happens when someone types in a document, from the keystroke in the editor to the change appearing for the other people editing it?",
+      "note": "Runtime hops: app → server is the websocket MultiplayerEditor.tsx opens (line 86, a CollaborationProvider to COLLABORATION_URL/collaboration); server → app is the same socket, the Hocuspocus server in server/services/collaboration.ts (Server.configure line 46, handleConnection line 108) relaying the update.",
       "hops": [
         { "from": "app", "to": "shared", "optional": true },
-        { "from": "app", "to": "server" },
+        { "from": "app", "to": "server", "over": "websocket" },
         { "from": "server", "to": "shared", "optional": true },
-        { "from": "server", "to": "app" }
+        { "from": "server", "to": "app", "over": "websocket" }
       ],
       "files": [
         "app/scenes/Document/components/MultiplayerEditor.tsx",
@@ -22,10 +23,11 @@
     {
       "id": "create-document",
       "question": "What happens when someone creates a new document from the sidebar, from the click to the document appearing in other people's sidebars?",
+      "note": "Runtime hops: app → server is HTTP, Store.create posting to /documents.create (app/stores/base/Store.ts line 407); server → app is socket.io, WebsocketsProcessor emitting \"entities\" (server/queues/processors/WebsocketsProcessor.ts line 58) and WebsocketProvider listening (app/components/WebsocketProvider.tsx line 182).",
       "hops": [
-        { "from": "app", "to": "server" },
+        { "from": "app", "to": "server", "over": "http" },
         { "from": "server", "to": "shared", "optional": true },
-        { "from": "server", "to": "app" }
+        { "from": "server", "to": "app", "over": "websocket" }
       ],
       "files": [
         "app/stores/base/Store.ts",
@@ -38,11 +40,12 @@
     {
       "id": "slack-sign-in",
       "question": "What happens when someone signs in with Slack, from the button on the login page to arriving signed in?",
+      "note": "Corrected in Phase 2b (2026-10-28), after reading the tracer's Phase 1 trace, as the Phase 1 review decided: the answer was app → plugins, but the browser navigates to the server's auth route (window.location.href in AuthenticationProvider.tsx line 110, an HTTP request), and the server's auth router mounts the router the Slack plugin registers. This corrects a wrong answer; it is not a loosening to fit the trace. server → app is the HTTP redirect signIn sends (server/utils/authentication.ts lines 185 to 223). server → plugins and plugins → server are imports and stay unmarked.",
       "hops": [
-        { "from": "app", "to": "server", "optional": true },
-        { "from": "app", "to": "plugins" },
+        { "from": "app", "to": "server", "over": "http" },
+        { "from": "server", "to": "plugins" },
         { "from": "plugins", "to": "server" },
-        { "from": "server", "to": "app", "optional": true }
+        { "from": "server", "to": "app", "optional": true, "over": "http" }
       ],
       "files": [
         "app/scenes/Login/components/AuthenticationProvider.tsx",

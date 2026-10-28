@@ -6,7 +6,7 @@ import { draftOf, draftWorkspace, Overlay, readManifests, unreadLines } from "./
 import { readOverlay } from "./edit";
 import { failure, io } from "./effects";
 import { homeOf, overlayFile } from "./layout";
-import { isUnscannedSource, listFiles, scanWorkspace } from "./scan";
+import { isUnscannedSource, languageOf, listFiles, scanWorkspace } from "./scan";
 
 /**
  * `pathlight brief`: what an agent needs to name the boxes of a draft, gathered from the code and nothing else. For each box (a package, a collection
@@ -22,6 +22,13 @@ export interface BriefBox {
   parent?: string;
   files: { path: string; lines: number }[];
   lines: number;
+  /**
+   * Files the box's mapping claims that are no source code (workflows, documents, configuration): named with their kind, never read, so an agent
+   * describing a box of YAML and one script knows the YAML is there. At most `otherShown`, one from each folder in turn (shallowest folders
+   * first, images and fonts last), so a folder of screenshots or translations does not hide the documents beside it. `otherCount` is how many there are.
+   */
+  other: { path: string; kind: string }[];
+  otherCount: number;
   /** What the box's files offer to others, read from their `export` statements: the biggest files first, at most 40. */
   exports: { name: string; kind: string; file: string }[];
   imports: { key: string; generated: string; imports: number }[];
@@ -112,6 +119,20 @@ export function formatContext(context: AppContext) {
   return `${lines.join("\n")}\n\n`;
 }
 
+const otherShown = 40;
+const kinds: Record<string, string> = { ".md": "Markdown", ".mdx": "Markdown", ".rst": "reStructuredText", ".txt": "text", ".yml": "YAML", ".yaml": "YAML", ".json": "JSON", ".toml": "TOML",
+  ".ini": "INI", ".cfg": "config", ".xml": "XML", ".html": "HTML", ".css": "CSS", ".scss": "SCSS", ".sql": "SQL", ".sh": "shell", ".bash": "shell", ".svg": "SVG", ".png": "image", ".jpg": "image", ".ico": "image" };
+const media = /\.(png|jpe?g|gif|webp|ico|svg|bmp|avif|woff2?|ttf|otf|eot|mp[34]|wav|ogg|pdf|zip|gz)$/i;
+function inTurn(paths: readonly string[]) {
+  const folders = new Map<string, string[]>();
+  for (const path of [...paths].sort()) folders.set(posix.dirname(path), [...folders.get(posix.dirname(path)) ?? [], path]);
+  const order = [...folders.keys()].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : 1)).map(folder => folders.get(folder)!);
+  const turns: string[] = [];
+  for (let round = 0; turns.length < paths.length; round++) for (const files of order) if (files[round]) turns.push(files[round]!);
+  return turns;
+}
+const kindOf = (path: string) => { const name = posix.basename(path), dot = name.lastIndexOf("."); return dot > 0 ? kinds[name.slice(dot).toLowerCase()] ?? languageOf(path) : name; };
+
 export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
   const root = yield* io("Brief.workspace", () => realpath(workspace));
   const scan = yield* scanWorkspace(root);
@@ -126,12 +147,12 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
   const byId = new Map<string, BriefBox>();
   const add = (box: BriefBox) => { boxes.set(box.key, box); byId.set(box.id, box); return box; };
   for (const item of draft.packages) {
-    const parent = draft.flat ? undefined : add({ key: item.key, id: item.id, kind: "package", generated: item.title, files: [], lines: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 0, fingerprint: "", ...(overlay.elements[item.key] ? { name: overlay.elements[item.key] } : {}) });
-    const groups = new Map(item.groups.map(group => [group.id, add({ key: group.key, id: group.id, kind: "collection", generated: group.title, ...(parent ? { parent: parent.key } : {}), files: [], lines: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 1, fingerprint: "", ...(overlay.elements[group.key] ? { name: overlay.elements[group.key] } : {}) })] as const));
+    const parent = draft.flat ? undefined : add({ key: item.key, id: item.id, kind: "package", generated: item.title, files: [], lines: 0, other: [], otherCount: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 0, fingerprint: "", ...(overlay.elements[item.key] ? { name: overlay.elements[item.key] } : {}) });
+    const groups = new Map(item.groups.map(group => [group.id, add({ key: group.key, id: group.id, kind: "collection", generated: group.title, ...(parent ? { parent: parent.key } : {}), files: [], lines: 0, other: [], otherCount: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 1, fingerprint: "", ...(overlay.elements[group.key] ? { name: overlay.elements[group.key] } : {}) })] as const));
     for (const component of item.components) {
       const group = component.group ? groups.get(component.group) : undefined;
       const container = group ?? parent;
-      const box = add({ key: component.key, id: component.id, kind: "component", generated: component.title, ...(container ? { parent: container.key } : {}), files: sizes(component.files), lines: component.files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0), exports: [], imports: [], importedBy: [], inside: [], depth: group ? 2 : parent ? 1 : 0, fingerprint: "", ...(overlay.elements[component.key] ? { name: overlay.elements[component.key] } : {}) });
+      const box = add({ key: component.key, id: component.id, kind: "component", generated: component.title, ...(container ? { parent: container.key } : {}), files: sizes(component.files), lines: component.files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0), other: [], otherCount: 0, exports: [], imports: [], importedBy: [], inside: [], depth: group ? 2 : parent ? 1 : 0, fingerprint: "", ...(overlay.elements[component.key] ? { name: overlay.elements[component.key] } : {}) });
       box.exports = [...new Map(box.files.flatMap(file => (offered.get(file.path) ?? []).map(item => ({ name: item.name, kind: item.kind, file: file.path }))).reverse().map(item => [item.name, item] as const)).values()].reverse().slice(0, 40);
       container?.inside.push(box.key);
       for (let up = container; up; up = up.parent ? boxes.get(up.parent) : undefined) { up.files.push(...box.files); up.lines += box.lines; }
@@ -139,6 +160,20 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
     if (parent) parent.inside.push(...[...groups.values()].map(group => group.key));
     for (const group of groups.values()) group.files = sizes(group.files.map(file => file.path));
     if (parent) parent.files = sizes(parent.files.map(file => file.path));
+  }
+  // Every other file goes to the first component whose globs claim it, as in the mapping the draft writes; what the draft ignores (tests) stays out.
+  const listed = new Set(draft.packages.flatMap(item => item.components.flatMap(component => component.files)));
+  const ignored = draft.ignore.map(glob => new Bun.Glob(glob));
+  const claims = draft.packages.flatMap(item => item.components.map(component => ({ key: component.key, globs: component.globs.map(glob => new Bun.Glob(glob)) })));
+  const claimed = new Map<BriefBox, string[]>();
+  for (const path of paths) {
+    if (listed.has(path) || ignored.some(glob => glob.match(path))) continue;
+    const claim = claims.find(entry => entry.globs.some(glob => glob.match(path)));
+    for (let up = claim ? boxes.get(claim.key) : undefined; up; up = up.parent ? boxes.get(up.parent) : undefined) claimed.set(up, [...claimed.get(up) ?? [], path]);
+  }
+  for (const [box, found] of claimed) {
+    box.otherCount = found.length;
+    box.other = [...inTurn(found.filter(path => !media.test(path))), ...inTurn(found.filter(path => media.test(path)))].slice(0, otherShown).map(path => ({ path, kind: kindOf(path) }));
   }
   for (const edge of draft.relationships) {
     const from = byId.get(edge.from), to = byId.get(edge.to);
@@ -187,6 +222,7 @@ export function formatBrief(boxes: readonly BriefBox[], all: readonly BriefBox[]
     lines.push(`## ${box.key}  (${box.kind}${box.parent ? ` in ${box.parent}` : ""}${box.files.length ? ` · ${count(box.files.length, "file")}, ${count(box.lines, "line")}` : ""})`);
     lines.push(`generated name: ${box.generated}`);
     if (box.files.length) lines.push(`files: ${box.files.slice(0, filesShown).map(file => `${file.path} (${file.lines})`).join(", ")}${box.files.length > filesShown ? `, +${box.files.length - filesShown} more` : ""}`);
+    if (box.otherCount) lines.push(`other files, not code (named only; open them to see what they are): ${box.other.map(file => `${file.path} [${file.kind}]`).join(", ")}${box.otherCount > box.other.length ? `, … and ${box.otherCount - box.other.length} more` : ""}`);
     if (box.exports.length) lines.push(`defines: ${box.exports.slice(0, exportsShown).map(item => `${item.name}${item.kind === "const" || item.kind === "named" || item.kind === "reexport" ? "" : ` [${item.kind}]`}`).join(", ")}${box.exports.length > exportsShown ? `, +${box.exports.length - exportsShown} more` : ""}`);
     if (box.inside.length) lines.push(`inside: ${box.inside.slice(0, insideShown).map(key => { const child = byKey.get(key); const title = child?.name?.title; return title ? `${key} (“${title}”)` : key; }).join(", ")}${box.inside.length > insideShown ? `, +${box.inside.length - insideShown} more` : ""}`);
     if (box.imports.length) lines.push(`imports from: ${neighbours(box.imports)}`);

@@ -63,7 +63,7 @@ export function namedFiles(description: string, exists: (path: string) => boolea
   const found = new Map<string, boolean>();
   for (const raw of description.split(/[\s,;()'"`]+/)) {
     const token = raw.replace(/[.:,!?]+$/, "").replace(/^\.\//, "");
-    if (!token || /^[a-z]+:\/\//i.test(token) || token.startsWith("/") || token.includes("..")) continue;
+    if (!token || /^[a-z]+:\/\//i.test(token) || token.startsWith("/") || token.split("/").includes("..")) continue;
     if (exists(token)) found.set(token, true);
     else if (token.includes("/") && /\.[A-Za-z][A-Za-z0-9]{0,5}$/.test(token)) found.set(token, false);
   }
@@ -209,7 +209,7 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
     const sha = syncOf(input.viewDescription), differing = (sha && changedSince.get(sha)) || new Set<string>(), read = dirtyOf(input.viewDescription), kept = new Set<string>();
     for (const path of differing) {
       const recorded = read.get(path);
-      const now = recorded === undefined || path.startsWith("/") || path.includes("..") ? undefined : yield* io("Flows.hash", () => readFile(join(root, path))).pipe(Effect.map(contentHash), Effect.catch(() => Effect.succeed(undefined)));
+      const now = recorded === undefined || path.startsWith("/") || path.split("/").includes("..") ? undefined : yield* io("Flows.hash", () => readFile(join(root, path))).pipe(Effect.map(contentHash), Effect.catch(() => Effect.succeed(undefined)));
       if (now === undefined || now !== recorded) kept.add(path);
     }
     changedFor.set(input, kept);
@@ -220,7 +220,7 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
   const elementsChanged = (changed: ReadonlySet<string>) => new Set([...changed].flatMap(path => elementsOf(config, path)));
   const callFiles = new Map<string, string | undefined>();
   for (const file of new Set(journeyInputs.flatMap(input => input.steps.flatMap(step => parseCall(step.notes)?.file ?? [])))) {
-    callFiles.set(file, file.startsWith("/") || file.includes("..") ? undefined : yield* io("Flows.call", () => readFile(join(root, file), "utf8")).pipe(Effect.catch(() => Effect.succeed(undefined))));
+    callFiles.set(file, file.startsWith("/") || file.split("/").includes("..") ? undefined : yield* io("Flows.call", () => readFile(join(root, file), "utf8")).pipe(Effect.catch(() => Effect.succeed(undefined))));
   }
   const declared = (file: string, name: string) => { const text = callFiles.get(file); return text === undefined ? undefined : declarationOf(text, name); };
   const journeys = journeyInputs.map(input => {
