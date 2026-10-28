@@ -2,29 +2,29 @@
  viewer/live · 6 nodes                                                                              
 ────────────────────────────────────────────────────────────────────────────────────────────────────
                                                   │ Agent adapters                        component 
- ·       ·       ·       ·       ·       ·       ·│                                                 
+                                                  │                                                 
                                                   │ ▾ Connects ────────────────────────────────── 2 
-                                                  │   → Activity metadata  Records tool lifecycle   
+  ·      ·       ·      ·       ·      ·       ·  │   → Activity metadata  Records tool lifecycle   
                                                   │   → tmux launcher      Opens a view             
- ·       ·       ·       ·       ·       ·       ·│                                                 
+                                                  │                                                 
+  ·      ·       ·      ·       ·      ·       ·  │                                                 
                            ╭──────────────────╮   │                                                 
-                           │ Activity         │   │                                                 
-                         ╭▶│ metadata         │─┈┈│                                                 
- ·       ·       ·       │ ╰──────────────────╯  ·│                                                 
-                         │                        │                                                 
+                         ╭▶│ Activity metada… │─┈┈│                                                 
+                         │ ╰──────────────────╯   │                                                 
+  ·      ·       ·      ·│      ·      ·       ·  │                                                 
                          │                        │                                                 
   ╭──────────────────╮   │ ╭──────────────────╮   │                                                 
- ·│ Agent adapters   │───┴▶│ tmux launcher    │─┈┈│                                                 
-  ╰──────────────────╯     ╰──────────────────╯   │                                                 
+  │ Agent adapters   │───┴▶│ tmux launcher    │─┈┈│                                                 
+  ╰──────────────────╯  ·  ╰──────────────────╯·  │                                                 
                                                   │                                                 
-                                                  │                                                 
- ·╭──────────────────╮   ·       ·       ·       ·│                                                 
+  ╭──────────────────╮                            │                                                 
   │ LikeC4 catalog   │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈│                                                 
-  ╰──────────────────╯                            │                                                 
+  ╰──────────────────╯  ·       ·      ·       ·  │                                                 
                                                   │                                                 
- ·       ·       ·       ·       ·       ·       ·│                                                 
+                                                  │                                                 
+  ·      ·       ·      ·       ·      ·       ·  │                                                 
                                                   │                                                 
                                                   │ ─────────────────────────────────────────────── 
                                                   │                                                 
- ·       ·       ·       ·       ·       ·       ·│ › ask about Agent adapters…                   t 
- diagram   Selected: plugin                                                     zoom 98%  │  ? help 
+  ·      ·       ·      ·       ·      ·       ·  │ › ask about Agent adapters…                   t 
+ diagram   Selected: plugin                                                     zoom 94%  │  ? help 

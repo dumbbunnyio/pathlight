@@ -21,4 +21,4 @@
                                                                       
                                                                       
                                                                       
- diagram   Selected: plugin                       zoom 67%  │  ? help 
+ diagram   Selected: plugin                       zoom 65%  │  ? help 
