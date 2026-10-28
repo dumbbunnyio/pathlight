@@ -83,12 +83,20 @@ export function compact(nodes: readonly CompactNode[], options: CompactOptions):
           if (need > at.get(b.id)!) { at.set(b.id, need); moved = true; }
         }
       }
-      // A card that overlapped a later-starting one grows to keep overlapping it.
+      // A card that overlapped a later-starting one keeps overlapping it: first by starting later itself, as far as it can without ending an
+      // overlap with an earlier-starting card, and only then by growing.
       let grew = false;
       for (const a of leaves) for (const b of leaves) {
         if (a === b || before(a, b) || before(b, a) || start(a) >= start(b)) continue;
         const reach = at.get(b.id)! - at.get(a.id)! + 1;
-        if (reach > span.get(a.id)!) { span.set(a.id, reach); grew = true; }
+        if (reach <= span.get(a.id)!) continue;
+        // Never past the start of a card it started no later than (its rank), nor past the end of an earlier-starting card it overlapped.
+        const latest = Math.min(at.get(b.id)!, ...leaves.filter(c => c !== a && !before(c, a) && !before(a, c) && (start(a) < start(c) || (start(a) === start(c) && (before(c, b) || before(b, c))))).map(c => at.get(c.id)!),
+          ...leaves.filter(c => c !== a && !before(c, a) && !before(a, c) && start(c) < start(a)).map(c => at.get(c.id)! + span.get(c.id)! - 1));
+        const shifted = Math.min(latest, at.get(b.id)! - span.get(a.id)! + 1);
+        if (shifted > at.get(a.id)!) { at.set(a.id, shifted); grew = true; }
+        const still = at.get(b.id)! - at.get(a.id)! + 1;
+        if (still > span.get(a.id)!) { span.set(a.id, still); grew = true; }
       }
       if (!grew) break;
     }

@@ -180,6 +180,10 @@ export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdg
   });
 }
 
+/** The cell a projected coordinate falls in. Projection leaves float noise on half-cell ties (12.4999… beside 10.5), so a card and a connector two
+ * columns apart in the world could land one apart; settling to a micro-cell first makes every tie break the same way. */
+export const cellAt = (value: number) => Math.round(Math.round(value * 1e6) / 1e6);
+
 export interface RasterCell { x: number; y: number; glyph: string; tone: "out" | "in" | "dim" | "added" | "lost" | "path" | "gap"; t: number }
 
 const N = 1, E = 2, S = 4, W = 8;
@@ -201,7 +205,7 @@ export function rasterize(routes: readonly Route[], project: (point: Point) => P
   const ordered = [...routes].sort((a, b) => rank(toneOf(a)) - rank(toneOf(b)));
   for (const route of ordered) {
     const tone = toneOf(route);
-    const points = route.points.map(project).map(point => ({ x: Math.round(point.x), y: Math.round(point.y) }));
+    const points = route.points.map(project).map(point => ({ x: cellAt(point.x), y: cellAt(point.y) }));
     const projected = points.map(point => ({ ...point })), last = points.length - 1;
     const from = cards?.(route.source), to = cards?.(route.target);
     if (from && last > 0) {

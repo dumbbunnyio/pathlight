@@ -16,7 +16,7 @@ import { sendToPane } from "./ask";
 import pkg from "../package.json" with { type: "json" };
 import { borderHints, palette, setPalette } from "./ui";
 import { type Mode, loadThemes, paletteOf, savedTheme, themeFromEnvironment } from "./theme";
-import { rasterize, routeEdges, type Route } from "./routes";
+import { cellAt, rasterize, routeEdges, type Route } from "./routes";
 import { checkFlows } from "./flows";
 import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges } from "./flow-view";
 import { attempt, failure, io } from "./effects";
@@ -414,7 +414,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // corners, since it must enclose its children. At low zoom a card can land on its group's border row and hide the title: keep it inside the frame.
     const corners = (node: (typeof diagram.nodes)[number]) => {
       const a = camera.projected(node.x, node.y), b = camera.projected(node.x + node.width, node.y + node.height);
-      return { left: Math.round(a.x), top: Math.round(a.y), right: Math.round(b.x), bottom: Math.round(b.y) };
+      return { left: cellAt(a.x), top: cellAt(a.y), right: cellAt(b.x), bottom: cellAt(b.y) };
     };
     const placed = new Map(nodeObjects.map(entry => {
       const node = entry.node, frame = corners(node);

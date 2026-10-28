@@ -38,8 +38,9 @@ export const headContent = (options: { title: string | undefined; kind: string; 
   const { width, opens } = options;
   const kind = options.kind && options.by === "agent" ? `${options.kind} · agent` : options.kind;
   const titleText = options.title ?? "No selection";
-  // A long title keeps the room: the kind goes before the title is cut.
-  const showKind = titleText.length + kind.length + 2 <= width ? kind : "";
+  // A long title keeps the room: the kind goes before the title is cut, and before the agent's mark (which says whose reading the words are).
+  const fits = (text: string) => titleText.length + text.length + 2 <= width;
+  const showKind = fits(kind) ? kind : options.by === "agent" && fits("agent") ? "agent" : "";
   const titleShown = clip(titleText, width);
   const title = new StyledText([fg(palette.text)(titleShown), fg(palette.muted)(showKind ? `${" ".repeat(Math.max(1, width - titleShown.length - showKind.length))}${showKind}` : "")]);
   const what = [options.technology, options.planned ? "planned: no files yet" : "", ...options.tags.filter(tag => tag === "bug" || tag === "fixed")].filter(Boolean).join(" · ");
