@@ -11,6 +11,7 @@ import { nodeFiles } from "../node-files";
 import { readPlan } from "../plan";
 import { readDecisions } from "../review";
 import { readStale } from "../stale";
+import { readKeys, readOverlay } from "../edit";
 
 /**
  * What the viewer draws from the workspace: the activity mapping (only when it is this project's, unless a session is watched), the files it maps
@@ -44,5 +45,12 @@ export const readChecks = (workspace: string, binding: ActivityBinding | undefin
   const started = binding && set ? yield* sessionStart(workspace, binding).pipe(Effect.catch(() => Effect.succeed(undefined))) : undefined;
   const plan = set && set.time >= (started ?? Date.now()) - 7_200_000 ? set : undefined;
   const drafted = yield* io("Native.drafted", () => readFile(join(workspace, home, modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
-  return { stale, diff, decisions, plan, drafted };
+  return { stale, diff, decisions, plan, drafted, words: drafted ? yield* wordsOf(workspace) : new Map<string, Words>() };
 });
+
+/** Who wrote an element's name and note in a drafted map's overlay: the agent's reading or a person's own. */
+export interface Words { note?: string | undefined; by?: "agent" | "human" | undefined }
+const wordsOf = (workspace: string) => Effect.gen(function* () {
+  const keys = yield* readKeys(workspace), overlay = yield* readOverlay(workspace);
+  return new Map<string, Words>([...keys].flatMap(([element, key]) => { const entry = overlay.elements[key]; return entry ? [[element, { note: entry.note, by: entry.by }] as const] : []; }));
+}).pipe(Effect.catch(() => Effect.succeed(new Map<string, Words>())));

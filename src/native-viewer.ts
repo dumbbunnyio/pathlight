@@ -39,7 +39,7 @@ import { reviewSection } from "./viewer/review-view";
 import { choose, createState, firstNode, remember, type Visit } from "./viewer/state";
 import { createFlowMode } from "./viewer/flow-mode";
 import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
-import { loadWorld, readChecks } from "./viewer/world";
+import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { easeOut, fade } from "./viewer/text";
 import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
 
@@ -188,6 +188,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let decisions: Decisions = { version: 1, decisions: [] }, reviewCursor = 0, drafted = false, redrawnFor = -1;
   // The elements the agent said it is about to work on (`pathlight plan`): outlined, and activity on anything else is marked off-plan.
   let plan: Plan | undefined;
+  // Who wrote each element's name and note (a drafted map's overlay), so the inspector can say the agent's words are the agent's.
+  let words = new Map<string, Words>();
   // Flows: readings of the code (a journey is a LikeC4 dynamic view, a state diagram is what an agent wrote). They are loaded in the background after the first frame
   // and again when the model or a check changes, so a view never waits for them. In flow mode one is drawn on the diagram and read step by step in the inspector.
   const flowMode = createFlowMode<Node>({ view: () => diagram, selected: () => String(state.selected?.modelRef ?? ""), nodeFor: element => nodeForElement(element), select: node => selectNode(node, true),
@@ -432,7 +434,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const selected = state.selected;
     const opens = selected?.navigateTo ? `o opens ${diagrams.get(String(selected.navigateTo))?.title ?? selected.navigateTo}` : "";
     const head = headContent({ title: selected?.title, kind: selected?.kind ? String(selected.kind) : "", technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
-      tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3) });
+      tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
+      by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length });
     inspectorTitle.content = head.title;
     inspectorHead.content = head.what; inspectorHead.visible = head.hasWhat;
     inspectorId.content = head.about; inspectorId.visible = head.hasAbout;
@@ -1027,8 +1030,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     Effect.catch(() => Effect.sync(() => { message = "Live reload unavailable: the model will not update until the viewer is reopened"; return undefined; }))),
     watcher => Effect.sync(() => { clearTimeout(reloadTimer); watcher?.close(); }));
   yield* Effect.gen(function* () {
-    const { stale: next, diff: nextDiff, decisions: nextDecisions, plan: nextPlan, drafted: isDraft } = yield* readChecks(view.workspace, binding);
+    const { stale: next, diff: nextDiff, decisions: nextDecisions, plan: nextPlan, drafted: isDraft, words: nextWords } = yield* readChecks(view.workspace, binding);
     drafted = isDraft;
+    if (JSON.stringify([...nextWords]) !== JSON.stringify([...words])) { words = nextWords; dirty = true; if (!editorActive) update(); }
     if (next?.time !== stale?.time && stale !== undefined) loadFlows();
     if (JSON.stringify(next) !== JSON.stringify(stale) || JSON.stringify(nextDiff) !== JSON.stringify(diff) || JSON.stringify(nextPlan) !== JSON.stringify(plan) || JSON.stringify(nextDecisions) !== JSON.stringify(decisions)) {
       stale = next; diff = nextDiff; plan = nextPlan; decisions = nextDecisions; dirty = true;
