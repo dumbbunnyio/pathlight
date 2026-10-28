@@ -2,7 +2,7 @@ import { realpath, rename, writeFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
 import { checkWorkspace, type Check } from "./check";
-import { isUnscannedSource, listFiles } from "./scan";
+import { isScannedSource, isUnscannedSource, listFiles } from "./scan";
 import { io, json } from "./effects";
 
 /**
@@ -39,13 +39,10 @@ const writeStamp = Effect.fn("Stale.write")(function* (workspace: string, stamp:
   return stamp;
 });
 
-// The extensions the scan reads (src/scan.ts reads TypeScript and JavaScript).
-const scannedSource = (path: string) => /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(path);
-
 /** Records a finished check, with how much of the source it could read. Writing is best effort: a read-only workspace just never shows the badge. */
 export const recordStale = (workspace: string, check: Check) => Effect.gen(function* () {
   const listed = yield* listFiles(workspace).pipe(Effect.map(found => found.paths), Effect.catch(() => Effect.succeed(undefined)));
-  const coverage = listed ? { read: listed.filter(scannedSource).length, unread: listed.filter(isUnscannedSource).length } : {};
+  const coverage = listed ? { read: listed.filter(isScannedSource).length, unread: listed.filter(isUnscannedSource).length } : {};
   return yield* writeStamp(workspace, { ...staleOf(check), ...coverage });
 });
 

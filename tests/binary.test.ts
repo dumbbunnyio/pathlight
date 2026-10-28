@@ -21,6 +21,14 @@ test("the compiled binary drafts, initialises, reports on itself and opens its o
       for (const file of ["a", "b", "c", "d"]) await writeFile(join(project, "src", folder, `${file}.ts`), folder === "beta" ? 'import "../alpha/a";\nexport const v = 1;\n' : "export const v = 1;\n");
     }
     expect(await run(binary, ["draft", "--workspace", project])).toContain("Drew");
+    // Python is parsed by a tree-sitter grammar compiled into the binary: nothing is downloaded or read from a checkout.
+    const python = join(directory, "python");
+    await mkdir(join(python, "app"), { recursive: true });
+    await writeFile(join(python, "app/util.py"), "def helper():\n    return 1\n");
+    await writeFile(join(python, "app/main.py"), "import app.util\n\nprint(app.util.helper())\n");
+    const scanned = JSON.parse(await run(binary, ["scan", "--workspace", python])) as { files: { path: string; language: string }[]; imports: unknown[] };
+    expect(scanned.files.map(file => `${file.path} ${file.language}`)).toEqual(["app/main.py python", "app/util.py python"]);
+    expect(scanned.imports).toEqual([{ from: "app/main.py", to: "app/util.py", line: 1, kind: "import", specifier: "app.util" }]);
     expect(await run(binary, ["check", "--workspace", project,])).toContain("Relationships");
     process.env.CLAUDE_CONFIG_DIR = join(directory, "claude-home"); // whatever plugin the developer has installed must not change the result
     const initialised = await run(binary, ["init", "--workspace", project]);

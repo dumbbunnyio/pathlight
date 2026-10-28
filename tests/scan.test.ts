@@ -103,14 +103,14 @@ const lazy = import("./a.js?raw");
       "packages/sdk/package.json": JSON.stringify({ name: "@acme/sdk", main: "./dist/index.js", exports: { ".": { import: "./dist/index.mjs" }, "./helper": "./dist/helper.mjs" } }),
       "packages/sdk/src/index.ts": `import { helper } from "./helper";\nexport const sdk = helper;\n`,
       "packages/sdk/src/helper.ts": `export const helper = 1;\n`,
-      "tools/script.py": "import os\n",
+      "tools/script.rs": "use std::fs;\n",
       "node_modules/pkg/index.js": `import "./hidden";\n`,
       "notes.md": "# not source\n",
     });
     // A symlink is not a regular file: it is neither listed nor followed.
     await symlink(join(directory, "src/a.ts"), join(directory, "src/linked.ts"));
     const scan = await Effect.runPromise(scanWorkspace(directory));
-    expect(scan.coverage).toEqual({ listing: "walk", files: 8, imports: 12, external: 2, unresolved: 2, skipped: 0, unscanned: [{ extension: ".py", files: 1 }] });
+    expect(scan.coverage).toEqual({ listing: "walk", files: 8, imports: 12, external: 2, unresolved: 2, skipped: 0, unscanned: [{ extension: ".rs", files: 1 }] });
     expect(scan.files.map(file => file.path)).toEqual(["packages/sdk/src/helper.ts", "packages/sdk/src/index.ts", "src/a.ts", "src/config.ts", "src/deep/thing.ts",
       "src/lib/index.ts", "src/main.ts", "src/shapes.ts"]);
     expect(scan.imports.filter(item => item.from === "src/main.ts").map(item => `${item.line} ${item.kind} ${item.to}`)).toEqual([

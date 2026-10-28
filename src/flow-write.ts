@@ -6,8 +6,8 @@ import { readActivityConfig } from "./activity";
 import { acquireModel, invalidModel } from "./catalog";
 import { failure, io } from "./effects";
 import { checkFlows, contentHash, type JourneyReport, type Over, runtimeHops } from "./flows";
+import { declarationsFor } from "./languages";
 import { run } from "./process";
-import { declarationOf, exportsOf } from "./scan-imports";
 
 /**
  * `pathlight flow add`: an agent has read the code and knows the story; this writes it down correctly. The agent supplies the id, a title, the files it
@@ -146,9 +146,10 @@ export const addFlow = Effect.fn("Flow.add")(function* (workspace: string, optio
     if (!reads.includes(callFile)) return yield* invalid(`${where}: name the file in --reads too. A function in a file you did not read cannot be part of the reading.`);
     if (callFile.startsWith("/") || callFile.split("/").includes("..") || !existsSync(join(root, callFile)) || !lstatSync(join(root, callFile)).isFile()) return yield* invalid(`${where}: not a file in the workspace.`);
     const text = yield* io("Flow.call", () => readFile(join(root, callFile), "utf8"));
-    const names = exportsOf(text, 400).map(entry => entry.name);
+    const reader = yield* declarationsFor(callFile);
+    const names = reader.exports(text, 400).map(entry => entry.name);
     if (!names.includes(name)) return yield* invalid(`${where}: ${callFile} does not export “${name}”.${names.length ? ` It exports ${names.slice(0, 12).join(", ")}${names.length > 12 ? ", …" : ""}.` : ""}`);
-    const declaration = declarationOf(text, name);
+    const declaration = reader.declaration(text, name);
     if (!declaration) return yield* invalid(`${where}: “${name}” is exported but its declaration could not be read. Name the function that is declared in that file.`);
     declared.push({ file: callFile, name, declaration });
   }
