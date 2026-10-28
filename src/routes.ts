@@ -10,15 +10,8 @@ export interface RouteNode { id: string; x: number; y: number; width: number; he
 export interface RouteEdge { source: string; target: string; points: readonly (readonly [number, number])[] }
 export interface Route { source: string; target: string; points: Point[]; entry: Side }
 
-const grid = 8;
 const normals: Record<Side, Point> = { E: { x: 1, y: 0 }, W: { x: -1, y: 0 }, N: { x: 0, y: -1 }, S: { x: 0, y: 1 } };
 const directions: Side[] = ["E", "S", "W", "N"];
-
-const nearestSide = (node: RouteNode, point: Point): Side => {
-  const distances: [Side, number][] = [["W", Math.abs(point.x - node.x)], ["E", Math.abs(point.x - (node.x + node.width))],
-    ["N", Math.abs(point.y - node.y)], ["S", Math.abs(point.y - (node.y + node.height))]];
-  return distances.sort((a, b) => a[1] - b[1])[0]?.[0] ?? "E";
-};
 
 class Heap {
   private items: [number, number][] = [];
@@ -52,68 +45,83 @@ class Heap {
   }
 }
 
-export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdge[]): Route[] {
+/**
+ * Routes are found on a grid of whole terminal cells at 100% (`cell` is a cell's size in world units: 16 wide, `16 / aspect` tall), so a clear cell
+ * in the diagram is a clear cell on screen. A run keeps one clear cell from every card it does not enter and never travels along a group's frame
+ * (it may cross one); a connector's trunk runs down the middle of the gap between two columns of cards, with a clear cell each side.
+ */
+export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdge[], cell: Point = { x: 16, y: 32 }): Route[] {
   const leaves = nodes.filter(node => !node.children.length);
   const groups = nodes.filter(node => node.children.length);
   const byId = new Map(nodes.map(node => [node.id, node]));
+  const gx = cell.x, gy = cell.y;
   const xs = [...nodes.flatMap(node => [node.x, node.x + node.width]), ...edges.flatMap(edge => edge.points.map(point => point[0]))];
   const ys = [...nodes.flatMap(node => [node.y, node.y + node.height]), ...edges.flatMap(edge => edge.points.map(point => point[1]))];
-  const originX = Math.min(...xs, 0) - grid * 6, originY = Math.min(...ys, 0) - grid * 6;
-  const width = Math.ceil((Math.max(...xs, 0) + grid * 6 - originX) / grid) + 1, height = Math.ceil((Math.max(...ys, 0) + grid * 6 - originY) / grid) + 1;
-  const toCell = (value: number, origin: number) => Math.round((value - origin) / grid);
-  const band = grid * 1.5;
-
-  // A run may cross a group's outline but never travel along it: these mark where vertical / horizontal travel would.
-  const alongVertical = (x: number, y: number) => groups.some(group => y >= group.y - band && y <= group.y + group.height + band
-    && (Math.abs(x - group.x) <= band || Math.abs(x - (group.x + group.width)) <= band));
-  const alongHorizontal = (x: number, y: number) => groups.some(group => x >= group.x - band && x <= group.x + group.width + band
-    && (Math.abs(y - group.y) <= band || Math.abs(y - (group.y + group.height)) <= band));
+  const originX = Math.min(...xs, 0) - gx * 6, originY = Math.min(...ys, 0) - gy * 6;
+  const width = Math.ceil((Math.max(...xs, 0) + gx * 6 - originX) / gx) + 1, height = Math.ceil((Math.max(...ys, 0) + gy * 6 - originY) / gy) + 1;
+  const toCell = (value: number, origin: number, size: number) => Math.round((value - origin) / size);
+  // A card's border cells: columns left..right, rows top..bottom (a box `width` wide covers `width / gx` columns starting at its left edge).
+  const border = (node: RouteNode) => ({ left: Math.round(node.x / gx), right: Math.round((node.x + node.width) / gx) - 1, top: Math.round(node.y / gy), bottom: Math.round((node.y + node.height) / gy) - 1 });
+  const at = (x: number, y: number) => ({ column: Math.round(x / gx), row: Math.round(y / gy) });
+  // Within one cell of a card's border (the clear cell a run must leave).
+  const near = (node: RouteNode, x: number, y: number) => {
+    const edge = border(node), { column, row } = at(x, y);
+    return column >= edge.left - 1 && column <= edge.right + 1 && row >= edge.top - 1 && row <= edge.bottom + 1;
+  };
+  // A run may cross a group's outline but never travel along it: these mark where vertical / horizontal travel would (on the frame or the cell either side).
+  const alongVertical = (x: number, y: number) => groups.some(group => {
+    const edge = border(group), { column, row } = at(x, y);
+    return row >= edge.top - 1 && row <= edge.bottom + 1 && (Math.abs(column - edge.left) <= 1 || Math.abs(column - edge.right) <= 1);
+  });
+  const alongHorizontal = (x: number, y: number) => groups.some(group => {
+    const edge = border(group), { column, row } = at(x, y);
+    return column >= edge.left - 1 && column <= edge.right + 1 && (Math.abs(row - edge.top) <= 1 || Math.abs(row - edge.bottom) <= 1);
+  });
 
   return edges.flatMap(edge => {
     const source = byId.get(edge.source), target = byId.get(edge.target);
     if (!source || !target) return [];
-    // Always out of the middle of the source's right side and into the middle of the target's left side.
-    const start = { x: source.x + source.width, y: source.y + source.height / 2 };
-    const end = { x: target.x, y: target.y + target.height / 2 };
+    // Always out of the middle of the source's right side and into the middle of the target's left side: the middle row, the lower of two.
+    const middle = (node: RouteNode) => node.y + Math.floor(Math.round(node.height / gy) / 2) * gy;
+    const start = { x: source.x + source.width, y: middle(source) };
+    const end = { x: target.x, y: middle(target) };
     const others = leaves.filter(node => node !== source && node !== target);
-    const blockedPoint = (x: number, y: number) => others.some(node => x >= node.x - grid && x <= node.x + node.width + grid && y >= node.y - grid && y <= node.y + node.height + grid);
+    const blockedPoint = (x: number, y: number) => others.some(node => near(node, x, y));
     const free = (a: Point, b: Point) => {
-      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / (grid / 2)));
+      const steps = Math.max(1, Math.ceil(Math.max(Math.abs(b.x - a.x) / gx, Math.abs(b.y - a.y) / gy)));
       for (let step = 0; step <= steps; step++) {
         const x = a.x + (b.x - a.x) * step / steps, y = a.y + (b.y - a.y) * step / steps;
         if (blockedPoint(x, y)) return false;
-        if (a.x === b.x && alongVertical(x, y) && Math.abs(b.y - a.y) > grid) return false;
-        if (a.y === b.y && alongHorizontal(x, y) && Math.abs(b.x - a.x) > grid) return false;
+        if (a.x === b.x && alongVertical(x, y) && Math.abs(b.y - a.y) > gy) return false;
+        if (a.y === b.y && alongHorizontal(x, y) && Math.abs(b.x - a.x) > gx) return false;
       }
       return true;
     };
 
-    // Preferred: horizontal, then vertical in the middle of the gap between the two columns, then horizontal.
-    // If that column is blocked, the nearest free one in the gap.
-    const gap = end.x - start.x;
-    if (gap >= grid * 4) {
-      const middle = (start.x + end.x) / 2;
+    // Preferred: horizontal, then vertical in the middle of the gap between the two columns, then horizontal. The trunk keeps a clear column from
+    // both cards' sides. If that column is blocked, the nearest free one in the gap.
+    if (end.x - start.x >= gx * 3) {
+      const middleX = (start.x + end.x) / 2;
       const candidates: number[] = [];
-      for (let x = start.x + grid * 2; x <= end.x - grid * 2; x += grid) candidates.push(x);
-      candidates.sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle));
+      for (let x = start.x + gx; x <= end.x - gx * 2; x += gx) candidates.push(x);
+      candidates.sort((a, b) => Math.abs(a - middleX) - Math.abs(b - middleX) || a - b);
       for (const x of candidates) {
         const route: Point[] = start.y === end.y ? [start, end] : [start, { x, y: start.y }, { x, y: end.y }, end];
         if (route.every((point, index) => index === 0 || free(route[index - 1]!, point))) return [{ source: edge.source, target: edge.target, points: route, entry: "W" as const }];
       }
     }
 
-    // No such route (a node in the way, a backward edge, or no gap): search around, still leaving east and arriving from the west.
-    const startCell = { x: toCell(start.x, originX) + 3, y: toCell(start.y, originY) };
-    const goal = { x: toCell(end.x, originX) - 3, y: toCell(end.y, originY) };
+    // No such route (a card in the way, a backward edge, or no gap): search around, still leaving east and arriving from the west, a clear cell from
+    // every card including the two it joins.
+    const startCell = { x: toCell(start.x, originX, gx) + 1, y: toCell(start.y, originY, gy) };
+    const goal = { x: toCell(end.x, originX, gx) - 2, y: toCell(end.y, originY, gy) };
     const memo = new Int8Array(width * height).fill(-1);
     const blocked = (cx: number, cy: number) => {
       if (cx < 0 || cy < 0 || cx >= width || cy >= height) return true;
       const key = cy * width + cx, known = memo[key];
       if (known !== undefined && known >= 0) return known === 1;
-      const x = originX + cx * grid, y = originY + cy * grid;
-      const hit = others.some(node => x >= node.x - grid && x <= node.x + node.width + grid && y >= node.y - grid && y <= node.y + node.height + grid)
-        || [source, target].some(node => !node.children.length && x > node.x - grid * 0.5 && x < node.x + node.width + grid * 0.5 && y > node.y - grid * 0.5 && y < node.y + node.height + grid * 0.5
-          && !(x >= start.x - grid && x <= start.x + grid * 4 && Math.abs(y - start.y) < grid) && !(x <= end.x + grid && x >= end.x - grid * 4 && Math.abs(y - end.y) < grid));
+      const x = originX + cx * gx, y = originY + cy * gy;
+      const hit = others.some(node => near(node, x, y)) || [source, target].some(node => !node.children.length && near(node, x, y));
       memo[key] = hit ? 1 : 0;
       return hit;
     };
@@ -136,7 +144,7 @@ export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdg
         const nx = cx + step.x, ny = cy + step.y;
         const isGoal = nx === goal.x && ny === goal.y;
         if (!isGoal && blocked(nx, ny)) continue;
-        const wx = originX + cx * grid, wy = originY + cy * grid;
+        const wx = originX + cx * gx, wy = originY + cy * gy;
         if (step.x === 0 && alongVertical(wx, wy)) continue;
         if (step.y === 0 && alongHorizontal(wx, wy)) continue;
         const next = (ny * width + nx) * 4 + turn;
@@ -150,9 +158,9 @@ export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdg
     const cells: Point[] = [];
     if (found >= 0) for (let state = found; state >= 0; state = previous[state] ?? -1) {
       const cellIndex = state >> 2;
-      cells.unshift({ x: originX + (cellIndex % width) * grid, y: originY + Math.floor(cellIndex / width) * grid });
+      cells.unshift({ x: originX + (cellIndex % width) * gx, y: originY + Math.floor(cellIndex / width) * gy });
     }
-    const around = cells.length ? cells : [{ x: start.x + grid * 3, y: start.y }, { x: start.x + grid * 3, y: end.y }, { x: end.x - grid * 3, y: end.y }];
+    const around = cells.length ? cells : [{ x: start.x + gx, y: start.y }, { x: start.x + gx, y: end.y }, { x: end.x - gx * 2, y: end.y }];
     // The search works on the grid; the first and last runs are pinned back onto the exact middles so they leave and enter flush.
     const points: Point[] = [start, ...around.map((point, index) => index === 0 ? { x: point.x, y: start.y } : index === around.length - 1 ? { x: point.x, y: end.y } : point), end];
     // Pinning can leave a short diagonal; split it into a horizontal-first corner (vertical-first on the final approach).

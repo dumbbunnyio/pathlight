@@ -249,7 +249,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   });
   // Orthogonal routes between the same nodes LikeC4 connects, found once per layout (see routes.ts).
   const computeRoutes = (): Route[] => routeEdges(diagram.nodes.map(node => ({ id: String(node.id), x: node.x, y: node.y, width: node.width, height: node.height, children: node.children.map(String) })),
-    diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target), points: [] })));
+    diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target), points: [] })), { x: 16, y: 16 / 0.5 });
   let nodeObjects = mountNodes();
   let routes = computeRoutes();
   let previousWidth = 0, previousHeight = 0;
@@ -517,7 +517,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     crumbHint.content = crumbActivity(work && "view" in work ? workOffer(work.title) : tickerContent(), renderer.width - 2 - crumbPlain.length - 3);
     dirty = true; renderer.requestRender();
   };
-  const fit = () => camera.fit(diagram.bounds);
+  // Fit takes in the connectors too, so one that goes round the outermost card is not cut at the canvas edge.
+  const fit = () => camera.fit(boundsOf([diagram.bounds, ...routes.flatMap(route => route.points.map(point => ({ x: point.x - 16, y: point.y, width: 32, height: 1 })))]));
   const visit = (): Visit => ({ view: String(diagram.id), selected: state.selected ? String(state.selected.id) : undefined, ...camera.placement() });
   const restore = (saved: Visit) => {
     state.selected = diagram.nodes.find(node => node.id === saved.selected) ?? diagram.nodes[0];
@@ -993,7 +994,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         return x >= left && x <= right && y >= top && y <= bottom && (!node.children.length || x === left || x === right || y === top || y === bottom);
       });
       for (const cell of rasterize(routes, point => camera.projected(point.x, point.y), isCovered, state.selected ? String(state.selected.id) : undefined, edgeMarks(diff, diagram.nodes, diagram.edges, flowPath))) {
-        if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width || cell.y >= viewport.height) continue;
+        // A connector stops a cell short of the inspector's divider, so it never reads as a line into the panel.
+        if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width - 1 || cell.y >= viewport.height) continue;
         const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : cell.tone === "path" ? palette.purple : palette.edgeDim;
         canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(fg), bg);
       }
