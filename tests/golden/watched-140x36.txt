@@ -32,5 +32,5 @@
                                                                                                  │                                          
                                                                                                  │ ──────────────────────────────────────── 
  ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ c session   p replay                     
-                                                                                                 │ › ask about Agent adapters…            t 
+                                                                                                 │ › how does Agent adapters work?        t 
  diagram   Selected: plugin                                                                                             zoom 91%  │  ? help 

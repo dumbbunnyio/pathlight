@@ -17,7 +17,7 @@ test("t asks or tells, and both close their loop: a drawn question is recorded a
   const target = { title: "Orders", id: "parcel.orders", files: ["src/orders.ts"], links: [] };
   const asked = askMessage(target, "how does an order reach shipping?", true);
   expect(asked).toContain("Answer here, and also record the path as a pathlight journey (pathlight flow add, as the pathlight skill says) so it appears on the map and F walks it.");
-  expect(asked).toContain("If this asks you to change the code, before editing any file run pathlight plan parcel.orders with the ids of whatever else the change will reach, and add a #planned element with its mapping for anything new; run pathlight plan with no ids when done.");
+  expect(asked).toContain("If this asks you to change the code, before editing any file run pathlight plan parcel.orders with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight skill says how); run pathlight plan with no ids when done.");
   expect(askMessage(target, "why is it slow?")).not.toContain("pathlight journey");
   expect(askMessage(target, "add a refunds endpoint")).toContain("run pathlight plan parcel.orders");
   // Who records the journey is the skill's word to the conversation, never in a text a tracer is handed.

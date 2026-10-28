@@ -32,5 +32,5 @@
  ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
                                                                                                  │ ──────────────────────────────────────── 
                                                                                                  │                                          
- ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ › ask about tmux launcher…             t 
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ › how does tmux launcher work?         t 
  diagram   Selected: launcher                                                                                           zoom 91%  │  ? help 

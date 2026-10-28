@@ -1,0 +1,36 @@
+ ◆ pathlight / Pathlight implementation                                                                                                     
+ viewer/live · 6 nodes                                                                                                                      
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                 │ Agent adapters                component  
+                                                                                                 │                                          
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ Connects ────────────────────────── 2  
+                                                                                                 │   → Activity metadata  Records tool li…  
+                                                                                                 │   → tmux launcher      Opens a view      
+                                                                                                 │                                          
+ ·  ╭─ ◆ Keyboard shortcuts ───────────────────────────────────────────────────────────────────────────────────────── pathlight 0.1.1 ─╮    
+    │                                                                                                                                  │    
+    │  Understand it ──────────────────────────   Direct it ──────────────────────────────   Shape the map ──────────────────────────  │    
+    │  tab, click  select a box                   t        tell it what to change            d          ask it to trace a flow         │    
+ ·  │  h j k l     select a neighbour             c        session and review                m          ask it to improve the map      │    
+    │  enter, o    into a group, open a link      a        follow the work                   n          name and note it yourself      │    
+    │  backspace   up to the parent               w        jump to the agent's work          p          replay the session             │    
+ ·  │  t           ask how something works        e        files (in a flow: its code)       s          subagent calls                 │    
+    │  F           step through a flow            /        search views, boxes, files        T          choose a theme                 │    
+  ╭─│  [ ]         steps, esc leaves              g        go to any view                    1–4        focus a card, esc leaves       │    
+  │ │  ?           this help                      b        back                              j k        move in the card               │    
+ ·╰─│                                             i        inspector                         space      fold the card                  │    
+    │                                             f        fit everything                    PgUp PgDn  scroll the inspector           │    
+  ╭─│                                             0  + -   actual size, zoom                 v          swap hjkl and arrows           │    
+  │ │                                             r        centre the selection              q          quit                           │    
+ ·╰─│                                             ← ↑ ↓ →  pan                                                                         │    
+    │                                                                                                                                  │    
+    ╰─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────────────────────────────────────╯    
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
+                                                                                                 │                                          
+                                                                                                 │                                          
+                                                                                                 │                                          
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
+                                                                                                 │ ──────────────────────────────────────── 
+                                                                                                 │                                          
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ › how does Agent adapters work?        t 
+ diagram   Selected: plugin                                                                                             zoom 91%  │  ? help 

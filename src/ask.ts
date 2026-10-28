@@ -27,7 +27,7 @@ export function relevantFiles(options: { files: readonly string[]; neighbours: r
 /**
  * One line for the agent's prompt: the question first, then the context the viewer already knows about the component, then what to do with it. `t`
  * both asks and tells, so the line carries two rules. A question whose answer is a path (`draw`) is recorded as a journey as well as answered, so it
- * appears on the map; an instruction declares the elements it will touch (`pathlight plan`, a `#planned` element for anything new) before the first
+ * appears on the map; an instruction declares the elements it will touch (`pathlight plan`, a planned element for anything new) before the first
  * edit, so the map shows where the work is going before it lights up. Who records the journey is the skill's business, not this line's: a tracer
  * handed this text must not read a hand-off as addressed to it.
  */
@@ -41,7 +41,7 @@ export function askMessage(target: { title: string; id: string; files: readonly 
   const id = clean(target.id);
   return `About the "${clean(target.title)}" component (${id}): ${clean(question).slice(0, 600)}${context ? ` [${context}]` : ""} `
     + (draw ? `Answer here, and also record the path as a pathlight journey (pathlight flow add, as the pathlight skill says) so it appears on the map and F walks it. ` : "")
-    + `If this asks you to change the code, before editing any file run pathlight plan ${id} with the ids of whatever else the change will reach, and add a #planned element with its mapping for anything new; run pathlight plan with no ids when done.`;
+    + `If this asks you to change the code, before editing any file run pathlight plan ${id} with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight skill says how); run pathlight plan with no ids when done.`;
 }
 
 /**
