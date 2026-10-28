@@ -8,7 +8,8 @@ export type Point = { x: number; y: number };
 export type Side = "E" | "W" | "N" | "S";
 export interface RouteNode { id: string; x: number; y: number; width: number; height: number; children: readonly string[] }
 export interface RouteEdge { source: string; target: string; points: readonly (readonly [number, number])[] }
-export interface Route { source: string; target: string; points: Point[]; entry: Side }
+/** `gap` marks a route drawn for a flow's hop that no connector draws: the agent's reading, never a model relationship. */
+export interface Route { source: string; target: string; points: Point[]; entry: Side; gap?: true }
 
 const normals: Record<Side, Point> = { E: { x: 1, y: 0 }, W: { x: -1, y: 0 }, N: { x: 0, y: -1 }, S: { x: 0, y: 1 } };
 const directions: Side[] = ["E", "S", "W", "N"];
@@ -179,7 +180,7 @@ export function routeEdges(nodes: readonly RouteNode[], edges: readonly RouteEdg
   });
 }
 
-export interface RasterCell { x: number; y: number; glyph: string; tone: "out" | "in" | "dim" | "added" | "lost" | "path"; t: number }
+export interface RasterCell { x: number; y: number; glyph: string; tone: "out" | "in" | "dim" | "added" | "lost" | "path" | "gap"; t: number }
 
 const N = 1, E = 2, S = 4, W = 8;
 const solid: Record<number, string> = { [E | W]: "─", [N | S]: "│", [S | E]: "╭", [S | W]: "╮", [N | E]: "╰", [N | W]: "╯",
@@ -188,13 +189,13 @@ const arrows: Record<Side, string> = { E: "▶", W: "◀", S: "▼", N: "▲" };
 
 /**
  * Projected routes as terminal cells. Quiet connectors are dotted where they run straight; the selected node's are
- * solid and tinted by direction. `covered` hides cells under nodes; `t` is the position along the route (0..1).
+ * solid and tinted by direction; a flow's gap (a hop no connector draws) is dotted in the agent's colour. `covered` hides cells under nodes; `t` is the position along the route (0..1).
  * `marks` (keyed `source\0target`) picks out connectors whose imports were added or lost since a base commit: solid, in their own tints, under the selection's.
  */
 export function rasterize(routes: readonly Route[], project: (point: Point) => Point, covered: (x: number, y: number) => boolean, selected: string | undefined, marks: ReadonlyMap<string, "added" | "lost" | "path"> = new Map()): RasterCell[] {
   const cells = new Map<string, { x: number; y: number; mask: number; tone: RasterCell["tone"]; t: number; arrow?: string }>();
-  const toneOf = (route: Route): RasterCell["tone"] => route.source === selected ? "out" : route.target === selected ? "in" : marks.get(`${route.source}\0${route.target}`) ?? "dim";
-  const rank = (tone: RasterCell["tone"]) => tone === "dim" ? 0 : tone === "added" || tone === "lost" || tone === "path" ? 1 : 2;
+  const toneOf = (route: Route): RasterCell["tone"] => route.gap ? "gap" : route.source === selected ? "out" : route.target === selected ? "in" : marks.get(`${route.source}\0${route.target}`) ?? "dim";
+  const rank = (tone: RasterCell["tone"]) => tone === "dim" ? 0 : tone === "added" || tone === "lost" || tone === "path" || tone === "gap" ? 1 : 2;
   const ordered = [...routes].sort((a, b) => rank(toneOf(a)) - rank(toneOf(b)));
   for (const route of ordered) {
     const tone = toneOf(route);
@@ -237,6 +238,6 @@ export function rasterize(routes: readonly Route[], project: (point: Point) => P
   }
   return [...cells.values()].map(cell => {
     const straight = cell.mask === (E | W) ? "┈" : cell.mask === (N | S) ? "┊" : undefined;
-    return { x: cell.x, y: cell.y, tone: cell.tone, t: cell.t, glyph: cell.arrow ?? ((cell.tone === "dim" || cell.tone === "lost") && straight ? straight : solid[cell.mask] ?? "·") };
+    return { x: cell.x, y: cell.y, tone: cell.tone, t: cell.t, glyph: cell.arrow ?? ((cell.tone === "dim" || cell.tone === "lost" || cell.tone === "gap") && straight ? straight : solid[cell.mask] ?? "·") };
   });
 }

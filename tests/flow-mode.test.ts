@@ -120,6 +120,28 @@ test("a flow is shown on the screen as text, so an agent can check it", async ()
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
+test("F keeps the fitted camera, and a hop with no connector has its gap drawn, dotted in the agent's colour", async () => {
+  const directory = await workspace(false);
+  try {
+    const see = async (keys: string[], ansi = false) => {
+      const out = join(directory, `screen-${keys.length}-${ansi}.txt`);
+      await run("sh", ["-c", `"$1" "$2" see services --workspace "$3" --project parcel --cols 150 --rows 36 --select customer ${keys.length ? `--keys '${keys.join(",")}'` : ""} ${ansi ? "--ansi" : ""} > "$4"`, "sh", process.execPath, resolve("src/cli.ts"), directory, out]);
+      return readFile(out, "utf8");
+    };
+    // Entering flow mode on a fitted view moves nothing: the same zoom, and every card where it was.
+    const plain = await see([]), flow = await see(["F"]);
+    const zoom = (text: string) => /zoom \d+%/.exec(text)?.[0];
+    expect(zoom(flow)).toBe(zoom(plain));
+    // Only the diagram's columns: the step reader names the same components.
+    const at = (text: string, label: string) => { const rows = text.split("\n").map(line => line.slice(0, 100)); const row = rows.findIndex(line => line.includes(label)); return [row, rows[row]?.indexOf(label)]; };
+    for (const label of ["Storefr", "Inventory", "Payment"]) expect(at(flow, label)).toEqual(at(plain, label));
+    // The step orders → shipping has no relationship: its gap is the only dotted run in the agent's violet (#7466b0).
+    const violetDots = (text: string) => (text.match(/38;2;116;102;176[^m]*m[┈┊]/g) ?? []).length;
+    expect(violetDots(await see([], true))).toBe(0);
+    expect(violetDots(await see(["F"], true))).toBeGreaterThan(0);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
 test("e on a step that names a function opens it in the editor at the line the file declares it on now", async () => {
   const directory = await workspace(false);
   const socket = join("/tmp", `c4fe-${process.pid}.sock`);

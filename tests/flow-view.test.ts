@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { badgeText, badgesOf, flowsInView, flowsThrough, pathEdges, stepsAt, type FlowMap } from "../src/flow-view";
+import { badgeText, badgesOf, flowsInView, flowsThrough, gapHops, pathEdges, stepsAt, type FlowMap } from "../src/flow-view";
+import { RGBA } from "@opentui/core";
+import { stepsCard } from "../src/viewer/cards";
 
 const journey: FlowMap = { id: "order", title: "Placing an order", type: "journey", view: "order", sync: { status: "current", sha: "abc1234" }, findings: [], steps: [
   { n: 1, title: "opens checkout", elements: ["customer", "store"], from: "customer", to: "store", backed: true },
@@ -34,4 +36,33 @@ test("a component is in a flow only by its own steps, never because something in
   expect(flowsThrough([journey, states], "db").map(entry => entry.flow.id)).toEqual(["signup"]);
   expect(flowsInView([journey, states], new Set(["db"])).map(flow => flow.id)).toEqual(["signup"]);
   expect(flowsInView([journey, states], new Set(["elsewhere"]))).toEqual([]);
+});
+
+test("the start card and the first number agree with the step reader: step 1 names the card it leaves and the card it reaches", () => {
+  // ▶ is on the card step 1 leaves, 1 on the card it reaches; a card that is the start and a later step reads ▶·3.
+  const badges = badgesOf(journey, nodes);
+  expect(badges.get("n-customer")).toEqual([0]);
+  expect(badges.get("n-store")).toEqual([1, 3]);
+  const titles: Record<string, string> = { customer: "Customer", store: "Storefront", api: "Checkout API" };
+  const text = stepsCard(journey, 1, new Map(), id => titles[id] ?? id, 60, 0, RGBA.fromHex("#000000")).chunks.map(chunk => chunk.text).join("");
+  expect(text).toContain("Customer → Storefront");
+  expect(text).not.toContain("Storefront → Checkout API");
+});
+
+test("a hop between nested components lands on the nearest card the view draws; a hop inside one card is its badge only", () => {
+  // The view draws two packages; the flow's hops are between components inside them.
+  const nested: FlowMap = { ...journey, steps: [
+    { n: 1, title: "inside the front", elements: ["front.app", "front.server"], from: "front.app", to: "front.server", backed: true },
+    { n: 2, title: "to the back", elements: ["front.server", "back.api"], from: "front.server", to: "back.api", backed: true },
+    { n: 3, title: "and back", elements: ["back.api", "front.app"], from: "back.api", to: "front.app", backed: false },
+  ] };
+  const packages = [{ id: "n-front", modelRef: "front" }, { id: "n-back", modelRef: "back" }];
+  expect(flowsInView([nested], new Set(["front", "back"]))).toEqual([nested]);
+  expect(badgesOf(nested, packages)).toEqual(new Map([["n-front", [0, 1, 3]], ["n-back", [2]]]));
+  const edges = [{ source: "n-front", target: "n-back" }];
+  expect(pathEdges(nested, packages, edges)).toEqual(new Set(["n-front\0n-back"]));
+  // The hop back has no connector: it is a gap, drawn once; the hop inside the front package is no hop at all.
+  expect(gapHops(nested, packages, edges)).toEqual([{ source: "n-back", target: "n-front" }]);
+  // The element's own card wins over a box that contains it.
+  expect(badgesOf(nested, [...packages, { id: "n-api", modelRef: "back.api" }]).get("n-api")).toEqual([2]);
 });

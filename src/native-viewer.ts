@@ -18,7 +18,7 @@ import { borderHints, palette, setPalette } from "./ui";
 import { type Mode, loadThemes, paletteOf, savedTheme, themeFromEnvironment } from "./theme";
 import { rasterize, routeEdges, type Route } from "./routes";
 import { checkFlows } from "./flows";
-import { badgeText as stepBadge, badgesOf, flowMaps, flowsThrough, pathEdges } from "./flow-view";
+import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges } from "./flow-view";
 import { attempt, failure, io } from "./effects";
 import { writeReady } from "./ready";
 import { declarationLine } from "./scan-imports";
@@ -37,7 +37,7 @@ import { createThemePicker } from "./viewer/theme-picker";
 import { createAskDialog } from "./viewer/ask-dialog";
 import { reviewSection } from "./viewer/review-view";
 import { choose, createState, firstNode, remember, type Visit } from "./viewer/state";
-import { createFlowMode } from "./viewer/flow-mode";
+import { createFlowMode, stepElement } from "./viewer/flow-mode";
 import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { easeOut, fade } from "./viewer/text";
@@ -192,7 +192,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let words = new Map<string, Words>();
   // Flows: readings of the code (a journey is a LikeC4 dynamic view, a state diagram is what an agent wrote). They are loaded in the background after the first frame
   // and again when the model or a check changes, so a view never waits for them. In flow mode one is drawn on the diagram and read step by step in the inspector.
-  const flowMode = createFlowMode<Node>({ view: () => diagram, selected: () => String(state.selected?.modelRef ?? ""), nodeFor: element => nodeForElement(element), select: node => selectNode(node, true),
+  const flowMode = createFlowMode<Node>({ view: () => diagram, selected: () => String(state.selected?.modelRef ?? ""), nodeFor: element => nodeOrAncestor(diagram, element),
+    // A step selects its card and leaves the camera where it is, moving only when the card is off screen (entering flow mode keeps a fitted view).
+    select: node => { selectNode(node, false); camera.ensureVisible(node); },
     title: id => elementTitle(id), say: text => { message = text; }, update: () => update(),
     entering: () => { if (state.focusSection === "connections") state.focusSection = undefined; }, leaving: () => { if (state.focusSection === "steps") state.focusSection = undefined; } });
   let flowPath = new Set<string>();
@@ -250,8 +252,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     return { node, box, label, badge, rect: { x: 0, y: 0, width: 1, height: 1 } };
   });
   // Orthogonal routes between the same nodes LikeC4 connects, found once per layout (see routes.ts).
-  const computeRoutes = (): Route[] => routeEdges(diagram.nodes.map(node => ({ id: String(node.id), x: node.x, y: node.y, width: node.width, height: node.height, children: node.children.map(String) })),
-    diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target), points: [] })), { x: 16, y: 16 / 0.5 });
+  const cell = { x: 16, y: 16 / 0.5 };
+  const routeNodes = () => diagram.nodes.map(node => ({ id: String(node.id), x: node.x, y: node.y, width: node.width, height: node.height, children: node.children.map(String) }));
+  const computeRoutes = (): Route[] => routeEdges(routeNodes(), diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target), points: [] })), cell);
+  let gaps: Route[] = [], gapFor = "";
   let nodeObjects = mountNodes();
   let routes = computeRoutes();
   let previousWidth = 0, previousHeight = 0;
@@ -392,7 +396,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const flowNodes = diagram.nodes.map(node => ({ id: String(node.id), modelRef: String(node.modelRef) }));
     const badges = flowMode.active ? badgesOf(flowMode.active, flowNodes) : new Map<string, number[]>();
     flowPath = flowMode.active ? pathEdges(flowMode.active, flowNodes, diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target) }))) : new Set<string>();
-    const stepNodeId = flowMode.active ? (() => { const step = flowMode.active.steps[flowMode.step]; const element = flowMode.active.type === "journey" ? step?.to : step?.elements[0]; return flowNodes.find(node => node.modelRef === element)?.id; })() : undefined;
+    const stepNodeId = flowMode.active ? (() => { const element = stepElement(flowMode.active, flowMode.step); return element ? cardsFor(flowNodes, element)[0]?.id : undefined; })() : undefined;
+    // A hop no connector draws gets its gap drawn, dotted in the agent's colour, so the path is continuous; only for the flow being read.
+    const gapKey = flowMode.active ? `${diagram.id}/${flowMode.active.type}/${flowMode.active.id}` : "";
+    if (gapKey !== gapFor) {
+      gapFor = gapKey;
+      const hops = flowMode.active ? gapHops(flowMode.active, flowNodes, diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target) }))) : [];
+      gaps = hops.length ? routeEdges(routeNodes(), hops.map(hop => ({ ...hop, points: [] })), cell).map(route => ({ ...route, gap: true as const })) : [];
+      dirty = true;
+    }
     for (const entry of nodeObjects) {
       const group = entry.node.children.length > 0, id = String(entry.node.id), ref = String(entry.node.modelRef);
       const related = byElement.get(ref) ?? [];
@@ -944,7 +956,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError;
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;
-        nodeObjects = mountNodes(); routes = computeRoutes();
+        nodeObjects = mountNodes(); routes = computeRoutes(); gapFor = "";
         state.selected = diagram.nodes.find(node => String(node.id) === keep) ?? diagram.nodes[0];
         state.fileCursor = Math.min(state.fileCursor, Math.max(0, selectedPaths().length - 1));
         indexEvents();
@@ -960,7 +972,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const next = state.pendingVisit; state.pendingVisit = undefined;
       for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
       diagram = next.diagram;
-      nodeObjects = mountNodes(); routes = computeRoutes();
+      nodeObjects = mountNodes(); routes = computeRoutes(); gapFor = "";
       state.selected = firstNode(diagram); state.fileCursor = 0; resetInspectorScroll(); message = next.notice ?? "";
       initialFit = false; camera.animating = false;
       if (next.restore) restore(next.restore);
@@ -996,10 +1008,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const left = rect.x, top = rect.y, right = rect.x + rect.width - 1, bottom = rect.y + rect.height - 1;
         return x >= left && x <= right && y >= top && y <= bottom && (!node.children.length || x === left || x === right || y === top || y === bottom);
       });
-      for (const cell of rasterize(routes, point => camera.projected(point.x, point.y), isCovered, state.selected ? String(state.selected.id) : undefined, edgeMarks(diff, diagram.nodes, diagram.edges, flowPath))) {
+      for (const cell of rasterize([...routes, ...gaps], point => camera.projected(point.x, point.y), isCovered, state.selected ? String(state.selected.id) : undefined, edgeMarks(diff, diagram.nodes, diagram.edges, flowPath))) {
         // A connector stops a cell short of the inspector's divider, so it never reads as a line into the panel.
         if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width - 1 || cell.y >= viewport.height) continue;
-        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : cell.tone === "path" ? palette.purple : palette.edgeDim;
+        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : cell.tone === "path" || cell.tone === "gap" ? palette.purple : palette.edgeDim;
         canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(fg), bg);
       }
     })();
