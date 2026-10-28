@@ -140,7 +140,30 @@ test("F keeps the fitted camera, and a hop with no connector has its gap drawn, 
     expect(violetDots(await see([], true))).toBe(0);
     expect(violetDots(await see(["F"], true))).toBeGreaterThan(0);
   } finally { await rm(directory, { recursive: true, force: true }); }
-}, 60_000);
+  // At 100×30 the fixture's cards reach the canvas edges (Agent adapters at column 2, Persistent viewer three from the right). Neither F nor a step
+  // to the card at the edge moves any card: a fitted view has every card on screen.
+  const fixture = await mkdtemp(join(tmpdir(), "pathlight-flow-edge-"));
+  try {
+    await cp("tests/fixtures/viewer", fixture, { recursive: true });
+    await writeFile(join(fixture, "model.c4"), `${await readFile(join(fixture, "model.c4"), "utf8")}
+views {
+  dynamic view opening {
+    title 'Opening a view'
+    plugin -> launcher 'opens a view'
+    launcher -> viewer 'starts the pane'
+  }
+}
+`);
+    const corners = async (keys: string) => {
+      const screen = await run(process.execPath, [resolve("src/cli.ts"), "see", "live", "--workspace", fixture, "--cols", "100", "--rows", "30", "--select", "plugin", `--keys=${keys}`]);
+      return screen.split("\n").flatMap((line, row) => [...line.matchAll(/╭─/g)].map(match => `${row}:${match.index}`));
+    };
+    const plain = await corners("");
+    expect(plain).toContain("15:2");
+    expect(await corners("F")).toEqual(plain);
+    expect(await corners("F,]")).toEqual(plain);
+  } finally { await rm(fixture, { recursive: true, force: true }); }
+}, 90_000);
 
 test("e on a step that names a function opens it in the editor at the line the file declares it on now", async () => {
   const directory = await workspace(false);
