@@ -605,8 +605,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     });
     const pool = scored.some(entry => entry.cone) ? scored.filter(entry => entry.cone) : scored;
     const best = pool.sort((a, b) => a.score - b.score)[0]?.node;
-    // Past the last node on the right, the inspector is the next thing: `h` (or left) comes back.
-    if (!best && direction === "right") { message = ""; focusOn("activity"); return; }
     if (!best) { message = `Nothing ${direction === "up" ? "above" : direction === "down" ? "below" : `to the ${direction} of`} ${current.title}`; update(); return; }
     message = "";
     selectNode(best, false);

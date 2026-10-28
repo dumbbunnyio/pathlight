@@ -73,3 +73,9 @@ test("tab moves through what is on screen: into the inspector and through its ca
   expect(helpGroups(true)[0]!.rows.slice(0, 2).map(row => `${row[0]}  ${row[1]}`)).toEqual(["click, h j k l  select a box, a neighbour", "tab  through the inspector, in a flow: next step"]);
   expect(helpGroups(false)[0]!.rows[0]![0]).toBe("click, ← ↑ ↓ →");
 });
+
+test("h j k l stay on their side: in a focused card left and right do nothing, and only esc, tab and the numbers leave", () => {
+  for (const name of ["h", "l", "left", "right"]) expect(keyAction(press(name), { ...main, focusSection: "connections" }), name).toEqual({ type: "swallow" });
+  expect(keyAction(press("1"), { ...main, focusSection: "connections" })).toEqual({ type: "focus", section: "activity" });
+  expect(helpGroups(true).flatMap(group => group.rows).find(row => row[0] === "1–4")?.[1]).toBe("focus a card, esc or tab leaves");
+});

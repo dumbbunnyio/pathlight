@@ -117,8 +117,8 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "space" || key.sequence === " ") return { type: "sectionFold" };
     if (key.name === "up" || key.name === "k") return { type: "sectionMove", by: -1 };
     if (key.name === "down" || key.name === "j") return { type: "sectionMove", by: 1 };
-    if ((key.name === "left" || key.name === "h") && !key.shift) return { type: "sectionLeave" };
-    if ((key.name === "right" || key.name === "l") && !key.shift) return { type: "swallow" };
+    // `h j k l` never cross between the diagram and the inspector: `esc`, `tab` and the numbers do.
+    if ((key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") && !key.shift) return { type: "swallow" };
     if (key.name === "return") return { type: "sectionEnter" };
   }
   if (!files && key.sequence === "F") return { type: "cycleFlow" };
@@ -183,7 +183,7 @@ export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" 
       ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
     { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a flow", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
       ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],
-      ["1–4", "focus a card, esc leaves", ["focus", "sectionLeave"]], ["j k", "move in the card", ["sectionMove"]], ["space", "fold the card", ["sectionFold"]],
+      ["1–4", "focus a card, esc or tab leaves", ["focus", "sectionLeave"]], ["j k", "move in the card", ["sectionMove"]], ["space", "fold the card", ["sectionFold"]],
       ["PgUp PgDn", "scroll the inspector", ["scrollInspector"]], ["v", "swap hjkl and arrows", ["swap"]], ["q", "quit", ["stop"]]] },
   ];
 };
