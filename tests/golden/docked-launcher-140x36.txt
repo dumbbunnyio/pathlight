@@ -3,7 +3,7 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                                                                                                  │ tmux launcher                 component  
                                                                                                  │                                          
- ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ Connects ────────────────────────── 3  
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ 1 Connects ──────────────────────── 3  
                                                                                                  │   ← Agent adapters     Opens a view      
                                                                                                  │   → PNG export         Requests PNG      
                                                                                                  │   → Persistent viewer  Starts owned pa…  

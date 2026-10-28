@@ -3,29 +3,29 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                                                                                                  │ Agent adapters                component  
                                                                                                  │                                          
- ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ Connects ────────────────────────── 2  
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ 1 Connects ──────────────────────── 2  
                                                                                                  │   → Activity metadata  Records tool li…  
                                                                                                  │   → tmux launcher      Opens a view      
-                                                                                                 │                                          
- ·  ╭─ ◆ Keyboard shortcuts ───────────────────────────────────────────────────────────────────────────────────────── pathlight 0.1.1 ─╮    
+    ╭─ ◆ Keyboard shortcuts ───────────────────────────────────────────────────────────────────────────────────────── pathlight 0.1.1 ─╮    
+ ·  │                                                                                                                                  │    
+    │  ── out of the selected box  ── into it  ┈┈ other relationships  ── the agent's reading (a flow)                                 │    
     │                                                                                                                                  │    
     │  Understand it ──────────────────────────   Direct it ──────────────────────────────   Shape the map ──────────────────────────  │    
-    │  tab, click  select a box                   t        tell it what to change            d          ask it to trace a flow         │    
- ·  │  h j k l     select a neighbour             c        session and review                m          ask it to improve the map      │    
-    │  enter, o    into a group, open a link      a        follow the work                   n          name and note it yourself      │    
-    │  backspace   up to the parent               w        jump to the agent's work          p          replay the session             │    
- ·  │  t           ask how something works        e        files (in a flow: its code)       s          subagent calls                 │    
-    │  F           step through a flow            /        search views, boxes, files        T          choose a theme                 │    
-  ╭─│  [ ]         steps, esc leaves              g        go to any view                    1–4        focus a card, esc leaves       │    
-  │ │  ?           this help                      b        back                              j k        move in the card               │    
- ·╰─│                                             i        inspector                         space      fold the card                  │    
-    │                                             f        fit everything                    PgUp PgDn  scroll the inspector           │    
-  ╭─│                                             0  + -   actual size, zoom                 v          swap hjkl and arrows           │    
-  │ │                                             r        centre the selection              q          quit                           │    
- ·╰─│                                             ← ↑ ↓ →  pan                                                                         │    
+ ·  │  click, h j k l  select a box, a            t        tell it what to change            d          ask it to trace a flow         │    
+    │                  neighbour                  c        session and review                m          ask it to improve the map      │    
+    │  tab             through the inspector,     a        follow the work                   n          name and note it yourself      │    
+ ·  │                  in a flow: next step       w        jump to the agent's work          p          replay the session             │    
+    │  enter, o        into a group, open a       e        files (in a flow: its code)       s          subagent calls                 │    
+  ╭─│                  link                       /        search views, boxes, files        T          choose a theme                 │    
+  │ │  backspace       up to the parent           g        go to any view                    1–4        focus a card, esc or tab       │    
+ ·╰─│  t               ask how something works    b        back                                         leaves                         │    
+    │  F               step through a flow        i        inspector                         j k        move in the card               │    
+  ╭─│  [ ]             steps, esc leaves          f        fit everything                    space      fold the card                  │    
+  │ │  ?               this help                  0  + -   actual size, zoom                 PgUp PgDn  scroll the inspector           │    
+ ·╰─│                                             r        centre the selection              v          swap hjkl and arrows           │    
+    │                                             ← ↑ ↓ →  pan                               q          quit                           │    
     │                                                                                                                                  │    
-    ╰─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────────────────────────────────────╯    
- ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
+ ·  ╰─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────────────────────────────────────╯    
                                                                                                  │                                          
                                                                                                  │                                          
                                                                                                  │                                          

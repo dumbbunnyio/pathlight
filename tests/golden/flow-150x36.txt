@@ -6,7 +6,7 @@
                   │                                                                   │                 │ Orders and an outbox of committed order     
                   │                                  ╭─Fulfillment───────────────────╮│                 │ events.                                     
                   │                                  │                 ╭─ 5 ───────╮ ││  ╭───────────╮  │                                             
-                  │                                  │               ╭▶│ Shipping… │─││┈▶│ Shipping… │  │ ▾ Steps ────────────────────────────── 4/5  
+                  │                                  │               ╭▶│ Shipping… │─││┈▶│ Shipping… │  │ ▾ 1 Steps ──────────────────────────── 4/5  
   ·         ·     │    ·          ·         ·        │ ·          ·  ┊ ╰───────────╯ ││· ╰───────────╯  │ ◇ a reading of the code, not observed       
                   │                                  │               ┊               ││                 │ synced at abc1234, not a commit here        
                   │                                  │               ┊               ││                 │    1 opens checkout                         

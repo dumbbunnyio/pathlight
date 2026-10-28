@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
+import { palette } from "../src/ui";
 import { helpContent } from "../src/viewer/help";
 import { type Action, helpGroups, type KeyMode, type KeyPress, keyAction, tierOf } from "../src/viewer/keys";
 
@@ -37,7 +39,7 @@ test("every action a key has on the diagram, in a flow, in the node list or in a
 
 test("from 100 columns the tiers stand side by side; below that they stack, and the accent follows the tier the user is in", () => {
   const wide = helpContent({ tier: 1, vim: true, screenWidth: 100, version: "0" });
-  const first = text(wide.content).split("\n")[0]!;
+  const first = text(wide.content).split("\n").find(line => line.startsWith("Understand it"))!;
   expect(first).toMatch(/^Understand it ─+ +Direct it ─+ +Shape the map ─+$/);
   for (const line of text(wide.content).split("\n")) expect(line.length).toBe(first.length);
   expect(wide.width).toBeLessThanOrEqual(96);
@@ -78,4 +80,25 @@ test("h j k l stay on their side: in a focused card left and right do nothing, a
   for (const name of ["h", "l", "left", "right"]) expect(keyAction(press(name), { ...main, focusSection: "connections" }), name).toEqual({ type: "swallow" });
   expect(keyAction(press("1"), { ...main, focusSection: "connections" })).toEqual({ type: "focus", section: "activity" });
   expect(helpGroups(true).flatMap(group => group.rows).find(row => row[0] === "1–4")?.[1]).toBe("focus a card, esc or tab leaves");
+});
+
+test("? explains the connector colours above the tiers, in the colours themselves, with the diff's pair only when a diff is loaded", () => {
+  const plain = helpContent({ tier: 1, vim: true, screenWidth: 140, version: "0" });
+  const rows = text(plain.content).split("\n");
+  expect(rows[0]!.trimEnd()).toBe("── out of the selected box  ── into it  ┈┈ other relationships  ── the agent's reading (a flow)");
+  expect(rows[1]!.trim()).toBe("");
+  expect(rows[2]).toStartWith("Understand it");
+  expect(plain.height).toBe(rows.length);
+  const colour = (content: typeof plain.content, glyphAt: number) => content.chunks.filter(chunk => /^[─┈]{2}$/.test(chunk.text))[glyphAt]!.fg!;
+  const hex = [palette.outgoing, palette.incoming, palette.edgeDim, palette.purple, palette.green, palette.failure];
+  const diff = helpContent({ tier: 1, vim: true, screenWidth: 140, version: "0", diff: true });
+  expect(text(diff.content)).toMatch(/── added since the base\s+┈┈ lost/);
+  hex.forEach((value, index) => expect(colour(diff.content, index).equals(RGBA.fromHex(value)), value).toBe(true));
+  // Narrow, it wraps on whole items like the rows, every line as wide as the tiers.
+  const narrow = helpContent({ tier: 1, vim: true, screenWidth: 60, version: "0", diff: true });
+  const lines = text(narrow.content).split("\n");
+  const legend = lines.slice(0, lines.findIndex(line => line.startsWith("Understand it")) - 1);
+  expect(legend.length).toBeGreaterThan(1);
+  for (const line of legend) { expect(line.length).toBe(lines[legend.length + 1]!.length); expect(line).toMatch(/^(──|┈┈) /); }
+  expect(narrow.height).toBe(lines.length);
 });
