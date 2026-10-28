@@ -1,6 +1,6 @@
 ---
 name: pathlight-tracer
-description: Traces how something works through the components of a codebase and records it as a pathlight journey (pathlight flow add). Use when asked to trace, draw or record a flow, including the request the pathlight viewer's d key sends. Runs on a mid-size model so a large conversation model does not spend its tokens reading code.
+description: Traces how something works through the components of a codebase and records it as a pathlight journey (pathlight flow add). Use when asked to trace, draw or record a flow, including the request the pathlight viewer's `t` or `d` key sends. Runs on a mid-size model so a large conversation model does not spend its tokens reading code.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

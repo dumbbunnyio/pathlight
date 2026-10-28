@@ -16,7 +16,7 @@ test("an ask message leads with the question, adds the component's context, and 
 test("t asks or tells, and both close their loop: a drawn question is recorded as a journey, an instruction declares its plan before the first edit", () => {
   const target = { title: "Orders", id: "parcel.orders", files: ["src/orders.ts"], links: [] };
   const asked = askMessage(target, "how does an order reach shipping?", true);
-  expect(asked).toContain("Answer here, and also record the path as a pathlight journey (pathlight flow add, as the pathlight skill says) so it appears on the map and F walks it.");
+  expect(asked).toContain('Load the pathlight skill and follow its "Requests from the viewer" section: answer here, and have the path recorded as a pathlight journey (pathlight flow add) so it appears on the map and F walks it.');
   expect(asked).toContain("If this asks you to change the code, before editing any file run pathlight plan parcel.orders with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight skill says how); run pathlight plan with no ids when done.");
   expect(askMessage(target, "why is it slow?")).not.toContain("pathlight journey");
   expect(askMessage(target, "add a refunds endpoint")).toContain("run pathlight plan parcel.orders");
@@ -45,6 +45,19 @@ test("a request names at most six files: those on the component's edges by how m
   const many = Array.from({ length: 9 }, (_, index) => `s/${index}.ts`);
   const picked = relevantFiles({ files: [...many, "s/main.ts"], neighbours: ["n.ts"], imports: many.map(file => ({ from: "n.ts", to: file })), description: "Entry is s/main.ts" });
   expect(picked).toEqual(["s/0.ts", "s/1.ts", "s/2.ts", "s/3.ts", "s/4.ts", "s/main.ts"]);
+});
+
+test("test files come last in a request, however many neighbours import them", () => {
+  // Outline's server: every plugin test imports server/test/factories.ts, which ranked it above the server's own entry.
+  const files = ["server/main.ts", "server/test/factories.ts", "server/env.ts", "server/routes/auth.spec.ts", "server/utils/a.test.ts", "server/__mocks__/x.ts"];
+  const neighbours = ["plugins/a.ts", "plugins/b.ts", "plugins/c.ts", "plugins/d.ts"];
+  const imports = [
+    ...neighbours.map(from => ({ from, to: "server/test/factories.ts" })), ...neighbours.slice(0, 3).map(from => ({ from, to: "server/__mocks__/x.ts" })),
+    ...neighbours.slice(0, 2).map(from => ({ from, to: "server/routes/auth.spec.ts" })), { from: "plugins/a.ts", to: "server/utils/a.test.ts" },
+    { from: "plugins/a.ts", to: "server/main.ts" }, { from: "plugins/a.ts", to: "server/env.ts" }, { from: "plugins/b.ts", to: "server/env.ts" },
+  ];
+  expect(relevantFiles({ files, neighbours, imports })).toEqual(
+    ["server/env.ts", "server/main.ts", "server/test/factories.ts", "server/__mocks__/x.ts", "server/routes/auth.spec.ts", "server/utils/a.test.ts"]);
 });
 
 test("t types a question about the selected node into the harness pane; Enter submits it and Alt+Enter adds a line", async () => {
@@ -76,7 +89,7 @@ test("t types a question about the selected node into the harness pane; Enter su
     await tmux("send-keys", "-t", shown.pane, "Enter");
     const first = await until(harness, text => (text.replace(/\n/g, "").match(/how does Agent adapters work\?/g) ?? []).length >= 2, "first question echoed back");
     expect(first.replace(/\n/g, "")).toContain('About the "Agent adapters" component (plugin): how does Agent adapters work?');
-    expect(first.replace(/\n/g, "")).toContain("also record the path as a pathlight journey");
+    expect(first.replace(/\n/g, "")).toContain("have the path recorded as a pathlight journey");
     // Once asked, t opens empty.
     await tmux("send-keys", "-t", shown.pane, "t");
     await until(shown.pane, text => text.includes("Ask the agent"), "ask prompt");
@@ -124,7 +137,7 @@ test("t types a question about the selected node into the harness pane; Enter su
     await until(shown.pane, text => text.includes("● draw it"), "draw it back on");
     await tmux("send-keys", "-t", shown.pane, "Enter");
     const drawn = await until(harness, text => (text.replace(/\n/g, "").match(/how is a call recorded\?/g) ?? []).length >= 2, "how-question echoed back");
-    expect(drawn.replace(/\n/g, "").split("how is a call recorded?")[1]).toContain("also record the path as a pathlight journey");
+    expect(drawn.replace(/\n/g, "").split("how is a call recorded?")[1]).toContain("have the path recorded as a pathlight journey");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

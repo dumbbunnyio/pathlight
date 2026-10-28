@@ -44,7 +44,9 @@ test("the plugin's hook records an event through the pathlight command, and cost
     // Without the command on PATH the hook still exits successfully.
     const missing = Bun.spawn(["sh", "-c", command], { stdin: "pipe", stdout: "pipe", stderr: "pipe",
       env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME ?? "/", CLAUDE_PROJECT_DIR: workspace } });
-    missing.stdin.write(payload); missing.stdin.end();
+    // The hook may exit before reading its input, so the write can meet a closed pipe; that is not a failure.
+    await Promise.resolve().then(() => { missing.stdin.write(payload); return missing.stdin.end(); })
+      .catch((error: { code?: string }) => { if (error?.code !== "EPIPE") throw error; });
     expect(await missing.exited).toBe(0);
     await delay(50);
   } finally { await rm(directory, { recursive: true, force: true }); }
