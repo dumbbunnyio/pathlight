@@ -134,3 +134,26 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await rm(directory, { recursive: true, force: true });
   }
 }, 30000);
+
+test("cards of one size keep one size at any zoom: after + twice and - twice every card has the same rows and columns", async () => {
+  // Every whole card on the canvas: a rounded top border of dashes, sides of bars, a rounded bottom.
+  const cards = (screen: string) => {
+    const lines = screen.split("\n"), found: { width: number; height: number }[] = [];
+    lines.forEach((line, top) => [...line].forEach((glyph, left) => {
+      if (glyph !== "╭") return;
+      const right = line.indexOf("╮", left);
+      if (right < 0 || ![...line.slice(left + 1, right)].every(dash => dash === "─")) return;
+      let bottom = top + 1;
+      while ((lines[bottom]?.[left] === "│") && lines[bottom]?.[right] === "│") bottom++;
+      if (bottom > top + 1 && lines[bottom]?.[left] === "╰" && lines[bottom]?.[right] === "╯") found.push({ width: right - left + 1, height: bottom - top + 1 });
+    }));
+    return found;
+  };
+  for (const keys of ["+,+", "-,-"]) {
+    const screen = await run(process.execPath, [resolve("src/cli.ts"), "see", "live", "--workspace", "tests/fixtures/viewer", "--cols", "140", "--rows", "36", `--keys=${keys}`]);
+    expect(screen, keys).not.toContain("zoom 100%");
+    const found = cards(screen);
+    expect(found.length, keys).toBeGreaterThanOrEqual(3);
+    expect(new Set(found.map(card => `${card.width}x${card.height}`)).size, `${keys}\n${screen}`).toBe(1);
+  }
+}, 60_000);

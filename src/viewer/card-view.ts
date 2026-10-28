@@ -10,6 +10,8 @@ export const dashed = { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bott
 /** What a card is to the viewer at this moment. */
 export interface CardFacts {
   title: string; kind: string; group: boolean; tags: readonly string[];
+  /** Whether leaf cards spend their first row on the kind and status: the view decides, so it is on every card or none. */
+  header: boolean;
   related: ActivityEvent[]; now: number;
   selected: boolean; neighbour: boolean; previewed: boolean; flashing: boolean;
   /** Planned in the mapping and with no files yet; in the agent's plan; observed outside a plan that is set. */
@@ -21,7 +23,7 @@ export interface CardFacts {
 
 /**
  * How a card looks: its border colour and dashes, the text in its top border (a group's title; a leaf's observed tag) and a leaf's label (the kind and
- * status on the first row, then the title). Selection and the panel cursor's target take the accent; neighbours are a step brighter; a running call
+ * status on the first row when the view has that row, then the title, with any spare rows blank beneath it). Selection and the panel cursor's target take the accent; neighbours are a step brighter; a running call
  * pulses the accent; a card off the flow's path steps back.
  */
 export function cardLook(card: CardFacts) {
@@ -59,7 +61,7 @@ export function cardLook(card: CardFacts) {
   const title = !tag ? undefined : width >= tag.text.length + 6 ? ` ${tag.text} ` : width >= 7 ? ` ${tag.text.slice(0, tag.text.indexOf(" ") > 0 ? tag.text.indexOf(" ") : 1)} ` : undefined;
   const statusText = [stateText, counts].filter(Boolean).join(" ");
   const kindText = card.kind.length + (statusText ? statusText.length + 1 : 0) < textWidth ? card.kind : "";
-  const header = rows >= 2 && (statusText || (kindText && kindText.length < textWidth));
+  const header = card.header && rows >= 2;
   const gap = Math.max(1, textWidth - kindText.length - statusText.length);
   const first: TextChunk[] = header ? [fg(palette.muted)(kindText.slice(0, Math.max(0, textWidth - statusText.length - 1))),
     fg(palette.muted)(statusText ? " ".repeat(gap) : ""), ...(stateText ? [fg(palette.muted)(stateText), fg(palette.muted)(counts ? ` ${counts}` : "")] : [fg(palette.muted)(counts)]), nl] : [];

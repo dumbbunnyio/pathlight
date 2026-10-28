@@ -40,7 +40,7 @@ import { choose, createState, firstNode, remember, type Visit } from "./viewer/s
 import { createFlowMode, stepElement } from "./viewer/flow-mode";
 import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
-import { easeOut, fade } from "./viewer/text";
+import { easeOut, fade, wrapWords } from "./viewer/text";
 import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
 
 export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) {
@@ -54,17 +54,22 @@ let { config, files, fileError, diagrams } = world;
 type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
 const watching = Boolean(binding || following);
 const shaped = new WeakMap<Layout, Layout>();
+// Whether a view's cards spend their first row on the kind, a planned element's status or the activity counts: decided once per view, so it is on every card or none.
+const kindRows = new WeakMap<Layout, { kinds: boolean; row: boolean }>();
 const shape = (raw: Layout): Layout => {
   const known = shaped.get(raw);
   if (known) return known;
   // A planned element with no files yet keeps its `[planned]` row; the kind row is drawn only when kinds vary among the view's cards. Watching a session,
   // every card keeps that row, so the activity counts that appear there never move the layout.
   const planned = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`)) && ![...files].some(([element, paths]) => (element === ref || element.startsWith(`${ref}.`)) && paths.length);
-  const rects = compact(raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
-    x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined, status: planned(String(node.modelRef)) })), { aspect: 0.5, kindRow: kindsVary(raw.nodes) || watching });
+  const input = raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
+    x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined, status: planned(String(node.modelRef)) }));
+  const kinds = kindsVary(raw.nodes);
+  const rects = compact(input, { aspect: 0.5, kindRow: kinds || watching });
   const nodes = raw.nodes.map((node, index) => ({ ...node, x: rects[index]!.x, y: rects[index]!.y, width: rects[index]!.width, height: rects[index]!.height }));
   const next = { ...raw, nodes, bounds: boundsOf(nodes) } as Layout;
   shaped.set(raw, next);
+  kindRows.set(next, { kinds, row: kinds || watching || input.some(node => !node.children.length && node.status) });
   return next;
 };
 const getDiagram = (id: string) => {
@@ -244,7 +249,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const group = node.children.length > 0;
     const box = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: 1, height: 1,
       border: true, borderStyle: "rounded", borderColor: group ? palette.rule : palette.cardEdge, shouldFill: !group, backgroundColor: palette.background, zIndex: z,
-      justifyContent: "center", title: group ? node.title : undefined, titleColor: palette.muted, titleAlignment: group ? "left" : "right" });
+      justifyContent: group ? "center" : "flex-start", title: group ? node.title : undefined, titleColor: palette.muted, titleAlignment: group ? "left" : "right" });
     const label = new TextRenderable(renderer, { selectable: false, fg: palette.body, wrapMode: "word", content: group ? "" : node.title, marginLeft: 1, marginRight: 1 });
     // The step number sits in the card's top border, on the left (the live tag is on the right); drawn only in flow mode.
     const badge = new TextRenderable(renderer, { position: "absolute", left: 1, top: -1, selectable: false, wrapMode: "none", bg: palette.background, fg: palette.purple, visible: false });
@@ -405,23 +410,37 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       gaps = hops.length ? routeEdges(routeNodes(), hops.map(hop => ({ ...hop, points: [] })), cell).map(route => ({ ...route, gap: true as const })) : [];
       dirty = true;
     }
+    // A card's cells come from its top-left and its size, so cards of one size have the same cells wherever they sit; a group's frame rounds its
+    // corners, since it must enclose its children. At low zoom a card can land on its group's border row and hide the title: keep it inside the frame.
+    const corners = (node: (typeof diagram.nodes)[number]) => {
+      const a = camera.projected(node.x, node.y), b = camera.projected(node.x + node.width, node.y + node.height);
+      return { left: Math.round(a.x), top: Math.round(a.y), right: Math.round(b.x), bottom: Math.round(b.y) };
+    };
+    const placed = new Map(nodeObjects.map(entry => {
+      const node = entry.node, frame = corners(node);
+      if (node.children.length) return [entry, { ...frame, right: Math.max(frame.left + 3, frame.right), bottom: Math.max(frame.top + 3, frame.bottom) }] as const;
+      let { left, top } = frame;
+      let right = left + Math.max(3, Math.round(node.width / camera.scale)), bottom = top + Math.max(3, Math.round(node.height * camera.cellAspect() / camera.scale));
+      const container = diagram.nodes.find(other => other.id === node.parent);
+      if (container) {
+        const outer = corners(container);
+        left = Math.max(left, outer.left + 1); top = Math.max(top, outer.top + 1);
+        right = Math.max(left + 3, Math.min(right, outer.right - 1)); bottom = Math.max(top + 3, Math.min(bottom, outer.bottom - 1));
+      }
+      return [entry, { left, top, right, bottom }] as const;
+    }));
+    // The first row is on every card or none: a card with too few rows at this zoom for it and its title's lines takes it from all of them.
+    const rows = kindRows.get(diagram) ?? { kinds: false, row: false };
+    const header = rows.row && [...placed].every(([entry, cell]) => entry.node.children.length > 0
+      || cell.bottom - cell.top - 3 >= Math.min(2, wrapWords(entry.node.title, Math.max(4, cell.right - cell.left - 4)).length));
     for (const entry of nodeObjects) {
       const group = entry.node.children.length > 0, id = String(entry.node.id), ref = String(entry.node.modelRef);
       const related = byElement.get(ref) ?? [];
       const isSelected = id === String(state.selected?.id);
       const numbers = badges.get(id);
-      const origin = camera.projected(entry.node.x, entry.node.y);
-      const end = camera.projected(entry.node.x + entry.node.width, entry.node.y + entry.node.height);
-      let left = Math.round(origin.x), top = Math.round(origin.y), right = Math.max(left + 3, Math.round(end.x)), bottom = Math.max(top + 3, Math.round(end.y));
-      // At low zoom a card can land on its group's border row and hide the title: keep it inside the group's frame.
-      const container = diagram.nodes.find(node => node.id === entry.node.parent);
-      if (container) {
-        const a = camera.projected(container.x, container.y), b = camera.projected(container.x + container.width, container.y + container.height);
-        left = Math.max(left, Math.round(a.x) + 1); top = Math.max(top, Math.round(a.y) + 1);
-        right = Math.max(left + 3, Math.min(right, Math.round(b.x) - 1)); bottom = Math.max(top + 3, Math.min(bottom, Math.round(b.y) - 1));
-      }
+      const { left, top, right, bottom } = placed.get(entry)!;
       const width = right - left, height = bottom - top;
-      const look = cardLook({ title: entry.node.title, kind: entry.node.kind && kindsVary(diagram.nodes) ? String(entry.node.kind) : "", group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
+      const look = cardLook({ title: entry.node.title, kind: entry.node.kind && rows.kinds ? String(entry.node.kind) : "", header, group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
         selected: isSelected, previewed: previewed === id, flashing: (flashes.get(ref) ?? 0) > now,
         neighbour: diagram.edges.some(edge => (edge.target === state.selected?.id && edge.source === entry.node.id) || (edge.source === state.selected?.id && edge.target === entry.node.id)),
         unbuilt: waiting(ref), planned: Boolean(plan) && inPlan(ref), offPlan: !!plan && related.length > 0 && !inPlan(ref), numbers, flow: Boolean(flowMode.active), width, height });
@@ -433,7 +452,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       entry.rect = { x: left, y: top, width, height };
       entry.box.title = look.title;
       if (look.label) { entry.box.titleColor = look.titleColor; entry.label.content = look.label; }
-      entry.box.visible = !listMode && end.x > 0 && end.y > 0 && origin.x < viewport.width && origin.y < viewport.height;
+      entry.box.visible = !listMode && right > 0 && bottom > 0 && left < viewport.width && top < viewport.height;
       const badge = numbers && !group ? stepBadge(numbers) : "";
       entry.badge.visible = badge !== "" && width >= badge.length + 4;
       if (badge) { entry.badge.content = new StyledText([fg(id === stepNodeId ? palette.accent : palette.purple)(badge)]); }
@@ -1008,7 +1027,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const left = rect.x, top = rect.y, right = rect.x + rect.width - 1, bottom = rect.y + rect.height - 1;
         return x >= left && x <= right && y >= top && y <= bottom && (!node.children.length || x === left || x === right || y === top || y === bottom);
       });
-      for (const cell of rasterize([...routes, ...gaps], point => camera.projected(point.x, point.y), isCovered, state.selected ? String(state.selected.id) : undefined, edgeMarks(diff, diagram.nodes, diagram.edges, flowPath))) {
+      const drawnCards = new Map(nodeObjects.map(({ node, rect }) => [String(node.id), rect]));
+      for (const cell of rasterize([...routes, ...gaps], point => camera.projected(point.x, point.y), isCovered, state.selected ? String(state.selected.id) : undefined, edgeMarks(diff, diagram.nodes, diagram.edges, flowPath), id => drawnCards.get(id))) {
         // A connector stops a cell short of the inspector's divider, so it never reads as a line into the panel.
         if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width - 1 || cell.y >= viewport.height) continue;
         const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : cell.tone === "path" || cell.tone === "gap" ? palette.purple : palette.edgeDim;

@@ -191,8 +191,10 @@ const arrows: Record<Side, string> = { E: "▶", W: "◀", S: "▼", N: "▲" };
  * Projected routes as terminal cells. Quiet connectors are dotted where they run straight; the selected node's are
  * solid and tinted by direction; a flow's gap (a hop no connector draws) is dotted in the agent's colour. `covered` hides cells under nodes; `t` is the position along the route (0..1).
  * `marks` (keyed `source\0target`) picks out connectors whose imports were added or lost since a base commit: solid, in their own tints, under the selection's.
+ * `cards` gives a node's cells as drawn: a route leaves and enters on that card's middle row (with the horizontal run attached), whatever the zoom
+ * did to the world middle; the trunk column is unchanged.
  */
-export function rasterize(routes: readonly Route[], project: (point: Point) => Point, covered: (x: number, y: number) => boolean, selected: string | undefined, marks: ReadonlyMap<string, "added" | "lost" | "path"> = new Map()): RasterCell[] {
+export function rasterize(routes: readonly Route[], project: (point: Point) => Point, covered: (x: number, y: number) => boolean, selected: string | undefined, marks: ReadonlyMap<string, "added" | "lost" | "path"> = new Map(), cards?: (id: string) => { x: number; y: number; width: number; height: number } | undefined): RasterCell[] {
   const cells = new Map<string, { x: number; y: number; mask: number; tone: RasterCell["tone"]; t: number; arrow?: string }>();
   const toneOf = (route: Route): RasterCell["tone"] => route.gap ? "gap" : route.source === selected ? "out" : route.target === selected ? "in" : marks.get(`${route.source}\0${route.target}`) ?? "dim";
   const rank = (tone: RasterCell["tone"]) => tone === "dim" ? 0 : tone === "added" || tone === "lost" || tone === "path" || tone === "gap" ? 1 : 2;
@@ -200,6 +202,18 @@ export function rasterize(routes: readonly Route[], project: (point: Point) => P
   for (const route of ordered) {
     const tone = toneOf(route);
     const points = route.points.map(project).map(point => ({ x: Math.round(point.x), y: Math.round(point.y) }));
+    const projected = points.map(point => ({ ...point })), last = points.length - 1;
+    const from = cards?.(route.source), to = cards?.(route.target);
+    if (from && last > 0) {
+      const middle = from.y + Math.floor(from.height / 2);
+      points[0] = { x: from.x + from.width, y: middle };
+      if (last > 1 && projected[1]!.y === projected[0]!.y) points[1] = { x: projected[1]!.x, y: middle };
+    }
+    if (to && last > 0) {
+      const middle = to.y + Math.floor(to.height / 2);
+      points[last] = { x: to.x, y: middle };
+      if (last > 1 && projected[last - 1]!.y === projected[last]!.y) points[last - 1] = { x: projected[last - 1]!.x, y: middle };
+    }
     let length = 0;
     for (let index = 1; index < points.length; index++) length += Math.abs((points[index]?.x ?? 0) - (points[index - 1]?.x ?? 0)) + Math.abs((points[index]?.y ?? 0) - (points[index - 1]?.y ?? 0));
     let walked = 0;
