@@ -19,18 +19,31 @@ export const staleBadge = (stale: Stale | undefined, room: number, now: number):
 };
 
 /**
- * The header's right-hand side: the replay, or the new dependencies waiting for a verdict (the one thing in the header that asks for a decision),
- * then the last check, then the live session when there is one (a spinner replaces the dot while a tool runs).
+ * New dependencies waiting for a verdict and an out-of-date check, as one badge: `▲ 2 new dependencies · 3 files not in the model · c review`,
+ * shortened the way the out-of-date badge is (the details go first, then the count of new dependencies), and nothing when even that does not fit.
+ */
+export const reviewBadge = (open: number, stale: Stale | undefined, room: number): TextChunk[] => {
+  const detail = staleText(stale), deps = `${open} new dependenc${open === 1 ? "y" : "ies"}`;
+  const text = [`▲ ${deps} · ${detail} · c review `, `▲ ${deps} · out of date · c review `, `▲ ${deps} · c review `, "▲ c review "].find(option => option.length <= room);
+  return text ? [fg(palette.accent)(text)] : [];
+};
+
+/**
+ * The header's right-hand side: the replay, or the new dependencies waiting for a verdict (the one thing in the header that asks for a decision;
+ * with an out-of-date check it is one badge), then the last check, then the live session when there is one (a spinner replaces the dot while a tool runs).
  */
 export const badgeContent = (options: { width: number; replay: boolean; live: string; bound: boolean; watching: boolean; busy: boolean; open: number; stale: Stale | undefined; now: number }) => {
   const room = Math.max(0, options.width - 40), { open, live } = options;
   if (options.replay) return new StyledText([fg(palette.accent)("◀ replay"), fg(palette.border)(` ${live} `)]);
+  const sessionRoom = options.watching ? 8 + live.length : 0;
+  const merged = open > 0 && staleText(options.stale) !== undefined;
   const ask = open ? `▲ ${open} new dependenc${open === 1 ? "y" : "ies"} · c review ` : "";
-  const review = ask && ask.length <= room ? [fg(palette.accent)(ask)] : [];
-  const left = room - (review.length ? ask.length : 0);
-  if (!options.watching) { const only = [...review, ...staleBadge(options.stale, left, options.now)]; return only.length ? new StyledText(only) : ""; }
+  const review = merged ? reviewBadge(open, options.stale, room - sessionRoom) : ask && ask.length <= room ? [fg(palette.accent)(ask)] : [];
+  const left = room - (review.length ? ask.length : 0) - sessionRoom;
+  const check = merged ? [] : staleBadge(options.stale, left, options.now);
+  if (!options.watching) { const only = [...review, ...check]; return only.length ? new StyledText(only) : ""; }
   const session = [fg(options.bound ? palette.incoming : palette.muted)(`${options.busy ? spinAt(options.now) : "●"} live`), fg(palette.border)(` ${live} `)];
-  return new StyledText([...review, ...staleBadge(options.stale, left - 8 - live.length, options.now), ...session]);
+  return new StyledText([...review, ...check, ...session]);
 };
 
 /** What the last `pathlight diff` found, for the breadcrumb. Nothing changed, nothing said; new dependencies are the header's review, not repeated here. */
