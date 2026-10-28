@@ -17,7 +17,7 @@ const Kind = Schema.Literals(["import", "type", "reexport", "dynamic", "require"
  * dates or absolute paths, so scanning the same tree twice gives the same text.
  */
 /** Bump when a change to the scanner can change its output for the same files: `pathlight diff` keeps the base commit's scan and trusts it only for the same revision. */
-export const scanRevision = 4;
+export const scanRevision = 5;
 
 export const Scan = Schema.Struct({
   version: Schema.Literal(1),
