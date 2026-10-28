@@ -30,8 +30,10 @@ export function createAskDialog<Target extends AskTarget>(options: {
   // What to send with the question: files, connections, activity, and whether to draw the answer. `draw it` follows the question (on for a
   // how-question) until the user flips it.
   const include = [true, true, false, false];
-  let drawFlipped: boolean | undefined;
-  const drawing = () => drawFlipped ?? isHowQuestion(askInput.plainText);
+  let drawFlipped: boolean | undefined, offered = "";
+  // The question as it stands: what is typed, else the one offered on first open (shown as the placeholder, so typing starts afresh).
+  const typedOrOffered = () => askInput.plainText.trim() || offered;
+  const drawing = () => drawFlipped ?? isHowQuestion(typedOrOffered());
   let mode: "ask" | "map" | "flow" | "name" | "note" = "ask", editKey = "", editTitle = "", noteDraft = "";
   let focus = -1, spans: { from: number; to: number }[] = [];
   const render = () => {
@@ -78,7 +80,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
   };
   const flip = (index: number) => { if (index === 3) drawFlipped = !drawing(); else include[index] = !include[index]; };
   const open = (target: Target, next: typeof mode, text: string, placeholder: string) => {
-    asking = target; mode = next; drawFlipped = undefined; options.opening();
+    asking = target; mode = next; drawFlipped = undefined; offered = ""; options.opening();
     askInput.placeholder = placeholder;
     askInput.setText(text); askInput.gotoBufferEnd(); askInput.height = 1; askRow.height = 3;
     ask.open(Math.min(76, renderer.width - 4), 10);
@@ -107,11 +109,11 @@ export function createAskDialog<Target extends AskTarget>(options: {
     toggle() { flip(focus); render(); },
     /** The question typed so far changed: `draw it` may follow it. */
     typed() { if (asking && mode === "ask") render(); },
-    /** `question` is typed in already (the first-open prompt), so the first ask is one Enter. */
-    beginAsk(question = "") {
+    /** `offer` is the first-open question: shown in the field, sent by Enter alone, replaced by anything typed. */
+    beginAsk(offer = "") {
       if (!options.parent) { tell("Ask needs the viewer opened with pathlight show, which knows your agent's pane"); return; }
       const target = options.selected();
-      if (target) open(target, "ask", question, "Ask how something works, or tell it what to change");
+      if (target) { open(target, "ask", "", offer || "Ask how something works, or tell it what to change"); offered = offer; render(); }
     },
     beginMap() {
       if (!options.parent) { tell("Changing the map needs the viewer opened with pathlight show, which knows your agent's pane"); return; }
@@ -130,9 +132,9 @@ export function createAskDialog<Target extends AskTarget>(options: {
         open(target, "name", entry?.title ?? target.title, "Name");
       })), Effect.catch(error => Effect.sync(() => tell(error.message)))));
     },
-    /** The question and the chosen context go to the agent's pane and are submitted there; an empty question sends nothing. */
+    /** The question and the chosen context go to the agent's pane and are submitted there; an empty question sends nothing (the offered one counts). */
     send() {
-      const target = asking, parent = options.parent, question = askInput.plainText.trim();
+      const target = asking, parent = options.parent, question = typedOrOffered();
       if (target && mode === "name") { editTitle = question; mode = "note"; askInput.setText(noteDraft); askInput.gotoBufferEnd(); askInput.placeholder = "A line about what it is for"; render(); return; }
       if (target && mode === "note") {
         const key = editKey, entry = { title: editTitle, note: question }, generated = target.title;

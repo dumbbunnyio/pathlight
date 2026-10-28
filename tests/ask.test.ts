@@ -70,9 +70,9 @@ test("t types a question about the selected node into the harness pane; Enter su
     };
     await until(shown.pane, text => text.includes("Selected: plugin"), "viewer");
     await delay(700);
-    // On first open t offers the first question about the box the view opens on, typed, with draw it on, so the first ask is one Enter.
+    // On first open t offers the first question about the box the view opens on, with draw it on, so the first ask is one Enter.
     await tmux("send-keys", "-t", shown.pane, "t");
-    await until(shown.pane, text => text.includes("Ask the agent") && text.includes("● draw it"), "first question typed, draw it on");
+    await until(shown.pane, text => text.includes("Ask the agent") && text.includes("how does Agent adapters work?") && text.includes("● draw it"), "first question offered, draw it on");
     await tmux("send-keys", "-t", shown.pane, "Enter");
     const first = await until(harness, text => (text.replace(/\n/g, "").match(/how does Agent adapters work\?/g) ?? []).length >= 2, "first question echoed back");
     expect(first.replace(/\n/g, "")).toContain('About the "Agent adapters" component (plugin): how does Agent adapters work?');
