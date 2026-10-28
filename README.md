@@ -1,7 +1,7 @@
 # Pathlight
 
 Show LikeC4 architecture diagrams beside an agent conversation in tmux.
-LikeC4 owns the model and layout. OpenTUI renders interactive terminal nodes, groups, and connectors by default.
+LikeC4 owns the model and its arrangement; Pathlight sets the spacing and card sizes so titles stay readable. OpenTUI renders interactive terminal nodes, groups, and connectors by default.
 The viewer can show live tool activity mapped to architecture elements. It does not infer test status or runtime service traffic.
 
 See [project intent](docs/project-intent.md) for the goals, accepted design and

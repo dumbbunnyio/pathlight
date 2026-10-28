@@ -39,7 +39,7 @@ Pathlight lets an engineer follow what an AI harness is doing, understand their 
 | --- | --- |
 | CLI, model/view selection, workspace setup (`pathlight setup` is the first run: checks, then draws a first model with `--yes`; `init` wires hooks and recording, `init --global` the OpenCode plugin for every project). Distribution: `install.sh`, `scripts/build-npm.sh` (the `@dumbbunnyio/pathlight` npm package is `npm/launcher.cjs` plus one package per platform holding its binary, and unscoped `pathlight` is `npm/pointer.cjs`, which runs it; the launcher passes its parent so `atShellPrompt` in `src/tmux.ts` still sees the shell), `tests/npm-package.test.ts` | `src/cli.ts`, `src/catalog.ts`, `src/init.ts`, `src/setup.ts`, `src/layout.ts` (the one place that names the `.pathlight/` folder and the files in it) |
 | Owned tmux pane launch/replacement, readiness | `src/tmux.ts`, `src/ready.ts` |
-| Native UI and camera | `src/native-viewer.ts` (state, camera, keys, wiring); `src/viewer/` holds what it shows as pure functions: `cards.ts` (Connects, In flows, Steps, Files), `activity-view.ts` (Now, the session summary, the header line, card tags), `help.ts`, `text.ts` (clipping, wrapping, colour fades), and `widgets.ts` (every widget, built once). New screen text goes in `src/viewer/`, taking what it shows as arguments |
+| Native UI and camera | `src/native-viewer.ts` (wiring, widgets, the update loop, the resource scope); `src/viewer/camera.ts` (the eased Three camera, fit, reveal), `keys.ts` (what a key means in each mode, and the table `?` and the footer read), `state.ts` (selection, Back history, focus, cursors, the first selection), `compact.ts` (compact fit); `src/viewer/` holds what it shows as pure functions: `cards.ts` (Connects, In flows, Steps, Files), `activity-view.ts` (Now, the session summary, the header line, card tags), `help.ts`, `text.ts` (clipping, wrapping, colour fades), `card-view.ts` (a card's border and label), `inspector-view.ts` (the head, card headers and their share of the panel), `header.ts` and `footer.ts`, `pickers.ts` (search and themes), `where.ts` (which node or view has an element), and `widgets.ts` (every widget, built once); `ask-dialog.ts`, `theme-picker.ts` and `flow-mode.ts` are small controllers with their own state, and `world.ts` reads the model, mapping and checks. New screen text goes in `src/viewer/`, taking what it shows as arguments |
 | Themes: OpenCode-format JSON, derived palette, live recolouring | `src/theme.ts`, `src/retheme.ts`, `src/themes/` (vendored OpenCode themes, see `NOTICE.md`), palette in `src/ui.ts` |
 | Orthogonal connector routing and rasterization | `src/routes.ts` |
 | Static scan and model/mapping check (`pathlight scan`, `pathlight check`) | `src/scan.ts`, `src/scan-imports.ts`, `src/brief.ts` (`pathlight brief` lists each box's files, imports and contents for an agent to name it; `pathlight name` saves what the agent worked out as `by: "agent"`, never over a person's name), `src/check.ts` (`compareImports`, shared with `src/diff.ts`: changes since a git commit), `src/draft.ts`, `src/stale.ts` (the out-of-date stamp), `src/plan.ts` (the agent's plan, ids only), `src/review.ts` (verdicts on new dependencies, kept in `.cache/pathlight/decisions.json`) |
@@ -52,8 +52,10 @@ Pathlight lets an engineer follow what an AI harness is doing, understand their 
 
 ## Contracts to preserve
 
-1. **LikeC4 is authoritative.** Keep its identities, hierarchy, layout and
-   explicit `navigateTo` links. Do not infer navigation from shared elements.
+1. **LikeC4 is authoritative.** Keep its identities, hierarchy and explicit
+   `navigateTo` links; keep its arrangement (order, ranks, nesting, which side
+   an edge leaves); the spacing and card sizes are Pathlight's (compact fit,
+   `src/viewer/compact.ts`). Do not infer navigation from shared elements.
 2. **Interaction is native.** Nodes are interactive widgets, not highlights
    over an image. Hit targets must match visible terminal cells, including group
    titles after projection, pan, zoom and resize.

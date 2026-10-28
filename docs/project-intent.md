@@ -48,7 +48,9 @@ repository's own journals).
 
 ### Architecture comes from LikeC4
 
-LikeC4 owns element IDs, relationships, hierarchy and diagram layout. Navigation
+LikeC4 owns element IDs, relationships, hierarchy and the diagram's arrangement
+(order, ranks, nesting, which side an edge leaves); the spacing and card sizes
+are Pathlight's (compact fit). Navigation
 between views follows explicit links. File attribution comes from explicit
 workspace mappings, not agent guesses or title matching.
 
