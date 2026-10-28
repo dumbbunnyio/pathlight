@@ -212,7 +212,7 @@ test("the search picker isolates typing, ranks this view first, searches other v
     await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "search-test", "-x", "90", "-y", "36",
       "-P", "-F", "#{pane_id}", process.execPath, resolve("src/cli.ts"), "view", "services",
-      "--workspace", directory, "--project", "parcel");
+      "--workspace", directory, "--project", "parcel", "--select", "customer");
     const capture = async (text: string | RegExp) => {
       let output = "";
       for (let attempt = 0; attempt < 120; attempt++) {
@@ -298,7 +298,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
       "-P", "-F", "#{pane_id}", "sleep", "120");
     await tmux("set-option", "-w", "remain-on-exit", "on");
     await tmux("respawn-pane", "-k", "-t", pane, process.execPath, resolve("src/cli.ts"), "view", "index",
-      "--workspace", directory, "--project", "parcel", "--session", "navigation-test", "--source", "claude");
+      "--workspace", directory, "--project", "parcel", "--session", "navigation-test", "--source", "claude", "--select", "customer");
     const capture = async (text: string | RegExp) => {
       let output = "";
       for (let attempt = 0; attempt < 120; attempt++) {
@@ -324,8 +324,9 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "Tab", "Enter");
     await capture("back 1");
     await delay(100);
-    await tmux("send-keys", "-t", pane, "Tab", "Tab", "Tab");
-    await capture("Selected: parcel.commerce");
+    // Services opens on its entry, the checkout API; one step back in the view's order is the commerce group.
+    await tmux("send-keys", "-t", pane, "BTab");
+    await capture(/Selected: parcel\.commerce\s/);
     await tmux("send-keys", "-t", pane, "0", "+");
     await capture("zoom 125%");
     await delay(700);
@@ -346,7 +347,8 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "o");
     await capture("back 2");
     await delay(100);
-    await tmux("send-keys", "-t", pane, "Tab", "Tab", "Enter");
+    // Checkout opens on its entry too; up to the commerce group, then Enter goes into it, to its first child.
+    await tmux("send-keys", "-t", pane, "BTab", "Enter");
     await capture("Selected: parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "0", "r");
     await delay(700);
@@ -383,7 +385,7 @@ test.each([
     ] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "groups-test", "-x", "120", "-y", "45",
       "-P", "-F", "#{pane_id}", process.execPath, resolve("src/cli.ts"), "view", scenario.view,
-      "--workspace", directory, "--project", "parcel", "--session", "group-test", "--source", "claude");
+      "--workspace", directory, "--project", "parcel", "--session", "group-test", "--source", "claude", "--select", scenario.initial);
     const capture = async (text: string) => {
       let output = "";
       for (let attempt = 0; attempt < 120; attempt++) {

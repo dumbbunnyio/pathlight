@@ -37,11 +37,17 @@ export const choose = <Node>(state: { selected: Node | undefined; fileCursor: nu
 };
 
 /**
- * The node a view opens on. A view about one element (a neighbourhood) opens with that element selected; any other opens on its first node.
- * `pathlight draft` names a component's neighbourhood `<component>_near`, scoped to it when it can be, which is how the subject is found when it cannot.
+ * The node a view opens on. A view about one element (a neighbourhood) opens with that element selected: `pathlight draft` names a component's
+ * neighbourhood `<component>_near`, scoped to it when it can be, which is how the subject is found when it cannot. Any other view opens on its entry:
+ * the node the most connectors leave (the first of those in the view's order), else the first node that links to another view, else the first node.
  */
-export const firstNode = <Node extends SceneNode>(scene: Scene<Node>) => {
+export const firstNode = <Node extends SceneNode & { navigateTo?: unknown }>(scene: Scene<Node> & { edges?: readonly { source: unknown }[] }) => {
   const subject = scene.viewOf;
-  return scene.nodes.find(node => subject !== undefined && String(node.modelRef) === String(subject))
-    ?? scene.nodes.find(node => `${String(node.modelRef).replace(/\./g, "_")}_near` === String(scene.id)) ?? scene.nodes[0];
+  const about = scene.nodes.find(node => subject !== undefined && String(node.modelRef) === String(subject))
+    ?? scene.nodes.find(node => `${String(node.modelRef).replace(/\./g, "_")}_near` === String(scene.id));
+  if (about) return about;
+  const leaving = new Map<unknown, number>();
+  for (const edge of scene.edges ?? []) leaving.set(edge.source, (leaving.get(edge.source) ?? 0) + 1);
+  const most = Math.max(0, ...leaving.values());
+  return (most ? scene.nodes.find(node => leaving.get(node.id) === most) : undefined) ?? scene.nodes.find(node => node.navigateTo) ?? scene.nodes[0];
 };

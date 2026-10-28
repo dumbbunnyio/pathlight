@@ -12,7 +12,7 @@ test("g lists every view in the project, narrows as you type, and jumps on Enter
   try {
     await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "goto", "-x", "130", "-y", "40", "-P", "-F", "#{pane_id}",
-      process.execPath, resolve("src/cli.ts"), "view", "index", "--project", "parcel", "--workspace", directory);
+      process.execPath, resolve("src/cli.ts"), "view", "index", "--project", "parcel", "--workspace", directory, "--select", "customer");
     const screen = () => tmux("capture-pane", "-p", "-t", pane);
     const until = async (predicate: (text: string) => boolean, label: string) => {
       let output = "";

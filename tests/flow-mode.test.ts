@@ -59,7 +59,7 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "flow", "-x", "170", "-y", "42", "-P", "-F", "#{pane_id}",
-      process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", directory, "--project", "parcel");
+      process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", directory, "--project", "parcel", "--select", "customer");
     const screen = () => tmux("capture-pane", "-p", "-t", pane);
     const until = async (predicate: (text: string) => boolean, label: string) => {
       let output = "";
@@ -133,7 +133,7 @@ test("e on a step that names a function opens it in the editor at the line the f
     await mkdir(join(directory, "bin"));
     await writeFile(join(directory, "bin/nvim"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${join(directory, "editor-args")}"\n`, { mode: 0o755 });
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "flow", "-x", "170", "-y", "42", "-P", "-F", "#{pane_id}",
-      "env", `VISUAL=${join(directory, "bin/nvim")}`, process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", directory, "--project", "parcel");
+      "env", `VISUAL=${join(directory, "bin/nvim")}`, process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", directory, "--project", "parcel", "--select", "customer");
     const until = async (predicate: (text: string) => boolean, label: string) => {
       let output = "";
       for (let attempt = 0; attempt < 160; attempt++) {

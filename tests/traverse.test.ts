@@ -12,7 +12,7 @@ test("hjkl select the neighbouring node, arrows pan without selecting, and v swa
   try {
     await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "traverse-test", "-x", "120", "-y", "40", "-P", "-F", "#{pane_id}",
-      process.execPath, resolve("src/cli.ts"), "view", "services", "--project", "parcel", "--workspace", directory);
+      process.execPath, resolve("src/cli.ts"), "view", "services", "--project", "parcel", "--workspace", directory, "--select", "customer");
     const screen = () => tmux("capture-pane", "-p", "-t", pane);
     const until = async (text: string) => {
       let output = "";
