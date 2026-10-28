@@ -1,7 +1,9 @@
 import { wrapWords } from "./text";
 
 /** A diagram node as compact fit reads it, in LikeC4's world units (16 units are one column at 100%; a row is `16 / aspect`). */
-export interface CompactNode { id: string; parent: string | null; children: readonly string[]; x: number; y: number; width: number; height: number; title: string; kind?: string }
+export interface CompactNode { id: string; parent: string | null; children: readonly string[]; x: number; y: number; width: number; height: number; title: string; kind?: string;
+  /** A status row it always shows (a planned element), which a card without a kind row needs a row for. */
+  status?: boolean }
 export interface Rect { x: number; y: number; width: number; height: number }
 
 export interface CompactOptions {
@@ -32,7 +34,7 @@ type Axis = "x" | "y";
 
 /**
  * Compact fit: LikeC4's arrangement with Pathlight's spacing and card sizes. Every leaf card gets a readable size in cells (its title on one or two
- * lines, never narrower than it was at 100%, at most 32 columns; 4 rows, 5 for two lines, one fewer without a kind row) and the space between cards
+ * lines, never narrower than it was at 100%, at most 32 columns; 4 rows, 5 for two lines, one fewer without a kind or status row) and the space between cards
  * shrinks to a small gap. What is kept, on each axis: a card that ended before another began still does (with at least the gap between them, more
  * when group frames stand between them), cards that overlapped still overlap, cards that shared a left or top edge (a dagre rank) still share it, and
  * a group is the box around its children with its frame and a clear cell. The result is in the same units, deterministic and idempotent.
@@ -55,7 +57,7 @@ export function compact(nodes: readonly CompactNode[], options: CompactOptions):
   // Sizes in cells.
   const size = new Map(leaves.map(leaf => {
     const fit = cardSize(leaf.title, Math.round(leaf.width / unit.x));
-    return [leaf.id, { x: fit.width, y: 2 + (options.kindRow ? 1 : 0) + fit.lines }];
+    return [leaf.id, { x: fit.width, y: 2 + (options.kindRow || leaf.status ? 1 : 0) + fit.lines }];
   }));
   const place = (axis: Axis) => {
     const extent = axis === "x" ? "width" : "height";
@@ -101,6 +103,9 @@ export function compact(nodes: readonly CompactNode[], options: CompactOptions):
   };
   return nodes.map(node => ({ ...node, ...(groupRect(node) ?? { x: node.x, y: node.y, width: node.width, height: node.height }) }));
 }
+
+/** Whether a view's leaf cards are of more than one kind: only then does a card spend a row saying which (every box reading `component` says nothing). */
+export const kindsVary = (nodes: readonly { children: readonly unknown[]; kind?: unknown }[]) => new Set(nodes.filter(node => !node.children.length).map(node => String(node.kind ?? ""))).size > 1;
 
 /** The box around every node. */
 export const boundsOf = (nodes: readonly Rect[]): Rect => {

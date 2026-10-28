@@ -24,7 +24,7 @@ import { writeReady } from "./ready";
 import { declarationLine } from "./scan-imports";
 import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
 import { createCamera } from "./viewer/camera";
-import { boundsOf, compact } from "./viewer/compact";
+import { boundsOf, compact, kindsVary } from "./viewer/compact";
 import { cardLook } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
@@ -52,12 +52,16 @@ let { config, files, fileError, diagrams } = world;
 // Compact fit: each view is drawn from a copy with Pathlight's spacing and card sizes and LikeC4's arrangement (viewer/compact.ts), made once per view.
 // A cell is taken to be half as wide as it is tall, as the camera does when the terminal does not say.
 type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
+const watching = Boolean(binding || following);
 const shaped = new WeakMap<Layout, Layout>();
 const shape = (raw: Layout): Layout => {
   const known = shaped.get(raw);
   if (known) return known;
+  // A planned element with no files yet keeps its `[planned]` row; the kind row is drawn only when kinds vary among the view's cards. Watching a session,
+  // every card keeps that row, so the activity counts that appear there never move the layout.
+  const planned = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`)) && ![...files].some(([element, paths]) => (element === ref || element.startsWith(`${ref}.`)) && paths.length);
   const rects = compact(raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
-    x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined })), { aspect: 0.5, kindRow: true });
+    x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined, status: planned(String(node.modelRef)) })), { aspect: 0.5, kindRow: kindsVary(raw.nodes) || watching });
   const nodes = raw.nodes.map((node, index) => ({ ...node, x: rects[index]!.x, y: rects[index]!.y, width: rects[index]!.width, height: rects[index]!.height }));
   const next = { ...raw, nodes, bounds: boundsOf(nodes) } as Layout;
   shaped.set(raw, next);
@@ -403,7 +407,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         right = Math.max(left + 3, Math.min(right, Math.round(b.x) - 1)); bottom = Math.max(top + 3, Math.min(bottom, Math.round(b.y) - 1));
       }
       const width = right - left, height = bottom - top;
-      const look = cardLook({ title: entry.node.title, kind: entry.node.kind ? String(entry.node.kind) : "", group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
+      const look = cardLook({ title: entry.node.title, kind: entry.node.kind && kindsVary(diagram.nodes) ? String(entry.node.kind) : "", group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
         selected: isSelected, previewed: previewed === id, flashing: (flashes.get(ref) ?? 0) > now,
         neighbour: diagram.edges.some(edge => (edge.target === state.selected?.id && edge.source === entry.node.id) || (edge.source === state.selected?.id && edge.target === entry.node.id)),
         unbuilt: waiting(ref), planned: Boolean(plan) && inPlan(ref), offPlan: !!plan && related.length > 0 && !inPlan(ref), numbers, flow: Boolean(flowMode.active), width, height });

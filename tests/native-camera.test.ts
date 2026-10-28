@@ -42,7 +42,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     expect(rendered).toMatch(/[─┈][─┈┴┬]{2,}▶/);
     await tmux("resize-window", "-t", pane, "-y", "46");
     await delay(200);
-    expect(await tmux("capture-pane", "-p", "-t", pane)).toMatch(/[─┈]{5,}▶/);
+    expect(await tmux("capture-pane", "-p", "-t", pane)).toMatch(/[─┈][─┈┴┬]{2,}▶/);
     await tmux("resize-window", "-t", pane, "-y", "45");
     await delay(200);
     const divider = rendered.split("\n")[3]?.indexOf("│") ?? -1;
