@@ -331,3 +331,62 @@ Source files in languages the scan does not read (Go, Python, Vue) were already 
 - Mealie `docs`, before: `extra.js`, `analytics.js`. After: these lead the new list: `docs/mkdocs.yml [YAML]`, `docs/docs/index.md [Markdown]`, `docs/overrides/home.html [HTML]`, the contributor and user guides…
 - The Phase 1 name scores, re-scored with `bun tests/eval/names.ts --workspace W --reference tests/eval/references/names-R.json`, are unchanged: Outline 12 of 12, Mealie 8 of 10, Miniflux 3 of 4. The overlays are Phase 1's, so they could not move. Whether the two misses this was for (`.github` as a commit checker, Mealie `docs` as JavaScript assets) now pass needs the next naming run.
 - Limit: on a large box such as Mealie's backend or Miniflux's `internal` the 40 still go mostly to translation JSON and test data, one folder at a time. The list says what is there; it does not rank what matters.
+
+## Languages (2026-10-28)
+
+The scan reads Python and Go (`docs/scan.md`, "Languages"). Each is measured against its own language's tools, written without reading the front end it checks. Runs on the reference clones themselves (read-only: `scan` and the references only); drafts and names on scratch copies.
+
+### Python against CPython
+
+```sh
+bun tests/eval/facts-python.ts --workspace pathlight-oss-test-repos/mealie --python "uv run --python 3.14 --no-project python" --out /tmp/facts-python.json
+```
+
+`tests/eval/facts_python.py` finds the statements with CPython's `ast` and resolves them with `importlib.machinery.PathFinder` over the project's roots as `sys.path`, searched together the way the interpreter searches; it follows a name taken from a package through the package's `__init__.py` to the statement that binds it, keeping the last binding as the interpreter does (the scan takes the first match). It must run on the Python the project declares: Mealie needs 3.14 (`requires-python = ">=3.14,<3.15"`), and on 3.13 `ast` cannot parse 10 files that use `except A, B:` without parentheses (PEP 758).
+
+| Mealie `2e7358d10`, 696 Python files | scan pairs | reference pairs | both | scan only | reference only |
+| --- | --- | --- | --- | --- | --- |
+| reference on CPython 3.13 | 2,777 | 2,712 | 2,711 | 66 | 1 |
+| reference on CPython 3.14, first scan rule | 2,777 | 2,776 | 2,775 | 2 | 1 |
+| reference on CPython 3.14, final | 2,776 | 2,776 | **2,776** | **0** | **0** |
+
+- **On 3.13**, all 66 scan-only pairs come from the 10 files the older `ast` could not parse (`mealie/repos/repository_generic.py` line 83, `mealie/services/scraper/cleaner.py` line 590, `mealie/core/security/providers/ldap_provider.py` line 139 …); tree-sitter reads them. The reference was wrong, not the scan.
+- **The three left on 3.14 were one scan rule, now changed.** `mealie/routes/shared/__init__.py` is a package's `__init__.py` that holds a controller of its own, and imports `from mealie.routes._base import BaseUserController, controller` and `from mealie.schema.recipe import RecipeShareTokenSummary`. The first rule treated every `from … import` in an `__init__.py` as a barrel line and kept it on the package it names (as TypeScript keeps a barrel's `export … from`), so the scan had `→ mealie/routes/_base/__init__.py` and `→ mealie/schema/recipe/__init__.py` where the reference followed the names to `base_controllers.py` (and to `recipe_share_token.py`, which line 11 also reaches). The plan's rule names a barrel's `from .mod import name`, so only relative imports in an `__init__.py` are barrel lines now; an `__init__.py`'s other imports are its own and are followed like any file's.
+- **grimp** (`uv run --python 3.14 --with grimp`, `build_graph("mealie", cache_dir=None)`, nothing written to the clone), compared at the package level (folder to folder): grimp has 523 pairs, the scan 559; all 523 are the scan's. The scan's 36 others all start or end in a folder without `__init__.py` (`mealie/alembic`, `mealie/alembic/versions`, `mealie/core/logger`, `mealie/db/fixes`, `mealie/scripts`, `mealie/services/analytics`), which grimp does not count as part of the package; CPython imports them as namespace packages.
+
+### Go against `go list`
+
+```sh
+bun tests/eval/facts-go.ts --workspace pathlight-oss-test-repos/v2 --out /tmp/facts-go.json
+```
+
+`go list -e -json ./...` in each module (`GOFLAGS=-mod=readonly`, `GOPROXY=off`: nothing fetched or written; dependencies that are not downloaded are errors, but `Imports` still come from the source), each package's `Imports`, `TestImports` and `XTestImports` within the module, against the scan's file records collapsed to their folders.
+
+| Miniflux `d5c529b9`, 434 Go files, 88 packages | scan pairs | reference pairs | both | scan only | reference only |
+| --- | --- | --- | --- | --- | --- |
+| package to package | 365 | 365 | **365** | **0** | **0** |
+
+No file in Miniflux carries a build constraint (`IgnoredGoFiles` is empty), so the expected class of disagreement, a file the scan reads and `go list` leaves out for its tags, does not occur here; the script lists such files when there are any. The comparison is at the package level, which is what `go list` answers: it cannot check which files of a package the scan chose for an import (the files that declare the names used). Of the 624 import statements into a package of several files, 3 fell back to every file of the package (a used name no file declares).
+
+### What the map says now (scratch copies, `pathlight draft` then `check` and `tests/eval/run.ts`)
+
+| | boxes / relationships | files the scorer counts | edges supported | undeclared | most boxes in a readable view |
+| --- | --- | --- | --- | --- | --- |
+| Mealie, Phase 1 map, `main`'s code | 13 / 1 | 309 of 309 | 1 of 1 | 0 | 6 |
+| Mealie, re-drafted | 13 / 3 | 802 of 802 | 3 of 3 | 0 | 6 |
+| Miniflux, Phase 1 map, `main`'s code | 4 / 0 | 5 of 5 | 0 of 0 | 0 | 4 |
+| Miniflux, re-drafted | 4 / 1 | 440 of 440 | 1 of 1 | 0 | 4 |
+
+The new arrows are Mealie's `dev → backend` (4 imports) and `.semgrep → backend` (2) and Miniflux's `root → internal` (`main.go` into `internal/cli`); this branch's `check` already reports them as undeclared on the Phase 1 maps. No box says "not read by the scan" for Python or Go (Mealie's 238 Vue files still do). The pass marks hold. **The backends are still one box each** (Mealie `mealie` 623 files, Miniflux `internal` 550): the draft opens only a package's top-level folders, for every language (Outline's `server` is one box of 947 TypeScript files too). With an overlay `split` of that folder (a measurement on separate copies, not a first run) Miniflux draws 28 boxes and 124 relationships and Mealie 26 boxes and 61, every one import-backed, but the split breaks the pass mark for children side by side (Miniflux `small` 11, Mealie `mealie` 13). Drawing the inside of a large backend needs a grouping rule the draft does not have.
+
+### Names, re-run
+
+The `pathlight-namer` subagent on scratch copies of the three repos, with the Phase 1 overlay removed and the map redrawn unnamed, run headless (`claude -p "Use the pathlight:pathlight-namer subagent for this: Name every box of the pathlight map in DIR"` with this branch's plugin), scored with `bun tests/eval/names.ts --workspace DIR --reference tests/eval/references/names-REPO.json`. The drafts did not change their boxes, so every reference box exists.
+
+| | Phase 1 | Phase 4 | time / cost | notes saying "inferred" |
+| --- | --- | --- | --- | --- |
+| Outline | 12 of 12 | 12 of 12 (`lint-staged` still misses the translation step, a near miss) | 84 s / $0.30 | 8 of 15 (11) |
+| Mealie | 8 of 10 | **9 of 10**: `docs` passes ("User and contributor documentation site: MkDocs …"); `frontend/vuetify.options.js` still fails (the note does not say it is unused) | 60 s / $0.30 | 5 of 13 (8) |
+| Miniflux | 3 of 4 | **4 of 4**: `.github` is "GitHub automation and issue templates" | 42 s / $0.22 | 0 of 4 (1) |
+
+No note describes translation files (three large boxes mention translations among their contents, which is true), so `brief`'s list of other files was left as it is. One run per repository.

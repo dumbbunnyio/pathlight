@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect";
 import { type ActivityConfig, readActivityConfig } from "./activity";
 import { acquireModel, invalidModel } from "./catalog";
 import { failure, io } from "./effects";
+import { scannedLanguages } from "./languages";
 import { listFiles, scanWorkspace, type Scan } from "./scan";
 
 const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
@@ -203,7 +204,7 @@ export const hasFindings = (check: Check) => check.summary.unmatchedMappings + c
 /** A readable report: what agrees with the code first, then what to look at, with the evidence it rests on. */
 export function formatCheck(check: Check) {
   const where = (item: typeof check.undeclared[number]["examples"][number]) => `${item.from}:${item.line} → ${item.to}`;
-  const lines = [`pathlight check · project ${check.project} · static evidence: imports in TypeScript and JavaScript only`, ""];
+  const lines = [`pathlight check · project ${check.project} · static evidence: imports in ${scannedLanguages} only`, ""];
   lines.push("Mapping", `  ${check.mappings.total} mappings${check.mappings.ignored ? `, ${check.mappings.ignored} source files ignored on purpose` : ""}`);
   for (const item of check.mappings.unmatched) lines.push(`  ▲ ${item.glob} (${item.element}) matches no files`);
   if (check.mappings.unmappedFiles.length) {

@@ -58,6 +58,8 @@ export const frontEndFor = (path: string) => byExtension.get(posix.extname(path)
 export const languageFor = (path: string) => frontEndFor(path)?.languages[posix.extname(path)];
 /** Extensions some front end reads. */
 export const scannedExtensions: ReadonlySet<string> = new Set(byExtension.keys());
+/** The languages the scan reads, as a sentence says them. */
+export const scannedLanguages = "TypeScript, JavaScript, Python and Go";
 
 /**
  * The front end that reads a file's declarations, its grammar loaded. A file no front end reads keeps TypeScript's reading, as it had before there were

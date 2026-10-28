@@ -9,7 +9,7 @@ pathlight shows a LikeC4 architecture diagram in a tmux pane beside the conversa
 
 ## Truthfulness
 
-- Say only what the tools reported. A scan or check is **static evidence** (imports in TypeScript and JavaScript). It does not show what runs, what is called over a network, or that a test passes.
+- Say only what the tools reported. A scan or check is **static evidence** (imports in TypeScript, JavaScript, Python and Go). It does not show what runs, what is called over a network, or that a test passes.
 - Never describe the diagram from memory. Open it, or run `pathlight list`, and report what happened.
 - Do not invent elements or relationships to make a check pass. A relationship needs a reason you can state from the code you read.
 - The viewer shows only observed tool calls. Never imply traffic between components.
@@ -171,6 +171,6 @@ When files are added, moved or removed, run `pathlight check --workspace .` and 
 
 ## Limits
 
-- The scan reads TypeScript and JavaScript only. Code in other languages is drawn in its own boxes ("not read by the scan") with no arrows, because its imports are unknown; say so when you describe the map. It does not follow `tsconfig` `extends`, `exports` patterns or bundler aliases; what it cannot resolve is listed, not guessed.
+- The scan reads TypeScript, JavaScript, Python and Go. Code in other languages is drawn in its own boxes ("not read by the scan") with no arrows, because its imports are unknown; say so when you describe the map. It does not follow `tsconfig` `extends`, bundler aliases, Python `sys.path` edits or Go build tags; what it cannot resolve is listed, not guessed.
 - The viewer is for Linux with tmux. Do not claim other terminals or platforms work.
 - Activity journals hold metadata only (tool, operation, file paths, time). Do not add source, commands or results to them.
