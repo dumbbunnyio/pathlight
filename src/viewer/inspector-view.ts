@@ -58,12 +58,12 @@ export const allotSections = (options: { total: number; headRows: number; shown:
   return { cards, autoFolded };
 };
 
-/** A card's header: fold marker, number and name, a rule, and its count on the right. */
-export const sectionHeader = (options: { open: boolean; focused: boolean; number: number; name: string; count: string; width: number }) => {
-  const { open, focused, number, name, count } = options;
-  const label = `${open ? "▾" : "▸"} ${number} ${name}`;
+/** A card's header: fold marker and name, a rule, and its count on the right. The key that focuses it is in `?`, not here (it read as a count). */
+export const sectionHeader = (options: { open: boolean; focused: boolean; name: string; count: string; width: number }) => {
+  const { open, focused, name, count } = options;
+  const label = `${open ? "▾" : "▸"} ${name}`;
   const rule = "─".repeat(Math.max(2, options.width - 2 - label.length - count.length - 3));
-  return new StyledText([fg(focused ? palette.accent : palette.border)(`${open ? "▾" : "▸"} `), fg(palette.border)(`${number} `),
+  return new StyledText([fg(focused ? palette.accent : palette.border)(`${open ? "▾" : "▸"} `),
     fg(focused ? palette.accent : palette.body)(name), fg(palette.rule)(` ${rule} `), fg(palette.muted)(count)]);
 };
 

@@ -103,10 +103,10 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await tmux("send-keys", "-t", pane, "e");
     await capture(/› [├└]─ activity\.ts/);
     await tmux("send-keys", "-t", pane, "-l", "z7");
-    await capture(/3 Files[─\s]+0\/0/);
+    await capture(/Files[─\s]+0\/0/);
     await writeFile(join(directory, "src/z7.ts"), "export {};\n");
     await tmux("send-keys", "-t", pane, "C-r");
-    expect(await capture(/› [├└]─ z7\.ts/)).toMatch(/3 Files[─\s]+1\/1/);
+    expect(await capture(/› [├└]─ z7\.ts/)).toMatch(/Files[─\s]+1\/1/);
     await tmux("send-keys", "-t", pane, "C-u");
     await capture(/› [├└]─ activity\.ts/);
     await tmux("send-keys", "-t", pane, "Down", "Down", "Down", "Down", "Down", "Down");

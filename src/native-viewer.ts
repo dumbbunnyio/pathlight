@@ -491,7 +491,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     layoutSections();
     for (const key of sectionOrder) {
       const entry = sections[key], focused = state.focusSection === key;
-      entry.header.content = sectionHeader({ open: isOpen(key), focused, number: entry.number, name: entry.name, count: counts[key], width: inspector.width });
+      entry.header.content = sectionHeader({ open: isOpen(key), focused, name: entry.name, count: counts[key], width: inspector.width });
       // Only the focused section shows a scrollbar, and only when it has more than fits.
       entry.content.verticalScrollBar.visible = focused && entry.content.scrollHeight > entry.content.viewport.height;
     }

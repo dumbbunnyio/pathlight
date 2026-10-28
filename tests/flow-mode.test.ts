@@ -73,7 +73,7 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
     // Flows are read after the first frame; the card says so when the selected component is in one.
     const before = await until(text => text.includes("In flows") && text.includes("◇ Placing an order"), "the In flows card");
     expect(before).toContain("◇ reading");
-    expect(before).not.toContain("2 Steps");
+    expect(before).not.toContain("Steps");
 
     await tmux("send-keys", "-t", pane, "F");
     const first = await until(text => /^ flow /m.test(text) && text.includes("1/5") && text.includes("opens checkout"), "flow mode on step 1");
@@ -92,7 +92,7 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
     // Esc leaves flow mode and brings back the connections.
     await tmux("send-keys", "-t", pane, "Escape");
     const left = await until(text => /^ diagram /m.test(text) && text.includes("Connects"), "diagram mode");
-    expect(left).not.toContain("2 Steps");
+    expect(left).not.toContain("Steps");
 
     // The next F is the other flow, a state diagram: its bug mark shows in the reader.
     await tmux("send-keys", "-t", pane, "F", "F");

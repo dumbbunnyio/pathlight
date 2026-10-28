@@ -167,7 +167,7 @@ export const helpGroups = (vim: boolean): { name: "Diagram" | "Inspector" | "Age
     { name: "Diagram", rows: [[vim ? "h j k l" : arrows, "select a neighbour"], [vim ? arrows : "h j k l", "pan"], ["+ -", "zoom"], ["f", "fit everything"],
       ["0", "actual size"], ["r", "centre the selection"], ["tab", "next node"], ["enter", "into a group / open a link"], ["backspace", "up to the parent"],
       ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"], ["F", "trace a flow (F again: next, last one leaves)"], ["[ ]", "step through the flow"]] },
-    { name: "Inspector", rows: [["i", "toggle the inspector"], ["1-4", "focus a card"], ["j k", "move / scroll"], ["space", "fold card"],
+    { name: "Inspector", rows: [["i", "toggle the inspector"], ["1–4", "focus a card"], ["j k", "move / scroll"], ["space", "fold card"],
       ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files (in a flow: read the step's function)"], ["esc", "back to diagram"]] },
     { name: "Agent", rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work, and follow it"], ["c", "review new dependencies, and what the session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
     { name: "Global", rows: [["/", "search views, boxes, files"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
@@ -177,11 +177,11 @@ export const helpGroups = (vim: boolean): { name: "Diagram" | "Inspector" | "Age
 /** The footer's keys for each mode that names them, and the hints on the modals' borders. */
 export const hints = {
   section: {
-    steps: [["↑↓", "step"], ["enter", "show"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-    flows: [["↑↓", "move"], ["enter", "trace on the diagram"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-    connections: [["↑↓", "move"], ["enter", "show in diagram"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-    files: [["↑↓", "move"], ["enter", "open"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-    activity: [["↑↓", "scroll"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
+    steps: [["↑↓", "step"], ["enter", "show"], ["tab", "next"], ["1–4", "card"], ["space", "fold"], ["esc", "diagram"]],
+    flows: [["↑↓", "move"], ["enter", "trace on the diagram"], ["tab", "next"], ["1–4", "card"], ["space", "fold"], ["esc", "diagram"]],
+    connections: [["↑↓", "move"], ["enter", "show in diagram"], ["tab", "next"], ["1–4", "card"], ["space", "fold"], ["esc", "diagram"]],
+    files: [["↑↓", "move"], ["enter", "open"], ["tab", "next"], ["1–4", "card"], ["space", "fold"], ["esc", "diagram"]],
+    activity: [["↑↓", "scroll"], ["tab", "next"], ["1–4", "card"], ["space", "fold"], ["esc", "diagram"]],
   } satisfies Record<SectionKey, Hint[]>,
   replay: (playing: boolean, speed: number): Hint[] => [["space", playing ? "pause" : "play"], ["←→", "step"], ["[ ]", "turn"], ["s", `${speed}x`], ["esc", "exit"]],
   flow: [["[ ]", "step"], ["F", "next flow"], ["esc", "exit"]] as Hint[],
