@@ -2,11 +2,12 @@ import { posix } from "node:path";
 import { Effect } from "effect";
 import { io, type OperationError } from "../effects";
 import type { ExportRef, ImportNames, ImportRef } from "../scan-imports";
+import { go } from "./go";
 import { python } from "./python";
 import { typescript } from "./typescript";
 
 /** The `language` of a scanned file. */
-export type LanguageName = "typescript" | "javascript" | "python";
+export type LanguageName = "typescript" | "javascript" | "python" | "go";
 export type UnresolvedReason = "not-found" | "alias-not-configured" | "package-entry-not-found";
 
 /**
@@ -42,11 +43,13 @@ export interface FrontEnd {
   readonly exports: (source: string, limit?: number) => ExportRef[];
   /** The declaration of a name as it is written (its signature, not its body), for a journey's `@ file#name`. */
   readonly declaration: (source: string, name: string) => string | undefined;
+  /** Files with this front end's extension that are not the workspace's own source (Go's `vendor/`): neither read nor resolved to. */
+  readonly skips?: (path: string) => boolean;
   /** Reads what resolution needs once per scan (configuration files, module roots), then resolves each import of a file. */
   readonly resolver: (workspace: Workspace) => Effect.Effect<(from: string, ref: ImportRef) => Resolution, OperationError>;
 }
 
-export const frontEnds: readonly FrontEnd[] = [typescript, python];
+export const frontEnds: readonly FrontEnd[] = [typescript, python, go];
 
 const byExtension = new Map(frontEnds.flatMap(frontEnd => Object.keys(frontEnd.languages).map(extension => [extension, frontEnd] as const)));
 

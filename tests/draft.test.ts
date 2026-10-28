@@ -101,7 +101,7 @@ test("draft writes a model LikeC4 accepts and `check` finds nothing wrong with, 
   }
 }, 60_000);
 
-test("code the scan cannot read is drawn and labelled, never connected: a Go module is its own package, a Zig folder joins its TypeScript binding", async () => {
+test("code the scan cannot read is drawn and labelled, never connected: a Rust crate is its own package, a Zig folder joins its TypeScript binding", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-unread-"));
   try {
     await write(directory, {
@@ -109,18 +109,18 @@ test("code the scan cannot read is drawn and labelled, never connected: a Go mod
       "packages/core/src/native.ts": `export const native = 1;\n`,
       "packages/core/src/native/render.zig": `const std = @import("std");\npub fn render() void {}\n`,
       "packages/core/src/native/tests/render_test.zig": `test "x" {}\n`,
-      "packages/go/go.mod": "module github.com/acme/thing/packages/go\n\ngo 1.22\n",
-      "packages/go/client.go": "package thing\n\nfunc Client() {}\n",
-      "packages/go/client_test.go": "package thing\n",
+      "packages/rs/Cargo.toml": "[package]\nname = \"rs\"\nversion = \"0.1.0\"\n",
+      "packages/rs/client.rs": "pub fn client() {}\n\nfn helper() {}\n",
+      "packages/rs/tests/client.rs": "#[test]\nfn works() {}\n",
     });
     const made = await Effect.runPromise(draftWorkspace(directory));
-    // The Go test file and the Zig tests folder are tests, left out like TypeScript ones.
-    expect(made.unread).toBe("1 Go, 1 Zig files");
+    // The Rust and Zig tests folders are tests, left out like TypeScript ones.
+    expect(made.unread).toBe("1 Rust, 1 Zig files");
     const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
-    expect(model).toContain("go = package 'go' {");
-    expect(model).toContain("description '1 Go file, 3 lines, not read by the scan: its connections are not drawn'");
+    expect(model).toContain("rs = package 'rs' {");
+    expect(model).toContain("description '1 Rust file, 3 lines, not read by the scan: its connections are not drawn'");
     expect(model).toContain("description '2 files, 3 lines (1 Zig not read by the scan)'");
-    expect(model).not.toMatch(/-> go\b|go\.\w+ ->/);
+    expect(model).not.toMatch(/-> rs\b|rs\.\w+ ->/);
     // The packages and folders the scan does read are grouped exactly as before.
     const before = await mkdtemp(join(tmpdir(), "pathlight-draft-read-"));
     try {
@@ -128,11 +128,11 @@ test("code the scan cannot read is drawn and labelled, never connected: a Go mod
       await Effect.runPromise(draftWorkspace(before));
       const ids = (text: string) => [...text.matchAll(/^ +(\w+) = (?:component|collection|package)/gm)].map(match => match[1]);
       const plain = ids(await readFile(join(before, ".pathlight", "pathlight.model.c4"), "utf8"));
-      // Everything drawn before is still there; the only additions are the Go package (with its one component) and the native module.
+      // Everything drawn before is still there; the only additions are the Rust package (with its one component) and the native module.
       const added = [...ids(model)];
       for (const id of plain) added.splice(added.indexOf(id), 1);
       expect(plain.every(id => ids(model).includes(id))).toBe(true);
-      expect(added.sort()).toEqual(["go", "native", "root"]);
+      expect(added.sort()).toEqual(["native", "root", "rs"]);
     } finally { await rm(before, { recursive: true, force: true }); }
     const check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });

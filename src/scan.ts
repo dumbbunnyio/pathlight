@@ -17,14 +17,14 @@ const Kind = Schema.Literals(["import", "type", "reexport", "dynamic", "require"
  * dates or absolute paths, so scanning the same tree twice gives the same text.
  */
 /** Bump when a change to the scanner can change its output for the same files: `pathlight diff` keeps the base commit's scan and trusts it only for the same revision. */
-export const scanRevision = 5;
+export const scanRevision = 6;
 
 export const Scan = Schema.Struct({
   version: Schema.Literal(1),
   basis: Schema.Literal("static"),
   root: Schema.String,
   files: Schema.Array(Schema.Struct({
-    path: Path, language: Schema.Literals(["typescript", "javascript", "python"]), lines: Count,
+    path: Path, language: Schema.Literals(["typescript", "javascript", "python", "go"]), lines: Count,
     // What the file offers to others, read from its `export` statements (names only; at most 80). Absent in scans made before 3.
     exports: Schema.optionalKey(Schema.Array(Schema.Struct({
       name: Schema.String.check(Schema.isMaxLength(200)),
@@ -120,7 +120,7 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
   const scanned: Scan["files"][number][] = [];
   const found = new Map<string, ImportRef[]>();
   let skipped = 0;
-  const sourcePaths = paths.filter(isScannedSource);
+  const sourcePaths = paths.filter(path => isScannedSource(path) && !frontEndFor(path)!.skips?.(path));
   // A grammar is loaded only when the listing holds a file of its language, and once per process.
   const present = frontEnds.filter(frontEnd => sourcePaths.some(path => frontEndFor(path) === frontEnd));
   yield* Effect.forEach(present, frontEnd => io("Scan.grammar", () => frontEnd.load()), { discard: true });

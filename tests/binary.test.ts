@@ -29,6 +29,13 @@ test("the compiled binary drafts, initialises, reports on itself and opens its o
     const scanned = JSON.parse(await run(binary, ["scan", "--workspace", python])) as { files: { path: string; language: string }[]; imports: unknown[] };
     expect(scanned.files.map(file => `${file.path} ${file.language}`)).toEqual(["app/main.py python", "app/util.py python"]);
     expect(scanned.imports).toEqual([{ from: "app/main.py", to: "app/util.py", line: 1, kind: "import", specifier: "app.util" }]);
+    const golang = join(directory, "go");
+    await mkdir(join(golang, "store"), { recursive: true });
+    await writeFile(join(golang, "go.mod"), "module example.com/demo\n");
+    await writeFile(join(golang, "store/store.go"), "package store\n\nfunc Open() {}\n");
+    await writeFile(join(golang, "main.go"), 'package main\n\nimport "example.com/demo/store"\n\nfunc main() { store.Open() }\n');
+    const scannedGo = JSON.parse(await run(binary, ["scan", "--workspace", golang])) as { imports: unknown[] };
+    expect(scannedGo.imports).toEqual([{ from: "main.go", to: "store/store.go", line: 3, kind: "import", specifier: "example.com/demo/store" }]);
     expect(await run(binary, ["check", "--workspace", project,])).toContain("Relationships");
     process.env.CLAUDE_CONFIG_DIR = join(directory, "claude-home"); // whatever plugin the developer has installed must not change the result
     const initialised = await run(binary, ["init", "--workspace", project]);
