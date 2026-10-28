@@ -31,7 +31,8 @@
       "hops": [
         {
           "from": "plugin",
-          "to": "launcher"
+          "to": "launcher",
+          "over": "process"
         },
         {
           "from": "launcher",
@@ -46,7 +47,8 @@
         "plugins/claude/hooks/hooks.json",
         "src/cli.ts",
         "src/activity.ts"
-      ]
+      ],
+      "note": "Runtime hop: plugin → launcher is a spawned process, not an import: the PreToolUse, PostToolUse and PostToolUseFailure hooks in plugins/claude/hooks/hooks.json (lines 8, 19, 30) runs `pathlight record` as a command. Marked in Phase 2b (2026-10-28)."
     },
     {
       "id": "ask-agent",
@@ -72,7 +74,8 @@
       "hops": [
         {
           "from": "plugin",
-          "to": "launcher"
+          "to": "launcher",
+          "over": "process"
         },
         {
           "from": "catalog",
@@ -102,7 +105,8 @@
         "src/cli.ts",
         "src/tmux.ts",
         "src/native-viewer.ts"
-      ]
+      ],
+      "note": "Runtime hop: plugin → launcher is a spawned process, not an import: plugins/claude/open-hook.sh line 16 runs `pathlight open` as a command. Marked in Phase 2b (2026-10-28)."
     },
     {
       "id": "stale-badge",
@@ -110,7 +114,8 @@
       "hops": [
         {
           "from": "plugin",
-          "to": "launcher"
+          "to": "launcher",
+          "over": "process"
         },
         {
           "from": "launcher",
@@ -135,7 +140,8 @@
         "plugins/claude/hooks/hooks.json",
         "src/stale.ts",
         "src/native-viewer.ts"
-      ]
+      ],
+      "note": "Runtime hop: plugin → launcher is a spawned process, not an import: the Stop hook in plugins/claude/hooks/hooks.json (line 60) runs `pathlight check` and `pathlight diff` as a command. Marked in Phase 2b (2026-10-28)."
     }
   ]
 }

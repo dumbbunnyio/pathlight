@@ -17,10 +17,12 @@ import { scanWorkspace } from "../../src/scan";
 export const FlowReference = Schema.Struct({
   repo: Schema.String, commit: Schema.String, note: Schema.optionalKey(Schema.String),
   questions: Schema.Array(Schema.Struct({
-    id: Schema.String, question: Schema.String,
+    id: Schema.String, question: Schema.String, note: Schema.optionalKey(Schema.String),
     // The hops of a correct trace, in order, as component ids.
     // `optional`: a hop a good trace may or may not draw; it is never missed, and counts as matched when it is there.
-    hops: Schema.Array(Schema.Struct({ from: Schema.String, to: Schema.String, optional: Schema.optionalKey(Schema.Boolean) })),
+    // `over`: the hop is not an import but a request, a socket or a spawned process, written in by hand from reading the code. The import-drawn
+    // map cannot hold such an edge, so the hop is not failed for lacking a relationship or an import; it is still required, in order.
+    hops: Schema.Array(Schema.Struct({ from: Schema.String, to: Schema.String, optional: Schema.optionalKey(Schema.Boolean), over: Schema.optionalKey(Schema.Literals(["http", "websocket", "process"])) })),
     // Files a correct trace has to read; citing them is how a reader can check the hops.
     files: Schema.Array(Schema.String),
   })),
@@ -49,7 +51,10 @@ export interface FlowScore {
   modelGaps: string[];
   // Outside the answer but backed by the model and by an import: a different reading, to be read, not counted against it.
   additional: string[];
+  // Hops without a model relationship, and without an import in either direction; a runtime hop counts in neither.
   unbacked: number; unsupported: number;
+  // Hops matching an answer hop marked `over`, and how many of them the model has no relationship for: shown, not failed.
+  runtime: string[]; runtimeUnbacked: number;
   // Of the hops that match the answer, how many come in the answer's order.
   ordered: number;
   citedKey: number; keyFiles: number; missingFiles: string[];
@@ -62,8 +67,10 @@ export function scoreFlow(input: FlowScoreInput): FlowScore {
   const { question, written } = input;
   const answer = question.hops.map(label), required = question.hops.filter(hop => !hop.optional).map(label);
   const base = { id: question.id, keyFiles: question.files.length };
-  if (!written) return { ...base, written: false, hops: 0, matched: 0, missed: required, invented: [], modelGaps: [], additional: [], unbacked: 0, unsupported: 0, ordered: 0, citedKey: 0, missingFiles: [], findings: 0 };
-  const hops = written.hops.map(hop => ({ ...hop, text: label(hop), expected: answer.indexOf(label(hop)), supported: input.supported(hop.from, hop.to, written.cited) }));
+  if (!written) return { ...base, written: false, hops: 0, matched: 0, missed: required, invented: [], modelGaps: [], additional: [], unbacked: 0, unsupported: 0, runtime: [], runtimeUnbacked: 0, ordered: 0, citedKey: 0, missingFiles: [], findings: 0 };
+  const hops = written.hops.map(hop => ({ ...hop, text: label(hop), expected: answer.indexOf(label(hop)), supported: input.supported(hop.from, hop.to, written.cited) }))
+    .map(hop => ({ ...hop, over: hop.expected >= 0 ? question.hops[hop.expected]!.over : undefined }));
+  const runtime = hops.filter(hop => hop.over), imported = hops.filter(hop => !hop.over);
   const matched = hops.filter(hop => hop.expected >= 0);
   // The longest run of matched hops that never goes backwards in the answer's order.
   const tails: number[] = [];
@@ -79,14 +86,15 @@ export function scoreFlow(input: FlowScoreInput): FlowScore {
     invented: outside.filter(hop => !hop.supported).map(hop => hop.text),
     modelGaps: outside.filter(hop => hop.supported && !hop.backed).map(hop => hop.text),
     additional: outside.filter(hop => hop.backed && hop.supported).map(hop => hop.text),
-    unbacked: hops.filter(hop => !hop.backed).length, unsupported: hops.filter(hop => !hop.supported).length,
+    unbacked: imported.filter(hop => !hop.backed).length, unsupported: imported.filter(hop => !hop.supported).length,
+    runtime: runtime.map(hop => `${hop.text} over ${hop.over}`), runtimeUnbacked: runtime.filter(hop => !hop.backed).length,
     ordered: tails.length,
     citedKey: question.files.filter(file => written.cited.includes(file)).length,
     missingFiles: [...written.missingFiles], findings: written.findings.length,
   };
 }
 
-/** What a run has to meet: every hop of the answer present and in order, nothing invented, every hop backed by the model and an import, no file cited that is not there, and every key file read. */
+/** What a run has to meet: every hop of the answer present and in order, nothing invented, every hop backed by the model and an import (a runtime hop by neither), no file cited that is not there, and every key file read. */
 export const passes = (score: FlowScore) => score.written && score.missed.length === 0 && score.ordered === score.matched && score.invented.length === 0 && score.unbacked === 0 && score.unsupported === 0 && score.missingFiles.length === 0 && score.citedKey === score.keyFiles;
 
 export const scoreFlows = Effect.fn("Eval.flows")(function* (workspace: string, reference: FlowReference) {
@@ -126,6 +134,7 @@ export function formatFlowScores(scores: readonly FlowScore[], name: string) {
   for (const score of scores) {
     if (!score.written) { lines.push(`  ${score.id.padEnd(12)} no journey written`); continue; }
     lines.push(`  ${score.id.padEnd(12)} ${passes(score) ? "✓" : "✗"} ${score.matched} of the answer's hops, ${score.missed.length} missed, ${score.ordered} in order; ${score.invented.length} invented, ${score.modelGaps.length} model gaps, ${score.additional.length} additional; ${score.unbacked} without a model relationship, ${score.unsupported} without an import; key files read ${score.citedKey}/${score.keyFiles}; ${score.missingFiles.length} cited files missing`);
+    if (score.runtime.length) lines.push(`      runtime hops: ${score.runtime.length}, of which ${score.runtimeUnbacked} unbacked in the model (${score.runtime.join(", ")})`);
     for (const text of score.missed) lines.push(`      missed       ${text}`);
     for (const text of score.invented) lines.push(`      invented     ${text} (no import joins them through a file it read)`);
     for (const text of score.modelGaps) lines.push(`      model gap    ${text} (an import supports it; the model has no relationship: is the hop or the model wrong?)`);
