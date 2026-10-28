@@ -1,0 +1,19 @@
+// Written by pathlight flow. Delete it with: pathlight flow remove
+views {
+  dynamic view check-run {
+    title 'pathlight check, from the command line to the report'
+    description 'Agent-written from src/cli.ts, src/stale.ts, src/check.ts, src/activity.ts, src/catalog.ts, src/scan.ts. Synced at 0e05aa9.'
+    launcher -> scanner 'check runs checkAndRecord on the workspace' {
+      notes 'checkAndRecord | src/stale.ts | export const checkAndRecord = Effect.fn("Stale.checkAndRecord")(function* (workspace: string) { const check = yield* checkWorkspace(workspace).pipe(Effect.tapError(error => "operation" in error && broken.has(String(error.operation)) ? writ…'
+    }
+    scanner -> activity 'reads the file mapping (.pathlight/pathlight.activity.json)' {
+      notes 'readActivityConfig | src/activity.ts | export const readActivityConfig = Effect.fn("Activity.config")(function* (workspace: string) { const text = yield* io("Activity.readConfig", () => readFile(mappingPath(workspace), "utf8")); return yield* Schema.decodeUnknownEffect(Activity…'
+    }
+    scanner -> catalog 'loads and computes the LikeC4 model, failing on unknown mapped, shared or planned ids' {
+      notes 'acquireModel | src/catalog.ts | export const acquireModel = (workspace: string) =>'
+    }
+    scanner -> launcher 'returns the check, recorded in the stale stamp, which cli prints as text or JSON' {
+      notes 'formatCheck | src/check.ts | export function formatCheck(check: Check)'
+    }
+  }
+}

@@ -1,0 +1,21 @@
+// Written by pathlight flow. Delete it with: pathlight flow remove
+views {
+  dynamic view open-viewer {
+    title '/pathlight:open in Claude Code, up to the diagram on screen'
+    description 'Agent-written from plugins/claude/hooks/hooks.json, plugins/claude/open-hook.sh, src/cli.ts, src/activity.ts, src/catalog.ts, src/tmux.ts, src/native-viewer.ts, src/ready.ts. Synced at 0e05aa9.'
+    plugin -> launcher 'the UserPromptSubmit hook matches /pathlight:open and runs pathlight open with the conversation session_id, with no model turn'
+    launcher -> activity 'open reads the mapping for its project, so the viewer follows the agent' {
+      notes 'readActivityConfig | src/activity.ts | export const readActivityConfig = Effect.fn("Activity.config")(function* (workspace: string) { const text = yield* io("Activity.readConfig", () => readFile(mappingPath(workspace), "utf8")); return yield* Schema.decodeUnknownEffect(Activity…'
+    }
+    launcher -> catalog 'with no view named it picks index or the first view, then checks the mapping against it' {
+      notes 'overviewId | src/catalog.ts | export const overviewId = Effect.fn("Catalog.overview")(function* (workspace: string, project?: string) { const views = (yield* viewRows(workspace)).views.filter(view => !project || view.project === project); const written = views.filter(v…'
+    }
+    launcher -> viewer 'Claude is not at a shell prompt, so it splits a pane beside it (or respawns its own) running pathlight view with --parent, --ready and the session' {
+      notes 'showView | src/tmux.ts | export const showView = Effect.fn("Tmux.show")(function* (options: { view: View; pane: string; socket?: string; activity?: ActivityBinding; follow?: boolean; }) { if (!/^%\\d+$/.test(options.pane)) return yield* Effect.fail(failure("Tmux.pa…'
+    }
+    viewer -> launcher 'after the first frame the viewer writes ready.json, which showView polls for' {
+      notes 'writeReady | src/ready.ts | export const writeReady = Effect.fn("Ready.write")(function* (path: string, status: typeof Ready.Type) { yield* io("Ready.writeTemporary", () => writeFile(`${path}.tmp`, JSON.stringify(status))); yield* io("Ready.publish", () => rename(`${…'
+    }
+    launcher -> plugin 'open prints the pane and the hook answers continue false with Opened the pathlight viewer'
+  }
+}
