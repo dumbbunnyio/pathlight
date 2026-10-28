@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { run } from "./effects";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { mappingIn, run, toolActivity, writeActivity } from "./effects";
 
 /**
  * The approved look, kept as text. Each screen is what `pathlight see` prints for the frozen fixture at one size; a change to the diagram, the
@@ -47,4 +47,28 @@ test("a key sent to the viewer changes the screen, and an unknown element is ref
   const folded = await capture(["--cols", "140", "--rows", "30", "--keys", "2"]);
   expect(folded).not.toBe(plain);
   await expect(see("--select", "nonesuch")).rejects.toThrow(/has no element 'nonesuch'/);
+}, 60_000);
+
+// Watching a session keeps a row on every card for its activity counts. Two finished calls, written two and a half hours before the screen is
+// taken so every age reads `2h`: a read of a file mapped to the launcher, then an edit of one mapped to activity.
+test("the watched-140x36 screen matches its snapshot", async () => {
+  const directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "pathlight-golden-watched-"));
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    await mkdir(join(directory, "src"));
+    await writeFile(join(directory, "src/activity.ts"), "export {};\n"); await writeFile(join(directory, "src/launcher.ts"), "export {};\n");
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer",
+      mappings: [{ glob: "src/activity.ts", element: "activity" }, { glob: "src/launcher.ts", element: "launcher" }] }));
+    const binding = { source: "claude" as const, session: "golden" }, edited = Date.now() - 150 * 60_000;
+    for (const [call, tool, file, time] of [["read-1", "Read", "src/launcher.ts", edited - 5_000], ["edit-1", "Edit", "src/activity.ts", edited]] as const) {
+      const started = toolActivity(directory, binding, call, tool, { file_path: join(directory, file) }, "started");
+      await writeActivity(directory, { ...started, time: time - 1_000 });
+      await writeActivity(directory, { ...started, phase: "completed", time });
+    }
+    const out = join(directory, "screen.txt");
+    await run("sh", ["-c", `"$1" "$2" see live --workspace "$3" --project viewer --cols 140 --rows 36 --follow > "$4"`, "sh", process.execPath, resolve("src/cli.ts"), directory, out]);
+    const screen = await readFile(out, "utf8"), file = "tests/golden/watched-140x36.txt";
+    if (process.env.UPDATE_GOLDEN === "1") { await mkdir("tests/golden", { recursive: true }); await writeFile(file, screen); return; }
+    expect(screen).toBe(await readFile(file, "utf8"));
+  } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);

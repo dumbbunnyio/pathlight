@@ -143,3 +143,22 @@ test("two edges from one card into a column still share a trunk, a clear column 
   expect(column).toBeLessThanOrEqual(26 - 2);
   for (const route of routes) for (const other of [b, c].filter(node => node.id !== route.target)) expect(clearOf(cellsOf(route.points), other)).toBe(true);
 });
+
+test("at any zoom a connector leaves and enters on the middle row of the cards as drawn, not on a border the world middle rounded to", () => {
+  const source = card("a", 3, 1, 20, 5), target = card("b", 31, 6, 20, 5);
+  const [route] = routeEdges([source, target], [{ source: "a", target: "b", points: [] }], { x: 16, y: 32 });
+  for (const zoom of [0.8, 1.6]) {
+    // The viewer's projection: a card's cells from its top-left and its size.
+    const drawn = (node: RouteNode) => ({ x: Math.round(node.x / 16 * zoom), y: Math.round(node.y / 32 * zoom), width: Math.max(3, Math.round(node.width / 16 * zoom)), height: Math.max(3, Math.round(node.height / 32 * zoom)) });
+    const from = drawn(source), to = drawn(target);
+    const inside = (x: number, y: number) => [from, to].some(rect => x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height);
+    const project = (point: { x: number; y: number }) => ({ x: point.x / 16 * zoom, y: point.y / 32 * zoom });
+    const cells = rasterize([route!], project, inside, undefined, new Map(), id => id === "a" ? from : id === "b" ? to : undefined);
+    const middle = (rect: typeof from) => rect.y + Math.floor(rect.height / 2);
+    expect(cells.find(cell => cell.glyph === "▶"), `${zoom}`).toMatchObject({ x: to.x - 1, y: middle(to) });
+    expect(cells.find(cell => cell.x === from.x + from.width), `${zoom}`).toMatchObject({ y: middle(from) });
+    // Without the drawn cards the world middles round elsewhere: this is the case the snap is for.
+    const unsnapped = rasterize([route!], project, inside, undefined).find(cell => cell.glyph === "▶");
+    expect(unsnapped?.y, `${zoom}`).not.toBe(middle(to));
+  }
+});

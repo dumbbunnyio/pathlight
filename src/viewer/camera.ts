@@ -60,10 +60,11 @@ export function createCamera(screen: Screen, viewport: Area, bounds: Rect) {
       camera.targetY = target.children.length ? target.y + viewport.height * camera.targetScale / camera.cellAspect() / 2 - camera.targetScale / camera.cellAspect() : target.y + target.height / 2;
       camera.animating = true;
     },
-    /** Reveal a node only when it is not already well inside the view (where the camera is heading). */
+    /** Reveal a node only when part of it is outside the view (where the camera is heading); never while the view is fitted, as all of it is on screen. */
     ensureVisible(node: Rect & { children: readonly unknown[] }) {
+      if (camera.autoFit) return;
       if (!camera.animating) camera.settle();
-      const halfWidth = viewport.width * camera.targetScale / 2 * 0.9, halfHeight = viewport.height * camera.targetScale / camera.cellAspect() / 2 * 0.9;
+      const halfWidth = viewport.width * camera.targetScale / 2, halfHeight = viewport.height * camera.targetScale / camera.cellAspect() / 2;
       const inside = node.x >= camera.targetX - halfWidth && node.x + node.width <= camera.targetX + halfWidth
         && node.y >= camera.targetY - halfHeight && node.y + node.height <= camera.targetY + halfHeight;
       if (!inside) camera.reveal(node);
