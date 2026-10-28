@@ -12,11 +12,12 @@ import type { Plan } from "./plan";
 import type { Stale } from "./stale";
 import { nodeFiles } from "./node-files";
 import { firstChange, openEditor } from "./editor";
-import { sendToPane } from "./ask";
+import { relevantFiles, sendToPane } from "./ask";
+import { type Scan, scanWorkspace } from "./scan";
 import pkg from "../package.json" with { type: "json" };
 import { borderHints, palette, setPalette } from "./ui";
 import { type Mode, loadThemes, paletteOf, savedTheme, themeFromEnvironment } from "./theme";
-import { rasterize, routeEdges, type Route } from "./routes";
+import { cellAt, rasterize, routeEdges, type Route } from "./routes";
 import { checkFlows } from "./flows";
 import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges } from "./flow-view";
 import { attempt, failure, io } from "./effects";
@@ -30,8 +31,8 @@ import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
 import { helpContent } from "./viewer/help";
-import { allotSections, headContent, nodeListContent, pinnedLines, sectionHeader } from "./viewer/inspector-view";
-import { type Action, hints, keyAction } from "./viewer/keys";
+import { allotSections, firstQuestion, headContent, nodeListContent, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
+import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
 import { createThemePicker } from "./viewer/theme-picker";
 import { createAskDialog } from "./viewer/ask-dialog";
@@ -40,7 +41,7 @@ import { choose, createState, firstNode, remember, type Visit } from "./viewer/s
 import { createFlowMode, stepElement } from "./viewer/flow-mode";
 import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
-import { easeOut, fade } from "./viewer/text";
+import { describe, easeOut, fade } from "./viewer/text";
 import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
 
 export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) {
@@ -105,7 +106,7 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
   for (const resource of resources) resource.dispose();
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
-  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, nodeList, nodeListText } = createWidgets(renderer);
+  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, fitAsk, nodeList, nodeListText } = createWidgets(renderer);
   if (!binding && !following) { sections.activity.box.visible = false; sections.activity.box.height = 0; }
   let connectionItems: string[] = [];
   let fileLines: number[] = [];
@@ -149,11 +150,24 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const pauseFollow = () => { if (followCamera && !followPaused && !followSelecting) { followPaused = true; message = "Follow paused · a to resume"; } };
   // Which key family moves the selection; the other family pans. `v` swaps them.
   let vimTraverses = true;
+  // Whether the user has selected something or asked once: until then the question field offers the first question (`how does … work?`).
+  let engaged = false;
+  // The highest tier of keys pressed this session: `?` puts its accent there (everyone starts by understanding the codebase).
+  let tier: Tier = 1;
   const showHelp = () => {
-    const guide = helpContent({ inspector: !!state.focusSection, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version });
+    const guide = helpContent({ tier, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version });
     help.content.content = guide.content; help.meta.content = guide.meta;
     help.foot.content = new StyledText(borderHints(hints.help));
     if (help.visible) help.place(guide.width, guide.height + 4); else help.open(guide.width, guide.height + 4);
+  };
+  // With nothing selected the head says what the app is: the note of the box the view is about, else of the model's first top-level box.
+  const appNote = () => {
+    const all = [...diagrams.values()].flatMap(scene => scene.nodes);
+    const about = (diagram as { viewOf?: unknown }).viewOf;
+    const subject = about !== undefined ? String(about) : all.map(node => String(node.modelRef ?? "")).find(ref => ref && !ref.includes("."));
+    if (!subject) return "";
+    const node = all.find(entry => String(entry.modelRef) === subject);
+    return words.get(subject)?.note ?? (node ? splitDescription(describe(node.description), undefined).words : "");
   };
   // A call seen for the first time flashes: its node's border and its activity row take the accent for a moment.
   const nodeFlashes = new Map<string, number>(), rowFlashes = new Map<string, number>(), seenCalls = new Set<string>();
@@ -414,7 +428,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // corners, since it must enclose its children. At low zoom a card can land on its group's border row and hide the title: keep it inside the frame.
     const corners = (node: (typeof diagram.nodes)[number]) => {
       const a = camera.projected(node.x, node.y), b = camera.projected(node.x + node.width, node.y + node.height);
-      return { left: Math.round(a.x), top: Math.round(a.y), right: Math.round(b.x), bottom: Math.round(b.y) };
+      return { left: cellAt(a.x), top: cellAt(a.y), right: cellAt(b.x), bottom: cellAt(b.y) };
     };
     const placed = new Map(nodeObjects.map(entry => {
       const node = entry.node, frame = corners(node);
@@ -465,7 +479,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const opens = selected?.navigateTo ? `o opens ${diagrams.get(String(selected.navigateTo))?.title ?? selected.navigateTo}` : "";
     const head = headContent({ title: selected?.title, kind: selected?.kind ? String(selected.kind) : "", technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
       tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
-      by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length });
+      by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length, app: selected ? undefined : appNote() });
     inspectorTitle.content = head.title;
     inspectorHead.content = head.what; inspectorHead.visible = head.hasWhat;
     inspectorId.content = head.about; inspectorId.visible = head.hasAbout;
@@ -529,7 +543,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       entry.content.verticalScrollBar.visible = focused && entry.content.scrollHeight > entry.content.viewport.height;
     }
     const pinned = pinnedLines({ width: Math.max(10, inspector.width - (mounted === "overlay" ? 3 : 2)), files: paths.length, session: Boolean(binding), replay: Boolean(binding && events.length),
-      title: selected?.title, canAsk: Boolean(options.parent), background: hot });
+      title: selected?.title, canAsk: Boolean(options.parent), background: hot, first: !engaged });
     inspectorActions.content = pinned.actions;
     inspectorAsk.content = pinned.ask;
     if (summary.visible) summary.content.content = summaryContent();
@@ -599,6 +613,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   const selectNode = (node: typeof state.selected, show: boolean) => {
     if (!node) return;
+    if (!followSelecting) engaged = true;
     pauseFollow();
     choose(state, node); resetInspectorScroll();
     if (show) reveal();
@@ -695,8 +710,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const activity = [...new Set((byElement.get(String(target.modelRef ?? "")) ?? []).flatMap(event => event.paths.map(path => `${event.operation} ${path}`)))];
     return { files: files.get(String(target.modelRef ?? "")) ?? [], links, activity };
   };
-  const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext,
-    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; }, background: hot });
+  // The scan's imports, read when a request first needs them and again after a reload: a request names the files on the component's edges.
+  let imports: Scan["imports"] | undefined;
+  const readImports = Effect.suspend(() => imports ? Effect.succeed(imports) : scanWorkspace(view.workspace).pipe(
+    Effect.map(scan => scan.imports), Effect.tap(list => Effect.sync(() => { imports = list; })), Effect.catch(() => Effect.succeed([] as Scan["imports"]))));
+  const requestFiles = (target: Node) => readImports.pipe(Effect.map(list => {
+    const near = new Set(diagram.edges.flatMap(edge => edge.source === target.id ? [edge.target] : edge.target === target.id ? [edge.source] : []));
+    const neighbours = diagram.nodes.filter(node => near.has(node.id)).flatMap(node => files.get(String(node.modelRef ?? "")) ?? []);
+    return relevantFiles({ files: files.get(String(target.modelRef ?? "")) ?? [], neighbours, imports: list, description: describe(target.description) });
+  }));
+  const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: () => { engaged = true; }, background: hot });
+  askInput.onContentChange = () => { fitAsk(); dialog.typed(); };
   help.dismiss = () => help.close();
   summary.dismiss = () => { summary.close(); update(); };
   goto.dismiss = () => { goto.close(); update(); };
@@ -855,7 +880,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "parent": selectNode(diagram.nodes.find(node => node.id === state.selected?.parent), true); return;
       case "views": gotoPicker.begin("views"); return;
       case "themes": themePicker.begin(); return;
-      case "ask": dialog.beginAsk(); return;
+      case "ask": dialog.beginAsk(!engaged && state.selected ? firstQuestion(state.selected.title) : ""); return;
       case "map": dialog.beginMap(); return;
       case "trace": dialog.beginFlow(); return;
       case "name": dialog.beginName(); return;
@@ -924,7 +949,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       }
       case "nextNode": {
         const index = diagram.nodes.findIndex(node => node.id === state.selected?.id);
-        pauseFollow();
+        pauseFollow(); engaged = true;
         state.selected = diagram.nodes[(index + action.by + diagram.nodes.length) % diagram.nodes.length];
         state.fileCursor = 0; resetInspectorScroll(); break;
       }
@@ -950,6 +975,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const layer = state.pendingVisit ? "visit" : dialog.asking ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : "main";
     const action = keyAction(key, { layer, askContext: dialog.focus >= 0, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, vim: vimTraverses });
     if (!action) return;
+    if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();
     perform(action);
   });
@@ -971,7 +997,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const before = new Set(diagram.nodes.map(node => String(node.id)));
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
-        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError;
+        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; imports = undefined;
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;
         nodeObjects = mountNodes(); routes = computeRoutes(); gapFor = "";

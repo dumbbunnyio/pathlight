@@ -1,0 +1,22 @@
+// Written by pathlight flow. Delete it with: pathlight flow remove
+views {
+  dynamic view stale-badge {
+    title 'End of an agent turn: is the diagram still true?'
+    description 'Agent-written from plugins/claude/hooks/hooks.json, plugins/opencode/index.ts, src/cli.ts, src/stale.ts, src/diff.ts, src/review.ts, src/viewer/world.ts, src/viewer/header.ts, src/native-viewer.ts. Synced at 0e05aa9.'
+    plugin -> launcher 'at turn end the Claude Stop hook, or the OpenCode endOfTurn handler, runs pathlight check --quiet then diff --quiet' {
+      notes 'over | process'
+    }
+    launcher -> scanner 'the check command runs checkAndRecord, which scans, compares with the model and writes the stale stamp' {
+      notes 'checkAndRecord | src/stale.ts | export const checkAndRecord = Effect.fn("Stale.checkAndRecord")(function* (workspace: string) { const check = yield* checkWorkspace(workspace).pipe(Effect.tapError(error => "operation" in error && broken.has(String(error.operation)) ? writ…'
+    }
+    launcher -> scanner 'the diff command compares imports with HEAD and records new undeclared dependencies' {
+      notes 'recordDiff | src/diff.ts | export const recordDiff = (workspace: string, diff: Diff) =>'
+    }
+    viewer -> scanner 'every 3 seconds the viewer reads the stamp, the diff and the decisions' {
+      notes 'readChecks | src/viewer/world.ts | export const readChecks = (workspace: string, binding: ActivityBinding | undefined) =>'
+    }
+    scanner -> viewer 'the counts become badge text, shown as out of date, in sync, or new dependencies to review' {
+      notes 'badgeContent | src/viewer/header.ts | export const badgeContent = (options: { width: number; replay: boolean; live: string; bound: boolean; watching: boolean; busy: boolean; open: number; stale: Stale | undefined; now: number }) =>'
+    }
+  }
+}

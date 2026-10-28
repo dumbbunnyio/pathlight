@@ -146,6 +146,20 @@ test("a journey reports each step the model has no relationship for, a missing o
   expect(assessJourney(journey(), { changedElements: new Set(), known: () => false }).findings).toContain("The view was synced at abc1234, which is not a commit in this repository.");
 });
 
+test("a hop the agent marked over http, a websocket or a process is no gap; the same hop unmarked still is", () => {
+  const hop = (notes?: string): JourneyInput => ({ id: "open", title: "Opening a document", viewDescription: "Synced at abc1234.",
+    steps: [{ source: "app", target: "server", title: "requests the document", backed: false, ...(notes ? { notes } : {}) }, { source: "server", target: "store", title: "reads it", backed: true }] });
+  const marked = assessJourney(hop("over | http"), { changedElements: new Set(), known: () => true });
+  expect(marked.findings).toEqual([]);
+  expect(marked.steps[0]).toMatchObject({ over: "http", backed: false });
+  // Beside a call, on its own line.
+  const both = assessJourney(hop("over | websocket\nsend | src/x.ts | export function send(): void"), { changedElements: new Set(), known: () => true });
+  expect(both.steps[0]).toMatchObject({ over: "websocket", call: { name: "send", file: "src/x.ts" } });
+  expect(both.findings).toEqual([]);
+  expect(assessJourney(hop(), { changedElements: new Set(), known: () => true }).findings).toEqual(["Step 1, “requests the document”, goes from app to server with no relationship between them in the model."]);
+  expect(assessJourney(hop("over | pigeon"), { changedElements: new Set(), known: () => true }).findings).toHaveLength(1);
+});
+
 test("against a real model: a dynamic view is a journey, and a step with no relationship behind it is reported by the CLI", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-journey-"));
   try {

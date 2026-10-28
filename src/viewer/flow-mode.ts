@@ -52,7 +52,7 @@ export function createFlowMode<Node>(options: {
     exit() { mode.active = undefined; options.leaving(); options.say(""); options.update(); },
     cycle() {
       const here = flowsHere(mode.flows, options.view(), options.selected());
-      if (!here.length) { options.say(mode.flows.length ? "No flow touches this view" : "No flows yet · select a box and press d to ask the agent to trace one"); options.update(); return; }
+      if (!here.length) { options.say(mode.flows.length ? "No flow touches this view" : "No flows yet · select a box and press t to ask how it works"); options.update(); return; }
       const active = mode.active, at = active ? here.findIndex(flow => same(flow, active)) : -1;
       if (at === here.length - 1) { mode.exit(); return; }
       const next = here[at + 1]!, mine = flowsThrough([next], options.selected())[0]?.steps[0];

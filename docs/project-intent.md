@@ -39,6 +39,8 @@ not require losing orientation or reopening the viewer.
 5. Follow a linked detail view and return with Back, restoring the previous
    selection and camera. Reuse the owned pane for a new requested view safely.
 
+The keys come in three tiers, named for how far along the developer is with this codebase, and `?` shows them in that order (implemented 2026-10-28): **understand it** (select, move, ask how something works with `t`, step through a flow with `F`), **direct it** (`t` again to tell the agent what to change, follow, review, files, search, views), **shape the map** (trace, improve or name a box, replay, themes). The footer and empty states name only the first tier. `t` closes its loop either way: a question whose answer is a path is answered in chat and recorded as a journey drawn on the map, and an instruction is declared (`pathlight plan`, a planned element for anything new) before the first edit. Both are rules in the request the viewer types and in the `pathlight` skill; whether an agent follows them is measured by the flows eval and live runs, not assumed.
+
 This loop is supported today through the CLI, with OpenCode integration and a
 Claude hook adapter. The Claude adapter has payload-based tests and records
 real interactive Claude Code sessions on Linux (its plugin hooks wrote this

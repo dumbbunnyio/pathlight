@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { rasterize, routeEdges, type RouteNode } from "../src/routes";
+import { cellAt, rasterize, routeEdges, type RouteNode } from "../src/routes";
 
 const node = (id: string, x: number, y: number, width = 160, height = 64): RouteNode => ({ id, x, y, width, height, children: [] });
 const straight = (points: { x: number; y: number }[]) => points.every((point, index) => index === 0 || point.x === points[index - 1]?.x || point.y === points[index - 1]?.y);
@@ -161,4 +161,12 @@ test("at any zoom a connector leaves and enters on the middle row of the cards a
     const unsnapped = rasterize([route!], project, inside, undefined).find(cell => cell.glyph === "▶");
     expect(unsnapped?.y, `${zoom}`).not.toBe(middle(to));
   }
+});
+
+test("a half-cell tie breaks the same way for a card edge and a connector, so two columns apart in the world stay two apart", () => {
+  // A projected corner at 10.5 beside a card edge that projection left at 12.4999999 instead of 12.5: plain rounding puts them one column apart.
+  expect([Math.round(10.5), Math.round(12.4999999)]).toEqual([11, 12]);
+  // Settled to a micro-cell first, the edge is 12.5 and rounds as the corner does.
+  expect([cellAt(10.5), cellAt(12.4999999)]).toEqual([11, 13]);
+  expect(cellAt(12.4999999)).toBe(cellAt(12.5));
 });

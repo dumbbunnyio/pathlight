@@ -1,0 +1,16 @@
+// Written by pathlight flow. Delete it with: pathlight flow remove
+views {
+  dynamic view ask-agent {
+    title 'Ask the agent about a component'
+    description 'Agent-written from src/viewer/keys.ts, src/native-viewer.ts, src/viewer/ask-dialog.ts, src/ask.ts, src/process.ts, src/scan.ts. Synced at 0e05aa9.'
+    viewer -> scanner 'the dialog opens and the viewer reads the scan imports so the request can name the files on the component edges' {
+      notes 'scanWorkspace | src/scan.ts | export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: string) { const root = yield* io("Scan.workspace", () => realpath(workspace)); const { listing, paths } = yield* listFiles(root); const files = new Set(paths); …'
+    }
+    viewer -> ask 'on send the question, files, connects and activity are composed into one prompt line' {
+      notes 'askMessage | src/ask.ts | export function askMessage(target: { title: string; id: string; files: readonly string[]; links: readonly string[]; activity?: readonly string[] }, question: string, draw = false)'
+    }
+    ask -> launcher 'tmux display-message checks the pane, then send-keys types the line and Enter into it' {
+      notes 'run | src/process.ts | export const run = Effect.fn("Process.run")(function* (command: string, args: string[]) { const execution = yield* Effect.acquireRelease(attempt("Process.spawn", () => { const child = spawn(command, args, { detached: true, stdio: ["ignore"…'
+    }
+  }
+}

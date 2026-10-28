@@ -19,6 +19,7 @@ const screens: { name: string; args: string[] }[] = [
   { name: "docked-140x36", args: ["--cols", "140", "--rows", "36"] },
   { name: "docked-launcher-140x36", args: ["--cols", "140", "--rows", "36", "--select", "launcher"] },
   { name: "docked-wide-260x50", args: ["--cols", "260", "--rows", "50", "--select", "viewer"] },
+  { name: "help-140x36", args: ["--cols", "140", "--rows", "36", "--keys", "?"] },
 ];
 
 // `run` trims its output, which would move the first row; `see` is read here through a file for the same reason.

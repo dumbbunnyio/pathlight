@@ -28,6 +28,8 @@ const hand: { name: string; nodes: CompactNode[] }[] = [
   { name: "nested groups", nodes: [group("outer", ["outer.inner", "outer.c"]), group("outer.inner", ["outer.inner.a", "outer.inner.b"], "outer"),
     leaf("outer.inner.a", 100, 100, 320, 180, "a", "outer.inner"), leaf("outer.inner.b", 100, 500, 320, 180, "b", "outer.inner"), leaf("outer.c", 900, 300, 320, 180, "c", "outer"), leaf("d", 1800, 300)] },
   { name: "a long card overlapping two in a row", nodes: [leaf("long", 0, 0, 1000), leaf("x", 100, 400, 200), leaf("y", 500, 400, 200), leaf("z", 1600, 0)] },
+  { name: "server_near: a pair beside a pair it straddles", nodes: [leaf("integrations", 0, 95, 410, 180, "Optional integrations"), leaf("server", 500, 95, 360, 180, "Backend API and services"),
+    leaf("app", 1000, 0, 320, 180, "Web client"), leaf("shared", 1000, 230, 320, 180, "Code shared by client and server")] },
   { name: "a long title", nodes: [leaf("a", 0, 0, 320, 180, "A component with a rather long descriptive title that wraps"), leaf("b", 2000, 3000, 320, 180, "Short")] },
   { name: "one long title among three short ones", nodes: [leaf("a", 0, 0, 320, 180, "Collaboration server and websocket gateway"), leaf("b", 600, 0, 320, 180, "Web"),
     leaf("c", 1200, 0, 320, 180, "Store"), leaf("d", 1800, 0, 320, 180, "Jobs")] },
@@ -94,6 +96,23 @@ test("every leaf card is readable and all cards in a view share one size: the wi
   const shaped = compact(hand.find(scene => scene.name === "one long title among three short ones")!.nodes, options);
   expect(new Set(shaped.map(card => card.width / column))).toEqual(new Set([cardSize("Collaboration server and websocket gateway", 20).width]));
   expect(new Set(shaped.map(card => card.height / row))).toEqual(new Set([5]));
+});
+
+test("a card that straddles two later ones shifts to keep the overlap before it grows: server_near's four cards are one size", () => {
+  const nodes = hand.find(scene => scene.name.startsWith("server_near"))!.nodes;
+  for (const kindRow of [true, false]) {
+    const out = new Map(compact(nodes, { aspect, kindRow }).map(node => [node.id, node]));
+    const rows = (id: string) => out.get(id)!.height / row, top = (id: string) => out.get(id)!.y / row;
+    expect(new Set(["integrations", "server", "app", "shared"].map(rows))).toEqual(new Set([kindRow ? 5 : 4]));
+    // The left pair sits between the right pair, overlapping both, and the two of them still share a top edge.
+    expect(top("integrations")).toBe(top("server"));
+    expect(top("integrations")).toBeGreaterThan(top("app"));
+    expect(top("integrations")).toBeLessThan(top("app") + rows("app"));
+    expect(top("integrations") + rows("integrations")).toBeGreaterThan(top("shared"));
+  }
+  // The long card overlapping two in a row cannot shift its way to both, so it still grows.
+  const long = compact(hand.find(scene => scene.name === "a long card overlapping two in a row")!.nodes, options);
+  expect(long.find(node => node.id === "long")!.width).toBeGreaterThan(long.find(node => node.id === "z")!.width);
 });
 
 test("a title takes one line when that costs at most two columns more than two", () => {

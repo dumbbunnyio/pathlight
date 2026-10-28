@@ -140,7 +140,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
 
     // /pathlight: the agent is told the real pane and socket, and following the skill reopens the viewer rather than adding a second one.
     await type("/pathlight live");
-    const prompt = await until(async () => requests.map(request => JSON.stringify(request.messages.filter(message => message.role === "user").at(-1))).find(text => text.includes("pathlight skill")), "the /pathlight prompt");
+    const prompt = await until(async () => requests.map(request => JSON.stringify(request.messages.filter(message => message.role === "user").at(-1))).find(text => text.includes("pathlight skill") && !text.includes("About the")), "the /pathlight prompt");
     expect(prompt).toContain(`pane is ${pane}`);
     expect(prompt).toContain(socket);
     await delay(3000);
