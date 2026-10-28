@@ -11,6 +11,8 @@ export interface KeyMode {
   /** In the ask dialog: whether the context toggles (not the question) have the keys. */
   askContext: boolean;
   replay: boolean; fileMode: boolean; focusSection: SectionKey | undefined; flow: boolean; listMode: boolean;
+  /** The cards `1`–`4` focus, in order (viewer/widgets.ts `numberedCards`). */
+  cards: readonly SectionKey[];
   /** `h j k l` select when true (arrows pan); `v` swaps them. */
   vim: boolean;
 }
@@ -106,7 +108,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "s") return { type: "replaySpeed" };
   }
   const files = mode.fileMode;
-  if (!files && plain && /^[1-4]$/.test(key.sequence)) return { type: "focus", section: (["activity", mode.flow ? "steps" : "connections", "files", "flows"] as const)[Number(key.sequence) - 1] ?? "activity" };
+  if (!files && plain && /^[1-4]$/.test(key.sequence)) { const section = mode.cards[Number(key.sequence) - 1]; return section ? { type: "focus", section } : { type: "idle" }; }
   if (mode.focusSection && !files) {
     if (key.name === "escape") return { type: "sectionLeave" };
     if (key.name === "tab") return { type: "sectionTab", by: key.shift ? -1 : 1 };

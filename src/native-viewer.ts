@@ -39,7 +39,7 @@ import { createAskDialog } from "./viewer/ask-dialog";
 import { reviewSection } from "./viewer/review-view";
 import { choose, createState, firstNode, remember, type Visit } from "./viewer/state";
 import { createFlowMode, stepElement } from "./viewer/flow-mode";
-import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
+import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
 import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
@@ -300,7 +300,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // Sections folded automatically because the inspector is too short for every open card (never ones the user touched).
   const autoFolded = new Set<SectionKey>();
   const isOpen = (key: SectionKey) => sections[key].open && !autoFolded.has(key);
-  // Files stay out of sight until asked for (`e`, or `3`): the actions line says how many there are.
+  // Files stay out of sight until asked for (`e`, or its number): the actions line says how many there are.
   // "Now" says nothing when there is no session to watch.
   const shownSections = () => sectionOrder.filter(key => key === "files" ? fileMode || state.focusSection === "files" : key === "activity" ? Boolean(binding || following)
     : key === "steps" ? Boolean(flowMode.active) : key === "connections" ? !flowMode.active : !flowMode.active && flowsThrough(flowMode.flows, String(state.selected?.modelRef ?? "")).length > 0);
@@ -536,9 +536,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const counts: Record<SectionKey, string> = { steps: flowMode.active ? `${flowMode.step + 1}/${flowMode.active.steps.length}` : "", flows: flowItems.length ? "◇ reading" : "", connections: links.length ? String(links.length) : "",
       files: fileMode ? `${paths.length ? state.fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: observedHere ? String(observedHere) : "" };
     layoutSections();
+    const numbered = numberedCards(shownSections());
     for (const key of sectionOrder) {
       const entry = sections[key], focused = state.focusSection === key;
-      entry.header.content = sectionHeader({ open: isOpen(key), focused, name: entry.name, count: counts[key], width: inspector.width });
+      entry.header.content = sectionHeader({ open: isOpen(key), focused, number: numbered.includes(key) ? numbered.indexOf(key) + 1 : undefined, name: entry.name, count: counts[key], width: inspector.width });
       // Only the focused section shows a scrollbar, and only when it has more than fits.
       entry.content.verticalScrollBar.visible = focused && entry.content.scrollHeight > entry.content.viewport.height;
     }
@@ -973,7 +974,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   renderer.keyInput.on("keypress", key => {
     if (editorActive) return;
     const layer = state.pendingVisit ? "visit" : dialog.asking ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : "main";
-    const action = keyAction(key, { layer, askContext: dialog.focus >= 0, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, vim: vimTraverses });
+    const action = keyAction(key, { layer, askContext: dialog.focus >= 0, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
     if (!action) return;
     if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();

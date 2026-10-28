@@ -3,7 +3,7 @@ import { helpContent } from "../src/viewer/help";
 import { type Action, helpGroups, type KeyMode, type KeyPress, keyAction, tierOf } from "../src/viewer/keys";
 
 const press = (name: string, sequence = name.length === 1 ? name : "", extra: Partial<KeyPress> = {}): KeyPress => ({ name, sequence, ctrl: false, meta: false, shift: false, ...extra });
-const main: KeyMode = { layer: "main", askContext: false, replay: false, fileMode: false, focusSection: undefined, flow: false, listMode: false, vim: true };
+const main: KeyMode = { layer: "main", askContext: false, replay: false, fileMode: false, focusSection: undefined, flow: false, listMode: false, cards: ["activity", "connections", "files"], vim: true };
 const text = (content: ReturnType<typeof helpContent>["content"]) => content.chunks.map(chunk => chunk.text).join("");
 
 test("? names three tiers, in the order a user goes through them", () => {
