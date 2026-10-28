@@ -155,3 +155,31 @@ test("the brief lists where the code can start: what package.json declares, then
     expect(await cli("brief", "src/session", "--workspace", directory)).not.toContain("Where the code can be started");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("a box names the files its mapping claims that are not code, by kind, documents before images, capped with a count", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-other-"));
+  try {
+    await write(directory);
+    // A folder of workflows with one script in a language the scan does not read: the brief must not read as just the script.
+    const extra: Record<string, string> = { ".github/scripts/check.py": "print(1)\n", ".github/workflows/ci.yml": "on: push\n", ".github/logo.png": "", "src/database/README.md": "# db\n", "src/database/db.test.ts": "export {};\n" };
+    for (let index = 0; index < 45; index++) extra[`.github/ISSUE_TEMPLATE/t${String(index).padStart(2, "0")}.yml`] = "name: t\n";
+    for (const [path, text] of Object.entries(extra)) {
+      await mkdir(dirname(join(directory, path)), { recursive: true });
+      await writeFile(join(directory, path), text);
+    }
+    await Effect.runPromise(draftWorkspace(directory));
+    const boxes = await Effect.runPromise(briefOf(directory));
+    const github = boxes.find(box => box.key === ".github")!;
+    expect(github.files.map(file => file.path)).toEqual([".github/scripts/check.py"]);
+    expect(github.otherCount).toBe(47);
+    expect(github.other).toHaveLength(40);
+    // One file from each folder in turn: forty-five issue templates do not hide the one workflow.
+    expect(github.other.slice(0, 2)).toEqual([{ path: ".github/ISSUE_TEMPLATE/t00.yml", kind: "YAML" }, { path: ".github/workflows/ci.yml", kind: "YAML" }]);
+    expect(github.other.some(file => file.path === ".github/logo.png")).toBe(false);
+    // Tests stay out, as they do from the draft.
+    expect(boxes.find(box => box.key === "src/database")!.other).toEqual([{ path: "src/database/README.md", kind: "Markdown" }]);
+    const text = formatBrief(select(boxes, [".github"]).boxes, boxes);
+    expect(text).toContain("other files, not code (named only; open them to see what they are): .github/ISSUE_TEMPLATE/t00.yml [YAML], .github/workflows/ci.yml [YAML], .github/ISSUE_TEMPLATE/t01.yml [YAML]");
+    expect(text).toContain(", … and 7 more");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
