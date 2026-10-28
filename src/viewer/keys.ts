@@ -39,7 +39,7 @@ export type Action =
   | { type: "listMove"; by: -1 | 1 } | { type: "traverse"; direction: Direction }
   | { type: "endFiles" } | { type: "fileMove"; by: -1 | 1; page: boolean } | { type: "refreshFiles" } | { type: "fileOpen" }
   | { type: "help" } | { type: "inspector" } | { type: "scrollInspector"; by: -1 | 1 } | { type: "subagents" } | { type: "follow" } | { type: "files" }
-  | { type: "nextNode"; by: -1 | 1 } | { type: "zoom"; by: -1 | 1 } | { type: "pan"; direction: Direction } | { type: "fit" } | { type: "actualSize" } | { type: "centre" };
+  | { type: "zoom"; by: -1 | 1 } | { type: "pan"; direction: Direction } | { type: "fit" } | { type: "actualSize" } | { type: "centre" };
 
 const directions: Record<string, Direction> = { h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" };
 
@@ -109,9 +109,11 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   }
   const files = mode.fileMode;
   if (!files && plain && /^[1-4]$/.test(key.sequence)) { const section = mode.cards[Number(key.sequence) - 1]; return section ? { type: "focus", section } : { type: "idle" }; }
+  // In a flow `tab` is a step, from the diagram or a card; elsewhere it moves diagram → each card → diagram (the viewer leaves at either end).
+  if (!files && mode.flow && plain && key.name === "tab") return { type: "flowStep", by: key.shift ? -1 : 1 };
+  if (!files && key.name === "tab") return { type: "sectionTab", by: key.shift ? -1 : 1 };
   if (mode.focusSection && !files) {
     if (key.name === "escape") return { type: "sectionLeave" };
-    if (key.name === "tab") return { type: "sectionTab", by: key.shift ? -1 : 1 };
     if (key.name === "space" || key.sequence === " ") return { type: "sectionFold" };
     if (key.name === "up" || key.name === "k") return { type: "sectionMove", by: -1 };
     if (key.name === "down" || key.name === "j") return { type: "sectionMove", by: 1 };
@@ -152,7 +154,6 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   if (key.name === "s") return { type: "subagents" };
   if (key.name === "a") return { type: "follow" };
   if (key.name === "e") return { type: "files" };
-  if (key.name === "tab") return { type: "nextNode", by: key.shift ? -1 : 1 };
   if (key.name === "+" || key.name === "=" || key.sequence === "+") return { type: "zoom", by: 1 };
   if (key.name === "-" || key.sequence === "-") return { type: "zoom", by: -1 };
   if (direction) return { type: "pan", direction };
@@ -173,8 +174,8 @@ export type Tier = 1 | 2 | 3;
 export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" | "Shape the map"; tier: Tier; rows: HelpRow[] }[] => {
   const arrows = "← ↑ ↓ →";
   return [
-    { name: "Understand it", tier: 1, rows: [["tab, click", "select a box", ["nextNode"]], [vim ? "h j k l" : arrows, "select a neighbour", ["traverse", "listMove"]],
-      ["enter, o", "into a group, open a link", ["open"]], ["backspace", "up to the parent", ["parent"]], ["t", "ask how something works", ["ask"]],
+    { name: "Understand it", tier: 1, rows: [[`click, ${vim ? "h j k l" : arrows}`, "select a box, a neighbour", ["traverse", "listMove"]],
+      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter, o", "into a group, open a link", ["open"]], ["backspace", "up to the parent", ["parent"]], ["t", "ask how something works", ["ask"]],
       ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
     { name: "Direct it", tier: 2, rows: [["t", "tell it what to change", ["ask"]], ["c", "session and review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],

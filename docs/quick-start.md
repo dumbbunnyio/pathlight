@@ -12,7 +12,7 @@ In a tmux pane, in the project you work in:
 
 ## Three keys to start
 
-- `tab` selects the next box; the inspector on the right says what it is and what it connects to.
+- A click or `h j k l` selects a box; the inspector on the right says what it is and what it connects to, and `tab` goes into it, card by card.
 - `t` asks the agent about it. On first open the question is already there (`how does … work?`): press Enter, and the answer arrives in chat and is drawn on the map.
 - `F` steps through what was drawn, one hop at a time (`[` `]` move, `esc` leaves).
 
@@ -20,7 +20,7 @@ In a tmux pane, in the project you work in:
 
 ## Understand it
 
-Everyone starts here, even on their own code. Select boxes (`tab`, a click, `h j k l`), go into a group with `enter` and back out with `backspace`. Ask how something works with `t`: a question about a path ("how does a document get saved?", "where does the token go?") is answered and recorded as a journey, which `F` walks on the diagram. Everything drawn this way is the agent's reading of the code, in violet, never something observed.
+Everyone starts here, even on their own code. Select boxes (a click, `h j k l`), go into a group with `enter` and back out with `backspace`. Ask how something works with `t`: a question about a path ("how does a document get saved?", "where does the token go?") is answered and recorded as a journey, which `F` walks on the diagram. Everything drawn this way is the agent's reading of the code, in violet, never something observed.
 
 ## Direct it
 

@@ -114,7 +114,7 @@ bun run pathlight list --workspace examples/parcel
 bun run pathlight show services --workspace examples/parcel
 ```
 
-Select nodes with the mouse, Tab, or `h` `j` `k` `l`, which move to the nearest node in that direction. Arrow keys pan the Three camera (press `v` to swap the two). Connections are orthogonal thin lines with rounded bends. Press `/` to search every view, box and mapped file.
+Select nodes with the mouse or `h` `j` `k` `l`, which move to the nearest node in that direction. Arrow keys pan the Three camera (press `v` to swap the two). Tab moves into the inspector and through its cards (in a flow it steps). Connections are orthogonal thin lines with rounded bends. Press `/` to search every view, box and mapped file.
 The selected node's connections are solid, cyan for incoming and amber for outgoing; the rest are dotted. Move the Connects cursor (`2`) onto a row to read a long relationship in full.
 Press `e` to browse the selected node's mapped files, then Enter to open one in your external editor (at its first uncommitted change, if it has one).
 Set `VISUAL` or `EDITOR` before starting the viewer. File browsing does not require live recording.

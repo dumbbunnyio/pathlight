@@ -837,9 +837,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "focus": focusOn(action.section); return;
       case "sectionLeave": state.focusSection = undefined; update(); return;
       case "sectionTab": {
-        const shown = shownSections();
-        state.focusSection = shown[(Math.max(0, shown.indexOf(key_!)) + action.by + shown.length) % shown.length];
-        if (state.focusSection) { sections[state.focusSection].open = true; scrollToSection = state.focusSection; }
+        // From the diagram `tab` enters the first card (`shift-tab` the last); past either end of the cards it leaves to the diagram.
+        const shown = shownSections(), at = key_ ? shown.indexOf(key_) + action.by : action.by > 0 ? 0 : shown.length - 1;
+        const next = shown[at];
+        if (!next || at < 0) { state.focusSection = undefined; update(); return; }
+        if (!inspector.visible) inspectorPreference = "open";
+        state.focusSection = next; sections[next].open = true; scrollToSection = next;
         update(); return;
       }
       case "sectionFold": sections[key_!].open = !sections[key_!].open; touched.add(key_!); update(); return;
@@ -947,12 +950,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
           Effect.tap(line => Effect.sync(() => openFile(call.file, line, line ? `Returned from ${call.name}` : `${call.name} is no longer declared in ${call.file}; opened it at the top`)))));
         else beginFiles();
         break;
-      }
-      case "nextNode": {
-        const index = diagram.nodes.findIndex(node => node.id === state.selected?.id);
-        pauseFollow(); engaged = true;
-        state.selected = diagram.nodes[(index + action.by + diagram.nodes.length) % diagram.nodes.length];
-        state.fileCursor = 0; resetInspectorScroll(); break;
       }
       case "zoom": camera.autoFit = false; pauseFollow(); glide(() => { camera.scale = action.by > 0 ? Math.max(2, camera.scale / 1.25) : Math.min(128, camera.scale * 1.25); }); break;
       case "pan": {

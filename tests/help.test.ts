@@ -14,7 +14,7 @@ test("? names three tiers, in the order a user goes through them", () => {
 test("every action a key has on the diagram, in a flow, in the node list or in a focused card is in exactly one tier; t is in the first two", () => {
   // A mode's own keys (replay, the file filter, a card's tab and enter) are named in the footer while it is on, not in `?`.
   const footerOnly = new Set<Action["type"]>(["replayExit", "replayStep", "replayHome", "replayEnd", "replayTurn", "replayToggle", "replaySpeed",
-    "endFiles", "fileMove", "refreshFiles", "fileOpen", "sectionTab", "sectionEnter", "idle", "pass", "swallow"]);
+    "endFiles", "fileMove", "refreshFiles", "fileOpen", "sectionEnter", "idle", "pass", "swallow"]);
   const names = ["tab", "return", "backspace", "escape", "space", "pageup", "pagedown", "left", "right", "up", "down", "+", "-", "=",
     ..."abcdefghijklmnopqrstuvwxyz".split(""), ..."0123456789".split("")];
   const presses = [...names.map(name => press(name)), ...[..."FT?/[]"].map(sequence => press(sequence === "T" ? "t" : sequence, sequence, { shift: sequence === "T" || sequence === "F" })),
@@ -51,4 +51,25 @@ test("from 100 columns the tiers stand side by side; below that they stack, and 
     const heads = accent(tier);
     expect(heads.filter(chunk => chunk.fg?.equals(heads[tier - 1]!.fg!))).toHaveLength(1);
   }
+});
+
+test("tab moves through what is on screen: into the inspector and through its cards, a step in a flow, and never another box", () => {
+  const tab = press("tab", ""), back = press("tab", "", { shift: true });
+  expect(keyAction(tab, main)).toEqual({ type: "sectionTab", by: 1 });
+  expect(keyAction(back, main)).toEqual({ type: "sectionTab", by: -1 });
+  expect(keyAction(tab, { ...main, focusSection: "connections" })).toEqual({ type: "sectionTab", by: 1 });
+  expect(keyAction(back, { ...main, focusSection: "files" })).toEqual({ type: "sectionTab", by: -1 });
+  expect(keyAction(tab, { ...main, listMode: true })).toEqual({ type: "sectionTab", by: 1 });
+  // In a flow it is ] and [, from the diagram or a card, and [ ] still work.
+  for (const focusSection of [undefined, "steps", "activity"] as const) {
+    expect(keyAction(tab, { ...main, flow: true, focusSection })).toEqual({ type: "flowStep", by: 1 });
+    expect(keyAction(back, { ...main, flow: true, focusSection })).toEqual({ type: "flowStep", by: -1 });
+  }
+  expect(keyAction(press("]"), { ...main, flow: true })).toEqual({ type: "flowStep", by: 1 });
+  expect(keyAction(press("["), { ...main, flow: true })).toEqual({ type: "flowStep", by: -1 });
+  // Esc still leaves a card; the file filter keeps tab for its rows.
+  expect(keyAction(press("escape", ""), { ...main, focusSection: "connections" })).toEqual({ type: "sectionLeave" });
+  expect(keyAction(tab, { ...main, fileMode: true })).toEqual({ type: "fileMove", by: 1, page: false });
+  expect(helpGroups(true)[0]!.rows.slice(0, 2).map(row => `${row[0]}  ${row[1]}`)).toEqual(["click, h j k l  select a box, a neighbour", "tab  through the inspector, in a flow: next step"]);
+  expect(helpGroups(false)[0]!.rows[0]![0]).toBe("click, ← ↑ ↓ →");
 });

@@ -66,7 +66,7 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
     // `w` selects what the agent is working on.
     await tmux("send-keys", "-t", pane, "w");
     await capture("Selected: activity");
-    await tmux("send-keys", "-t", pane, "Tab");
+    await tmux("send-keys", "-t", pane, "j");
     for (let attempt = 0; attempt < 40 && (await screen()).includes("Selected: activity"); attempt++) await delay(50);
     expect(await screen()).not.toContain("Selected: activity");
     // `w` goes back to the work from wherever the selection is.
