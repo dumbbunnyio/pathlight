@@ -3,7 +3,7 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────
                                                   │ Agent adapters                        component 
  ·       ·       ·       ·       ·       ·       ·│                                                 
-                                                  │ ▾ 2 Connects ──────────────────────────────── 2 
+                                                  │ ▾ Connects ────────────────────────────────── 2 
                                                   │   → Activity metadata  Records tool lifecycle   
                                                   │   → tmux launcher      Opens a view             
  ·       ·       ·       ·       ·       ·       ·│                                                 

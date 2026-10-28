@@ -1,36 +1,36 @@
  ◆ pathlight / Parcel / Service architecture                                                                                                          
  parcel/services · 16 nodes                                                                                                                           
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-         │                                  │               ┊                 ││                        │ Inventory                          service  
-         │                                  │               ┊                 ││                        │ TypeScript / HTTP                           
-         │                                  │               ┊                 ││                        │ Owns stock levels and reservations.         
-         │                                  │╭───────────╮  ┊  ╭────────────╮ ││ ╭───────────╮          │                                             
-         │                                 ╭││ Order ev… │─┈┴┈▶│ Email wor… │─││▶│ Email pr… │          │ ▾ 2 Steps ──────────────────────────── 3/5  
-    ·    │    ·         ·          ·       ┊│╰───────────╯     ╰────────────╯ ││ ╰───────────╯  ·       │ ◇ a reading of the code, not observed       
-         │                                 ┊╰─────────────────────────────────╯│                        │ synced at abc1234, not a commit here        
-         │                                 ┊                                   │                        │    1 opens checkout           Storefront    
-         │                ╭─Commerce────────────────────────────────────────╮  │                        │    2 submits the cart       Checkout API    
-         │                │╭────────────╮  ┊ ╭─ 4 ───────╮                  │  │                        │ ›  3 reserves stock            Inventory    
-    ·    │    ·         · ││ Outbox re… │─┈┼▶│ Orders    │       ·          │  │      ·         ·       │    4 commits the order            Orders    
-         │                │╰────────────╯  │ ╰───────────╯                  │  │                        │    5 tells shipping dir… Shipping worker    
-         │                │                │                                │  │                        │ 2 to check · pathlight flows                
-         │                │                │                                │  │                        │                                             
-         │                │                │                                │  │                        │                                             
-──────╮  │ ╭─ 1 ──────╮ · │╭─ 2 ────────╮  │ ╭─ 3 ────────╮    ╭──────────╮ │  │      ·         ·       │                                             
-omer  │──│▶│ Storefr… │───││ Checkout … │──┼▶│ Inventory  │───▶│ Stock    │ │  │                        │                                             
-──────╯  │ ╰──────────╯   │╰────────────╯  ┊ ╰────────────╯    ╰──────────╯ │  │                        │                                             
-         │                ╰─────────────────────────────────────────────────╯  │                        │                                             
-         ╰─────────────────────────────────────────────────────────────────────╯                        │                                             
-    ·         ·         ·          ·       ┊ ╭───────────╮       ·          ·         ·         ·       │                                             
-                                           ┊ │ Payment … │                                              │                                             
-                                           ╰▶╰───────────╯                                              │                                             
-                                                                                                        │                                             
-                                                                                                        │                                             
-    ·         ·         ·          ·         ·         ·         ·          ·         ·         ·       │                                             
-                                                                                                        │                                             
-                                                                                                        │                                             
-                                                                                                        │                                             
-                                                                                                        │ ─────────────────────────────────────────── 
-    ·         ·         ·          ·         ·         ·         ·          ·         ·         ·       │                                             
-                                                                                                        │ › ask about Inventory…                    t 
- flow   Selected: parcel.commerce.inventory  ◇ Placing an order · 3/5   [ ] step  F next flow  esc exit                           zoom 64%  │  ? help 
+                                                                                                        │ Orders                            database  
+  ·         ·         ·         ·          ·         ·         ·         ·          ·         ·         │ PostgreSQL                                  
+                 ╭─Parcel──────────────────────────────────────────────────────────────╮                │ Orders and an outbox of committed order     
+                 │                                  ╭─Fulfillment─────────────────────╮│                │ events.                                     
+                 │                                  │                  ╭─ 5 ────────╮ ││ ╭───────────╮  │                                             
+                 │                                  │                  │ Shipping … │ ││ │ Shipping… │  │ ▾ Steps ────────────────────────────── 4/5  
+                 │                                  │               ╭┈▶╰────────────╯─││▶╰───────────╯  │ ◇ a reading of the code, not observed       
+  ·         ·    │    ·         ·          ·        │·         ·    ┊    ·          · ││      ·         │ synced at abc1234, not a commit here        
+                 │                                  │               ┊                 ││                │    1 opens checkout                         
+                 │                                  │               ┊                 ││                │      Customer → Storefront                  
+                 │                                  │╭───────────╮  ┊  ╭────────────╮ ││ ╭───────────╮  │    2 submits the cart       Checkout API    
+                 │                                  ││ Order ev… │  ┊  │ Email wor… │ ││ │ Email pr… │  │    3 reserves stock            Inventory    
+  ·         ·    │    ·         ·          ·       ╭│╰───────────╯─┈┼┈▶╰────────────╯─││▶╰───────────╯  │ ›  4 commits the order            Orders    
+                 │                                 ┊╰─────────────────────────────────╯│                │    5 tells shipping directly                
+                 │                                 ┊                ┊                  │                │      Shipping worker                        
+                 │                ╭─Commerce────────────────────────────────────────╮  │                │ 2 to check · pathlight flows                
+                 │                │╭────────────╮  ┊ ╭─ 4 ───────╮  ┊               │  │                │                                             
+  ·         ·    │    ·         · ││ Outbox re… │──┼▶│ Orders    │─┈╯    ·          │  │      ·         │                                             
+                 │                │╰────────────╯  │ ╰───────────╯                  │  │                │                                             
+                 │                │                │                                │  │                │                                             
+                 │                │                │                                │  │                │                                             
+                 │                │                │                                │  │                │                                             
+  ╭─ ▶ ───────╮  │ ╭─ 1 ──────╮ · │╭─ 2 ────────╮  │ ╭─ 3 ────────╮    ╭──────────╮ │  │      ·         │                                             
+  │ Customer  │──│▶│ Storefr… │───││ Checkout … │──┼▶│ Inventory  │─┈┈▶│ Stock    │ │  │                │                                             
+  ╰───────────╯  │ ╰──────────╯   │╰────────────╯  ┊ ╰────────────╯    ╰──────────╯ │  │                │                                             
+                 │                ╰─────────────────────────────────────────────────╯  │                │                                             
+                 ╰─────────────────────────────────────────────────────────────────────╯                │                                             
+  ·         ·         ·         ·          ·       ┊ ·         ·         ·          ·         ·         │                                             
+                                                   ┊ ╭───────────╮                                      │                                             
+                                                   ╰▶│ Payment … │                                      │ ─────────────────────────────────────────── 
+                                                     ╰───────────╯                                      │                                             
+                                                                                                        │ › ask about Orders…                       t 
+ flow   Selected: parcel.commerce.orders  ◇ Placing an order · 4/5   [ ] step  F next flow  esc exit                              zoom 64%  │  ? help 
