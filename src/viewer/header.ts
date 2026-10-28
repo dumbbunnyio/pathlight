@@ -1,7 +1,7 @@
 import { fg, StyledText, type TextChunk } from "@opentui/core";
 import { formatAge } from "../activity";
 import type { Diff } from "../diff";
-import { type Stale, staleText } from "../stale";
+import { partial, type Stale, staleText } from "../stale";
 import { palette } from "../ui";
 import { spinAt } from "./text";
 
@@ -12,7 +12,12 @@ export const staleBadge = (stale: Stale | undefined, room: number, now: number):
   const detail = staleText(stale);
   if (!stale) return [];
   // A clean check says so, quietly: silence would look the same as a hook that never ran.
-  if (!detail) { const text = `✓ in sync · checked ${ago(stale.time, now)} `; return text.length <= room ? [fg(palette.muted)(text)] : []; }
+  // When most of the source is in languages the scan does not read, "in sync" says what it covers.
+  if (!detail) {
+    const options = partial(stale) ? [`✓ in sync · TS/JS only · checked ${ago(stale.time, now)} `, "✓ in sync · TS/JS only ", "✓ TS/JS only "] : [`✓ in sync · checked ${ago(stale.time, now)} `];
+    const text = options.find(option => option.length <= room);
+    return text ? [fg(palette.muted)(text)] : [];
+  }
   const full = `▲ out of date: ${detail} · checked ${ago(stale.time, now)} `;
   const text = full.length <= room ? full : room >= 16 ? "▲ out of date " : "";
   return text ? [fg(palette.accent)(text)] : [];
