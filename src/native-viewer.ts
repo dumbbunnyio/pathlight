@@ -40,7 +40,7 @@ import { choose, createState, firstNode, remember, type Visit } from "./viewer/s
 import { createFlowMode, stepElement } from "./viewer/flow-mode";
 import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
-import { easeOut, fade, wrapWords } from "./viewer/text";
+import { easeOut, fade } from "./viewer/text";
 import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
 
 export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) {
@@ -429,10 +429,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       }
       return [entry, { left, top, right, bottom }] as const;
     }));
-    // The first row is on every card or none: a card with too few rows at this zoom for it and its title's lines takes it from all of them.
+    // The first row is on every card or none: when the zoom gives cards fewer rows than the layout did, it goes from all of them, before a title line.
     const rows = kindRows.get(diagram) ?? { kinds: false, row: false };
-    const header = rows.row && [...placed].every(([entry, cell]) => entry.node.children.length > 0
-      || cell.bottom - cell.top - 3 >= Math.min(2, wrapWords(entry.node.title, Math.max(4, cell.right - cell.left - 4)).length));
+    const header = rows.row && [...placed].every(([entry, drawn]) => entry.node.children.length > 0 || drawn.bottom - drawn.top >= Math.round(entry.node.height / cell.y));
     for (const entry of nodeObjects) {
       const group = entry.node.children.length > 0, id = String(entry.node.id), ref = String(entry.node.modelRef);
       const related = byElement.get(ref) ?? [];
