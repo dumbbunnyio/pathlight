@@ -17,25 +17,32 @@ export interface CompactOptions {
 export const gapColumns = 6, gapRows = 2;
 /** A group's frame and the clear cell inside it, on every side; its title sits in the top frame row. */
 const frame = 2;
-const widest = 32, wordCap = 24;
+/** A card's width in columns: at least LikeC4's usual box (320 units), at most 32; the longest word counts up to 24 characters. */
+const narrowest = 20, widest = 32, wordCap = 24;
 
-/** The width in columns a card needs so its title fits on at most two lines, and the lines it then takes. */
+/** The width in columns a card needs so its title fits on at most two lines (on one when that costs at most two columns more), and the lines it then takes. */
 export const cardSize = (title: string, atLeast: number) => {
   const longest = Math.max(0, ...title.split(/\s+/).map(word => word.length));
   const least = Math.max(Math.min(longest, wordCap) + 4, Math.min(widest, atLeast));
   for (let width = least; width <= widest; width++) {
     const lines = wrapWords(title, width - 4);
-    if (lines.length <= 2 && lines.every(line => line.length <= width - 4)) return { width, lines: lines.length };
+    if (lines.length <= 2 && lines.every(line => line.length <= width - 4)) {
+      const single = Math.max(least, title.length + 4);
+      return lines.length === 2 && single <= Math.min(widest, width + 2) ? { width: single, lines: 1 } : { width, lines: lines.length };
+    }
   }
   return { width: Math.max(least, widest), lines: 2 };
 };
 
+/** Lines a title takes on a card this many columns wide (at most two: a longer one ends in an ellipsis). */
+const linesAt = (title: string, width: number) => Math.min(2, wrapWords(title, width - 4).length);
+
 type Axis = "x" | "y";
 
 /**
- * Compact fit: LikeC4's arrangement with Pathlight's spacing and card sizes. Every leaf card gets a readable size in cells (its title on one or two
- * lines, never narrower than it was at 100%, at most 32 columns; 4 rows, 5 for two lines, one fewer without a kind or status row) and the space between cards
- * shrinks to a small gap. What is kept, on each axis: a card that ended before another began still does (with at least the gap between them, more
+ * Compact fit: LikeC4's arrangement with Pathlight's spacing and card sizes. Every leaf card of a view gets one readable size in cells (the widest
+ * title on one or two lines, from 20 to 32 columns, whatever width LikeC4 drew; 4 rows, 5 when a title takes two lines, one fewer
+ * without a kind or status row) and the space between cards shrinks to a small gap. What is kept, on each axis: a card that ended before another began still does (with at least the gap between them, more
  * when group frames stand between them), cards that overlapped still overlap, cards that shared a left or top edge (a dagre rank) still share it, and
  * a group is the box around its children with its frame and a clear cell. The result is in the same units, deterministic and idempotent.
  */
@@ -54,11 +61,11 @@ export function compact(nodes: readonly CompactNode[], options: CompactOptions):
     const of = lineage.get(a.id)!, other = lineage.get(b.id)!;
     return of.filter(id => !other.includes(id)).length + other.filter(id => !of.includes(id)).length;
   };
-  // Sizes in cells.
-  const size = new Map(leaves.map(leaf => {
-    const fit = cardSize(leaf.title, Math.round(leaf.width / unit.x));
-    return [leaf.id, { x: fit.width, y: 2 + (options.kindRow || leaf.status ? 1 : 0) + fit.lines }];
-  }));
+  // One size in cells for every card of the view: the widest title decides the width, the most lines at that width the height. A short title
+  // leaves its last row blank, under it.
+  const width = Math.max(0, ...leaves.map(leaf => cardSize(leaf.title, narrowest).width));
+  const height = 2 + (options.kindRow || leaves.some(leaf => leaf.status) ? 1 : 0) + Math.max(1, ...leaves.map(leaf => linesAt(leaf.title, width)));
+  const size = new Map(leaves.map(leaf => [leaf.id, { x: width, y: height }]));
   const place = (axis: Axis) => {
     const extent = axis === "x" ? "width" : "height";
     const gap = axis === "x" ? gapColumns : gapRows;

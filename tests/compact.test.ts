@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { acquireModel } from "../src/catalog";
-import { type CompactNode, compact, gapColumns, gapRows } from "../src/viewer/compact";
+import { type CompactNode, cardSize, compact, gapColumns, gapRows } from "../src/viewer/compact";
 import { wrapWords } from "../src/viewer/text";
 
 /**
@@ -29,6 +29,8 @@ const hand: { name: string; nodes: CompactNode[] }[] = [
     leaf("outer.inner.a", 100, 100, 320, 180, "a", "outer.inner"), leaf("outer.inner.b", 100, 500, 320, 180, "b", "outer.inner"), leaf("outer.c", 900, 300, 320, 180, "c", "outer"), leaf("d", 1800, 300)] },
   { name: "a long card overlapping two in a row", nodes: [leaf("long", 0, 0, 1000), leaf("x", 100, 400, 200), leaf("y", 500, 400, 200), leaf("z", 1600, 0)] },
   { name: "a long title", nodes: [leaf("a", 0, 0, 320, 180, "A component with a rather long descriptive title that wraps"), leaf("b", 2000, 3000, 320, 180, "Short")] },
+  { name: "one long title among three short ones", nodes: [leaf("a", 0, 0, 320, 180, "Collaboration server and websocket gateway"), leaf("b", 600, 0, 320, 180, "Web"),
+    leaf("c", 1200, 0, 320, 180, "Store"), leaf("d", 1800, 0, 320, 180, "Jobs")] },
 ];
 
 const all = async () => [...hand, ...(await scenes("tests/fixtures/viewer")).map(view => ({ name: `fixture ${view.id}`, nodes: view.nodes })),
@@ -67,22 +69,36 @@ test("containment is kept: a group is the box around its children with a frame a
   }
 });
 
-test("every leaf card is readable: wide enough for its longest word, at most 32 columns, never narrower than it was, 4 rows or 5 for two lines", async () => {
+test("every leaf card is readable and all cards in a view share one size: the widest title decides the width, the most lines at it the height", async () => {
   for (const { name, nodes } of await all()) {
     const out = new Map(compact(nodes, options).map(node => [node.id, node]));
-    for (const card of leaves(nodes)) {
+    const cards = leaves(nodes);
+    const width = Math.max(...cards.map(card => cardSize(card.title, 20).width));
+    const lines = Math.max(...cards.map(card => Math.min(2, wrapWords(card.title, width - 4).length)));
+    expect(width, name).toBeLessThanOrEqual(32);
+    for (const card of cards) {
       const shaped = out.get(card.id)!, columns = shaped.width / column, rows = shaped.height / row;
       const longest = Math.max(...card.title.split(/\s+/).map(word => word.length));
       expect(columns, `${name}: ${card.id} width`).toBeGreaterThanOrEqual(Math.min(longest, 24) + 4);
-      expect(columns, `${name}: ${card.id} width`).toBeLessThanOrEqual(32);
-      expect(columns, `${name}: ${card.id} not narrower`).toBeGreaterThanOrEqual(Math.min(32, Math.round(card.width / column)));
-      const lines = Math.min(2, wrapWords(card.title, columns - 4).length);
-      expect(rows, `${name}: ${card.id} rows`).toBe(lines === 1 ? 4 : 5);
+      expect(columns, `${name}: ${card.id} width`).toBeGreaterThanOrEqual(20);
+      // One size, except a card that grew to keep overlapping a later-starting card on that axis (the order invariant needs it).
+      const grew = (start: "x" | "y", extent: "width" | "height") => cards.some(other => other !== card && card[start] < other[start] && other[start] < card[start] + card[extent]);
+      if (grew("x", "width")) expect(columns, `${name}: ${card.id} width`).toBeGreaterThanOrEqual(width); else expect(columns, `${name}: ${card.id} width`).toBe(width);
+      if (grew("y", "height")) expect(rows, `${name}: ${card.id} rows`).toBeGreaterThanOrEqual(3 + lines); else expect(rows, `${name}: ${card.id} rows`).toBe(3 + lines);
     }
     // Without a kind row a card is one row shorter.
     const bare = new Map(compact(nodes, { aspect, kindRow: false }).map(node => [node.id, node]));
-    for (const card of leaves(nodes)) expect(bare.get(card.id)!.height, `${name}: ${card.id}`).toBe(out.get(card.id)!.height - row);
+    for (const card of cards) expect(bare.get(card.id)!.height, `${name}: ${card.id}`).toBe(out.get(card.id)!.height - row);
   }
+  // One long title sets the width for three short ones, and its two lines the height of all four.
+  const shaped = compact(hand.find(scene => scene.name === "one long title among three short ones")!.nodes, options);
+  expect(new Set(shaped.map(card => card.width / column))).toEqual(new Set([cardSize("Collaboration server and websocket gateway", 20).width]));
+  expect(new Set(shaped.map(card => card.height / row))).toEqual(new Set([5]));
+});
+
+test("a title takes one line when that costs at most two columns more than two", () => {
+  expect(cardSize("Persistent viewer", 20)).toEqual({ width: 21, lines: 1 });
+  expect(cardSize("Agent browser extension", 20)).toEqual({ width: 20, lines: 2 });
 });
 
 test("gaps are small and sufficient: neighbouring cards are 6 columns or 2 rows apart, more only where group frames stand between them", async () => {
