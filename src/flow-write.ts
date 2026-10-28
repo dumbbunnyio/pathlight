@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { readActivityConfig } from "./activity";
 import { acquireModel, invalidModel } from "./catalog";
 import { failure, io } from "./effects";
-import { checkFlows, contentHash, type JourneyReport } from "./flows";
+import { checkFlows, contentHash, type JourneyReport, type Over, runtimeHops } from "./flows";
 import { run } from "./process";
 import { declarationOf, exportsOf } from "./scan-imports";
 
@@ -23,22 +23,30 @@ export const maxSteps = 24;
 
 /** The function a hop calls: where it is declared and what it is called, checked against the file when the flow is written. */
 export interface FlowCall { file: string; name: string; declaration: string }
-export interface FlowStepInput { from: string; to: string; title: string; call?: { file: string; name: string } }
+export interface FlowStepInput { from: string; to: string; title: string; over?: Over; call?: { file: string; name: string } }
 const callPattern = /(?:^|\s)@\s*(\S+?)#([A-Za-z_$][\w$]*)\s*$/;
 /** How a call is kept in the view: one line in the step's notes, `name | file | declaration`. */
 export const callNote = (call: FlowCall) => `${call.name} | ${call.file} | ${call.declaration}`;
+/** How a runtime hop is kept: its own line in the step's notes, `over | http`, before the call's. */
+export const overNote = (over: Over) => `over | ${over}`;
 
-/** `a.b -> c: opens checkout` → a step. Anything else is refused with the shape asked for, because a half-parsed hop would be a wrong flow. */
+/**
+ * `a.b -> c: opens checkout` → a step; `a -> b over http: opens the document` → a hop made over HTTP, a websocket or a spawned process, which no import
+ * backs. Anything else is refused with the shape asked for, because a half-parsed hop would be a wrong flow.
+ */
 export function parseStep(text: string): FlowStepInput | string {
   const match = stepPattern.exec(text.trim());
   if (!match) return `“${text}” is not a step. Write it as: from -> to: what happens (component ids as the model spells them).`;
-  const [, from, to, title] = match as unknown as [string, string, string, string];
+  const [, from, target, title] = match as unknown as [string, string, string, string];
+  const runtime = /^(\S+)\s+over\s+(\S+)$/.exec(target);
+  if (runtime && !runtimeHops.includes(runtime[2] as Over)) return `“${text}”: a hop goes over ${runtimeHops.join(", ")} or nothing, not “${runtime[2]}”.`;
+  const to = runtime ? runtime[1]! : target, over = runtime?.[2] as Over | undefined;
   if (/\s/.test(from) || /\s/.test(to)) return `“${text}”: component ids have no spaces. Check them with pathlight list and the model.`;
   if (/[\r\n]/.test(title)) return `“${text}”: an event is one line.`;
   const call = callPattern.exec(title);
   const event = (call ? title.slice(0, call.index) : title).trim();
   if (!event) return `“${text}”: say what happens before the @ file#function.`;
-  return { from, to, title: event, ...(call ? { call: { file: call[1]!.replace(/^\.\//, ""), name: call[2]! } } : {}) };
+  return { from, to, title: event, ...(over ? { over } : {}), ...(call ? { call: { file: call[1]!.replace(/^\.\//, ""), name: call[2]! } } : {}) };
 }
 
 /** A LikeC4 single-quoted string. */
@@ -48,9 +56,10 @@ export function renderJourney(options: { id: string; title: string; reads: reado
   const note = `Agent-written from ${options.reads.join(", ")}.${options.sha ? ` Synced at ${options.sha}.` : ""}${options.uncommitted?.length ? ` Read with uncommitted changes: ${options.uncommitted.map(entry => `${entry.path}@${entry.hash}`).join(", ")}.` : ""}`;
   return [
     marker, "views {", `  dynamic view ${options.id} {`, `    title ${quote(options.title)}`, `    description ${quote(note)}`,
-    ...options.steps.map(step => step.declared
-      ? `    ${step.from} -> ${step.to} ${quote(step.title)} {\n      notes ${quote(callNote(step.declared))}\n    }`
-      : `    ${step.from} -> ${step.to} ${quote(step.title)}`), "  }", "}", "",
+    ...options.steps.map(step => {
+      const notes = [...(step.over ? [overNote(step.over)] : []), ...(step.declared ? [callNote(step.declared)] : [])];
+      return notes.length ? `    ${step.from} -> ${step.to} ${quote(step.title)} {\n      notes ${quote(notes.join("\n"))}\n    }` : `    ${step.from} -> ${step.to} ${quote(step.title)}`;
+    }), "  }", "}", "",
   ].join("\n");
 }
 

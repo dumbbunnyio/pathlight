@@ -1,6 +1,6 @@
 import { fg, type RGBA, StyledText, type TextChunk, type createCliRenderer } from "@opentui/core";
 import { Effect } from "effect";
-import { askMessage, flowMessage, mapMessage, sendToPane } from "../ask";
+import { askMessage, flowMessage, isHowQuestion, mapMessage, sendToPane } from "../ask";
 import { readEntry, readKeys, saveElement } from "../edit";
 import { borderHints, palette } from "../ui";
 import { hints } from "./keys";
@@ -12,21 +12,26 @@ export interface AskTarget { id: unknown; title: string; modelRef?: unknown }
 type Widgets = ReturnType<typeof createWidgets>;
 
 /**
- * The dialog for asking the agent about a node, typed with the component's context into the agent's own tmux pane: `t` asks a question (with
- * files, connections and activity as toggles, Tab moving between the question and them); `m` asks the agent to improve the map; `d` to trace a
- * flow; `n` is the person's own name and note (two steps, no agent). Map editing needs the element's overlay key, which `pathlight draft`
- * records; a hand-written model has none.
+ * The dialog for asking the agent about a node, typed with the component's context into the agent's own tmux pane: `t` asks a question or tells it
+ * what to change (with files, connections and activity as toggles, and `draw it`, which records a how-question's answer as a journey; Tab moves
+ * between the question and them); `m` asks the agent to improve the map; `d` to trace a flow; `n` is the person's own name and note (two steps, no
+ * agent). Map editing needs the element's overlay key, which `pathlight draft` records; a hand-written model has none. The files a request names
+ * are `relevant`'s choice (the ones on the component's edges), read when it is sent.
  */
 export function createAskDialog<Target extends AskTarget>(options: {
   renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "ask" | "askInput" | "askPrompt" | "askRow">; workspace: string; parent: string | undefined;
-  selected: () => Target | undefined; context: (target: Target) => { files: string[]; links: string[]; activity: string[] }; live: () => { bound: boolean; label: string };
+  selected: () => Target | undefined; context: (target: Target) => { files: string[]; links: string[]; activity: string[] }; relevant: (target: Target) => Effect.Effect<string[]>;
+  live: () => { bound: boolean; label: string };
   say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void; background: RGBA;
 }) {
   const { renderer, workspace } = options, { ask, askInput, askPrompt, askRow } = options.widgets;
   const tell = (message: string) => { options.say(message); options.update(); };
   let asking: Target | undefined;
-  // What to send with the question: files, connections, activity.
-  const include = [true, true, false];
+  // What to send with the question: files, connections, activity, and whether to draw the answer. `draw it` follows the question (on for a
+  // how-question) until the user flips it.
+  const include = [true, true, false, false];
+  let drawFlipped: boolean | undefined;
+  const drawing = () => drawFlipped ?? isHowQuestion(askInput.plainText);
   let mode: "ask" | "map" | "flow" | "name" | "note" = "ask", editKey = "", editTitle = "", noteDraft = "";
   let focus = -1, spans: { from: number; to: number }[] = [];
   const render = () => {
@@ -42,16 +47,18 @@ export function createAskDialog<Target extends AskTarget>(options: {
       return;
     }
     ask.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)("Ask the agent"), fg(palette.muted)(" ")]);
-    const context = options.context(asking), counts = [context.files.length, context.links.length, context.activity.length], names = ["files", "connections", "activity"];
+    const context = options.context(asking), counts = [String(context.files.length), String(context.links.length), String(context.activity.length), ""];
+    const names = ["files", "connections", "activity", "draw it"];
+    include[3] = drawing();
     const chunks: TextChunk[] = [fg(palette.muted)("about".padEnd(8)), fg(palette.text)(asking.title), fg(palette.purple)(`  ${asking.id}`), nl, fg(palette.muted)("include".padEnd(8))];
     let column = 8;
     spans = [];
     names.forEach((name, index) => {
       const on = include[index], focused = focus === index;
       const paint = (chunk: TextChunk) => focused ? { ...chunk, bg: options.background } : chunk;
-      const text = `${on ? "●" : "○"} ${name} ${counts[index]}`;
+      const text = `${on ? "●" : "○"} ${name}${counts[index] ? ` ${counts[index]}` : ""}`;
       if (index) { chunks.push(fg(palette.muted)("   ")); column += 3; }
-      chunks.push(paint(fg(on ? palette.accent : palette.border)(on ? "● " : "○ ")), paint(fg(on ? palette.body : palette.border)(`${name} `)), paint(fg(palette.border)(String(counts[index]))));
+      chunks.push(paint(fg(on ? palette.accent : palette.border)(on ? "● " : "○ ")), paint(fg(on ? palette.body : palette.border)(counts[index] ? `${name} ` : name)), paint(fg(palette.border)(counts[index]!)));
       spans.push({ from: column, to: column + text.length });
       column += text.length;
     });
@@ -67,10 +74,11 @@ export function createAskDialog<Target extends AskTarget>(options: {
     const column = event.x - ask.content.x;
     if (event.y - ask.content.y !== 1) return;
     const index = spans.findIndex(span => column >= span.from && column < span.to);
-    if (index >= 0) { include[index] = !include[index]; focusOn(index); }
+    if (index >= 0) { flip(index); focusOn(index); }
   };
+  const flip = (index: number) => { if (index === 3) drawFlipped = !drawing(); else include[index] = !include[index]; };
   const open = (target: Target, next: typeof mode, text: string, placeholder: string) => {
-    asking = target; mode = next; options.opening();
+    asking = target; mode = next; drawFlipped = undefined; options.opening();
     askInput.placeholder = placeholder;
     askInput.setText(text); askInput.gotoBufferEnd(); askInput.height = 1; askRow.height = 3;
     ask.open(Math.min(76, renderer.width - 4), 10);
@@ -84,7 +92,9 @@ export function createAskDialog<Target extends AskTarget>(options: {
       }),
       Effect.catch(() => Effect.void)));
   const finish = () => { asking = undefined; mode = "ask"; askInput.blur(); ask.close(); options.update(); };
-  const sent = (text: string, done: string) => options.run(sendToPane(options.parent!, text, true).pipe(
+  // The text is made once the relevant files are known (the scan's imports are read on the first request).
+  const sent = (target: Target, text: (files: string[]) => string, done: string) => options.run(options.relevant(target).pipe(
+    Effect.flatMap(files => sendToPane(options.parent!, text(files), true)),
     Effect.tap(() => Effect.sync(() => tell(done))),
     Effect.catch(error => Effect.sync(() => tell(error.message)))));
   ask.dismiss = finish;
@@ -93,12 +103,14 @@ export function createAskDialog<Target extends AskTarget>(options: {
     get focus() { return focus; },
     finish,
     tab() { if (mode === "ask") focusOn(focus < 0 ? 0 : -1); },
-    choose(by: number) { focusOn((focus + by) % 3); },
-    toggle() { include[focus] = !include[focus]; render(); },
+    choose(by: number) { focusOn((focus + by) % include.length); },
+    toggle() { flip(focus); render(); },
+    /** The question typed so far changed: `draw it` may follow it. */
+    typed() { if (asking && mode === "ask") render(); },
     beginAsk() {
       if (!options.parent) { tell("Ask needs the viewer opened with pathlight show, which knows your agent's pane"); return; }
       const target = options.selected();
-      if (target) open(target, "ask", "", "What do you want to know about it?");
+      if (target) open(target, "ask", "", "Ask how something works, or tell it what to change");
     },
     beginMap() {
       if (!options.parent) { tell("Changing the map needs the viewer opened with pathlight show, which knows your agent's pane"); return; }
@@ -132,18 +144,18 @@ export function createAskDialog<Target extends AskTarget>(options: {
       if (!target || !parent || !question) return;
       const context = options.context(target);
       if (mode === "flow") {
-        const text = flowMessage({ title: target.title, id: String(target.id), files: context.files, links: context.links }, question);
-        finish(); sent(text, `Asked the agent to trace a flow from ${target.title} · F shows it once it is written`);
+        finish(); sent(target, files => flowMessage({ title: target.title, id: String(target.id), files, links: context.links }, question), `Asked the agent to trace a flow from ${target.title} · F shows it once it is written`);
         return;
       }
       if (mode === "map") {
-        const text = mapMessage({ title: target.title, id: String(target.id), key: editKey, files: context.files, links: context.links }, question);
-        finish(); sent(text, `Asked the agent to improve ${target.title} · it replies in the agent pane`);
+        const key = editKey;
+        finish(); sent(target, files => mapMessage({ title: target.title, id: String(target.id), key, files, links: context.links }, question), `Asked the agent to improve ${target.title} · it replies in the agent pane`);
         return;
       }
-      const text = askMessage({ title: target.title, id: String(target.id), files: include[0] ? context.files : [], links: include[1] ? context.links : [], activity: include[2] ? context.activity : [] }, question);
+      const [withFiles, withLinks, withActivity] = include, draw = drawing();
       const live = options.live(), session = live.bound ? live.label : "the agent";
-      finish(); sent(text, `Asked ${session} about ${target.title} · reply lands in the agent pane`);
+      finish(); sent(target, files => askMessage({ title: target.title, id: String(target.id), files: withFiles ? files : [], links: withLinks ? context.links : [], activity: withActivity ? context.activity : [] }, question, draw),
+        `Asked ${session} about ${target.title} · reply lands in the agent pane${draw ? " · F shows the path once it is recorded" : ""}`);
     },
   };
 }

@@ -83,6 +83,7 @@ export function stepsCard(flow: FlowMap, current: number, byElement: ReadonlyMap
     }
     if (step.mark) { chunks.push(indent(5), fg(step.mark === "bug" ? palette.failure : palette.green)(step.mark === "bug" ? "✗ marked as broken in the diagram\n" : "✓ marked as fixed in the diagram\n")); line++; }
     if (step.reply) { chunks.push(indent(5), fg(palette.muted)("↩ the answer to an earlier step\n")); line++; }
+    else if (step.over) { chunks.push(indent(5), fg(palette.purple)(`over ${step.over}`), fg(palette.muted)(", not an import\n")); line++; }
     else if (step.backed === false) { chunks.push(indent(5), fg(palette.accent)("≠ "), fg(palette.muted)("no relationship in the model\n")); line++; }
     if (!step.elements.length) { chunks.push(indent(5), fg(palette.muted)("no component for this step\n")); line++; }
     if (step.call) {

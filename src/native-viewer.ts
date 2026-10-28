@@ -12,7 +12,8 @@ import type { Plan } from "./plan";
 import type { Stale } from "./stale";
 import { nodeFiles } from "./node-files";
 import { firstChange, openEditor } from "./editor";
-import { sendToPane } from "./ask";
+import { relevantFiles, sendToPane } from "./ask";
+import { type Scan, scanWorkspace } from "./scan";
 import pkg from "../package.json" with { type: "json" };
 import { borderHints, palette, setPalette } from "./ui";
 import { type Mode, loadThemes, paletteOf, savedTheme, themeFromEnvironment } from "./theme";
@@ -40,7 +41,7 @@ import { choose, createState, firstNode, remember, type Visit } from "./viewer/s
 import { createFlowMode, stepElement } from "./viewer/flow-mode";
 import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
-import { easeOut, fade } from "./viewer/text";
+import { describe, easeOut, fade } from "./viewer/text";
 import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
 
 export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) {
@@ -105,7 +106,7 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
   for (const resource of resources) resource.dispose();
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
-  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, nodeList, nodeListText } = createWidgets(renderer);
+  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, fitAsk, nodeList, nodeListText } = createWidgets(renderer);
   if (!binding && !following) { sections.activity.box.visible = false; sections.activity.box.height = 0; }
   let connectionItems: string[] = [];
   let fileLines: number[] = [];
@@ -697,8 +698,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const activity = [...new Set((byElement.get(String(target.modelRef ?? "")) ?? []).flatMap(event => event.paths.map(path => `${event.operation} ${path}`)))];
     return { files: files.get(String(target.modelRef ?? "")) ?? [], links, activity };
   };
-  const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext,
-    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; }, background: hot });
+  // The scan's imports, read when a request first needs them and again after a reload: a request names the files on the component's edges.
+  let imports: Scan["imports"] | undefined;
+  const readImports = Effect.suspend(() => imports ? Effect.succeed(imports) : scanWorkspace(view.workspace).pipe(
+    Effect.map(scan => scan.imports), Effect.tap(list => Effect.sync(() => { imports = list; })), Effect.catch(() => Effect.succeed([] as Scan["imports"]))));
+  const requestFiles = (target: Node) => readImports.pipe(Effect.map(list => {
+    const near = new Set(diagram.edges.flatMap(edge => edge.source === target.id ? [edge.target] : edge.target === target.id ? [edge.source] : []));
+    const neighbours = diagram.nodes.filter(node => near.has(node.id)).flatMap(node => files.get(String(node.modelRef ?? "")) ?? []);
+    return relevantFiles({ files: files.get(String(target.modelRef ?? "")) ?? [], neighbours, imports: list, description: describe(target.description) });
+  }));
+  const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, background: hot });
+  askInput.onContentChange = () => { fitAsk(); dialog.typed(); };
   help.dismiss = () => help.close();
   summary.dismiss = () => { summary.close(); update(); };
   goto.dismiss = () => { goto.close(); update(); };
@@ -974,7 +985,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const before = new Set(diagram.nodes.map(node => String(node.id)));
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
-        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError;
+        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; imports = undefined;
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;
         nodeObjects = mountNodes(); routes = computeRoutes(); gapFor = "";

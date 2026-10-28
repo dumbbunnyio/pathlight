@@ -63,6 +63,33 @@ test("flow add keeps a called function only if the file exports it, shows it in 
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("a hop over http, a websocket or a process round-trips through flow add and flows, beside a call, and is not reported as a gap", async () => {
+  expect(parseStep("app -> server over http: opens the document")).toEqual({ from: "app", to: "server", title: "opens the document", over: "http" });
+  expect(parseStep("a -> b over websocket: sends a step @ src/x.ts#send")).toEqual({ from: "a", to: "b", title: "sends a step", over: "websocket", call: { file: "src/x.ts", name: "send" } });
+  expect(parseStep("a -> b over pigeon: flies")).toContain("over http, websocket, process or nothing");
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-flow-over-"));
+  try {
+    await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
+    await mkdir(join(directory, "src"), { recursive: true });
+    await writeFile(join(directory, "src/ship.ts"), "export async function postLabel(order: Order): Promise<void> {}\n");
+    const git = (...args: string[]) => run("git", ["-C", directory, "-c", "user.email=t@t", "-c", "user.name=t", ...args]);
+    await git("init", "-q"); await git("add", "-A"); await git("commit", "-q", "-m", "first");
+    // orders and shipping have no relationship in the model: unmarked, the hop is a gap; marked over http, it is a runtime hop.
+    const add = (id: string, hop: string) => cli("flow", "add", id, "--workspace", directory, "--title", "Shipping an order", "--reads", "src/ship.ts",
+      "--step", "customer -> parcel.storefront: places an order", "--step", hop);
+    await add("ship-over", "parcel.commerce.orders -> parcel.fulfillment.shipping over http: posts the label @ src/ship.ts#postLabel");
+    const written = await readFile(join(directory, "ship-over.behavior.c4"), "utf8");
+    expect(written).toContain("parcel.commerce.orders -> parcel.fulfillment.shipping 'posts the label' {\n      notes 'over | http\npostLabel | src/ship.ts | export async function postLabel(order: Order): Promise<void>'");
+    await add("ship-plain", "parcel.commerce.orders -> parcel.fulfillment.shipping: posts the label");
+    const report = JSON.parse(await cli("flows", "--workspace", directory, "--json")) as { journeys: { id: string; steps: { over?: string; call?: { name: string } }[]; findings: string[] }[] };
+    const over = report.journeys.find(journey => journey.id === "ship-over")!, plain = report.journeys.find(journey => journey.id === "ship-plain")!;
+    expect(over.steps[1]).toMatchObject({ over: "http", call: { name: "postLabel" } });
+    expect(over.findings).toEqual([]);
+    expect(plain.steps[1]!.over).toBeUndefined();
+    expect(plain.findings.join("\n")).toContain("with no relationship between them in the model");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
 // Against a real repository and model: what is written compiles, is stamped, shows in `flows`, and a hand-written file is never overwritten or removed.
 test("flow add writes a checked journey; refuses unknown components, unread files and files it did not write; remove takes back only its own", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-flow-write-"));

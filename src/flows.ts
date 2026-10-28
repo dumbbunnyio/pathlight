@@ -28,13 +28,21 @@ export type Sync =
  * One step of a flow, in the order it is told. A journey step is a hop between two components (a LikeC4 dynamic view's step); a behavior step is a
  * state. `elements` are the components it touches, and `backed` is whether the model has a relationship for the hop (null for a state, which is no hop).
  */
-export interface FlowStep { n: number; title: string; elements: string[]; from?: string; to?: string; backed: boolean | null; reply?: boolean; mark?: "bug" | "fixed"; call?: StepCall }
+export interface FlowStep { n: number; title: string; elements: string[]; from?: string; to?: string; backed: boolean | null; reply?: boolean; mark?: "bug" | "fixed"; call?: StepCall; over?: Over }
 /** The function a journey step calls, as the agent recorded it (`name | file | declaration` in the step's notes). The declaration is the code's own text when it was written. */
 export interface StepCall { name: string; file: string; declaration: string }
+/** How a hop travels when no import makes it: the agent read the request and the code that answers it (`over | http` in the step's notes). */
+export const runtimeHops = ["http", "websocket", "process"] as const;
+export type Over = (typeof runtimeHops)[number];
 export const parseCall = (notes: string | undefined): StepCall | undefined => {
-  const parts = (notes ?? "").split(" | ");
-  return parts.length >= 3 && parts[0] && parts[1] ? { name: parts[0].trim(), file: parts[1].trim(), declaration: parts.slice(2).join(" | ").trim() } : undefined;
+  for (const line of (notes ?? "").split("\n")) {
+    const parts = line.split(" | ");
+    if (parts.length >= 3 && parts[0] && parts[1]) return { name: parts[0].trim(), file: parts[1].trim(), declaration: parts.slice(2).join(" | ").trim() };
+  }
+  return undefined;
 };
+export const parseOver = (notes: string | undefined): Over | undefined =>
+  /^over \| (http|websocket|process)\s*$/m.exec(notes ?? "")?.[1] as Over | undefined;
 export interface FlowReport {
   id: string; title: string; view: string | null; sync: Sync;
   steps: FlowStep[];
@@ -127,7 +135,8 @@ const last = (id: string) => id.split(".").at(-1) ?? id;
 export function assessJourney(journey: JourneyInput, git: { changedElements: ReadonlySet<string>; known: (sha: string) => boolean; declared?: (file: string, name: string) => string | undefined }): JourneyReport {
   const sha = syncOf(journey.viewDescription);
   const findings: string[] = [];
-  const steps: FlowStep[] = journey.steps.map((step, index) => ({ n: index + 1, title: step.title, elements: [...new Set([step.source, step.target])], from: step.source, to: step.target, backed: step.backed, ...(parseCall(step.notes) ? { call: parseCall(step.notes)! } : {}) }));
+  const steps: FlowStep[] = journey.steps.map((step, index) => ({ n: index + 1, title: step.title, elements: [...new Set([step.source, step.target])], from: step.source, to: step.target, backed: step.backed,
+    ...(parseCall(step.notes) ? { call: parseCall(step.notes)! } : {}), ...(parseOver(step.notes) ? { over: parseOver(step.notes)! } : {}) }));
   // A call recorded with the flow must still be what the file declares; if not, the reading is out of date at that step.
   for (const step of steps) if (step.call && git.declared) {
     const now = git.declared(step.call.file, step.call.name);
@@ -135,14 +144,15 @@ export function assessJourney(journey: JourneyInput, git: { changedElements: Rea
     else if (now !== step.call.declaration) findings.push(`Step ${step.n}: ${step.call.name} in ${step.call.file} is declared differently from when the flow was written.`);
   }
   // A hop back along the way an earlier step went is the answer to it (a response, a return value), not a second thing the model must declare;
-  // and several hops over the same pair are one gap in the model, reported once.
+  // several hops over the same pair are one gap in the model, reported once; and a hop the agent read going over HTTP, a socket or a process is no
+  // gap, since no import could back it.
   for (const step of steps) {
     // The first step over a pair sets which way the request goes; hops the other way are answers.
     const opened = steps.find(other => (other.from === step.from && other.to === step.to) || (other.from === step.to && other.to === step.from))!;
     if (step.backed === false && opened.from === step.to && opened.to === step.from) step.reply = true;
   }
   const gaps = new Map<string, FlowStep[]>();
-  for (const step of steps) if (step.backed === false && !step.reply) gaps.set(`${step.from} ${step.to}`, [...(gaps.get(`${step.from} ${step.to}`) ?? []), step]);
+  for (const step of steps) if (step.backed === false && !step.reply && !step.over) gaps.set(`${step.from} ${step.to}`, [...(gaps.get(`${step.from} ${step.to}`) ?? []), step]);
   for (const group of gaps.values()) {
     const first = group[0]!, ends = `goes from ${last(first.from!)} to ${last(first.to!)} with no relationship between them in the model.`;
     if (group.length === 1) findings.push(`Step ${first.n}, “${first.title}”, ${ends}`);
