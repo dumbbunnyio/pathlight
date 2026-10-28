@@ -105,15 +105,15 @@ test("the first click on an inspector header focuses the section and the second 
     };
     await until(text => text.includes("Selected: plugin") && text.includes("Connects"), "inspector");
     await delay(900);
-    const open = (text: string) => text.includes("▾ Connects");
+    const open = (text: string) => text.includes("▾ 1 Connects");
     expect(open(await screen())).toBe(true);
     await click("Connects");
     await until(text => /^ connects /m.test(text) || text.includes(" connects  "), "connections focused");
     expect(open(await screen())).toBe(true);
     await click("Connects");
-    await until(text => text.includes("▸ Connects"), "connections folded");
+    await until(text => text.includes("▸ 1 Connects"), "connections folded");
     await click("Connects");
-    await until(text => text.includes("▾ Connects") || text.includes("▸ Connects"), "still drawn");
+    await until(text => text.includes("▾ 1 Connects") || text.includes("▸ 1 Connects"), "still drawn");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

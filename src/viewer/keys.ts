@@ -11,6 +11,8 @@ export interface KeyMode {
   /** In the ask dialog: whether the context toggles (not the question) have the keys. */
   askContext: boolean;
   replay: boolean; fileMode: boolean; focusSection: SectionKey | undefined; flow: boolean; listMode: boolean;
+  /** The cards `1`–`4` focus, in order (viewer/widgets.ts `numberedCards`). */
+  cards: readonly SectionKey[];
   /** `h j k l` select when true (arrows pan); `v` swaps them. */
   vim: boolean;
 }
@@ -37,7 +39,7 @@ export type Action =
   | { type: "listMove"; by: -1 | 1 } | { type: "traverse"; direction: Direction }
   | { type: "endFiles" } | { type: "fileMove"; by: -1 | 1; page: boolean } | { type: "refreshFiles" } | { type: "fileOpen" }
   | { type: "help" } | { type: "inspector" } | { type: "scrollInspector"; by: -1 | 1 } | { type: "subagents" } | { type: "follow" } | { type: "files" }
-  | { type: "nextNode"; by: -1 | 1 } | { type: "zoom"; by: -1 | 1 } | { type: "pan"; direction: Direction } | { type: "fit" } | { type: "actualSize" } | { type: "centre" };
+  | { type: "zoom"; by: -1 | 1 } | { type: "pan"; direction: Direction } | { type: "fit" } | { type: "actualSize" } | { type: "centre" };
 
 const directions: Record<string, Direction> = { h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" };
 
@@ -106,15 +108,17 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "s") return { type: "replaySpeed" };
   }
   const files = mode.fileMode;
-  if (!files && plain && /^[1-4]$/.test(key.sequence)) return { type: "focus", section: (["activity", mode.flow ? "steps" : "connections", "files", "flows"] as const)[Number(key.sequence) - 1] ?? "activity" };
+  if (!files && plain && /^[1-4]$/.test(key.sequence)) { const section = mode.cards[Number(key.sequence) - 1]; return section ? { type: "focus", section } : { type: "idle" }; }
+  // In a flow `tab` is a step, from the diagram or a card; elsewhere it moves diagram → each card → diagram (the viewer leaves at either end).
+  if (!files && mode.flow && plain && key.name === "tab") return { type: "flowStep", by: key.shift ? -1 : 1 };
+  if (!files && key.name === "tab") return { type: "sectionTab", by: key.shift ? -1 : 1 };
   if (mode.focusSection && !files) {
     if (key.name === "escape") return { type: "sectionLeave" };
-    if (key.name === "tab") return { type: "sectionTab", by: key.shift ? -1 : 1 };
     if (key.name === "space" || key.sequence === " ") return { type: "sectionFold" };
     if (key.name === "up" || key.name === "k") return { type: "sectionMove", by: -1 };
     if (key.name === "down" || key.name === "j") return { type: "sectionMove", by: 1 };
-    if ((key.name === "left" || key.name === "h") && !key.shift) return { type: "sectionLeave" };
-    if ((key.name === "right" || key.name === "l") && !key.shift) return { type: "swallow" };
+    // `h j k l` never cross between the diagram and the inspector: `esc`, `tab` and the numbers do.
+    if ((key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") && !key.shift) return { type: "swallow" };
     if (key.name === "return") return { type: "sectionEnter" };
   }
   if (!files && key.sequence === "F") return { type: "cycleFlow" };
@@ -150,7 +154,6 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   if (key.name === "s") return { type: "subagents" };
   if (key.name === "a") return { type: "follow" };
   if (key.name === "e") return { type: "files" };
-  if (key.name === "tab") return { type: "nextNode", by: key.shift ? -1 : 1 };
   if (key.name === "+" || key.name === "=" || key.sequence === "+") return { type: "zoom", by: 1 };
   if (key.name === "-" || key.sequence === "-") return { type: "zoom", by: -1 };
   if (direction) return { type: "pan", direction };
@@ -171,8 +174,8 @@ export type Tier = 1 | 2 | 3;
 export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" | "Shape the map"; tier: Tier; rows: HelpRow[] }[] => {
   const arrows = "← ↑ ↓ →";
   return [
-    { name: "Understand it", tier: 1, rows: [["tab, click", "select a box", ["nextNode"]], [vim ? "h j k l" : arrows, "select a neighbour", ["traverse", "listMove"]],
-      ["enter, o", "into a group, open a link", ["open"]], ["backspace", "up to the parent", ["parent"]], ["t", "ask how something works", ["ask"]],
+    { name: "Understand it", tier: 1, rows: [[`click, ${vim ? "h j k l" : arrows}`, "select a box, a neighbour", ["traverse", "listMove"]],
+      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter, o", "into a group, open a link", ["open"]], ["backspace", "up to the parent", ["parent"]], ["t", "ask how something works", ["ask"]],
       ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
     { name: "Direct it", tier: 2, rows: [["t", "tell it what to change", ["ask"]], ["c", "session and review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
@@ -180,7 +183,7 @@ export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" 
       ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
     { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a flow", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
       ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],
-      ["1–4", "focus a card, esc leaves", ["focus", "sectionLeave"]], ["j k", "move in the card", ["sectionMove"]], ["space", "fold the card", ["sectionFold"]],
+      ["1–4", "focus a card, esc or tab leaves", ["focus", "sectionLeave"]], ["j k", "move in the card", ["sectionMove"]], ["space", "fold the card", ["sectionFold"]],
       ["PgUp PgDn", "scroll the inspector", ["scrollInspector"]], ["v", "swap hjkl and arrows", ["swap"]], ["q", "quit", ["stop"]]] },
   ];
 };

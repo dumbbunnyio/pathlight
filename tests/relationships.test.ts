@@ -52,7 +52,7 @@ test("native relationship emphasis follows selection and long labels wrap and sc
     // A long description is clipped on its row; moving the cursor onto the row shows all of it, wrapped, and the camera does not move.
     const zoom = (text: string) => text.match(/zoom \d+%/)?.[0];
     expect(initial).toContain("Opens a view");
-    await tmux("send-keys", "-t", pane, "2");
+    await tmux("send-keys", "-t", pane, "1");
     const expanded = await capture("Long relationship");
     expect(zoom(expanded)).toBe(zoom(initial));
     expect(expanded).toContain("Selected: plugin");

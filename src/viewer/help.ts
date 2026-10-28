@@ -3,11 +3,17 @@ import { palette } from "../ui";
 import { helpGroups, type Tier } from "./keys";
 import { nl, wrapWords } from "./text";
 
+/** What each connector colour means, in the colours themselves; the diff's pair only when a diff is loaded. */
+const legendItems = (diff: boolean): [glyph: string, color: string, label: string][] => [
+  ["──", palette.outgoing, "out of the selected box"], ["──", palette.incoming, "into it"], ["┈┈", palette.edgeDim, "other relationships"],
+  ["──", palette.purple, "the agent's reading (a flow)"], ...(diff ? [["──", palette.green, "added since the base"], ["┈┈", palette.failure, "lost"]] as [string, string, string][] : [])];
+
 /**
- * The keyboard help: three tiers of keys (understand it, direct it, shape the map), side by side from 100 columns and stacked below. The tier the
- * user is in (the highest one they have pressed a key of this session) is in the accent colour; the rest are dim. The rows are viewer/keys.ts's table.
+ * The keyboard help: the connector colours on one line (wrapped when narrow), then three tiers of keys (understand it, direct it, shape the map),
+ * side by side from 100 columns and stacked below. The tier the user is in (the highest one they have pressed a key of this session) is in the
+ * accent colour; the rest are dim. The rows are viewer/keys.ts's table.
  */
-export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: number; version: string }) {
+export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: number; version: string; diff?: boolean }) {
   const groups = helpGroups(options.vim).map(group => ({ ...group, active: group.tier === options.tier }));
   const wide = options.screenWidth >= 100;
   const width = Math.min(wide ? 132 : 96, options.screenWidth - 4), inner = width - 6, gap = 3;
@@ -21,7 +27,17 @@ export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: nu
         [fg(palette.text)((index ? "" : key).padEnd(keyWidth)), fg(palette.body)(text.padEnd(column - keyWidth))]))];
   };
   const blank = () => [fg(palette.body)(" ".repeat(column))];
-  const chunks: TextChunk[] = [];
+  // The legend fills the tiers' width, items kept whole, two spaces apart.
+  const full = wide ? column * groups.length + gap * (groups.length - 1) : inner;
+  const legend: { chunks: TextChunk[]; used: number }[] = [];
+  for (const [glyph, color, label] of legendItems(options.diff ?? false)) {
+    const size = glyph.length + 1 + label.length, line = legend.at(-1);
+    const item = [fg(color)(glyph), fg(palette.body)(` ${label}`)];
+    if (line && line.used + 2 + size <= full) { line.chunks.push(fg(palette.body)("  "), ...item); line.used += 2 + size; }
+    else legend.push({ chunks: item, used: size });
+  }
+  const chunks: TextChunk[] = legend.flatMap(line => [...line.chunks, fg(palette.body)(" ".repeat(Math.max(0, full - line.used))), nl]);
+  chunks.push(fg(palette.body)(" ".repeat(full)), nl);
   let height: number;
   if (wide) {
     const columns = groups.map(lines);
@@ -33,5 +49,6 @@ export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: nu
     for (const line of all) chunks.push(...line, nl);
   }
   chunks.pop();
+  height += legend.length + 1;
   return { content: new StyledText(chunks), height, width, meta: new StyledText([fg(palette.muted)(` pathlight ${options.version} `)]) };
 }

@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { countsLine, headContent, pinnedLines, splitDescription } from "../src/viewer/inspector-view";
+import { countsLine, headContent, pinnedLines, sectionHeader, splitDescription } from "../src/viewer/inspector-view";
+import { type KeyMode, keyAction } from "../src/viewer/keys";
+import { numberedCards } from "../src/viewer/widgets";
+import { palette } from "../src/ui";
 
 test("a drafted description splits into the note and the scan's counts; a person's description is all words", () => {
   expect(splitDescription("Claude skill scripts. · 6 files, 419 lines", "Claude skill scripts.")).toEqual({ words: "Claude skill scripts.", counts: "6 files, 419 lines" });
@@ -42,4 +45,27 @@ test("until the user selects or asks, the question field offers the first questi
   expect(field(true, 60)).toBe(`› ${"how does Backend API and services work?".padEnd(57)}t`);
   expect(field(false, 60)).toBe(`› ${"ask about Backend API and services…".padEnd(57)}t`);
   expect(field(true)).toBe(`› ${"how does Backend API and services…".padEnd(37)}t`);
+});
+
+test("each card's header shows the key that focuses it, and the keys and the numbers agree with Now hidden and shown and in a flow", () => {
+  const text = (styled: ReturnType<typeof sectionHeader>) => styled.chunks.map(chunk => chunk.text).join("");
+  expect(text(sectionHeader({ open: true, focused: false, number: 1, name: "Now", count: "7", width: 40 }))).toMatch(/^▾ 1 Now ─+ 7$/);
+  expect(text(sectionHeader({ open: false, focused: false, number: 4, name: "Files", count: "3", width: 40 }))).toMatch(/^▸ 4 Files ─+ 3$/);
+  // The number is dim on a folded card and in the accent on the focused one, like the name.
+  const number = (open: boolean, focused: boolean) => sectionHeader({ open, focused, number: 2, name: "Connects", count: "", width: 40 }).chunks[1]!;
+  expect(number(true, false).text).toBe("2 ");
+  expect(number(true, false).fg?.equals(RGBA.fromHex(palette.body))).toBe(true);
+  expect(number(false, false).fg?.equals(RGBA.fromHex(palette.muted))).toBe(true);
+  expect(number(true, true).fg?.equals(RGBA.fromHex(palette.accent))).toBe(true);
+  // A hidden card takes no number; Files, hidden until asked for, is always the last.
+  expect(numberedCards(["activity", "connections", "flows"])).toEqual(["activity", "connections", "flows", "files"]);
+  expect(numberedCards(["connections"])).toEqual(["connections", "files"]);
+  expect(numberedCards(["activity", "steps"])).toEqual(["activity", "steps", "files"]);
+  const mode = (cards: KeyMode["cards"], flow = false): KeyMode => ({ layer: "main", askContext: false, replay: false, fileMode: false, focusSection: undefined, flow, listMode: false, cards, vim: true });
+  const key = (digit: string, cards: KeyMode["cards"], flow = false) => keyAction({ name: digit, sequence: digit, ctrl: false, meta: false, shift: false }, mode(cards, flow));
+  for (const shown of [["activity", "connections", "flows"], ["connections"], ["activity", "steps"], ["steps"]] as const) {
+    const cards = numberedCards(shown);
+    cards.forEach((card, index) => expect(key(String(index + 1), cards, shown.includes("steps" as never))).toEqual({ type: "focus", section: card }));
+    expect(key(String(cards.length + 1), cards)).toEqual({ type: "idle" });
+  }
 });

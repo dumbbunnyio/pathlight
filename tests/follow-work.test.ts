@@ -49,7 +49,7 @@ test("follow selects the node being worked on, pauses when the user selects, and
     expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("launcher.ts");
 
     // The user selects something else: follow pauses and the next call does not move them.
-    await tmux("send-keys", "-t", pane, "Tab");
+    await tmux("send-keys", "-t", pane, "l");
     await until("Follow paused");
     const chosen = (await tmux("capture-pane", "-p", "-t", pane)).match(/Selected: (\S+)/)?.[1];
     expect(chosen).not.toBe("launcher");

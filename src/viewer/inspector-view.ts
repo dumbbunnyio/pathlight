@@ -96,12 +96,16 @@ export const allotSections = (options: { total: number; headRows: number; shown:
   return { cards, autoFolded };
 };
 
-/** A card's header: fold marker and name, a rule, and its count on the right. The key that focuses it is in `?`, not here (it read as a count). */
-export const sectionHeader = (options: { open: boolean; focused: boolean; name: string; count: string; width: number }) => {
+/**
+ * A card's header: fold marker, the number that focuses it and its name, a rule, and its count on the right. The number is dim while the card is
+ * folded and in the accent when it is focused.
+ */
+export const sectionHeader = (options: { open: boolean; focused: boolean; number: number | undefined; name: string; count: string; width: number }) => {
   const { open, focused, name, count } = options;
-  const label = `${open ? "▾" : "▸"} ${name}`;
+  const number = options.number === undefined ? "" : `${options.number} `;
+  const label = `${open ? "▾" : "▸"} ${number}${name}`;
   const rule = "─".repeat(Math.max(2, options.width - 2 - label.length - count.length - 3));
-  return new StyledText([fg(focused ? palette.accent : palette.border)(`${open ? "▾" : "▸"} `),
+  return new StyledText([fg(focused ? palette.accent : palette.border)(`${open ? "▾" : "▸"} `), fg(focused ? palette.accent : open ? palette.body : palette.muted)(number),
     fg(focused ? palette.accent : palette.body)(name), fg(palette.rule)(` ${rule} `), fg(palette.muted)(count)]);
 };
 

@@ -7,6 +7,12 @@ export type SectionKey = "activity" | "steps" | "connections" | "flows" | "files
 export const sectionOrder: SectionKey[] = ["activity", "steps", "connections", "flows", "files"];
 
 /**
+ * The cards `1`–`4` reach, in the order they stack: the ones shown, and Files, which stays out of sight until its number (or `e`) asks for it. A
+ * hidden card takes no number, so a header's number is always the key that focuses it.
+ */
+export const numberedCards = (shown: readonly SectionKey[]) => sectionOrder.filter(key => key === "files" || shown.includes(key));
+
+/**
  * Every widget of the viewer, built once and added to the screen: the header, the diagram's viewport and canvas, the inspector and its cards, the
  * footer, the modals (help, session, ask, go to, theme) and the narrow-terminal node list. What they show is set by the viewer on each update.
  */
@@ -48,21 +54,21 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   const flowsText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.text, wrapMode: "none" });
   // Numbered, collapsible sections: each is a lighter block on the panel, with a bar on its left edge when focused.
   const thin = { showArrows: false, trackOptions: { foregroundColor: palette.edgeDim, backgroundColor: palette.panel } };
-  const makeSection = (number: number, name: string, children: Renderable[]) => {
+  const makeSection = (name: string, children: Renderable[]) => {
     const box = new BoxRenderable(renderer, { id: `section-${name.toLowerCase()}`, backgroundColor: palette.panel, width: "100%", height: 8, flexShrink: 0, flexDirection: "column", marginTop: 1 });
     const header = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.text, wrapMode: "none" });
     // Every card is the same height; whatever does not fit scrolls inside it, behind a hairline scrollbar.
     const content = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, scrollX: false, scrollY: true, verticalScrollbarOptions: thin });
     for (const child of children) content.add(child);
     box.add(header); box.add(content);
-    return { number, name, box, header, content, open: true };
+    return { name, box, header, content, open: true };
   };
   const sections = {
-    activity: makeSection(1, "Now", [activityText]),
-    steps: makeSection(2, "Steps", [stepsText]),
-    connections: makeSection(2, "Connects", [relations]),
-    flows: makeSection(4, "In flows", [flowsText]),
-    files: makeSection(3, "Files", [filesText]),
+    activity: makeSection("Now", [activityText]),
+    steps: makeSection("Steps", [stepsText]),
+    connections: makeSection("Connects", [relations]),
+    flows: makeSection("In flows", [flowsText]),
+    files: makeSection("Files", [filesText]),
   };
   // Before the first layout nothing is measured; start with what is hidden by default already hidden, so no frame shows Files or an empty Now.
   for (const key of ["files", "steps", "flows"] as const) { sections[key].box.visible = false; sections[key].box.height = 0; }

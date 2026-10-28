@@ -97,7 +97,7 @@ test("mapped files filter without live recording and round-trip through a real t
     await capture(/Files[─\s]+1\/6/);
     await tmux("send-keys", "-t", pane, "Escape");
     expect(await capture(/diagram\s+Selected/)).toContain("zoom 100%");
-    await tmux("send-keys", "-t", pane, "Tab");
+    await tmux("send-keys", "-t", pane, "j");
     await capture("Selected: catalog");
     await tmux("send-keys", "-t", pane, "e");
     expect(await capture(/Files[─\s]+0\/0/)).toContain("No files mapped");
@@ -139,8 +139,6 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
     await tmux("send-keys", "-t", pane, "0");
     await capture("zoom 100%");
     await delay(300);
-    await tmux("send-keys", "-t", pane, "Tab");
-    await capture("Selected: catalog");
     const clickTitle = async (title: string, id: string) => {
       const output = await capture(title);
       const lines = output.split("\n");
@@ -151,6 +149,8 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
       await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
       return capture(`Selected: ${id}`);
     };
+    // A click selects without moving the camera (j would bring the box into view).
+    await clickTitle("LikeC4 catalog", "catalog");
     expect(await clickTitle("Activity", "activity")).toContain("Selected: activity");
     await tmux("send-keys", "-t", pane, "+", "+");
     await capture("zoom 156%");
@@ -162,7 +162,7 @@ test("native diagram supports keyboard, mouse after pan/resize, and live node ac
     await tmux("send-keys", "-t", pane, "Right", "Right");
     await tmux("resize-window", "-t", pane, "-x", "90", "-y", "36");
     await delay(200);
-    await tmux("send-keys", "-t", pane, "Tab");
+    await tmux("send-keys", "-t", pane, "j");
     await capture("Selected: launcher");
     expect(await clickTitle("Activity", "activity")).toContain("Selected: activity");
     const event = toolActivity(directory, { source: "claude", session: "native-test" }, "edit-1", "Edit",
@@ -224,8 +224,8 @@ test("the search picker isolates typing, ranks this view first, searches other v
     };
     await capture("Service architecture");
     await delay(700);
-    await tmux("send-keys", "-t", pane, "0", "Tab", "Tab", "Tab", "Right", "Down");
-    await capture("Selected: parcel.commerce");
+    await tmux("send-keys", "-t", pane, "0", "l", "l", "BSpace", "Right", "Down");
+    await capture(/Selected: parcel\.commerce\s/);
     await delay(700);
     const before = await tmux("capture-pane", "-p", "-t", pane);
     const diagramCells = (text: string) => text.split("\n").slice(1, 25).map(line => line.padEnd(90).slice(0, 86)).join("\n");
@@ -314,18 +314,19 @@ test("linked views keep one process and restore selection, scroll, and live acti
     expect(await capture("No linked view")).toContain("System context");
     await tmux("send-keys", "-t", pane, "b");
     expect(await capture("No previous view")).toContain("System context");
-    await tmux("send-keys", "-t", pane, "BTab");
+    await tmux("send-keys", "-t", pane, "l", "l", "j");
     await capture("Selected: email");
     await tmux("send-keys", "-t", pane, "Enter");
     const rejected = await capture("View 'empty' has no nodes.");
     expect(rejected).not.toContain("back ");
     expect(rejected).toContain("Selected: email");
-    await tmux("send-keys", "-t", pane, "Tab");
-    await tmux("send-keys", "-t", pane, "Tab", "Enter");
+    await tmux("send-keys", "-t", pane, "h");
+    await capture("Selected: parcel ");
+    await tmux("send-keys", "-t", pane, "Enter");
     await capture("back 1");
     await delay(100);
-    // Services opens on its entry, the checkout API; one step back in the view's order is the commerce group.
-    await tmux("send-keys", "-t", pane, "BTab");
+    // Services opens on its entry, the checkout API; Backspace goes up to the commerce group.
+    await tmux("send-keys", "-t", pane, "BSpace");
     await capture(/Selected: parcel\.commerce\s/);
     await tmux("send-keys", "-t", pane, "0", "+");
     await capture("zoom 125%");
@@ -348,7 +349,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await capture("back 2");
     await delay(100);
     // Checkout opens on its entry too; up to the commerce group, then Enter goes into it, to its first child.
-    await tmux("send-keys", "-t", pane, "BTab", "Enter");
+    await tmux("send-keys", "-t", pane, "BSpace", "Enter");
     await capture("Selected: parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "0", "r");
     await delay(700);

@@ -39,7 +39,7 @@ import { createAskDialog } from "./viewer/ask-dialog";
 import { reviewSection } from "./viewer/review-view";
 import { choose, createState, firstNode, remember, type Visit } from "./viewer/state";
 import { createFlowMode, stepElement } from "./viewer/flow-mode";
-import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
+import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
 import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
@@ -155,7 +155,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // The highest tier of keys pressed this session: `?` puts its accent there (everyone starts by understanding the codebase).
   let tier: Tier = 1;
   const showHelp = () => {
-    const guide = helpContent({ tier, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version });
+    const guide = helpContent({ tier, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version, diff: diff !== undefined });
     help.content.content = guide.content; help.meta.content = guide.meta;
     help.foot.content = new StyledText(borderHints(hints.help));
     if (help.visible) help.place(guide.width, guide.height + 4); else help.open(guide.width, guide.height + 4);
@@ -300,7 +300,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // Sections folded automatically because the inspector is too short for every open card (never ones the user touched).
   const autoFolded = new Set<SectionKey>();
   const isOpen = (key: SectionKey) => sections[key].open && !autoFolded.has(key);
-  // Files stay out of sight until asked for (`e`, or `3`): the actions line says how many there are.
+  // Files stay out of sight until asked for (`e`, or its number): the actions line says how many there are.
   // "Now" says nothing when there is no session to watch.
   const shownSections = () => sectionOrder.filter(key => key === "files" ? fileMode || state.focusSection === "files" : key === "activity" ? Boolean(binding || following)
     : key === "steps" ? Boolean(flowMode.active) : key === "connections" ? !flowMode.active : !flowMode.active && flowsThrough(flowMode.flows, String(state.selected?.modelRef ?? "")).length > 0);
@@ -536,9 +536,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const counts: Record<SectionKey, string> = { steps: flowMode.active ? `${flowMode.step + 1}/${flowMode.active.steps.length}` : "", flows: flowItems.length ? "◇ reading" : "", connections: links.length ? String(links.length) : "",
       files: fileMode ? `${paths.length ? state.fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: observedHere ? String(observedHere) : "" };
     layoutSections();
+    const numbered = numberedCards(shownSections());
     for (const key of sectionOrder) {
       const entry = sections[key], focused = state.focusSection === key;
-      entry.header.content = sectionHeader({ open: isOpen(key), focused, name: entry.name, count: counts[key], width: inspector.width });
+      entry.header.content = sectionHeader({ open: isOpen(key), focused, number: numbered.includes(key) ? numbered.indexOf(key) + 1 : undefined, name: entry.name, count: counts[key], width: inspector.width });
       // Only the focused section shows a scrollbar, and only when it has more than fits.
       entry.content.verticalScrollBar.visible = focused && entry.content.scrollHeight > entry.content.viewport.height;
     }
@@ -553,7 +554,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const work = binding || following ? newestWork() : undefined;
     if (message !== lastToast) {
       lastToast = message;
-      if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^Asked /.test(shown) ? 3500 : 2000); }
+      if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^(Asked|Drawn:) /.test(shown) ? 3500 : 2000); }
     }
     const footing = footerContent({ mode, selected: String(state.selected?.id ?? ""), message, hidden, scale: camera.scale, width: renderer.width, hints: room => modeHints({ room,
       replay: replay && { playing: replay.playing, index: replay.index, steps: replay.data.steps.length, turn: replayTurn(), turns: replay.data.turns.length, speed: replay.speed },
@@ -604,8 +605,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     });
     const pool = scored.some(entry => entry.cone) ? scored.filter(entry => entry.cone) : scored;
     const best = pool.sort((a, b) => a.score - b.score)[0]?.node;
-    // Past the last node on the right, the inspector is the next thing: `h` (or left) comes back.
-    if (!best && direction === "right") { message = ""; focusOn("activity"); return; }
     if (!best) { message = `Nothing ${direction === "up" ? "above" : direction === "down" ? "below" : `to the ${direction} of`} ${current.title}`; update(); return; }
     message = "";
     selectNode(best, false);
@@ -720,7 +719,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     return relevantFiles({ files: files.get(String(target.modelRef ?? "")) ?? [], neighbours, imports: list, description: describe(target.description) });
   }));
   const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
-    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: () => { engaged = true; }, background: hot });
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); }, background: hot });
   askInput.onContentChange = () => { fitAsk(); dialog.typed(); };
   help.dismiss = () => help.close();
   summary.dismiss = () => { summary.close(); update(); };
@@ -836,9 +835,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "focus": focusOn(action.section); return;
       case "sectionLeave": state.focusSection = undefined; update(); return;
       case "sectionTab": {
-        const shown = shownSections();
-        state.focusSection = shown[(Math.max(0, shown.indexOf(key_!)) + action.by + shown.length) % shown.length];
-        if (state.focusSection) { sections[state.focusSection].open = true; scrollToSection = state.focusSection; }
+        // From the diagram `tab` enters the first card (`shift-tab` the last); past either end of the cards it leaves to the diagram.
+        const shown = shownSections(), at = key_ ? shown.indexOf(key_) + action.by : action.by > 0 ? 0 : shown.length - 1;
+        const next = shown[at];
+        if (!next || at < 0) { state.focusSection = undefined; update(); return; }
+        if (!inspector.visible) inspectorPreference = "open";
+        state.focusSection = next; sections[next].open = true; scrollToSection = next;
         update(); return;
       }
       case "sectionFold": sections[key_!].open = !sections[key_!].open; touched.add(key_!); update(); return;
@@ -947,12 +949,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         else beginFiles();
         break;
       }
-      case "nextNode": {
-        const index = diagram.nodes.findIndex(node => node.id === state.selected?.id);
-        pauseFollow(); engaged = true;
-        state.selected = diagram.nodes[(index + action.by + diagram.nodes.length) % diagram.nodes.length];
-        state.fileCursor = 0; resetInspectorScroll(); break;
-      }
       case "zoom": camera.autoFit = false; pauseFollow(); glide(() => { camera.scale = action.by > 0 ? Math.max(2, camera.scale / 1.25) : Math.min(128, camera.scale * 1.25); }); break;
       case "pan": {
         camera.autoFit = false; pauseFollow();
@@ -973,7 +969,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   renderer.keyInput.on("keypress", key => {
     if (editorActive) return;
     const layer = state.pendingVisit ? "visit" : dialog.asking ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : "main";
-    const action = keyAction(key, { layer, askContext: dialog.focus >= 0, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, vim: vimTraverses });
+    const action = keyAction(key, { layer, askContext: dialog.focus >= 0, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
     if (!action) return;
     if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();
@@ -1006,7 +1002,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         indexEvents();
         const added = diagram.nodes.filter(node => !before.has(String(node.id))).map(node => node.title);
         const removed = [...before].filter(id => !diagram.nodes.some(node => String(node.id) === id));
-        message = next.notice || (added.length || removed.length ? `Model reloaded: ${[...added.map(title => `+ ${title}`), ...removed.map(id => `− ${id.split(".").at(-1)}`)].slice(0, 4).join("  ")}` : "Model reloaded");
+        // A journey that was just drawn says so; the reload that brought it does not cover that.
+        message = next.notice || (/^Drawn: /.test(message) ? message : added.length || removed.length ? `Model reloaded: ${[...added.map(title => `+ ${title}`), ...removed.map(id => `− ${id.split(".").at(-1)}`)].slice(0, 4).join("  ")}` : "Model reloaded");
         const shown = message;
         setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, 6000);
       }

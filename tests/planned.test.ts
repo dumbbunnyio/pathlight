@@ -19,7 +19,7 @@ test("a planned element with no files is drawn as planned, and one that has file
     await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", planned: ["activity"], mappings: [
       { glob: "src/launcher.ts", element: "launcher" }, { glob: "src/viewer.ts", element: "viewer" }, { glob: "src/activity.ts", element: "activity" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "planned", "-x", "140", "-y", "40", "-P", "-F", "#{pane_id}",
-      process.execPath, resolve("src/cli.ts"), "view", "small", "--workspace", directory);
+      process.execPath, resolve("src/cli.ts"), "view", "small", "--workspace", directory, "--select", "activity");
     const until = async (text: string) => {
       let output = "";
       for (let attempt = 0; attempt < 100; attempt++) {
@@ -36,7 +36,6 @@ test("a planned element with no files is drawn as planned, and one that has file
     expect(screen).toContain("┄");
     // Only the one element without files is tagged.
     expect((screen.match(/\[planned\]/g) ?? []).length).toBe(1);
-    for (let step = 0; step < 4 && !(await tmux("capture-pane", "-p", "-t", pane)).includes("Selected: activity"); step++) { await tmux("send-keys", "-t", pane, "Tab"); await delay(150); }
     expect(await until("Selected: activity")).toContain("planned: no files yet");
   } finally {
     await tmux("kill-server").catch(() => {});
