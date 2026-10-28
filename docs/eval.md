@@ -205,3 +205,67 @@ The agent reported that the sheet changed what it wrote for `adapters/bun/src/se
 | C: brief with our exports | 55 of 94 | 18 of 18 | about 71,000 | 76 s |
 
 The two notes I checked against the code, which A got wrong or vague, are right in C: `adapters/bun/src/server.ts` ("Provides getBunServer, which fetches the running Bun server from the request context") and `src/validator` ("checks request parts (json, form, query...) with a user function and types the result"). `src/context.ts`, `src/types.ts`, `src/hono-base.ts` are specific in C where A hedged. CodeGraph's sheet still led to fewer declared guesses (30 against 55); the "used by" half of it is what C lacks, and it was also the half that was ambiguous for same-named functions. Same limits as before: one repository, one run each, a count of declared doubt and two notes verified, not a measure of correctness.
+
+## Baseline: reference repositories (2026-10-27)
+
+Three open-source repositories, mapped as a first-time user would map them, to measure every later change against. Clones at `pathlight-oss-test-repos/` beside this checkout, not updated: **Outline** `d3b094352` (TypeScript: React client, Koa server, plugins), **Mealie** `2e7358d10` (Python FastAPI backend, Nuxt/Vue frontend), **Miniflux** (`v2`) `d5c529b9` (Go). For each: `pathlight setup --yes`, then the `pathlight-namer` subagent ("Name every box of the pathlight map in …"), then the `pathlight-tracer` subagent on the three journeys the namer suggested, each given the exact text the `d` key types (`flowMessage` in `src/ask.ts`, built from the box's mapped files and connections) plus one line naming the workspace. All in Claude Code, Sonnet-class subagents, one run each. No dependencies were installed; the scan did not need them (Outline has no workspace packages). The captures, logs and replies are in `docs/internal/baseline/` (not in git).
+
+### What the scan and the draft see
+
+| | files the scan reads | not read | boxes drawn | relationships | `setup --yes` | `check` |
+| --- | --- | --- | --- | --- | --- | --- |
+| Outline | 2,417 TS/JS | none reported | 15 (7 folders, 7 loose files, 1 collection) | 9 | 2.0 s | 0.7 s |
+| Mealie | 309 TS/JS | 492 Python, 238 Vue | 13 | 1 | 1.1 s | 0.3 s |
+| Miniflux | 5 TS/JS | 339 Go, 1 Python | 4 | 0 | 0.9 s | 0.3 s |
+
+`check` reports every map as agreeing with the code, and the model scorer (`tests/eval/run.ts`, no authors' rules) gives all three 100% files claimed, 100% edges supported and 0 undeclared pairs; views: Outline 13 (largest readable 8 boxes, median 4), Mealie 9 (6, median 3), Miniflux 1 (4). **These pass because they count only what the scan reads**: on Miniflux "100% of files claimed" is 5 of 5, with 339 Go files outside the count. On these repos neither `check` nor the model scorer can fail; Phase 4 is what gives them something to count.
+
+### Facts: Outline against an independent resolver
+
+`bun tests/eval/facts.ts --workspace outline`: 2,417 files; the scan finds 13,154 file pairs, the reference 12,246, both 11,123. The scan finds 90.8% of the reference; the reference confirms 84.6% of the scan.
+
+Every disagreement read is one cause: **re-exports**. The scan follows a named import through a file that re-exports it to the file that defines it; the reference stops at the re-exporting file. Of the 1,123 pairs only the reference has, 1,117 end at an `index.ts` barrel (`shared/types/index.ts` 569, `server/models/index.ts` 444, `server/policies/index.ts` 44, …) and the other 6 at `server/types.ts` and `server/validation.ts`, which re-export from `@shared` (`export { AuthenticationType } from "@shared/types"`). The 2,031 pairs only the scan has are the other side of the same imports (`app/actions/definitions/documents.tsx → shared/types/navigation.ts` where the source imports `@shared/types`); 1,968 have a reference-only barrel above the target in the same folder, and the remaining 63 go through barrels that also define things of their own (`@shared/styles` re-exports `depths`). This is the known gap in the reference ("does not follow barrels"), not a scanner fault; until the reference follows re-exports, these numbers cannot show a scanner regression smaller than about 15%.
+
+### Names: hard boxes
+
+New references, written from the code before the namer ran: `names-outline.json` (12 boxes), `names-mealie.json` (10), `names-miniflux.json` (4: Miniflux's draft has only 4 boxes, so it cannot have the 8 the plan asked for). Every box listed is one the README does not explain (`.oxlint`, `__mocks__`, `relativeci.config.js`, `dev`, `.semgrep`, `frontend/server`, …), each with a forbidden phrase for a plausible misreading (`relativeci` as "relative import", `__mocks__` as `jest`, `build.js` as the client bundle).
+
+| | boxes | noted | namer time / tokens | described boxes passing |
+| --- | --- | --- | --- | --- |
+| Outline | 15 | 15 | 24.9 s / 21,471 | 12 of 12 (2 near misses: `.claude` missed "verify"; `lint-staged` missed the translation step) |
+| Mealie | 13 | 13 | 17.8 s / 20,398 | 10 of 10 as first written; **8 of 10** after tightening |
+| Miniflux | 4 | 4 | 13.1 s / 16,847 | 3 of 4 (`.github` named "Commit message checker") |
+
+- Mealie scored 10 of 10 with no near miss, so the reference was tightened after reading the code again (and, honestly, after reading the notes): `frontend/vuetify.options.js` is imported by nothing (the Nuxt config carries the Vuetify settings), and `docs` is the MkDocs user documentation, not "JavaScript assets". Both now fail. This is recorded in the reference's note.
+- The three misses share a cause: **the namer describes the files the scan lists**, and on a repo the scan does not read, those are the wrong files. Miniflux's `.github` holds 9 workflows, issue templates and dependabot, but the brief lists only the one Python script, so the note describes a commit checker. Mealie's `docs` brief lists the two `.js` files among the Markdown. Phase 4 (and the brief listing unscanned files by name) should move these.
+- 20 of 32 notes say "inferred from file names". Each namer made 4 tool calls and reported opening at most three files.
+
+### Flows: Outline reference questions
+
+`tests/eval/references/flows-outline.json`, written before reading any journey: `collab-keystroke` (a keystroke reaches other editors), `create-document` (a new document appears in other sidebars), `slack-sign-in`. The namer's suggested journeys were different questions, so the tracer was also run on these three, with the `d` request text plus the journey's id.
+
+| question (required hops) | result | matched / missed | why it fails |
+| --- | --- | --- | --- |
+| `collab-keystroke` (2 + 2 optional) | ✗ | 3 of 3 present, in order | `app → server` (websocket) has no model relationship and no import; key file `PersistenceExtension.ts` not read |
+| `create-document` (2 + 1 optional) | ✗ | 2 of 2, in order | `app → server` (HTTP) has no model relationship; `server → app` (socket.io push) has no import |
+| `slack-sign-in` (2 + 2 optional) | ✗ | 3, 1 missed (`app → plugins`), 1 additional (`server → plugins`) | as above; the tracer's reading (browser → server's auth router → plugin router) is arguably more exact than the reference's `app → plugins` |
+| passes | **0 of 3** | | |
+
+- **No trace of these questions can pass the current pass mark.** A pass requires every hop to have a model relationship and an import behind it; two of the three answers cross HTTP or a websocket, which the import-drawn map never has. The tracer found the path each time (5 of the 6 required hops, all in order, nothing invented; the sixth is the disputed `app → plugins`) and was failed for the map's missing edge kind. Until the map can hold runtime edges or the scorer separates "the map lacks this kind of edge" from "unbacked", this score measures the map, not the trace.
+- Across all recorded journeys on Outline and Mealie, 10 of 24 hops were flagged `≠` by `flow add`, and every one is a real network or build-script hop.
+
+### The namer's journeys, traced (all three repos)
+
+| | journey | result |
+| --- | --- | --- |
+| Outline | open the app, sign in, collections load | recorded, 2 steps, but bent to model-backed hops (plugin loading, shared types); the real hops are HTTP calls with no arrow |
+| | a queued email is sent | recorded as two `server → shared` helper calls: `flow add` refused one step, so the tracer added a second real but trivial hop; the email path is inside `server` |
+| | `dev:backend` builds and watches | recorded, 3 steps, all 3 flagged (build script → folders, no import) |
+| Mealie | import a recipe from a URL | recorded, 2 steps, clean |
+| | `/api` through the Nuxt proxy | **refused**: `--reads 'frontend/server/api/[...].ts'` was "not a file in the workspace" (the `..` check matched inside `[...]`). Fixed in `src/flow-write.ts` with a test; re-run recorded 4 steps, all flagged (no `app → server` or `server → backend` relationship) |
+| | shopping list page loads | recorded, 2 steps, clean |
+| Miniflux | run the binary / open the web UI / list entries via the API | **none recorded**: every path is inside `internal`, and a journey needs two hops between different components. The tracers refused to pad. |
+
+Tracer runs took 19–41 s and 18,000–30,000 tokens each.
+
+What this baseline cannot show: one run per agent and question; three repositories; references written by one person in one sitting, before (and for Mealie's tightening, after) seeing the agents' output. It shows where the current pipeline stops on code it has not seen: languages the scan does not read (Phase 4), runtime edges no phase yet owns, and scores that pass because they count only what the scan reads.

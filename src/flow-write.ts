@@ -92,7 +92,7 @@ export const addFlow = Effect.fn("Flow.add")(function* (workspace: string, optio
   const reads = [...new Set(options.reads.flatMap(value => value.split(",")).map(value => value.trim().replace(/^\.\//, "")).filter(Boolean))];
   if (!reads.length) return yield* invalid("Name the files you read with --reads a.ts,b.ts. A flow that names none cannot be checked, so it would claim more than it shows.");
   for (const path of reads) {
-    if (path.startsWith("/") || path.includes("..") || !existsSync(join(root, path)) || !lstatSync(join(root, path)).isFile()) return yield* invalid(`--reads ${path}: not a file in the workspace.`);
+    if (path.startsWith("/") || path.split("/").includes("..") || !existsSync(join(root, path)) || !lstatSync(join(root, path)).isFile()) return yield* invalid(`--reads ${path}: not a file in the workspace.`);
   }
   if (options.steps.length < 2) return yield* invalid("A journey needs at least two steps (--step 'from -> to: event', repeated).");
   if (options.steps.length > maxSteps) return yield* invalid(`A journey of more than ${maxSteps} steps is two journeys. Split it.`);
@@ -135,7 +135,7 @@ export const addFlow = Effect.fn("Flow.add")(function* (workspace: string, optio
     const { file: callFile, name } = step.call;
     const where = `Step ${index + 1}: ${callFile}#${name}`;
     if (!reads.includes(callFile)) return yield* invalid(`${where}: name the file in --reads too. A function in a file you did not read cannot be part of the reading.`);
-    if (callFile.startsWith("/") || callFile.includes("..") || !existsSync(join(root, callFile)) || !lstatSync(join(root, callFile)).isFile()) return yield* invalid(`${where}: not a file in the workspace.`);
+    if (callFile.startsWith("/") || callFile.split("/").includes("..") || !existsSync(join(root, callFile)) || !lstatSync(join(root, callFile)).isFile()) return yield* invalid(`${where}: not a file in the workspace.`);
     const text = yield* io("Flow.call", () => readFile(join(root, callFile), "utf8"));
     const names = exportsOf(text, 400).map(entry => entry.name);
     if (!names.includes(name)) return yield* invalid(`${where}: ${callFile} does not export “${name}”.${names.length ? ` It exports ${names.slice(0, 12).join(", ")}${names.length > 12 ? ", …" : ""}.` : ""}`);

@@ -1,0 +1,56 @@
+{
+  "repo": "outline",
+  "commit": "d3b094352",
+  "note": "Phase 1 baseline (2026-10-27). Hand-traced from the code by the person scoring, before reading any journey the tracer wrote. Components are the boxes `pathlight setup --yes` draws for this repo (app, server, shared, plugins). Two of the three answers cross the network (HTTP and a websocket), so their main hops have no import behind them and no relationship in the drafted model: a trace that only draws model-backed hops cannot match them. 'files' are the files a correct trace has to read.",
+  "questions": [
+    {
+      "id": "collab-keystroke",
+      "question": "What happens when someone types in a document, from the keystroke in the editor to the change appearing for the other people editing it?",
+      "hops": [
+        { "from": "app", "to": "shared", "optional": true },
+        { "from": "app", "to": "server" },
+        { "from": "server", "to": "shared", "optional": true },
+        { "from": "server", "to": "app" }
+      ],
+      "files": [
+        "app/scenes/Document/components/MultiplayerEditor.tsx",
+        "app/editor/extensions/Multiplayer.ts",
+        "server/services/collaboration.ts",
+        "server/collaboration/PersistenceExtension.ts"
+      ]
+    },
+    {
+      "id": "create-document",
+      "question": "What happens when someone creates a new document from the sidebar, from the click to the document appearing in other people's sidebars?",
+      "hops": [
+        { "from": "app", "to": "server" },
+        { "from": "server", "to": "shared", "optional": true },
+        { "from": "server", "to": "app" }
+      ],
+      "files": [
+        "app/stores/base/Store.ts",
+        "server/routes/api/documents/documents.ts",
+        "server/commands/documentCreator.ts",
+        "server/queues/processors/WebsocketsProcessor.ts",
+        "app/components/WebsocketProvider.tsx"
+      ]
+    },
+    {
+      "id": "slack-sign-in",
+      "question": "What happens when someone signs in with Slack, from the button on the login page to arriving signed in?",
+      "hops": [
+        { "from": "app", "to": "server", "optional": true },
+        { "from": "app", "to": "plugins" },
+        { "from": "plugins", "to": "server" },
+        { "from": "server", "to": "app", "optional": true }
+      ],
+      "files": [
+        "app/scenes/Login/components/AuthenticationProvider.tsx",
+        "plugins/slack/server/auth/slack.ts",
+        "server/commands/accountProvisioner.ts",
+        "server/middlewares/passport.ts",
+        "server/utils/authentication.ts"
+      ]
+    }
+  ]
+}

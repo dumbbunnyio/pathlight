@@ -1,0 +1,17 @@
+{
+  "repo": "mealie",
+  "commit": "2e7358d10",
+  "note": "Phase 1 baseline (2026-10-27). Written from the code by the person scoring, before the namer ran in this workspace. The README says only that Mealie is a recipe manager with a REST API backend and a Vue frontend; the boxes below are the ones it does not explain. Python and Vue are not read by the scan, so a namer working only from the brief sees file names and sizes for most of them. Each concept is a group of words, any one of which says that thing; each forbidden phrase is a plausible reading the code contradicts. Tightened after the first run scored 10 of 10 with no near miss (as the plan asks): `frontend/vuetify.options.js` is referenced by nothing in the repository (nuxt.config.ts carries the Vuetify settings; this file still uses the Vuetify 2 `iconfont` option), so a note must say it is unused; `docs` is the MkDocs user documentation (Markdown pages, two small JavaScript files), so a note that calls it JavaScript assets misreads it. Both were found by reading the code after the notes were written.",
+  "elements": {
+    "dev": {"concepts": [["code generation", "codegen", "generate", "generator"], ["type", "typescript", "schema", "locale", "test", "route"], ["script", "developer", "dev tool", "stress"]], "forbidden": ["development server", "dev server", "docker"]},
+    ".semgrep": {"concepts": [["semgrep", "static analysis", "lint", "rule"], ["permission", "authorization", "authz", "403", "404", "forbidden"], ["route", "handler", "endpoint"]], "forbidden": ["security scan of dependencies", "vulnerab", "secret"]},
+    "docs": {"concepts": [["documentation", "docs"], ["mkdocs"], ["user", "guide", "install", "markdown", "pages"]], "forbidden": ["sphinx", "docstring", "generated api reference", "javascript assets"]},
+    "frontend/server": {"concepts": [["proxy", "forward", "redirect"], ["api", "backend"], ["nuxt", "nitro", "server route", "openapi", "docs"]], "forbidden": ["database", "server-side rendering of pages", "authentication logic"]},
+    "frontend/app": {"concepts": [["vue", "nuxt", "frontend", "web", "ui", "interface"], ["recipe", "meal", "shopping", "page", "component"]], "forbidden": ["react", "angular"]},
+    "frontend/eslint.config.mjs": {"concepts": [["eslint", "lint"], ["frontend", "vue", "nuxt", "typescript", "style"]], "forbidden": ["prettier config", "oxlint"]},
+    "frontend/nuxt.config.ts": {"concepts": [["nuxt"], ["module", "config", "configuration", "setup"], ["vuetify", "i18n", "pwa", "api", "proxy", "runtime"]], "forbidden": ["vite config", "webpack", "next.js"]},
+    "frontend/vitest.config.js": {"concepts": [["vitest", "test"], ["jsdom", "coverage", "unit", "frontend", "component"]], "forbidden": ["jest", "pytest", "end-to-end", "e2e"]},
+    "frontend/vuetify.options.js": {"concepts": [["vuetify"], ["unused", "not imported", "not referenced", "not used", "leftover", "legacy", "vuetify 2", "dead"]], "forbidden": ["tailwind"]},
+    "mealie": {"concepts": [["python", "fastapi", "backend", "api", "server"], ["recipe", "meal", "shopping", "household", "group"]], "forbidden": ["frontend", "django", "flask"]}
+  }
+}
