@@ -220,3 +220,56 @@ views {
     expect(screen).not.toContain("looks at a parcel page");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+// After `t` with draw it, the journey the agent writes is what the next F opens (not the first flow through the selection), its title is the toast,
+// and the reload that brings it moves neither the camera nor the selection.
+test("F opens the journey a t just drew, whatever the selection, and its arrival moves nothing", async () => {
+  const directory = await workspace(false);
+  const socket = join("/tmp", `c4fd-${process.pid}.sock`);
+  const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
+  try {
+    const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "drawn", "-x", "300", "-y", "42", "-P", "-F", "#{pane_id}", "cat");
+    const shown = JSON.parse(await run(process.execPath, [resolve("src/cli.ts"), "show", "services", "--workspace", directory,
+      "--project", "parcel", "--pane", harness, "--socket", socket])) as { pane: string };
+    const screen = (pane = shown.pane) => tmux("capture-pane", "-p", "-t", pane);
+    const until = async (predicate: (text: string) => boolean, label: string, pane = shown.pane) => {
+      let output = "";
+      for (let attempt = 0; attempt < 200; attempt++) {
+        output = await screen(pane);
+        if (predicate(output)) return output;
+        await delay(50);
+      }
+      throw new Error(`Missing ${label}:\n${output}`);
+    };
+    await until(text => text.includes("In flows") && text.includes("◇ Placing an order"), "the first flow through the selection");
+    await delay(700);
+    const zoom = /zoom \d+%/.exec(await screen())?.[0];
+    expect(zoom).toBeDefined();
+    // The offered first question is a how-question: draw it is on, and Enter sends it.
+    await tmux("send-keys", "-t", shown.pane, "t");
+    await until(text => text.includes("Ask the agent") && text.includes("● draw it"), "the ask dialog with draw it on");
+    await tmux("send-keys", "-t", shown.pane, "Enter");
+    await until(text => text.includes("record the path as a pathlight journey"), "the question in the agent's pane", harness);
+    const before = await until(text => !text.includes("Ask the agent"), "the dialog closed");
+    const selection = /Selected: (\S+)/.exec(before)?.[1];
+    expect(selection).toBeDefined();
+    await writeFile(join(directory, "paying.behavior.c4"), `views {
+  dynamic view paying {
+    title 'Paying for an order'
+    description 'Synced at abc1234.'
+    parcel.commerce.api -> payments 'charges the card'
+  }
+}
+`);
+    const arrived = await until(text => text.includes("Drawn: Paying for an order · F walks it"), "the drawn toast");
+    expect(arrived).toContain(`Selected: ${selection}`);
+    expect(/zoom \d+%/.exec(arrived)?.[0]).toBe(zoom);
+    await tmux("send-keys", "-t", shown.pane, "F");
+    const opened = await until(text => /^ flow /m.test(text), "flow mode");
+    expect(opened).toContain("◇ Paying for an order");
+    expect(opened).toContain("charges the card");
+  } finally {
+    await tmux("kill-server").catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 90_000);

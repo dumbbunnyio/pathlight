@@ -554,7 +554,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const work = binding || following ? newestWork() : undefined;
     if (message !== lastToast) {
       lastToast = message;
-      if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^Asked /.test(shown) ? 3500 : 2000); }
+      if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^(Asked|Drawn:) /.test(shown) ? 3500 : 2000); }
     }
     const footing = footerContent({ mode, selected: String(state.selected?.id ?? ""), message, hidden, scale: camera.scale, width: renderer.width, hints: room => modeHints({ room,
       replay: replay && { playing: replay.playing, index: replay.index, steps: replay.data.steps.length, turn: replayTurn(), turns: replay.data.turns.length, speed: replay.speed },
@@ -719,7 +719,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     return relevantFiles({ files: files.get(String(target.modelRef ?? "")) ?? [], neighbours, imports: list, description: describe(target.description) });
   }));
   const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
-    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: () => { engaged = true; }, background: hot });
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); }, background: hot });
   askInput.onContentChange = () => { fitAsk(); dialog.typed(); };
   help.dismiss = () => help.close();
   summary.dismiss = () => { summary.close(); update(); };
@@ -1002,7 +1002,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         indexEvents();
         const added = diagram.nodes.filter(node => !before.has(String(node.id))).map(node => node.title);
         const removed = [...before].filter(id => !diagram.nodes.some(node => String(node.id) === id));
-        message = next.notice || (added.length || removed.length ? `Model reloaded: ${[...added.map(title => `+ ${title}`), ...removed.map(id => `− ${id.split(".").at(-1)}`)].slice(0, 4).join("  ")}` : "Model reloaded");
+        // A journey that was just drawn says so; the reload that brought it does not cover that.
+        message = next.notice || (/^Drawn: /.test(message) ? message : added.length || removed.length ? `Model reloaded: ${[...added.map(title => `+ ${title}`), ...removed.map(id => `− ${id.split(".").at(-1)}`)].slice(0, 4).join("  ")}` : "Model reloaded");
         const shown = message;
         setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, 6000);
       }

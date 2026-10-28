@@ -26,7 +26,8 @@ const same = (a: FlowMap, b: FlowMap) => a.type === b.type && a.id === b.id;
 /**
  * Flow mode: the flows read from the workspace, the one being read and its step. Stepping selects the step's component and brings it into view
  * like any other selection, and says so when it is in another view. `F` enters the flows this view shows (the ones through the selection first) and
- * cycles them, the last one leaving; Esc leaves.
+ * cycles them, the last one leaving; Esc leaves. After a drawing was asked for (`t` with `draw it`, or `d`), the first journey that appears in the
+ * workspace is what the next `F` opens, whatever the selection: the file appearing is the event, nothing is observed.
  */
 export function createFlowMode<Node>(options: {
   view: () => { id: unknown; nodes: readonly { modelRef?: unknown }[] }; selected: () => string; nodeFor: (element: string) => Node | undefined; select: (node: Node) => void;
@@ -36,6 +37,9 @@ export function createFlowMode<Node>(options: {
     flows: [] as FlowMap[],
     active: undefined as FlowMap | undefined,
     step: 0,
+    /** The journeys there were when a drawing was asked for, while it is awaited; then the new one, until `F` opens it. */
+    awaiting: undefined as Set<string> | undefined,
+    drawn: undefined as FlowMap | undefined,
     goTo(index: number) {
       const flow = mode.active;
       if (!flow?.steps.length) return;
@@ -50,7 +54,11 @@ export function createFlowMode<Node>(options: {
       mode.goTo(mode.step);
     },
     exit() { mode.active = undefined; options.leaving(); options.say(""); options.update(); },
+    /** A drawing was asked for: the next journey that is not one of these is the one it drew. */
+    expect() { mode.awaiting = new Set(mode.flows.filter(flow => flow.type === "journey").map(flow => flow.id)); },
     cycle() {
+      const drawn = mode.drawn;
+      if (drawn) { mode.drawn = undefined; mode.enter(drawn, flowsThrough([drawn], options.selected())[0]?.steps[0] ?? 1); return; }
       const here = flowsHere(mode.flows, options.view(), options.selected());
       if (!here.length) { options.say(mode.flows.length ? "No flow touches this view" : "No flows yet · select a box and press t to ask how it works"); options.update(); return; }
       const active = mode.active, at = active ? here.findIndex(flow => same(flow, active)) : -1;
@@ -62,6 +70,8 @@ export function createFlowMode<Node>(options: {
     /** New flows from the workspace; the one being read is kept when it is still there. */
     load(list: FlowMap[]) {
       mode.flows = list;
+      const awaiting = mode.awaiting, fresh = awaiting && list.find(flow => flow.type === "journey" && !awaiting.has(flow.id));
+      if (fresh) { mode.awaiting = undefined; mode.drawn = fresh; options.say(`Drawn: ${fresh.title} · F walks it`); }
       const active = mode.active;
       if (active) { mode.active = list.find(flow => same(flow, active)); if (!mode.active) options.say("That flow is gone"); }
     },

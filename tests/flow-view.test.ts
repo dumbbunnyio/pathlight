@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { badgeText, badgesOf, flowsInView, flowsThrough, gapHops, pathEdges, stepsAt, type FlowMap } from "../src/flow-view";
 import { RGBA } from "@opentui/core";
 import { stepsCard } from "../src/viewer/cards";
+import { createFlowMode } from "../src/viewer/flow-mode";
 
 const journey: FlowMap = { id: "order", title: "Placing an order", type: "journey", view: "order", sync: { status: "current", sha: "abc1234" }, findings: [], steps: [
   { n: 1, title: "opens checkout", elements: ["customer", "store"], from: "customer", to: "store", backed: true },
@@ -65,4 +66,26 @@ test("a hop between nested components lands on the nearest card the view draws; 
   expect(gapHops(nested, packages, edges)).toEqual([{ source: "n-back", target: "n-front" }]);
   // The element's own card wins over a box that contains it.
   expect(badgesOf(nested, [...packages, { id: "n-api", modelRef: "back.api" }]).get("n-api")).toEqual([2]);
+});
+
+test("after a drawing is asked for, the first new journey is what F opens, whatever the selection, and the toast names it; then F cycles as before", () => {
+  const said: string[] = [], selected: string[] = [];
+  const drawn: FlowMap = { ...journey, id: "pay", title: "Paying for an order", view: null, steps: [{ n: 1, title: "charges", elements: ["api", "db"], from: "api", to: "db", backed: true }] };
+  const mode = createFlowMode<string>({ view: () => ({ id: "v", nodes }), selected: () => "customer", nodeFor: element => element, select: node => { selected.push(node); },
+    title: element => element, say: message => { if (message) said.push(message); }, update: () => {}, entering: () => {}, leaving: () => {} });
+  mode.load([journey, states]);
+  // A journey appearing with nothing asked for is just another flow.
+  mode.load([journey, states, { ...drawn, id: "other" }]);
+  expect(said).toEqual([]);
+  mode.expect();
+  mode.load([journey, states, { ...drawn, id: "other" }]);
+  expect(mode.drawn).toBeUndefined();
+  mode.load([journey, states, { ...drawn, id: "other" }, drawn]);
+  expect(said).toEqual(["Drawn: Paying for an order · F walks it"]);
+  // The selection (customer) is on Placing an order's path, not this one's: F still opens the drawn journey, once.
+  mode.cycle();
+  expect(mode.active?.id).toBe("pay");
+  expect(selected).toEqual(["db"]);
+  mode.exit(); mode.cycle();
+  expect(mode.active?.id).toBe("order");
 });

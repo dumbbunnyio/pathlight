@@ -22,7 +22,9 @@ export function createAskDialog<Target extends AskTarget>(options: {
   renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "ask" | "askInput" | "askPrompt" | "askRow">; workspace: string; parent: string | undefined;
   selected: () => Target | undefined; context: (target: Target) => { files: string[]; links: string[]; activity: string[] }; relevant: (target: Target) => Effect.Effect<string[]>;
   live: () => { bound: boolean; label: string };
-  say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void; asked: () => void; background: RGBA;
+  say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void;
+  /** A request went to the agent; `drawing` when it asks for a journey to be recorded (`t` with `draw it`, or `d`). */
+  asked: (drawing: boolean) => void; background: RGBA;
 }) {
   const { renderer, workspace } = options, { ask, askInput, askPrompt, askRow } = options.widgets;
   const tell = (message: string) => { options.say(message); options.update(); };
@@ -147,7 +149,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
       if (!target || !parent || !question) return;
       const context = options.context(target);
       if (mode === "flow") {
-        finish(); sent(target, files => flowMessage({ title: target.title, id: String(target.id), files, links: context.links }, question), `Asked the agent to trace a flow from ${target.title} · F shows it once it is written`);
+        options.asked(true); finish(); sent(target, files => flowMessage({ title: target.title, id: String(target.id), files, links: context.links }, question), `Asked the agent to trace a flow from ${target.title} · F shows it once it is written`);
         return;
       }
       if (mode === "map") {
@@ -157,7 +159,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
       }
       const [withFiles, withLinks, withActivity] = include, draw = drawing();
       const live = options.live(), session = live.bound ? live.label : "the agent";
-      options.asked(); finish(); sent(target, files => askMessage({ title: target.title, id: String(target.id), files: withFiles ? files : [], links: withLinks ? context.links : [], activity: withActivity ? context.activity : [] }, question, draw),
+      options.asked(draw); finish(); sent(target, files => askMessage({ title: target.title, id: String(target.id), files: withFiles ? files : [], links: withLinks ? context.links : [], activity: withActivity ? context.activity : [] }, question, draw),
         `Asked ${session} about ${target.title} · reply lands in the agent pane${draw ? " · F shows the path once it is recorded" : ""}`);
     },
   };
