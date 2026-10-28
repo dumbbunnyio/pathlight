@@ -20,14 +20,16 @@ export const wrapWords = (text: string, room: number) => {
 };
 
 /**
- * A card's title as it fits. Never show a fragment: if a word cannot fit the node's width, or the wrapped title plus status line cannot fit its
- * height, the title becomes one line ending in an ellipsis (the observed state keeps its own line).
+ * A card's title as it fits, wrapped on words onto as many lines as the card has rows for. Never show a fragment: if a word cannot fit the node's
+ * width the title is one line ending in an ellipsis; if the words need more lines than there are, the last line ends in one (the observed state
+ * keeps its own line).
  */
 export const labelTitle = (title: string, width: number, rows: number, status: boolean) => {
-  const textWidth = Math.max(3, width);
-  const widest = Math.max(...title.split(/\s+/).map(word => word.length));
-  const tooTall = Math.ceil(title.length / textWidth) + (status ? 1 : 0) > Math.max(1, rows);
-  return (widest > textWidth || tooTall) && title.length > textWidth ? `${title.slice(0, textWidth - 1)}…` : title;
+  const textWidth = Math.max(3, width), room = Math.max(1, rows - (status ? 1 : 0));
+  const lines = wrapWords(title, textWidth);
+  if (lines.some(line => line.length > textWidth)) return title.length > textWidth ? `${title.slice(0, textWidth - 1)}…` : title;
+  if (lines.length <= room) return lines.join("\n");
+  return [...lines.slice(0, room - 1), clip(lines.slice(room - 1).join(" "), textWidth)].join("\n");
 };
 
 /** LikeC4's own description, flattened to one line of plain text: the model is the single source of what a component is for. */

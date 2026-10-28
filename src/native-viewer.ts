@@ -24,6 +24,7 @@ import { writeReady } from "./ready";
 import { declarationLine } from "./scan-imports";
 import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
 import { createCamera } from "./viewer/camera";
+import { boundsOf, compact } from "./viewer/compact";
 import { cardLook } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
@@ -48,11 +49,25 @@ let binding = options.activity;
 const following = options.follow === true;
 const world = yield* loadWorld(view, { watching: Boolean(binding || following), reload: false });
 let { config, files, fileError, diagrams } = world;
+// Compact fit: each view is drawn from a copy with Pathlight's spacing and card sizes and LikeC4's arrangement (viewer/compact.ts), made once per view.
+// A cell is taken to be half as wide as it is tall, as the camera does when the terminal does not say.
+type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
+const shaped = new WeakMap<Layout, Layout>();
+const shape = (raw: Layout): Layout => {
+  const known = shaped.get(raw);
+  if (known) return known;
+  const rects = compact(raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
+    x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined })), { aspect: 0.5, kindRow: true });
+  const nodes = raw.nodes.map((node, index) => ({ ...node, x: rects[index]!.x, y: rects[index]!.y, width: rects[index]!.width, height: rects[index]!.height }));
+  const next = { ...raw, nodes, bounds: boundsOf(nodes) } as Layout;
+  shaped.set(raw, next);
+  return next;
+};
 const getDiagram = (id: string) => {
   const next = diagrams.get(id);
   if (!next) throw new Error(`Unknown linked view '${id}'.`);
   if (!next.nodes.length) throw new Error(`View '${id}' has no nodes.`);
-  return next;
+  return shape(next);
 };
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
 let rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
@@ -230,7 +245,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   });
   // Orthogonal routes between the same nodes LikeC4 connects, found once per layout (see routes.ts).
   const computeRoutes = (): Route[] => routeEdges(diagram.nodes.map(node => ({ id: String(node.id), x: node.x, y: node.y, width: node.width, height: node.height, children: node.children.map(String) })),
-    diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target), points: edge.points })));
+    diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target), points: [] })));
   let nodeObjects = mountNodes();
   let routes = computeRoutes();
   let previousWidth = 0, previousHeight = 0;
@@ -912,7 +927,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     try {
     if (state.pendingReload) {
       const next = state.pendingReload; state.pendingReload = undefined;
-      const target = next.diagrams.get(String(diagram.id));
+      const raw = next.diagrams.get(String(diagram.id)), target = raw && shape(raw);
       if (!target?.nodes.length) { message = `View '${diagram.id}' is gone or empty in the new model; showing the previous version`; }
       else {
         const before = new Set(diagram.nodes.map(node => String(node.id)));

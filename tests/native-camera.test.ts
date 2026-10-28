@@ -39,7 +39,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     expect(rendered).toContain("zoom");
     expect(rendered).toMatch(/[╭╮╰╯]/);
     expect(rendered).toMatch(/[▶◀▲▼]/);
-    expect(rendered).toMatch(/[─┈]{5,}▶/);
+    expect(rendered).toMatch(/[─┈][─┈┴┬]{2,}▶/);
     await tmux("resize-window", "-t", pane, "-y", "46");
     await delay(200);
     expect(await tmux("capture-pane", "-p", "-t", pane)).toMatch(/[─┈]{5,}▶/);

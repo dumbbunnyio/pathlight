@@ -41,7 +41,8 @@ export function createCamera(screen: Screen, viewport: Area, bounds: Rect) {
     },
     fit(area: Rect) {
       camera.centerX = area.x + area.width / 2; camera.centerY = area.y + area.height / 2;
-      camera.scale = Math.max(area.width / Math.max(1, viewport.width - 4), area.height * camera.cellAspect() / Math.max(1, viewport.height - 2));
+      // Never above 100%: a compacted view is readable at actual size, and a small one is not blown up to fill the screen.
+      camera.scale = Math.max(16, area.width / Math.max(1, viewport.width - 4), area.height * camera.cellAspect() / Math.max(1, viewport.height - 2));
     },
     /** Stand still where the camera is: the target is the current position. */
     settle() { camera.targetX = camera.centerX; camera.targetY = camera.centerY; camera.targetScale = camera.scale; },
