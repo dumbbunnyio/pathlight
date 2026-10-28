@@ -32,6 +32,10 @@ test("file names in prose: a path with a slash must exist, a bare word counts on
     { path: "src/a.ts", exists: false }, { path: "package.json", exists: true }, { path: "src/gone.ts", exists: false },
   ]);
   expect(namedFiles("see https://example.com/a.ts and /etc/passwd and ../x/y.ts", paths)).toEqual([]);
+  // A catch-all route is a file, not a step up the tree: only a `..` segment is refused.
+  expect(namedFiles("from server/api/[...].ts and server/[...slug].vue", path => path === "server/api/[...].ts")).toEqual([
+    { path: "server/api/[...].ts", exists: true }, { path: "server/[...slug].vue", exists: false },
+  ]);
 });
 
 test("each way a flow can be wrong or old is reported once, naming the state", () => {
@@ -80,19 +84,27 @@ test("against a real repository: current at the sync commit, behind after an edi
     await cp("tests/fixtures/viewer", directory, { recursive: true });
     await mkdir(join(directory, "src/web"), { recursive: true });
     await writeFile(join(directory, "src/web/signup.ts"), "export const a = 1;\n");
+    await writeFile(join(directory, "src/web/[...].ts"), "export const b = 1;\n");
     const git = (...args: string[]) => run("git", ["-C", directory, "-c", "user.email=t@t", "-c", "user.name=t", ...args]);
     await git("init", "-q");
     await git("add", "-A");
     await git("commit", "-q", "-m", "first");
     const sha = (await git("rev-parse", "--short", "HEAD"));
-    await writeFile(join(directory, "signup.behavior.c4"), `specification {\n  element flow\n  element state\n  element decision\n  tag behavior\n}\nmodel {\n  signup = flow 'Signing up' {\n    #behavior\n    start = state 'Opens the page' { description 'src/web/signup.ts' }\n    next = state 'Sees the form' { description 'src/web/signup.ts' }\n    start -> next 'loads'\n  }\n}\nviews {\n  view signup of signup {\n    title 'Sign up'\n    description 'Agent-written. Synced at ${sha}.'\n    include *\n    autoLayout TopBottom\n  }\n}\n`);
+    await writeFile(join(directory, "signup.behavior.c4"), `specification {\n  element flow\n  element state\n  element decision\n  tag behavior\n}\nmodel {\n  signup = flow 'Signing up' {\n    #behavior\n    start = state 'Opens the page' { description 'src/web/signup.ts' }\n    next = state 'Sees the form' { description 'src/web/signup.ts, src/web/[...].ts' }\n    start -> next 'loads'\n  }\n}\nviews {\n  view signup of signup {\n    title 'Sign up'\n    description 'Agent-written. Synced at ${sha}.'\n    include *\n    autoLayout TopBottom\n  }\n}\n`);
     await git("add", "-A");
     await git("commit", "-q", "-m", "flow");
-    const report = async () => JSON.parse(await cli("flows", "--workspace", directory, "--json")) as { flows: { sync: { status: string; sha?: string }; findings: string[] }[]; summary: { findings: number; behind: number } };
+    const report = async () => JSON.parse(await cli("flows", "--workspace", directory, "--json")) as { flows: { sync: { status: string; sha?: string }; states: { files: { path: string; status: string }[] }[]; findings: string[] }[]; summary: { findings: number; behind: number } };
 
     const clean = await report();
     expect(clean.flows[0]!.sync).toEqual({ status: "current", sha });
     expect(clean.flows[0]!.findings).toEqual([]);
+    expect(clean.flows[0]!.states[1]!.files).toEqual([{ path: "src/web/signup.ts", status: "ok" }, { path: "src/web/[...].ts", status: "ok" }]);
+
+    await writeFile(join(directory, "src/web/[...].ts"), "export const b = 2;\n");
+    const route = await report();
+    expect(route.flows[0]!.sync.status).toBe("behind");
+    expect(route.flows[0]!.states[1]!.files[1]).toEqual({ path: "src/web/[...].ts", status: "changed" });
+    await writeFile(join(directory, "src/web/[...].ts"), "export const b = 1;\n");
 
     await writeFile(join(directory, "src/web/signup.ts"), "export const a = 2;\n");
     const edited = await report();
