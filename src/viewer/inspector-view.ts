@@ -31,10 +31,11 @@ export const countsLine = (counts: string, mapped: number) => {
 
 /**
  * The inspector's head for a selection: its name and kind on one row (with `· agent` when the agent wrote its name and note), then the words about
- * it in the body colour, then the scan's counts on their own dim line, never joined with a `·`. Wrapped on words.
+ * it in the body colour, then the scan's counts on their own dim line, never joined with a `·`. Wrapped on words. With nothing selected it says what
+ * the app is (`app`: the note of the box the view is about, else the model's first top-level box) under `No selection`.
  */
 export const headContent = (options: { title: string | undefined; kind: string; by?: "agent" | "human"; technology?: string | null; planned: boolean; tags: readonly string[];
-  description: unknown; note?: string; mapped: number; opens: string; width: number }) => {
+  description: unknown; note?: string; mapped: number; opens: string; width: number; app?: string }) => {
   const { width, opens } = options;
   const kind = options.kind && options.by === "agent" ? `${options.kind} · agent` : options.kind;
   const titleText = options.title ?? "No selection";
@@ -44,7 +45,7 @@ export const headContent = (options: { title: string | undefined; kind: string; 
   const titleShown = clip(titleText, width);
   const title = new StyledText([fg(palette.text)(titleShown), fg(palette.muted)(showKind ? `${" ".repeat(Math.max(1, width - titleShown.length - showKind.length))}${showKind}` : "")]);
   const what = [options.technology, options.planned ? "planned: no files yet" : "", ...options.tags.filter(tag => tag === "bug" || tag === "fixed")].filter(Boolean).join(" · ");
-  const { words, counts } = splitDescription(describe(options.description), options.note);
+  const { words, counts } = options.title === undefined ? { words: options.app ?? "", counts: "" } : splitDescription(describe(options.description), options.note);
   const lines = [...(words ? wrapWords(words, width).map(line => ({ line, color: palette.body })) : []),
     ...(counts ? wrapWords(countsLine(counts, options.mapped), width).map(line => ({ line, color: palette.muted })) : []),
     ...(opens ? [{ line: opens, color: palette.muted }] : [])];
@@ -104,16 +105,22 @@ export const sectionHeader = (options: { open: boolean; focused: boolean; name: 
     fg(focused ? palette.accent : palette.body)(name), fg(palette.rule)(` ${rule} `), fg(palette.muted)(count)]);
 };
 
-/** Under the cards, always the same two lines: what is one key away, then the question field. */
-export const pinnedLines = (options: { width: number; files: number; session: boolean; replay: boolean; title: string | undefined; canAsk: boolean; background: RGBA }) => {
+/**
+ * Under the cards, always the same two lines: what is one key away, then the question field. Until the user has selected something or asked once
+ * (`first`), the field offers the first question itself: `how does <title> work?`, which `t` opens already typed.
+ */
+export const pinnedLines = (options: { width: number; files: number; session: boolean; replay: boolean; title: string | undefined; canAsk: boolean; background: RGBA; first?: boolean }) => {
   const { width } = options;
   const action = (key: string, text: string) => [fg(palette.body)(key), fg(palette.muted)(` ${text}   `)];
   const actions = new StyledText([fg(palette.rule)("─".repeat(width)), nl,
     ...(options.files ? action("e", `files ${options.files}`) : []), ...(options.session ? action("c", "session") : []), ...(options.replay ? action("p", "replay") : [])]);
-  const askLabel = clip(options.title !== undefined ? `ask about ${options.title}…` : "ask…", width - 6);
+  const askLabel = clip(options.title === undefined ? "ask…" : options.first ? firstQuestion(options.title) : `ask about ${options.title}…`, width - 6);
   const ask = new StyledText([fg(palette.accent)("› "), fg(options.canAsk ? palette.muted : palette.border)(askLabel.padEnd(width - 3)), fg(palette.body)("t")].map(chunk => ({ ...chunk, bg: options.background })));
   return { actions, ask };
 };
+
+/** The question a first-time reader is offered about the box a view opens on. */
+export const firstQuestion = (title: string) => `how does ${title} work?`;
 
 /** Under 80 columns the diagram does not fit: a plain list of nodes, indented by level, with the observed state or the kind on the right. */
 export const nodeListContent = (nodes: readonly { id: unknown; title: string; kind?: unknown; level: number; children: readonly unknown[] }[], options: { selected: unknown; width: number; state: (index: number) => string | undefined; background: RGBA }) => {

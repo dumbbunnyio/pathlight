@@ -70,6 +70,14 @@ test("t types a question about the selected node into the harness pane; Enter su
     };
     await until(shown.pane, text => text.includes("Selected: plugin"), "viewer");
     await delay(700);
+    // On first open t offers the first question about the box the view opens on, typed, with draw it on, so the first ask is one Enter.
+    await tmux("send-keys", "-t", shown.pane, "t");
+    await until(shown.pane, text => text.includes("Ask the agent") && text.includes("● draw it"), "first question typed, draw it on");
+    await tmux("send-keys", "-t", shown.pane, "Enter");
+    const first = await until(harness, text => (text.replace(/\n/g, "").match(/how does Agent adapters work\?/g) ?? []).length >= 2, "first question echoed back");
+    expect(first.replace(/\n/g, "")).toContain('About the "Agent adapters" component (plugin): how does Agent adapters work?');
+    expect(first.replace(/\n/g, "")).toContain("also record the path as a pathlight journey");
+    // Once asked, t opens empty.
     await tmux("send-keys", "-t", shown.pane, "t");
     await until(shown.pane, text => text.includes("Ask the agent"), "ask prompt");
     // An empty question does not send: the prompt stays open.
@@ -84,7 +92,7 @@ test("t types a question about the selected node into the harness pane; Enter su
     expect(joined).toContain('About the "Agent adapters" component (plugin): why does this exist?');
     expect(joined).toContain("connects: → Activity metadata, → tmux launcher");
     expect(joined).toContain("before editing any file run pathlight plan plugin");
-    expect(joined).not.toContain("pathlight journey");
+    expect(joined.split("why does this exist?")[1]).not.toContain("pathlight journey");
     const toast = await until(shown.pane, text => text.includes("Asked"), "asked toast");
     expect(toast).toContain("✓ Asked the agent about Agent adapters");
     expect(toast).not.toContain("Ask the agent");

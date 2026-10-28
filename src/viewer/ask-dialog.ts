@@ -22,7 +22,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
   renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "ask" | "askInput" | "askPrompt" | "askRow">; workspace: string; parent: string | undefined;
   selected: () => Target | undefined; context: (target: Target) => { files: string[]; links: string[]; activity: string[] }; relevant: (target: Target) => Effect.Effect<string[]>;
   live: () => { bound: boolean; label: string };
-  say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void; background: RGBA;
+  say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void; asked: () => void; background: RGBA;
 }) {
   const { renderer, workspace } = options, { ask, askInput, askPrompt, askRow } = options.widgets;
   const tell = (message: string) => { options.say(message); options.update(); };
@@ -107,10 +107,11 @@ export function createAskDialog<Target extends AskTarget>(options: {
     toggle() { flip(focus); render(); },
     /** The question typed so far changed: `draw it` may follow it. */
     typed() { if (asking && mode === "ask") render(); },
-    beginAsk() {
+    /** `question` is typed in already (the first-open prompt), so the first ask is one Enter. */
+    beginAsk(question = "") {
       if (!options.parent) { tell("Ask needs the viewer opened with pathlight show, which knows your agent's pane"); return; }
       const target = options.selected();
-      if (target) open(target, "ask", "", "Ask how something works, or tell it what to change");
+      if (target) open(target, "ask", question, "Ask how something works, or tell it what to change");
     },
     beginMap() {
       if (!options.parent) { tell("Changing the map needs the viewer opened with pathlight show, which knows your agent's pane"); return; }
@@ -154,7 +155,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
       }
       const [withFiles, withLinks, withActivity] = include, draw = drawing();
       const live = options.live(), session = live.bound ? live.label : "the agent";
-      finish(); sent(target, files => askMessage({ title: target.title, id: String(target.id), files: withFiles ? files : [], links: withLinks ? context.links : [], activity: withActivity ? context.activity : [] }, question, draw),
+      options.asked(); finish(); sent(target, files => askMessage({ title: target.title, id: String(target.id), files: withFiles ? files : [], links: withLinks ? context.links : [], activity: withActivity ? context.activity : [] }, question, draw),
         `Asked ${session} about ${target.title} · reply lands in the agent pane${draw ? " · F shows the path once it is recorded" : ""}`);
     },
   };
