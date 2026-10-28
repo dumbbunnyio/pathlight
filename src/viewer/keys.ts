@@ -160,18 +160,35 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   return { type: "idle" };
 }
 
-/** The keyboard help, by group, in the order `?` lists them. `vim` says which family selects (the other pans). */
-export const helpGroups = (vim: boolean): { name: "Diagram" | "Inspector" | "Agent" | "Global"; rows: Hint[] }[] => {
+/** A row of the keyboard help: the keys, what they do, and the actions they stand for (so a test can check every action is listed once). */
+export type HelpRow = readonly [key: string, label: string, does: readonly Action["type"][]];
+export type Tier = 1 | 2 | 3;
+
+/**
+ * The keyboard help in three tiers, named for how far along the user is with this codebase: everyone starts by understanding it, then directs the
+ * agent, then shapes the map. `t` is in the first two (asking and telling are one key). `vim` says which family selects (the other pans).
+ */
+export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" | "Shape the map"; tier: Tier; rows: HelpRow[] }[] => {
   const arrows = "← ↑ ↓ →";
   return [
-    { name: "Diagram", rows: [[vim ? "h j k l" : arrows, "select a neighbour"], [vim ? arrows : "h j k l", "pan"], ["+ -", "zoom"], ["f", "fit everything"],
-      ["0", "actual size"], ["r", "centre the selection"], ["tab", "next node"], ["enter", "into a group / open a link"], ["backspace", "up to the parent"],
-      ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"], ["F", "trace a flow (F again: next, last one leaves)"], ["[ ]", "step through the flow"]] },
-    { name: "Inspector", rows: [["i", "toggle the inspector"], ["1–4", "focus a card"], ["j k", "move / scroll"], ["space", "fold card"],
-      ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files (in a flow: read the step's function)"], ["esc", "back to diagram"]] },
-    { name: "Agent", rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work, and follow it"], ["c", "review new dependencies, and what the session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
-    { name: "Global", rows: [["/", "search views, boxes, files"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
+    { name: "Understand it", tier: 1, rows: [["tab, click", "select a box", ["nextNode"]], [vim ? "h j k l" : arrows, "select a neighbour", ["traverse", "listMove"]],
+      ["enter, o", "into a group, open a link", ["open"]], ["backspace", "up to the parent", ["parent"]], ["t", "ask how something works", ["ask"]],
+      ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
+    { name: "Direct it", tier: 2, rows: [["t", "tell it what to change", ["ask"]], ["c", "session and review", ["session"]],
+      ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
+      ["/", "search views, boxes, files", ["search"]], ["g", "go to any view", ["views"]], ["b", "back", ["back"]], ["i", "inspector", ["inspector"]],
+      ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
+    { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a flow", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
+      ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],
+      ["1–4", "focus a card, esc leaves", ["focus", "sectionLeave"]], ["j k", "move in the card", ["sectionMove"]], ["space", "fold the card", ["sectionFold"]],
+      ["PgUp PgDn", "scroll the inspector", ["scrollInspector"]], ["v", "swap hjkl and arrows", ["swap"]], ["q", "quit", ["stop"]]] },
   ];
+};
+
+/** The tier a key's action belongs to, for the accent in `?`; `t` counts as the first (it asks before it tells). Undefined for a mode's own keys. */
+export const tierOf = (action: Action): Tier | undefined => {
+  const tiers = helpGroups(true).flatMap(group => group.rows.flatMap(row => row[2].map(does => [does, group.tier] as const)));
+  return tiers.find(([does]) => does === action.type)?.[1];
 };
 
 /** The footer's keys for each mode that names them, and the hints on the modals' borders. */

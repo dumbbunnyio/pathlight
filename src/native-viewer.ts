@@ -31,7 +31,7 @@ import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/foo
 import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
 import { helpContent } from "./viewer/help";
 import { allotSections, headContent, nodeListContent, pinnedLines, sectionHeader } from "./viewer/inspector-view";
-import { type Action, hints, keyAction } from "./viewer/keys";
+import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
 import { createThemePicker } from "./viewer/theme-picker";
 import { createAskDialog } from "./viewer/ask-dialog";
@@ -149,8 +149,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const pauseFollow = () => { if (followCamera && !followPaused && !followSelecting) { followPaused = true; message = "Follow paused · a to resume"; } };
   // Which key family moves the selection; the other family pans. `v` swaps them.
   let vimTraverses = true;
+  // The highest tier of keys pressed this session: `?` puts its accent there (everyone starts by understanding the codebase).
+  let tier: Tier = 1;
   const showHelp = () => {
-    const guide = helpContent({ inspector: !!state.focusSection, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version });
+    const guide = helpContent({ tier, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version });
     help.content.content = guide.content; help.meta.content = guide.meta;
     help.foot.content = new StyledText(borderHints(hints.help));
     if (help.visible) help.place(guide.width, guide.height + 4); else help.open(guide.width, guide.height + 4);
@@ -950,6 +952,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const layer = state.pendingVisit ? "visit" : dialog.asking ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : "main";
     const action = keyAction(key, { layer, askContext: dialog.focus >= 0, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, vim: vimTraverses });
     if (!action) return;
+    if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();
     perform(action);
   });
