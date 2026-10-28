@@ -5,10 +5,18 @@
 This package is the OpenCode side only. It needs the `pathlight` binary on your PATH:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dumbbunnyio/pathlight/main/install.sh | sh
+npm i -g pathlight
 ```
 
-Add it to `opencode.json` (recording turns on observation of this workspace's sessions; leave `record` out to record only when asked):
+(or, without Node, `curl -fsSL https://raw.githubusercontent.com/dumbbunnyio/pathlight/main/install.sh | sh`).
+
+Then let `pathlight` add this plugin to your global OpenCode config for every project:
+
+```sh
+pathlight init --global
+```
+
+Or add it to one project's `opencode.json` yourself (`record: true` turns on observation of that workspace's sessions; leave it out to record only when asked):
 
 ```json
 { "plugins": [{ "package": "@dumbbunnyio/pathlight-opencode", "options": { "record": true } }] }

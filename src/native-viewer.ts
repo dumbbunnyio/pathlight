@@ -1,61 +1,77 @@
-import { BoxRenderable, TextRenderable, StyledText, type TextChunk, fg, bg, RGBA, createCliRenderer } from "@opentui/core";
-import { THREE } from "@opentui/three";
+import { BoxRenderable, TextRenderable, StyledText, fg, RGBA, createCliRenderer } from "@opentui/core";
 import { Effect, FiberSet, Schedule } from "effect";
 import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type View, acquireModel, validateActivityMapping } from "./catalog";
-import { type ActivityBinding, type ActivityEvent, formatAge, latestBinding, readActivity, readActivityConfig, readReplay, type Replay, sessionStart } from "./activity";
-import { type Diff, diffWorkspace, readDiff, recordDiff } from "./diff";
-import { draftWorkspace, generatedMarker } from "./draft";
-import { home, modelFile } from "./layout";
-import { type Decisions, decide, pending, readDecisions, reviewItems, reviewMessage, type Verdict } from "./review";
-import { type Plan, readPlan } from "./plan";
-import { readStale, type Stale, staleText } from "./stale";
+import type { View } from "./catalog";
+import { type ActivityBinding, type ActivityEvent, latestBinding, readActivity, readReplay, type Replay } from "./activity";
+import { type Diff, diffWorkspace, recordDiff } from "./diff";
+import { draftWorkspace } from "./draft";
+import { type Decisions, decide, pending, reviewItems, reviewMessage, type Verdict } from "./review";
+import type { Plan } from "./plan";
+import type { Stale } from "./stale";
 import { nodeFiles } from "./node-files";
 import { firstChange, openEditor } from "./editor";
-import { askMessage, flowMessage, mapMessage, sendToPane } from "./ask";
-import { readEntry, readKeys, saveElement } from "./edit";
+import { sendToPane } from "./ask";
 import pkg from "../package.json" with { type: "json" };
-import { type Hint, borderHints, hintChunks, noticeStyle, palette, pill, setPalette } from "./ui";
-import { type Mode, loadThemes, modeOf, paletteOf, saveTheme, savedTheme, systemTheme, themeFromEnvironment } from "./theme";
-import { retheme } from "./retheme";
-import { type Candidate, search as rankSearch } from "./search";
+import { borderHints, palette, setPalette } from "./ui";
+import { type Mode, loadThemes, paletteOf, savedTheme, themeFromEnvironment } from "./theme";
 import { rasterize, routeEdges, type Route } from "./routes";
 import { checkFlows } from "./flows";
-import { badgeText as stepBadge, badgesOf, flowMaps, flowsInView, flowsThrough, pathEdges, type FlowMap } from "./flow-view";
-import { attempt, failure, hasCode, io } from "./effects";
+import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges } from "./flow-view";
+import { attempt, failure, io } from "./effects";
 import { writeReady } from "./ready";
 import { declarationLine } from "./scan-imports";
-import { cardTag, isActive, nowCard, operationState, outcomeMs, sessionSummary, ticker } from "./viewer/activity-view";
+import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
+import { createCamera } from "./viewer/camera";
+import { boundsOf, compact, kindsVary } from "./viewer/compact";
+import { cardLook } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
+import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
+import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
 import { helpContent } from "./viewer/help";
+import { allotSections, headContent, nodeListContent, pinnedLines, sectionHeader } from "./viewer/inspector-view";
+import { type Action, hints, keyAction } from "./viewer/keys";
+import { createGotoPicker, pickCandidates } from "./viewer/pickers";
+import { createThemePicker } from "./viewer/theme-picker";
+import { createAskDialog } from "./viewer/ask-dialog";
 import { reviewSection } from "./viewer/review-view";
+import { choose, createState, firstNode, remember, type Visit } from "./viewer/state";
+import { createFlowMode, stepElement } from "./viewer/flow-mode";
 import { createWidgets, type SectionKey, sectionOrder } from "./viewer/widgets";
-import { clip, describe, easeOut, fade, labelTitle, nl, spinAt } from "./viewer/text";
+import { loadWorld, readChecks, type Words } from "./viewer/world";
+import { easeOut, fade } from "./viewer/text";
+import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
 
 export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) {
 const view = options.view;
 let binding = options.activity;
 const following = options.follow === true;
-const loadedConfig = yield* readActivityConfig(view.workspace).pipe(
-  Effect.catchIf(error => !binding && !following && hasCode(error, "ENOENT"), () => Effect.succeed(undefined)));
-let config = binding || following || loadedConfig?.project === view.project ? loadedConfig : undefined;
-if (config) yield* validateActivityMapping(view, config);
-let fileError = "";
-let files = yield* nodeFiles(view.workspace, config).pipe(Effect.catch(error => Effect.sync(() => {
-  fileError = error.message; return new Map<string, string[]>();
-})));
-let diagrams = yield* Effect.gen(function* () {
-  const source = yield* acquireModel(view.workspace);
-  const model = yield* io("LikeC4.layout", () => source.layoutedModel(view.project));
-  return new Map([...model.views()].map(entry => [String(entry.id), entry.$view]));
-}).pipe(Effect.scoped);
+const world = yield* loadWorld(view, { watching: Boolean(binding || following), reload: false });
+let { config, files, fileError, diagrams } = world;
+// Compact fit: each view is drawn from a copy with Pathlight's spacing and card sizes and LikeC4's arrangement (viewer/compact.ts), made once per view.
+// A cell is taken to be half as wide as it is tall, as the camera does when the terminal does not say.
+type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
+const watching = Boolean(binding || following);
+const shaped = new WeakMap<Layout, Layout>();
+const shape = (raw: Layout): Layout => {
+  const known = shaped.get(raw);
+  if (known) return known;
+  // A planned element with no files yet keeps its `[planned]` row; the kind row is drawn only when kinds vary among the view's cards. Watching a session,
+  // every card keeps that row, so the activity counts that appear there never move the layout.
+  const planned = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`)) && ![...files].some(([element, paths]) => (element === ref || element.startsWith(`${ref}.`)) && paths.length);
+  const rects = compact(raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
+    x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined, status: planned(String(node.modelRef)) })), { aspect: 0.5, kindRow: kindsVary(raw.nodes) || watching });
+  const nodes = raw.nodes.map((node, index) => ({ ...node, x: rects[index]!.x, y: rects[index]!.y, width: rects[index]!.width, height: rects[index]!.height }));
+  const next = { ...raw, nodes, bounds: boundsOf(nodes) } as Layout;
+  shaped.set(raw, next);
+  return next;
+};
 const getDiagram = (id: string) => {
   const next = diagrams.get(id);
   if (!next) throw new Error(`Unknown linked view '${id}'.`);
   if (!next.nodes.length) throw new Error(`View '${id}' has no nodes.`);
-  return next;
+  return shape(next);
 };
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
 let rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
@@ -86,46 +102,28 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
 const runTask = yield* FiberSet.makeRuntime<never>();
   const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, nodeList, nodeListText } = createWidgets(renderer);
   if (!binding && !following) { sections.activity.box.visible = false; sections.activity.box.height = 0; }
-  // Which section (if any) owns the movement keys. Undefined means the diagram does.
-  let focusSection: SectionKey | undefined;
-  const cursor: Record<SectionKey, number> = { connections: 0, files: 0, activity: 0, steps: 0, flows: 0 };
   let connectionItems: string[] = [];
   let fileLines: number[] = [];
   const hot = RGBA.fromHex(palette.hot), rowBackground = hot;
   const contentRows: Record<SectionKey, number> = { connections: 4, files: 4, activity: 4, steps: 4, flows: 2 };
-  const highlight = (chunks: TextChunk[], from: number, to: number) => chunks.map((chunk, index) => index >= from && index < to ? { ...chunk, bg: hot } : chunk);
   resources.push({ dispose() { if (!inspector.parent) inspector.destroyRecursively(); } });
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 5000);
-  let centerX = diagram.bounds.x + diagram.bounds.width / 2;
-  let centerY = diagram.bounds.y + diagram.bounds.height / 2;
-  let scale = 16;
-  // A view about one element (a neighbourhood) opens with that element selected; any other opens on its first node.
-  // `pathlight draft` names a component's neighbourhood `<component>_near`, scoped to it when it can be, which is how the subject is found when it cannot.
-  const firstNode = (scene: typeof diagram) => {
-    const subject = "viewOf" in scene ? scene.viewOf : undefined;
-    return scene.nodes.find(node => subject !== undefined && String(node.modelRef) === String(subject))
-      ?? scene.nodes.find(node => `${String(node.modelRef).replace(/\./g, "_")}_near` === String(scene.id)) ?? scene.nodes[0];
-  };
+  const camera = createCamera(renderer, viewport, diagram.bounds);
   // `--select ELEMENT` opens with that element selected, so a screen (or a bug report) can name exactly what it shows.
   const asked = options.select === undefined ? undefined : diagram.nodes.find(node => String(node.modelRef) === options.select);
   if (options.select !== undefined && !asked) return yield* Effect.fail(failure("Native.select", `The view '${view.id}' has no element '${options.select}'. Pathlight list names the views; the element ids are in the model.`));
-  let selected = asked ?? firstNode(diagram);
-  type Visit = { view: string; selected: string | undefined; x: number; y: number; scale: number };
-  const history: Visit[] = [];
-  let pendingReload: { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; notice: string } | undefined;
-  let pendingVisit: { diagram: ReturnType<typeof getDiagram>; restore?: Visit; select?: string; file?: string; notice?: string } | undefined;
+  type Scene = ReturnType<typeof getDiagram>;
+  type Node = Scene["nodes"][number];
+  const state = createState<Node, Scene, { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; notice: string }>(asked ?? firstNode(diagram));
   let dirty = true;
   let redrawAfterResize = false;
-  let targetX = centerX, targetY = centerY, targetScale = scale;
-  let animating = false;
-  let fileMode = false, fileCursor = 0, editorActive = false;
+  let fileMode = false, editorActive = false;
   let fileQuery = "";
   // An element the mapping names as planned and that has no files yet (nor does anything inside it): designed, not built.
   const waiting = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`))
     && !(files.get(ref)?.length) && ![...files].some(([element, paths]) => element.startsWith(`${ref}.`) && paths.length);
   const selectedPaths = () => {
     const dirOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
-    const paths = [...files.get(String(selected?.modelRef ?? "")) ?? []].sort((a, b) => dirOf(a).localeCompare(dirOf(b)) || a.localeCompare(b));
+    const paths = [...files.get(String(state.selected?.modelRef ?? "")) ?? []].sort((a, b) => dirOf(a).localeCompare(dirOf(b)) || a.localeCompare(b));
     return fileMode ? paths.filter(path => path.toLowerCase().includes(fileQuery.trim().toLowerCase())) : paths;
   };
   let inspectorPreference: "auto" | "open" | "closed" = "auto";
@@ -146,11 +144,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const pauseFollow = () => { if (followCamera && !followPaused && !followSelecting) { followPaused = true; message = "Follow paused · a to resume"; } };
   // Which key family moves the selection; the other family pans. `v` swaps them.
   let vimTraverses = true;
-  const selectKeys = () => vimTraverses ? "h j k l" : "Arrows";
   const showHelp = () => {
-    const guide = helpContent({ inspector: !!focusSection, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version });
+    const guide = helpContent({ inspector: !!state.focusSection, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version });
     help.content.content = guide.content; help.meta.content = guide.meta;
-    help.foot.content = new StyledText(borderHints([["esc", "close"], ["v", "swap hjkl and arrows"]]));
+    help.foot.content = new StyledText(borderHints(hints.help));
     if (help.visible) help.place(guide.width, guide.height + 4); else help.open(guide.width, guide.height + 4);
   };
   // A call seen for the first time flashes: its node's border and its activity row take the accent for a moment.
@@ -191,58 +188,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let decisions: Decisions = { version: 1, decisions: [] }, reviewCursor = 0, drafted = false, redrawnFor = -1;
   // The elements the agent said it is about to work on (`pathlight plan`): outlined, and activity on anything else is marked off-plan.
   let plan: Plan | undefined;
+  // Who wrote each element's name and note (a drafted map's overlay), so the inspector can say the agent's words are the agent's.
+  let words = new Map<string, Words>();
   // Flows: readings of the code (a journey is a LikeC4 dynamic view, a state diagram is what an agent wrote). They are loaded in the background after the first frame
   // and again when the model or a check changes, so a view never waits for them. In flow mode one is drawn on the diagram and read step by step in the inspector.
-  let flows: FlowMap[] = [];
-  let activeFlow: FlowMap | undefined, flowStep = 0;
+  const flowMode = createFlowMode<Node>({ view: () => diagram, selected: () => String(state.selected?.modelRef ?? ""), nodeFor: element => nodeOrAncestor(diagram, element),
+    // A step selects its card and leaves the camera where it is, moving only when the card is off screen (entering flow mode keeps a fitted view).
+    select: node => { selectNode(node, false); camera.ensureVisible(node); },
+    title: id => elementTitle(id), say: text => { message = text; }, update: () => update(),
+    entering: () => { if (state.focusSection === "connections") state.focusSection = undefined; }, leaving: () => { if (state.focusSection === "steps") state.focusSection = undefined; } });
   let flowPath = new Set<string>();
   let flowItems: ReturnType<typeof flowsThrough> = [];
   const inPlan = (ref: string) => (plan?.elements ?? []).some(id => ref === id || ref.startsWith(`${id}.`) || id.startsWith(`${ref}.`));
-  const within = (id: string, ancestor: string) => id === ancestor || id.startsWith(`${ancestor}.`);
-  const edgeMarks = () => {
-    const marks = new Map<string, "added" | "lost" | "path">();
-    if (!diff) { for (const key of flowPath) marks.set(key, "path"); return marks; }
-    const ref = new Map(diagram.nodes.map(node => [String(node.id), String(node.modelRef)] as const));
-    for (const edge of diagram.edges) {
-      const from = ref.get(String(edge.source)), to = ref.get(String(edge.target));
-      if (!from || !to) continue;
-      const hits = diff.relationships.filter(item => within(item.source, from) && within(item.target, to));
-      if (hits.some(item => item.change === "added")) marks.set(`${edge.source}\0${edge.target}`, "added");
-      else if (hits.length) marks.set(`${edge.source}\0${edge.target}`, "lost");
-    }
-    // The flow being read wins over what changed: it is what the person asked to see.
-    for (const key of flowPath) marks.set(key, "path");
-    return marks;
-  };
-  const diffText = () => {
-    if (!diff) return "";
-    const added = diff.relationships.filter(item => item.change === "added").length, lost = diff.relationships.length - added;
-    // Nothing changed, nothing said: the check badge on the right already shows the hooks are running. New dependencies are the header's review, not repeated here.
-    const parts = [added ? `+${added}` : "", lost ? `−${lost}` : ""].filter(Boolean);
-    return parts.length ? ` · vs ${diff.base} (static) ${parts.join(" ")}` : "";
-  };
-  const ago = (time: number) => { const age = formatAge(Date.now() - time); return age === "now" ? "just now" : `${age} ago`; };
-  const staleBadge = (room: number) => {
-    const detail = staleText(stale);
-    if (!stale) return [];
-    // A clean check says so, quietly: silence would look the same as a hook that never ran.
-    if (!detail) { const text = `✓ in sync · checked ${ago(stale.time)} `; return text.length <= room ? [fg(palette.muted)(text)] : []; }
-    const full = `▲ out of date: ${detail} · checked ${ago(stale.time)} `;
-    const text = full.length <= room ? full : room >= 16 ? "▲ out of date " : "";
-    return text ? [fg(palette.accent)(text)] : [];
-  };
-  const badgeContent = () => {
-    const room = Math.max(0, renderer.width - 40);
-    if (replay) return new StyledText([fg(palette.accent)("◀ replay"), fg(palette.border)(` ${liveLabel()} `)]);
-    // New dependencies waiting for a verdict come first: they are the one thing in the header that asks for a decision.
-    const open = pending(reviewItems(diff, decisions)).length, ask = open ? `▲ ${open} new dependenc${open === 1 ? "y" : "ies"} · c review ` : "";
-    const review = ask && ask.length <= room ? [fg(palette.accent)(ask)] : [];
-    const left = room - (review.length ? ask.length : 0);
-    if (!binding && !following) { const only = [...review, ...staleBadge(left)]; return only.length ? new StyledText(only) : ""; }
-    const busy = events.some(isActive);
-    const live = [fg(binding ? palette.incoming : palette.muted)(`${busy ? spinAt(Date.now()) : "●"} live`), fg(palette.border)(` ${liveLabel()} `)];
-    return new StyledText([...review, ...staleBadge(left - 8 - liveLabel().length), ...live]);
-  };
+  const badgeContent = () => headerBadge({ width: renderer.width, replay: Boolean(replay), live: liveLabel(), bound: Boolean(binding), watching: Boolean(binding || following),
+    busy: events.some(isActive), open: pending(reviewItems(diff, decisions)).length, stale, now: Date.now() });
   let activityError = "";
   const layout = () => {
     const side = renderer.width >= 120;
@@ -293,27 +252,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     return { node, box, label, badge, rect: { x: 0, y: 0, width: 1, height: 1 } };
   });
   // Orthogonal routes between the same nodes LikeC4 connects, found once per layout (see routes.ts).
-  const computeRoutes = (): Route[] => routeEdges(diagram.nodes.map(node => ({ id: String(node.id), x: node.x, y: node.y, width: node.width, height: node.height, children: node.children.map(String) })),
-    diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target), points: edge.points })));
+  const cell = { x: 16, y: 16 / 0.5 };
+  const routeNodes = () => diagram.nodes.map(node => ({ id: String(node.id), x: node.x, y: node.y, width: node.width, height: node.height, children: node.children.map(String) }));
+  const computeRoutes = (): Route[] => routeEdges(routeNodes(), diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target), points: [] })), cell);
+  let gaps: Route[] = [], gapFor = "";
   let nodeObjects = mountNodes();
   let routes = computeRoutes();
   let previousWidth = 0, previousHeight = 0;
   let initialFit = true, stableLayoutFrames = 0;
-  // The diagram stays fitted and centred through load and resize until the user pans or zooms (`f` fits again).
-  let autoFit = true;
   // One-time "draw-on" when the first view opens: nodes bloom left to right, connectors extend source to target.
   const revealMs = 600;
   let revealStart: number | undefined;
   const revealProgress = () => initialFit ? 0 : revealStart === undefined ? 1 : Math.min(1, (Date.now() - revealStart) / revealMs);
-  const cellAspect = () => {
-    const resolution = renderer.resolution;
-    return resolution && resolution.width > 0 && resolution.height > 0
-      ? (resolution.width / renderer.width) / (resolution.height / renderer.height) : 0.5;
-  };
-  const projected = (x: number, y: number) => {
-    const p = new THREE.Vector3(x, -y, 10).project(camera);
-    return { x: (p.x + 1) * viewport.width / 2, y: (1 - p.y) * viewport.height / 2 };
-  };
   // Section bodies start at the panel's edge; the panel has one column of padding each side and one for a scrollbar.
   const bodyWidth = () => Math.max(16, inspector.width - 2 - 1);
   // A component's title from this view, else from any view that draws it (the review and the header name components this view may not show), else its id.
@@ -333,44 +283,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const isOpen = (key: SectionKey) => sections[key].open && !autoFolded.has(key);
   // Files stay out of sight until asked for (`e`, or `3`): the actions line says how many there are.
   // "Now" says nothing when there is no session to watch.
-  const shownSections = () => sectionOrder.filter(key => key === "files" ? fileMode || focusSection === "files" : key === "activity" ? Boolean(binding || following)
-    : key === "steps" ? Boolean(activeFlow) : key === "connections" ? !activeFlow : !activeFlow && flowsThrough(flows, String(selected?.modelRef ?? "")).length > 0);
+  const shownSections = () => sectionOrder.filter(key => key === "files" ? fileMode || state.focusSection === "files" : key === "activity" ? Boolean(binding || following)
+    : key === "steps" ? Boolean(flowMode.active) : key === "connections" ? !flowMode.active : !flowMode.active && flowsThrough(flowMode.flows, String(state.selected?.modelRef ?? "")).length > 0);
   const layoutSections = () => {
     const total = inspectorScroll.viewport.height;
     if (total <= 0) return;
+    const { cards, autoFolded: folded } = allotSections({ total, headRows, shown: shownSections(), open: key => sections[key].open, contentRows, touched, watching: Boolean(binding || following) });
     autoFolded.clear();
-    const order = shownSections();
-    let active = order.filter(key => sections[key].open);
-    const wants = (key: SectionKey) => 1 + Math.max(1, contentRows[key]);
-    // Each open section gets what its content needs, capped at a fair share; whatever a short section leaves over goes to the long ones.
-    const allot = (keys: SectionKey[], compact: boolean) => {
-      const closed = order.length - keys.length;
-      let remaining = total - headRows - (compact ? 0 : order.length) - closed;
-      const result = new Map<SectionKey, number>();
-      const ordered = [...keys].sort((a, b) => wants(a) - wants(b));
-      ordered.forEach((key, index) => {
-        const give = Math.max(2, Math.min(wants(key), Math.floor(remaining / (ordered.length - index))));
-        result.set(key, give); remaining -= give;
-      });
-      return { result, remaining };
-    };
-    // With a session attached the work is what is being watched, so activity is the last card to fold.
-    for (const drop of (binding || following ? ["files", "flows", "connections", "activity"] : ["activity", "files", "flows", "connections"]) as SectionKey[]) {
-      if (active.length <= 1 || [...allot(active, false).result].every(([key, rows]) => rows >= Math.min(4, wants(key)))) break;
-      if (active.includes(drop) && !touched.has(drop)) { active = active.filter(key => key !== drop); autoFolded.add(drop); }
-    }
-    const roomy = allot(active, false);
-    const compact = active.length > 0 && [...roomy.result].some(([key, rows]) => rows < Math.min(3, wants(key)));
-    const plan = compact ? allot(active, true) : roomy;
-    const ultra = compact && total - headRows - (order.length - active.length) < 3;
+    for (const key of folded) autoFolded.add(key);
     for (const key of sectionOrder) {
-      const entry = sections[key], isActive = active.includes(key), shown = order.includes(key);
-      const rows = ultra ? Math.max(3, total - headRows) : plan.result.get(key) ?? 1;
-      entry.box.visible = shown && (isActive || !ultra);
-      entry.box.height = !shown ? 0 : isActive ? rows : 1;
-      entry.box.marginTop = !shown || compact ? 0 : 1;
-      entry.content.visible = isActive;
-      bodyRows[key] = Math.max(1, (isActive ? rows : 0) - 1);
+      const entry = sections[key], card = cards[key];
+      entry.box.visible = card.visible; entry.box.height = card.height; entry.box.marginTop = card.marginTop; entry.content.visible = card.contentVisible;
+      bodyRows[key] = card.bodyRows;
     }
   };
   // Keep a line of a card's scrolling body in view.
@@ -381,7 +305,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // "Now", the session summary and the header's activity line are written in viewer/activity-view.ts from what the journal retained.
   const activityContent = () => {
-    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events, element: String(selected?.modelRef ?? ""), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
+    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events, element: String(state.selected?.modelRef ?? ""), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
     contentRows.activity = card.lines;
     return new StyledText(card.chunks);
   };
@@ -393,7 +317,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const made = sessionSummary({ session: binding ? `${binding.source}:${binding.session.slice(0, 8)}` : undefined, config, events, elementTitle, screenWidth: renderer.width, ruleWidth: bodyWidth(), now: Date.now() });
     summary.place(items.length ? frame : made.size[0], made.size[1] + head.lines);
     summary.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(items.length ? "Review" : "This session"), fg(palette.muted)(" ")]);
-    summary.foot.content = new StyledText(borderHints(items.length ? [["j k", "move"], ["e", "read it"], ["y", "accept"], ["n", "reject"], ["esc", "close"]] : [["esc", "close"]]));
+    summary.foot.content = new StyledText(borderHints(items.length ? hints.review : hints.close));
     return new StyledText([...head.chunks, ...made.chunks]);
   };
   // A drafted map draws every import, so redrawing it for one accepted dependency would also draw the ones not yet decided. It is redrawn once every
@@ -429,37 +353,24 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
     let step = 32;
-    while (step / scale < 7) step *= 2;
-    const halfWidth = viewport.width * scale / 2, halfHeight = viewport.height * scale / cellAspect() / 2;
+    while (step / camera.scale < 7) step *= 2;
+    const halfWidth = viewport.width * camera.scale / 2, halfHeight = viewport.height * camera.scale / camera.cellAspect() / 2;
     const dot = RGBA.fromHex(palette.grid), bg = RGBA.fromHex(palette.background);
-    for (let wx = Math.floor((centerX - halfWidth) / step) * step; wx <= centerX + halfWidth; wx += step) {
-      for (let wy = Math.floor((centerY - halfHeight) / step) * step; wy <= centerY + halfHeight; wy += step) {
-        const p = projected(wx, wy), x = Math.floor(p.x), y = Math.floor(p.y);
+    for (let wx = Math.floor((camera.centerX - halfWidth) / step) * step; wx <= camera.centerX + halfWidth; wx += step) {
+      for (let wy = Math.floor((camera.centerY - halfHeight) / step) * step; wy <= camera.centerY + halfHeight; wy += step) {
+        const p = camera.projected(wx, wy), x = Math.floor(p.x), y = Math.floor(p.y);
         if (x >= 0 && y >= 0 && x < viewport.width && y < viewport.height) canvas.frameBuffer.setCell(x, y, "·", dot, bg);
       }
     }
   };
   let listSelected = "";
   const renderNodeList = () => {
-    const chunks: TextChunk[] = [];
-    const width = Math.max(10, viewport.width - 2);
-    diagram.nodes.forEach((node, index) => {
-      const on = node.id === selected?.id, indent = "  ".repeat(Math.min(node.level, 4));
-      const kind = node.kind ? String(node.kind) : "", group = node.children.length > 0;
-      const room = Math.max(1, width - 3 - indent.length);
-      const title = node.title.length > room ? `${node.title.slice(0, Math.max(0, room - 1))}…` : node.title;
-      const rest = Math.max(0, room - title.length - 1);
-      const paint = (chunk: TextChunk) => on ? { ...chunk, bg: hot } : chunk;
-      const related = byElement.get(String(node.modelRef)) ?? [], now = Date.now();
-      const state = operationState(related.filter(isActive), related.find(event => now - event.time <= 5000));
-      const tag = state ? `[${state}]` : kind;
-      const tagColor = state === "failed" ? palette.failure : state && state !== "done" ? palette.accent : palette.border;
-      chunks.push(paint(fg(palette.accent)(on ? " › " : "   ")), paint(fg(palette.muted)(indent)), paint(fg(on ? palette.text : group ? palette.muted : palette.body)(title)),
-        paint(fg(tagColor)(tag && rest > tag.length ? ` ${tag}`.padStart(rest + 1) : " ".repeat(rest + 1))));
-      if (index < diagram.nodes.length - 1) chunks.push(nl);
-    });
-    nodeListText.content = new StyledText(chunks);
-    const index = diagram.nodes.findIndex(node => node.id === selected?.id), signature = `${diagram.id}/${selected?.id}`;
+    const now = Date.now();
+    nodeListText.content = nodeListContent(diagram.nodes, { selected: state.selected?.id, width: Math.max(10, viewport.width - 2), background: hot, state: index => {
+      const related = byElement.get(String(diagram.nodes[index]!.modelRef)) ?? [];
+      return operationState(related.filter(isActive), related.find(event => now - event.time <= 5000));
+    } });
+    const index = diagram.nodes.findIndex(node => node.id === state.selected?.id), signature = `${diagram.id}/${state.selected?.id}`;
     if (signature !== listSelected && index >= 0) {
       listSelected = signature;
       const top = nodeList.scrollTop, height = nodeList.viewport.height;
@@ -470,95 +381,58 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let crumbPlain = "";
   const update = () => {
     layout();
-    syncFlowStep();
+    flowMode.sync();
     canvas.visible = !listMode; nodeList.visible = listMode;
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
-    crumbPlain = `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${history.length ? ` · back ${history.length}` : ""}${diffText()}${plan ? ` · plan ${plan.elements.length}` : ""}`;
+    crumbPlain = `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${state.history.length ? ` · back ${state.history.length}` : ""}${diffText(diff)}${plan ? ` · plan ${plan.elements.length}` : ""}`;
     breadcrumb.content = crumbPlain;
     crumbHint.visible = true;
-    const worldWidth = Math.max(1, viewport.width) * scale;
-    const worldHeight = Math.max(1, viewport.height) * scale / cellAspect();
-    camera.left = -worldWidth / 2; camera.right = worldWidth / 2;
-    camera.top = worldHeight / 2; camera.bottom = -worldHeight / 2;
-    camera.position.set(centerX, -centerY, 1000); camera.lookAt(centerX, -centerY, 0);
-    camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+    camera.sync();
     let hidden = 0;
     const now = Date.now();
-    const previewed = focusSection === "connections" ? connectionItems[cursor.connections] : undefined;
+    const previewed = state.focusSection === "connections" ? connectionItems[state.cursor.connections] : undefined;
     // Flow mode: which cards carry a step number, and which connectors are the path. A card that is not on the path steps back.
     const flowNodes = diagram.nodes.map(node => ({ id: String(node.id), modelRef: String(node.modelRef) }));
-    const badges = activeFlow ? badgesOf(activeFlow, flowNodes) : new Map<string, number[]>();
-    flowPath = activeFlow ? pathEdges(activeFlow, flowNodes, diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target) }))) : new Set<string>();
-    const stepNodeId = activeFlow ? (() => { const step = activeFlow.steps[flowStep]; const element = activeFlow.type === "journey" ? step?.to : step?.elements[0]; return flowNodes.find(node => node.modelRef === element)?.id; })() : undefined;
-    const dashed = { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯", horizontal: "┄", vertical: "┆", topT: "┬", bottomT: "┴", leftT: "├", rightT: "┤", cross: "┼" };
+    const badges = flowMode.active ? badgesOf(flowMode.active, flowNodes) : new Map<string, number[]>();
+    flowPath = flowMode.active ? pathEdges(flowMode.active, flowNodes, diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target) }))) : new Set<string>();
+    const stepNodeId = flowMode.active ? (() => { const element = stepElement(flowMode.active, flowMode.step); return element ? cardsFor(flowNodes, element)[0]?.id : undefined; })() : undefined;
+    // A hop no connector draws gets its gap drawn, dotted in the agent's colour, so the path is continuous; only for the flow being read.
+    const gapKey = flowMode.active ? `${diagram.id}/${flowMode.active.type}/${flowMode.active.id}` : "";
+    if (gapKey !== gapFor) {
+      gapFor = gapKey;
+      const hops = flowMode.active ? gapHops(flowMode.active, flowNodes, diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target) }))) : [];
+      gaps = hops.length ? routeEdges(routeNodes(), hops.map(hop => ({ ...hop, points: [] })), cell).map(route => ({ ...route, gap: true as const })) : [];
+      dirty = true;
+    }
     for (const entry of nodeObjects) {
-      const group = entry.node.children.length > 0, id = String(entry.node.id);
-      const related = byElement.get(String(entry.node.modelRef)) ?? [];
-      const reads = related.filter(event => event.operation === "read").length, edits = related.filter(event => event.operation === "edit").length;
-      const runs = related.filter(event => event.operation === "command").length;
-      const offPlan = !!plan && related.length > 0 && !inPlan(String(entry.node.modelRef));
-      const counts = [reads && `r${reads}`, edits && `e${edits}`, runs && `c${runs}`, offPlan && "off plan"].filter(Boolean).join(" ");
-      const active = related.filter(isActive);
-      const recent = related.find(event => now - event.time <= outcomeMs);
-      const state = operationState(active, recent);
-      const isSelected = id === String(selected?.id);
-      const unbuilt = waiting(String(entry.node.modelRef));
-      const neighbour = diagram.edges.some(edge => (edge.target === selected?.id && edge.source === entry.node.id) || (edge.source === selected?.id && edge.target === entry.node.id));
-      const flashing = (flashes.get(String(entry.node.modelRef)) ?? 0) > now;
-      // Selection and the panel cursor's target take the accent; neighbours are a step brighter; a running call or a fresh update pulses the accent.
-      let border: string | RGBA = group ? palette.rule : palette.cardEdge;
-      if (neighbour) border = group ? palette.border : palette.edgeDim;
-      if (plan && inPlan(String(entry.node.modelRef))) border = palette.purple;
-      // A behaviour view marks a state the agent found broken (#bug) or since repaired (#fixed).
-      const marks = (entry.node as { tags?: readonly string[] }).tags ?? [];
-      if (marks.includes("bug")) border = palette.failure; else if (marks.includes("fixed")) border = palette.green;
-      if (state === "failed") border = palette.failure;
-      if (previewed === id || isSelected || flashing) border = palette.accent;
-      const numbers = badges.get(id), offPath = Boolean(activeFlow) && !group && !numbers;
-      if (numbers && !isSelected && !flashing && state !== "failed") border = palette.purple;
-      if (offPath && !isSelected) border = fade(border, 0.5);
-      if (active.length && !isSelected) {
-        const pulse = RGBA.fromHex(palette.accent), brightness = 0.55 + 0.45 * (1 + Math.sin(now / 220)) / 2;
-        pulse.r *= brightness; pulse.g *= brightness; pulse.b *= brightness;
-        border = pulse;
-      }
-      entry.box.borderColor = border;
-      entry.box.customBorderChars = (previewed === id && !isSelected) || unbuilt ? dashed : undefined;
-      entry.box.backgroundColor = palette.background;
-      const origin = projected(entry.node.x, entry.node.y);
-      const end = projected(entry.node.x + entry.node.width, entry.node.y + entry.node.height);
+      const group = entry.node.children.length > 0, id = String(entry.node.id), ref = String(entry.node.modelRef);
+      const related = byElement.get(ref) ?? [];
+      const isSelected = id === String(state.selected?.id);
+      const numbers = badges.get(id);
+      const origin = camera.projected(entry.node.x, entry.node.y);
+      const end = camera.projected(entry.node.x + entry.node.width, entry.node.y + entry.node.height);
       let left = Math.round(origin.x), top = Math.round(origin.y), right = Math.max(left + 3, Math.round(end.x)), bottom = Math.max(top + 3, Math.round(end.y));
       // At low zoom a card can land on its group's border row and hide the title: keep it inside the group's frame.
       const container = diagram.nodes.find(node => node.id === entry.node.parent);
       if (container) {
-        const a = projected(container.x, container.y), b = projected(container.x + container.width, container.y + container.height);
+        const a = camera.projected(container.x, container.y), b = camera.projected(container.x + container.width, container.y + container.height);
         left = Math.max(left, Math.round(a.x) + 1); top = Math.max(top, Math.round(a.y) + 1);
         right = Math.max(left + 3, Math.min(right, Math.round(b.x) - 1)); bottom = Math.max(top + 3, Math.min(bottom, Math.round(b.y) - 1));
       }
       const width = right - left, height = bottom - top;
+      const look = cardLook({ title: entry.node.title, kind: entry.node.kind && kindsVary(diagram.nodes) ? String(entry.node.kind) : "", group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
+        selected: isSelected, previewed: previewed === id, flashing: (flashes.get(ref) ?? 0) > now,
+        neighbour: diagram.edges.some(edge => (edge.target === state.selected?.id && edge.source === entry.node.id) || (edge.source === state.selected?.id && edge.target === entry.node.id)),
+        unbuilt: waiting(ref), planned: Boolean(plan) && inPlan(ref), offPlan: !!plan && related.length > 0 && !inPlan(ref), numbers, flow: Boolean(flowMode.active), width, height });
+      entry.box.borderColor = look.border;
+      entry.box.customBorderChars = look.dashes;
+      entry.box.backgroundColor = palette.background;
       entry.box.left = left; entry.box.top = top;
       entry.box.width = width; entry.box.height = height;
       entry.rect = { x: left, y: top, width, height };
-      const bright = isSelected || neighbour || previewed === id;
-      if (group) entry.box.title = `${entry.node.title}${state ? ` [${state}]` : unbuilt ? " [planned]" : ""}${counts ? ` ·${counts}` : ""}`;
-      else {
-        // First line: the kind (dim) on the left and observed activity (dim) on the right; then the title.
-        const rows = height - 2, textWidth = Math.max(4, width - 4);
-        const stateText = unbuilt ? "[planned]" : "";
-        const tag = cardTag(related, now);
-        // A narrow card keeps just the glyph, so the state is still there when the words do not fit.
-        entry.box.title = !tag ? undefined : width >= tag.text.length + 6 ? ` ${tag.text} ` : width >= 7 ? ` ${tag.text.slice(0, tag.text.indexOf(" ") > 0 ? tag.text.indexOf(" ") : 1)} ` : undefined;
-        entry.box.titleColor = tag?.color;
-        const statusText = [stateText, counts].filter(Boolean).join(" ");
-        const kindFull = entry.node.kind ? String(entry.node.kind) : "";
-        const kindText = kindFull.length + (statusText ? statusText.length + 1 : 0) < textWidth ? kindFull : "";
-        const header = rows >= 2 && (statusText || (kindText && kindText.length < textWidth));
-        const gap = Math.max(1, textWidth - kindText.length - statusText.length);
-        const first: TextChunk[] = header ? [fg(palette.muted)(kindText.slice(0, Math.max(0, textWidth - statusText.length - 1))),
-          fg(palette.muted)(statusText ? " ".repeat(gap) : ""), ...(stateText ? [fg(palette.muted)(stateText), fg(palette.muted)(counts ? ` ${counts}` : "")] : [fg(palette.muted)(counts)]), nl] : [];
-        entry.label.content = new StyledText([...first, fg(offPath ? palette.border : bright ? palette.text : palette.body)(labelTitle(entry.node.title, textWidth, Math.max(1, rows - (header ? 1 : 0)), false))]);
-      }
+      entry.box.title = look.title;
+      if (look.label) { entry.box.titleColor = look.titleColor; entry.label.content = look.label; }
       entry.box.visible = !listMode && end.x > 0 && end.y > 0 && origin.x < viewport.width && origin.y < viewport.height;
       const badge = numbers && !group ? stepBadge(numbers) : "";
       entry.badge.visible = badge !== "" && width >= badge.length + 4;
@@ -569,51 +443,46 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (!group && !entry.label.visible && bloom >= 0.7) hidden++;
     }
     const paths = selectedPaths();
-    // The head says what the component is: its name and kind on one row, then what the model says it is for. Nothing else repeats the header or the cards.
-    const headWidth = Math.max(10, inspector.width - 3);
-    const kindText = selected?.kind ? String(selected.kind) : "";
-    const titleText = (selected?.title ?? "No selection");
-    const titleShown = titleText.length + kindText.length + 2 > headWidth ? `${titleText.slice(0, Math.max(1, headWidth - kindText.length - 3))}…` : titleText;
-    inspectorTitle.content = new StyledText([fg(palette.text)(titleShown), fg(palette.muted)(`${" ".repeat(Math.max(1, headWidth - titleShown.length - kindText.length))}${kindText}`)]);
-    const what = [selected?.technology, selected && waiting(String(selected.modelRef)) ? "planned: no files yet" : "", ...((selected as { tags?: readonly string[] } | undefined)?.tags ?? []).filter(tag => tag === "bug" || tag === "fixed")].filter(Boolean).join(" · ");
-    inspectorHead.content = new StyledText([fg(palette.muted)(what || " ")]);
-    inspectorHead.visible = what !== "";
-    const description = describe(selected?.description);
+    const selected = state.selected;
     const opens = selected?.navigateTo ? `o opens ${diagrams.get(String(selected.navigateTo))?.title ?? selected.navigateTo}` : "";
-    inspectorId.content = new StyledText([...(description ? [fg(palette.body)(description)] : []), ...(description && opens ? [nl] : []), ...(opens ? [fg(palette.muted)(opens)] : [])]);
-    inspectorId.visible = Boolean(description || opens);
-    headRows = 1 + (what ? 1 : 0) + (description ? Math.ceil(description.length / headWidth) : 0) + (opens ? 1 : 0);
+    const head = headContent({ title: selected?.title, kind: selected?.kind ? String(selected.kind) : "", technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
+      tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
+      by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length });
+    inspectorTitle.content = head.title;
+    inspectorHead.content = head.what; inspectorHead.visible = head.hasWhat;
+    inspectorId.content = head.about; inspectorId.visible = head.hasAbout;
+    headRows = head.rows;
 
     const name = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
-    const incoming = diagram.edges.filter(edge => edge.target === selected?.id);
-    const outgoing = diagram.edges.filter(edge => edge.source === selected?.id);
+    const incoming = diagram.edges.filter(edge => edge.target === state.selected?.id);
+    const outgoing = diagram.edges.filter(edge => edge.source === state.selected?.id);
     // Who calls it first, then what it calls: one row each, the relationship's own words beside the name. Enter walks the graph.
     const links = [...incoming.map(edge => ({ node: String(edge.source), arrow: "←", tone: palette.incoming, label: edge.label })),
       ...outgoing.map(edge => ({ node: String(edge.target), arrow: "→", tone: palette.accent, label: edge.label }))];
     connectionItems = links.map(item => item.node);
-    cursor.connections = Math.min(cursor.connections, Math.max(0, connectionItems.length - 1));
-    const connects = connectsCard(links, name, focusSection === "connections" ? cursor.connections : undefined, bodyWidth(), rowBackground);
+    state.cursor.connections = Math.min(state.cursor.connections, Math.max(0, connectionItems.length - 1));
+    const connects = connectsCard(links, name, state.focusSection === "connections" ? state.cursor.connections : undefined, bodyWidth(), rowBackground);
     contentRows.connections = connects.lines;
-    if (focusSection === "connections") followLine("connections", connects.starts[cursor.connections] ?? 0);
+    if (state.focusSection === "connections") followLine("connections", connects.starts[state.cursor.connections] ?? 0);
     relations.content = new StyledText(connects.chunks);
 
     // In flows: the flows this component is in, and which steps it plays. Nothing is shown for a component no flow touches.
-    flowItems = flowsThrough(flows, String(selected?.modelRef ?? ""));
-    cursor.flows = Math.min(cursor.flows, Math.max(0, flowItems.length - 1));
-    const flowCard = flowsCard(flowItems, focusSection === "flows" ? cursor.flows : undefined, bodyWidth(), rowBackground);
+    flowItems = flowsThrough(flowMode.flows, String(state.selected?.modelRef ?? ""));
+    state.cursor.flows = Math.min(state.cursor.flows, Math.max(0, flowItems.length - 1));
+    const flowCard = flowsCard(flowItems, state.focusSection === "flows" ? state.cursor.flows : undefined, bodyWidth(), rowBackground);
     contentRows.flows = flowCard.lines;
     flowsText.content = new StyledText(flowCard.chunks);
-    if (focusSection === "flows") followLine("flows", cursor.flows);
+    if (state.focusSection === "flows") followLine("flows", state.cursor.flows);
 
     // Steps: the flow being read, with the current step opened up.
-    const steps = activeFlow ? stepsCard(activeFlow, flowStep, byElement, elementTitle, bodyWidth(), Date.now(), rowBackground) : undefined;
-    if (steps) followLine("steps", steps.starts[flowStep] ?? 0);
+    const steps = flowMode.active ? stepsCard(flowMode.active, flowMode.step, byElement, elementTitle, bodyWidth(), Date.now(), rowBackground) : undefined;
+    if (steps) followLine("steps", steps.starts[flowMode.step] ?? 0);
     contentRows.steps = steps?.lines ?? 1;
     stepsText.content = new StyledText(steps?.chunks ?? []);
 
     // Mapped files as a tree; the files the session touched are marked.
-    const fileFocus = fileMode || focusSection === "files";
-    const fileCard = filesCard({ paths, byPath, cursor: fileFocus ? fileCursor : undefined, counter: fileMode, width: bodyWidth(), background: rowBackground,
+    const fileFocus = fileMode || state.focusSection === "files";
+    const fileCard = filesCard({ paths, byPath, cursor: fileFocus ? state.fileCursor : undefined, counter: fileMode, width: bodyWidth(), background: rowBackground,
       empty: fileError || (config ? "No files mapped" : "Map files in .pathlight/pathlight.activity.json") });
     fileLines = fileCard.rows;
     contentRows.files = fileCard.lines;
@@ -625,136 +494,70 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (index < 0 || !path || help.visible || summary.visible) return;
       if (fileMode && clickedFile === index) { openAtChange(path); return; }
       if (!fileMode) beginFiles();
-      fileCursor = clickedFile = index; message = "Click again or Enter to open"; searchInput.focus(); update();
+      state.fileCursor = clickedFile = index; message = "Click again or Enter to open"; searchInput.focus(); update();
     };
-    if (fileFocus) followLine("files", fileCard.first + Math.max(0, fileLines.indexOf(fileCursor)));
+    if (fileFocus) followLine("files", fileCard.first + Math.max(0, fileLines.indexOf(state.fileCursor)));
     activityText.content = activityContent();
-    if (focusSection === "activity") followLine("activity", cursor.activity);
+    if (state.focusSection === "activity") followLine("activity", state.cursor.activity);
 
-    const observedHere = byElement.get(String(selected?.modelRef ?? ""))?.length ?? 0;
-    const counts: Record<SectionKey, string> = { steps: activeFlow ? `${flowStep + 1}/${activeFlow.steps.length}` : "", flows: flowItems.length ? "◇ reading" : "", connections: links.length ? String(links.length) : "",
-      files: fileMode ? `${paths.length ? fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: observedHere ? String(observedHere) : "" };
+    const observedHere = byElement.get(String(state.selected?.modelRef ?? ""))?.length ?? 0;
+    const counts: Record<SectionKey, string> = { steps: flowMode.active ? `${flowMode.step + 1}/${flowMode.active.steps.length}` : "", flows: flowItems.length ? "◇ reading" : "", connections: links.length ? String(links.length) : "",
+      files: fileMode ? `${paths.length ? state.fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: observedHere ? String(observedHere) : "" };
     layoutSections();
     for (const key of sectionOrder) {
-      const entry = sections[key], focused = focusSection === key;
-      const label = `${isOpen(key) ? "▾" : "▸"} ${entry.number} ${entry.name}`;
-      const rule = "─".repeat(Math.max(2, inspector.width - 2 - label.length - counts[key].length - 3));
-      entry.header.content = new StyledText([fg(focused ? palette.accent : palette.border)(`${isOpen(key) ? "▾" : "▸"} `), fg(palette.border)(`${entry.number} `),
-        fg(focused ? palette.accent : palette.body)(entry.name), fg(palette.rule)(` ${rule} `), fg(palette.muted)(counts[key])]);
+      const entry = sections[key], focused = state.focusSection === key;
+      entry.header.content = sectionHeader({ open: isOpen(key), focused, name: entry.name, count: counts[key], width: inspector.width });
       // Only the focused section shows a scrollbar, and only when it has more than fits.
       entry.content.verticalScrollBar.visible = focused && entry.content.scrollHeight > entry.content.viewport.height;
     }
-    // Under the cards, always the same two lines: what is one key away, then the question field.
-    const panelWidth = Math.max(10, inspector.width - (mounted === "overlay" ? 3 : 2));
-    const action = (key: string, text: string) => [fg(palette.body)(key), fg(palette.muted)(` ${text}   `)];
-    inspectorActions.content = new StyledText([fg(palette.rule)("─".repeat(panelWidth)), nl,
-      ...(paths.length ? action("e", `files ${paths.length}`) : []), ...(binding ? action("c", "session") : []), ...(binding && events.length ? action("p", "replay") : [])]);
-    const askLabel = clip(selected ? `ask about ${selected.title}…` : "ask…", panelWidth - 6);
-    inspectorAsk.content = new StyledText([fg(palette.accent)("› "), fg(options.parent ? palette.muted : palette.border)(askLabel.padEnd(panelWidth - 3)), fg(palette.body)("t")].map(chunk => ({ ...chunk, bg: hot })));
+    const pinned = pinnedLines({ width: Math.max(10, inspector.width - (mounted === "overlay" ? 3 : 2)), files: paths.length, session: Boolean(binding), replay: Boolean(binding && events.length),
+      title: selected?.title, canAsk: Boolean(options.parent), background: hot });
+    inspectorActions.content = pinned.actions;
+    inspectorAsk.content = pinned.ask;
     if (summary.visible) summary.content.content = summaryContent();
-    if (goto.visible) renderGoto();
+    if (goto.visible) gotoPicker.render();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    const mode = replay ? "replay" : fileMode ? "files" : focusSection ? sections[focusSection].name.toLowerCase() : activeFlow ? "flow" : "diagram";
-    // A notice has the room: the hidden-label count waits until it goes.
-    const labelNote = message ? 0 : hidden;
+    const mode = replay ? "replay" : fileMode ? "files" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "flow" : "diagram";
     const work = binding || following ? newestWork() : undefined;
-    const sectionHints: Record<SectionKey, Hint[]> = {
-      steps: [["↑↓", "step"], ["enter", "show"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-      flows: [["↑↓", "move"], ["enter", "trace on the diagram"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-      connections: [["↑↓", "move"], ["enter", "show in diagram"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-      files: [["↑↓", "move"], ["enter", "open"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-      activity: [["↑↓", "scroll"], ["tab", "next"], ["space", "fold"], ["esc", "diagram"]],
-    };
-    // The footer says where you are and how to ask for help; keys are named only inside a mode that needs them.
-    const rightText = `${labelNote ? `${labelNote} labels hidden  ·  ` : ""}zoom ${Math.round(16 / scale * 100)}%  │  ? help`;
-    const room = Math.max(10, renderer.width - rightText.length - 16 - mode.length - String(selected?.id ?? "").length - 4);
-    const hints = replay ? [fg(palette.accent)(`${replay.playing ? "▶" : "⏸"} ${replay.index + 1}/${replay.data.steps.length}`), fg(palette.muted)(`  turn ${replayTurn() + 1}/${replay.data.turns.length}  `),
-        ...hintChunks([["space", replay.playing ? "pause" : "play"], ["←→", "step"], ["[ ]", "turn"], ["s", `${replay.speed}x`], ["esc", "exit"]], room - 24)]
-      : focusSection && !fileMode ? hintChunks(sectionHints[focusSection], room)
-      : activeFlow && !fileMode ? [fg(palette.purple)(`◇ ${clip(activeFlow.title, 24)} · ${flowStep + 1}/${activeFlow.steps.length}  `), ...hintChunks([["[ ]", "step"], ["F", "next flow"], ["esc", "exit"]], room - 40)]
-      : fileMode ? [fg(palette.accent)(`Files ${paths.length ? fileCursor + 1 : 0}/${paths.length}`), fg(palette.muted)("  type to filter  "), ...hintChunks([["enter", "open"], ["ctrl+r", "refresh"], ["esc", "back"]], room - 30)]
-      : [];
     if (message !== lastToast) {
       lastToast = message;
       if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^Asked /.test(shown) ? 3500 : 2000); }
     }
-    const style = message ? noticeStyle(message) : undefined;
-    statusLeft.content = new StyledText([pill(mode, palette.accent), fg(palette.muted)("  Selected: "), fg(palette.body)(String(selected?.id ?? "")), fg(palette.muted)("  "),
-      ...(style ? [fg(style.color)(`${style.glyph} `), fg(palette.body)(message)] : hints)]);
-    const leftWidth = statusLeft.content instanceof StyledText ? statusLeft.content.chunks.reduce((sum, chunk) => sum + chunk.text.length, 0) : 0;
-    statusRight.content = leftWidth + rightText.length + 2 <= renderer.width
-      ? new StyledText([...(labelNote ? [fg(palette.border)(`${labelNote} labels hidden  ·  `)] : []), fg(palette.muted)(`zoom ${Math.round(16 / scale * 100)}%`), fg(palette.border)("  │  "), fg(palette.muted)("? help")])
-      : new StyledText([]);
+    const footing = footerContent({ mode, selected: String(state.selected?.id ?? ""), message, hidden, scale: camera.scale, width: renderer.width, hints: room => modeHints({ room,
+      replay: replay && { playing: replay.playing, index: replay.index, steps: replay.data.steps.length, turn: replayTurn(), turns: replay.data.turns.length, speed: replay.speed },
+      section: !fileMode ? state.focusSection : undefined, flow: flowMode.active && !fileMode ? { title: flowMode.active.title, step: flowMode.step, steps: flowMode.active.steps.length } : undefined,
+      files: fileMode ? { cursor: state.fileCursor, count: paths.length } : undefined }) });
+    statusLeft.content = footing.left; statusRight.content = footing.right;
     // One activity line, top right: an offer when the work is in another view, else the latest call. It is dropped when it would not fit.
-    const ticker = tickerContent();
-    const activity: TextChunk[] | undefined = work && "view" in work ? [fg(palette.accent)("● "), fg(palette.text)(`working in ${work.title}`), fg(palette.muted)("  "), pill("w", palette.accent), fg(palette.muted)(" go and follow")] : ticker;
-    const crumbWidth = crumbPlain.length;
-    const activityWidth = activity?.reduce((sum, chunk) => sum + chunk.text.length, 0) ?? 0;
-    const available = renderer.width - 2 - crumbWidth - 3;
-    const fitted: TextChunk[] = [];
-    if (activity && available >= 24) {
-      let left = activityWidth > available ? available - 1 : available;
-      for (const chunk of activity) { if (left <= 0) break; fitted.push(chunk.text.length <= left ? chunk : { ...chunk, text: chunk.text.slice(0, left) }); left -= chunk.text.length; }
-      if (activityWidth > available) fitted.push(fg(palette.muted)("…"));
-    }
-    crumbHint.content = new StyledText(fitted);
+    crumbHint.content = crumbActivity(work && "view" in work ? workOffer(work.title) : tickerContent(), renderer.width - 2 - crumbPlain.length - 3);
     dirty = true; renderer.requestRender();
   };
-  const fit = () => {
-    centerX = diagram.bounds.x + diagram.bounds.width / 2; centerY = diagram.bounds.y + diagram.bounds.height / 2;
-    scale = Math.max(diagram.bounds.width / Math.max(1, viewport.width - 4), diagram.bounds.height * cellAspect() / Math.max(1, viewport.height - 2));
-  };
-  const animateTo = () => {
-    targetX = centerX; targetY = centerY; targetScale = scale;
-    animating = true;
-  };
-  const visit = (): Visit => ({ view: String(diagram.id), selected: selected ? String(selected.id) : undefined, x: centerX, y: centerY, scale });
+  // Fit takes in the connectors too, so one that goes round the outermost card is not cut at the canvas edge.
+  const fit = () => camera.fit(boundsOf([diagram.bounds, ...routes.flatMap(route => route.points.map(point => ({ x: point.x - 16, y: point.y, width: 32, height: 1 })))]));
+  const visit = (): Visit => ({ view: String(diagram.id), selected: state.selected ? String(state.selected.id) : undefined, ...camera.placement() });
   const restore = (saved: Visit) => {
-    autoFit = false;
-    selected = diagram.nodes.find(node => node.id === saved.selected) ?? diagram.nodes[0];
-    centerX = targetX = saved.x; centerY = targetY = saved.y; scale = targetScale = saved.scale;
-    animating = false;
+    state.selected = diagram.nodes.find(node => node.id === saved.selected) ?? diagram.nodes[0];
+    camera.restore(saved);
   };
-  const reveal = (target = selected) => {
-    if (!target) return;
-    if (!animating) targetScale = scale;
-    targetX = target.children.length ? target.x + viewport.width * targetScale / 2 - targetScale * 2 : target.x + target.width / 2;
-    targetY = target.children.length ? target.y + viewport.height * targetScale / cellAspect() / 2 - targetScale / cellAspect() : target.y + target.height / 2;
-    animating = true;
-  };
+  const reveal = (target = state.selected) => { if (target) camera.reveal(target); };
   // Opt-in only (key `a`): select the node of the newest call, running or finished (reads end in milliseconds), and glide to it.
   // Only calls after follow was turned on (or resumed) count, so it shows work as it happens and never replays history. A component that is not in this view
   // falls back to the nearest ancestor that is. The user's own selection or camera movement pauses it.
   const followActivity = () => {
     const latest = events[0];
     if (!followCamera || followPaused || !latest || latest.call === focusedCall || latest.time < followSince) return;
-    const elements = new Set(rules.filter(rule => latest.paths.some(path => rule.match.match(path))).map(rule => rule.element));
-    const inView = (element: string): typeof selected => {
-      for (let id = element; id; id = id.includes(".") ? id.slice(0, id.lastIndexOf(".")) : "") {
-        const node = nodeForElement(id);
-        if (node) return node;
-      }
-      return undefined;
-    };
-    const target = [...elements].map(inView).filter((node): node is NonNullable<typeof selected> => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
+    const target = [...elementsOf(rules, latest)].map(element => nodeOrAncestor(diagram, element)).filter((node): node is Node => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
     focusedCall = latest.call;
     if (!target) return;
     followSelecting = true;
     try { message = ""; selectNode(target, true); } finally { followSelecting = false; }
   };
   type Direction = "left" | "right" | "up" | "down";
-  const ensureVisible = (node: NonNullable<typeof selected>) => {
-    if (!animating) { targetX = centerX; targetY = centerY; targetScale = scale; }
-    const halfWidth = viewport.width * targetScale / 2 * 0.9, halfHeight = viewport.height * targetScale / cellAspect() / 2 * 0.9;
-    const inside = node.x >= targetX - halfWidth && node.x + node.width <= targetX + halfWidth
-      && node.y >= targetY - halfHeight && node.y + node.height <= targetY + halfHeight;
-    if (!inside) reveal(node);
-  };
   // Nearest node in a direction, by the centres of their boxes; siblings win ties. Ancestors and descendants are
   // reached with Backspace/Enter, so they are not neighbours.
   const traverse = (direction: Direction) => {
-    if (!selected) return;
-    const current = selected;
+    if (!state.selected) return;
+    const current = state.selected;
     const lineage = new Set<string>([String(current.id)]);
     for (let parent = diagram.nodes.find(node => node.id === current.parent); parent; parent = diagram.nodes.find(node => node.id === parent?.parent)) lineage.add(String(parent.id));
     const descend = (id: string) => { for (const child of diagram.nodes.find(node => String(node.id) === id)?.children ?? []) { lineage.add(String(child)); descend(String(child)); } };
@@ -774,88 +577,25 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!best) { message = `Nothing ${direction === "up" ? "above" : direction === "down" ? "below" : `to the ${direction} of`} ${current.title}`; update(); return; }
     message = "";
     selectNode(best, false);
-    ensureVisible(best);
+    camera.ensureVisible(best);
   };
-  const selectNode = (node: typeof selected, show: boolean) => {
+  const selectNode = (node: typeof state.selected, show: boolean) => {
     if (!node) return;
     pauseFollow();
-    selected = node; fileCursor = 0; cursor.connections = 0; resetInspectorScroll();
+    choose(state, node); resetInspectorScroll();
     if (show) reveal();
     update();
   };
   // The node for the newest observed call that maps to something in this view.
-  const nodeForElement = (element: string) => diagram.nodes.filter(node => String(node.modelRef) === element).sort((a, b) => a.children.length - b.children.length)[0];
-  // Flow mode. A step lands on one component (a journey's target, a state's first); stepping selects it and brings it into view like any other selection, and says
-  // so when it is in another view. `F` enters the flows this view shows (the ones through the selection first) and cycles them; Esc leaves.
-  const stepElement = (flow: FlowMap, index: number) => { const step = flow.steps[index]; return flow.type === "journey" ? step?.to : step?.elements[0]; };
-  const goToStep = (index: number) => {
-    const flow = activeFlow;
-    if (!flow?.steps.length) return;
-    flowStep = (index + flow.steps.length) % flow.steps.length;
-    const element = stepElement(flow, flowStep), node = element ? nodeForElement(element) : undefined;
-    if (node) { message = ""; selectNode(node, true); }
-    else { message = element ? `${elementTitle(element)} is not in this view` : "No component for this step"; update(); }
-  };
-  const enterFlow = (flow: FlowMap, step = 1) => {
-    activeFlow = flow; flowStep = Math.max(0, Math.min(flow.steps.length - 1, step - 1));
-    if (focusSection === "connections") focusSection = undefined;
-    goToStep(flowStep);
-  };
-  const exitFlow = () => { activeFlow = undefined; if (focusSection === "steps") focusSection = undefined; message = ""; update(); };
-  const flowsHere = () => {
-    const present = new Set(diagram.nodes.map(node => String(node.modelRef)));
-    const through = new Set(flowsThrough(flows, String(selected?.modelRef ?? "")).map(entry => `${entry.flow.type}/${entry.flow.id}`));
-    // The flow this very view draws comes first (its hops are the diagram), then the flows through the selection, then the rest.
-    const rank = (flow: FlowMap) => (flow.view === String(diagram.id) ? 2 : 0) + (through.has(`${flow.type}/${flow.id}`) ? 1 : 0);
-    return flowsInView(flows, present).sort((a, b) => rank(b) - rank(a));
-  };
-  const cycleFlow = () => {
-    const here = flowsHere();
-    if (!here.length) { message = flows.length ? "No flow touches this view" : "No flows yet · select a box and press d to ask the agent to trace one"; update(); return; }
-    const at = activeFlow ? here.findIndex(flow => flow.type === activeFlow!.type && flow.id === activeFlow!.id) : -1;
-    if (at === here.length - 1) { exitFlow(); return; }
-    const next = here[at + 1]!, mine = flowsThrough([next], String(selected?.modelRef ?? ""))[0]?.steps[0];
-    enterFlow(next, mine ?? 1);
-  };
-  // Stay on the step that matches the selection: choosing a component yourself moves the reader to its next step in the flow.
-  const syncFlowStep = () => {
-    const flow = activeFlow, ref = String(selected?.modelRef ?? "");
-    if (!flow || !ref || stepElement(flow, flowStep) === ref) return;
-    for (let offset = 1; offset <= flow.steps.length; offset++) {
-      const index = (flowStep + offset) % flow.steps.length;
-      if (stepElement(flow, index) === ref) { flowStep = index; return; }
-    }
-  };
+  const nodeForElement = (element: string) => nodeIn(diagram, element);
   const loadFlows = () => {
     if (closing) return;
     runTask(checkFlows(view.workspace).pipe(Effect.map(flowMaps), Effect.tap(list => Effect.sync(() => {
-      flows = list;
-      if (activeFlow) { activeFlow = list.find(flow => flow.type === activeFlow!.type && flow.id === activeFlow!.id); if (!activeFlow) message = "That flow is gone"; }
+      flowMode.load(list);
       if (!editorActive && !closing) update();
     })), Effect.catch(() => Effect.void)));
   };
-  // The newest call that maps to any element. In this view (or via an ancestor that is) it is a node; otherwise it names the view to go to:
-  // one this view links to with navigateTo first, else the smallest view that contains the element. Never switches by itself.
-  const newestWork = (): { node: NonNullable<typeof selected> } | { view: string; element: string; title: string } | undefined => {
-    for (const event of events) {
-      const elements = [...new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element))];
-      if (!elements.length) continue;
-      const exact = elements.map(nodeForElement).filter((node): node is NonNullable<typeof selected> => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
-      if (exact) return { node: exact };
-      // Another view that shows the exact component beats an enclosing group here (a group is not where the work happened).
-      const linked = new Set(diagram.nodes.map(node => node.navigateTo && String(node.navigateTo)).filter(Boolean));
-      const candidates = [...diagrams].flatMap(([id, entry]) => entry.nodes.some(node => elements.includes(String(node.modelRef))) ? [{ id, entry, element: elements.find(element => entry.nodes.some(node => String(node.modelRef) === element)) ?? elements[0]! }] : [])
-        .sort((a, b) => Number(linked.has(b.id)) - Number(linked.has(a.id)) || a.entry.nodes.length - b.entry.nodes.length || Number(a.id === "index") - Number(b.id === "index"));
-      const best = candidates[0];
-      const enclosing = elements.map(element => {
-        for (let id = element; id.includes("."); ) { id = id.slice(0, id.lastIndexOf(".")); const node = nodeForElement(id); if (node) return node; }
-        return undefined;
-      }).filter((node): node is NonNullable<typeof selected> => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
-      if (!best && enclosing) return { node: enclosing };
-      return best ? { view: best.id, element: best.element, title: String(best.entry.title ?? best.id) } : undefined;
-    }
-    return undefined;
-  };
+  const newestWork = () => newestIn(events, rules, diagram, diagrams);
   const replayTurn = () => { let turn = 0; replay?.data.turns.forEach((start, index) => { if (start <= replay!.index) turn = index; }); return turn; };
   // Show the session as it stood after step `index`: the calls so far, the newest one flashing, and the camera on its component (switching view when it lives elsewhere).
   const showStep = (index: number) => {
@@ -867,7 +607,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     indexEvents(); noteCalls();
     const work = newestWork();
     if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } }
-    else if (work) { animating = false; pendingVisit = { diagram: getDiagram(work.view), select: work.element }; message = `Went to ${work.title}`; }
+    else if (work) { camera.animating = false; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element }; message = `Went to ${work.title}`; }
     update();
   };
   const beginReplay = () => {
@@ -889,178 +629,35 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     calmLoaded = false; seenCalls.clear(); nodeFlashes.clear(); rowFlashes.clear(); lastSignature = ""; message = "";
     update();
   };
-  const replayKey = (key: { name: string; sequence: string; preventDefault(): void }) => {
-    const play = replay;
-    if (!play) return false;
-    const last = play.data.steps.length - 1, turns = play.data.turns, turn = replayTurn();
-    const go = (index: number) => { key.preventDefault(); play.playing = false; showStep(index); return true; };
-    if (key.name === "escape" || key.name === "p") { key.preventDefault(); endReplay(); return true; }
-    if (key.name === "right") return go(play.index + 1);
-    if (key.name === "left") return go(play.index - 1);
-    if (key.name === "home") return go(0);
-    if (key.name === "end") return go(last);
-    if (key.sequence === "]") return go(turns[turn + 1] ?? last);
-    if (key.sequence === "[") return go(play.index > (turns[turn] ?? 0) ? turns[turn] ?? 0 : turns[turn - 1] ?? 0);
-    if (key.name === "space" || key.sequence === " ") {
-      key.preventDefault();
-      if (!play.playing && play.index >= last) showStep(turns.at(-1) ?? 0);
-      play.playing = !play.playing; play.next = Date.now() + 1000 / play.speed; update();
-      return true;
-    }
-    if (key.name === "s") { key.preventDefault(); play.speed = play.speed === 1 ? 2 : play.speed === 2 ? 4 : 1; update(); return true; }
-    return false;
-  };
   const openLink = () => {
-    if (!selected?.navigateTo) { message = "No linked view"; update(); return; }
-    if (selected.navigateTo === diagram.id) return;
+    if (!state.selected?.navigateTo) { message = "No linked view"; update(); return; }
+    if (state.selected.navigateTo === diagram.id) return;
     try {
-      const next = getDiagram(String(selected.navigateTo));
-      history.push(visit()); if (history.length > 32) history.shift();
-      animating = false; pendingVisit = { diagram: next };
+      const next = getDiagram(String(state.selected.navigateTo));
+      remember(state, visit());
+      camera.animating = false; state.pendingVisit = { diagram: next };
     } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
   };
-  // The picker: `/` searches every view, box and mapped file in the project, `g` only the views. It does not infer links between views.
-  // Typing narrows the list (see search.ts for the ranking) and the list scrolls inside its frame.
-  type Pick = Candidate & { view?: string; element?: string; path?: string; detail: string };
-  let gotoIndex = 0, gotoTop = 0, gotoQuery = "", gotoMode: "all" | "views" = "all", gotoItems: Pick[] = [];
-  // Where a box that is not in this view opens: the view of its parent (the box among its siblings), else the view of the box itself, else a
-  // view this one links to, else the smallest view that has it (the same last rule `w` uses).
-  const viewHaving = (element: string) => {
-    const linked = new Set(diagram.nodes.map(node => node.navigateTo && String(node.navigateTo)).filter(Boolean));
-    const parent = element.includes(".") ? element.slice(0, element.lastIndexOf(".")) : undefined;
-    const rank = ([id, entry]: [string, typeof diagram]) => {
-      const subject = "viewOf" in entry ? String(entry.viewOf ?? "") : "";
-      return subject && subject === parent ? 0 : subject === element ? 1 : linked.has(id) ? 2 : 3;
-    };
-    return [...diagrams].filter(([, entry]) => entry.nodes.some(node => String(node.modelRef) === element))
-      .sort((a, b) => rank(a) - rank(b) || a[1].nodes.length - b[1].nodes.length || Number(a[0] === "index") - Number(b[0] === "index"))[0];
-  };
-  const pickCandidates = (): Pick[] => {
-    const current = String(diagram.id);
-    const views: Pick[] = [...diagrams].filter(([, entry]) => entry.nodes.length).map(([id, entry]) =>
-      ({ kind: "view", name: String(entry.title ?? id), aliases: [id], here: id === current, view: id, detail: `${entry.nodes.length} nodes` }));
-    if (gotoMode === "views") return views;
-    const present = new Set(diagram.nodes.map(node => String(node.modelRef)));
-    const titles = new Map<string, string>();
-    for (const entry of diagrams.values()) for (const node of entry.nodes) if (node.modelRef && !titles.has(String(node.modelRef))) titles.set(String(node.modelRef), node.title);
-    const boxes: Pick[] = [...titles].map(([element, title]) =>
-      ({ kind: "box", name: title, aliases: [element, element.split(".").at(-1)!], here: present.has(element), element, detail: "" }));
-    // Files the mapping puts outside the picture (tests, generated code) are not offered, and neither is a file that is a box of its own.
-    const outside = (config?.ignore ?? []).map(glob => new Bun.Glob(glob));
-    const mapped: Pick[] = [...files].filter(([element]) => titles.has(element)).flatMap(([element, paths]) => paths
-      .filter(path => path.slice(path.lastIndexOf("/") + 1) !== titles.get(element) && !outside.some(glob => glob.match(path)))
-      .map(path => ({ kind: "file" as const, name: path.slice(path.lastIndexOf("/") + 1), aliases: [path], here: present.has(element), element, path, detail: titles.get(element)! })));
-    return [...views.filter(item => !item.here), ...boxes, ...mapped];
-  };
-  const gotoEntries = () => rankSearch(gotoQuery, gotoItems);
-  // The frame is the list plus the query line, the border and a blank row above and below; keep it inside the terminal and fairly compact.
-  const gotoRows = (count: number) => Math.max(1, Math.min(count, 18, renderer.height - 2 - 5));
-  const renderGoto = () => {
-    const entries = gotoEntries();
-    const rows = gotoRows(Math.max(1, entries.length));
-    gotoIndex = Math.min(gotoIndex, Math.max(0, entries.length - 1));
-    if (gotoIndex < gotoTop) gotoTop = gotoIndex;
-    if (gotoIndex >= gotoTop + rows) gotoTop = gotoIndex - rows + 1;
-    gotoTop = Math.max(0, Math.min(gotoTop, Math.max(0, entries.length - rows)));
-    const inner = Math.min(80, renderer.width - 4) - 6, contextWidth = Math.min(26, Math.floor(inner / 3)), nameWidth = Math.max(10, inner - 1 - 5 - 1 - contextWidth - 1);
-    const fit = (text: string, width: number) => text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text.padEnd(width);
-    const chunks: TextChunk[] = [fg(palette.incoming)(" › "), fg(palette.text)(gotoQuery), fg(palette.incoming)("▏"), nl];
-    if (!entries.length) chunks.push(fg(palette.muted)(" Nothing matches"), nl);
-    entries.slice(gotoTop, gotoTop + rows).forEach((entry, offset) => {
-      const cursor = gotoTop + offset === gotoIndex, shade = bg(cursor ? palette.pick : palette.panel);
-      // What the row says on the right: where it is. A row in the view you are in carries a dot; one elsewhere says which view it opens.
-      const where = entry.kind === "view" ? (entry.here ? "● here" : entry.detail)
-        : entry.here ? `● ${entry.kind === "file" ? entry.detail : "here"}` : entry.kind === "file" ? entry.detail : `in ${String(viewHaving(entry.element!)?.[1].title ?? "")}`;
-      const dir = entry.kind === "file" ? ` ${entry.path!.slice(0, entry.path!.lastIndexOf("/") + 1)}` : "";
-      const name = fit(entry.name + (dir.trim() ? dir : ""), nameWidth);
-      chunks.push(shade(fg(palette.muted)(` ${entry.kind.padEnd(5)}`)), shade(fg(palette.text)(name.slice(0, Math.min(entry.name.length, nameWidth)))),
-        shade(fg(palette.muted)(name.slice(Math.min(entry.name.length, nameWidth)))), shade(fg(entry.here ? palette.incoming : palette.muted)(` ${fit(where, contextWidth)} `)), nl);
-    });
-    goto.content.content = new StyledText(chunks);
-    goto.meta.content = new StyledText([fg(palette.muted)(` ${entries.length ? `${gotoTop + 1}–${Math.min(entries.length, gotoTop + rows)} of ${entries.length}` : "0"} `)]);
-    goto.foot.content = new StyledText(borderHints([["type", "search"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]]));
-    goto.place(Math.min(80, renderer.width - 4), rows + 1 + (entries.length ? 0 : 1) + 4);
-  };
-  // Themes: the palette is swapped in place and every widget recoloured, so moving through the picker previews each one live.
-  const applyTheme = (name: string) => {
-    const entry = themes.get(name);
-    if (!entry) return false;
-    let next: ReturnType<typeof paletteOf>;
-    try { next = paletteOf(entry, themeMode); } catch (error) { message = `Theme ${name} cannot be used: ${error instanceof Error ? error.message : String(error)}`; update(); return false; }
-    const before = { ...palette };
-    setPalette(next);
-    retheme([renderer.root, inspector], before, palette);
-    renderer.setBackgroundColor(palette.background);
-    themeName = name; dirty = true; update();
-    return true;
-  };
-  let themeIndex = 0, themeBase = themeName, themeTop = 0;
-  const themeRows = () => Math.max(3, Math.min(themeNames.length, renderer.height - 8));
-  const renderThemes = () => {
-    const rows = themeRows();
-    if (themeIndex < themeTop) themeTop = themeIndex;
-    if (themeIndex >= themeTop + rows) themeTop = themeIndex - rows + 1;
-    const chunks: TextChunk[] = [];
-    themeNames.slice(themeTop, themeTop + rows).forEach((name, offset) => {
-      const index = themeTop + offset, cursor = index === themeIndex, current = name === themeBase, base = cursor ? palette.pick : palette.panel;
-      const preview = themes.get(name) && (() => { try { return paletteOf(themes.get(name)!, themeMode); } catch { return undefined; } })();
-      chunks.push(bg(base)(fg(current ? palette.accent : palette.muted)(current ? " ● " : "   ")), bg(base)(fg(palette.text)(` ${name.padEnd(24).slice(0, 24)}`)),
-        bg(base)(fg(palette.muted)(` ${{ user: "yours   ", terminal: "terminal", bundled: "        " }[themes.get(name)?.source ?? "bundled"]} `)),
-        ...(preview ? [preview.accent, preview.incoming, preview.green, preview.failure, preview.purple].map(color => bg(base)(fg(color)("██"))) : []), bg(base)(fg(palette.muted)(" ")), nl);
-    });
-    chunks.pop();
-    picker.content.content = new StyledText(chunks);
-    picker.meta.content = new StyledText([fg(palette.muted)(` ${themeIndex + 1}/${themeNames.length} · ${themeMode} `)]);
-    picker.foot.content = new StyledText(borderHints([["↑↓", "preview"], ["enter", "keep"], ["esc", "cancel"]]));
-    picker.place(Math.min(64, renderer.width - 4), rows + 4);
-  };
-  const beginThemes = () => {
-    themeBase = themeName; themeIndex = Math.max(0, themeNames.indexOf(themeName)); themeTop = 0;
-    picker.open(Math.min(64, renderer.width - 4), themeRows() + 4); renderThemes(); update();
-  };
-  const moveTheme = (to: number) => {
-    themeIndex = (to + themeNames.length) % themeNames.length;
-    applyTheme(themeNames[themeIndex]!); renderThemes();
-  };
-  const cancelThemes = () => { picker.close(); if (themeName !== themeBase) applyTheme(themeBase); update(); };
-  const keepTheme = () => {
-    picker.close(); themeBase = themeName; message = `Theme: ${themeName}`;
-    runTask(saveTheme(themeName).pipe(Effect.catch(error => Effect.sync(() => { message = `Theme ${themeName} is in use but was not saved: ${error.message}`; update(); }))));
-    update();
-  };
-  // The terminal's own colours are asked for once, in the background (OSC queries; tmux must pass them through). Until they arrive, or if they never
-  // do, `system` is simply absent from the picker. They also decide light or dark for themes with both, unless PATHLIGHT_MODE says otherwise.
-  runTask(io("Native.terminalColors", () => renderer.getPalette({ timeout: 1000 })).pipe(
-    Effect.flatMap(colors => Effect.sync(() => {
-      if (closing || !colors.defaultBackground) return;
-      themes.set("system", systemTheme(colors));
-      themeNames.splice(0, themeNames.length, ...[...themes.keys()].sort(themeOrder));
-      const detected = environment.mode ? undefined : modeOf(colors.defaultBackground);
-      if (detected && detected !== themeMode) themeMode = detected;
-      if (picker.visible) { renderThemes(); return; }
-      if (wantedTheme === "system" || detected) applyTheme(wantedTheme === "system" ? "system" : themeName);
-    })),
-    Effect.catch(() => Effect.void)));
-  const beginGoto = (mode: "all" | "views") => {
-    gotoMode = mode; gotoQuery = ""; gotoTop = 0; gotoItems = pickCandidates();
-    goto.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(mode === "views" ? "Go to view" : "Search"), fg(palette.muted)(" ")]);
-    gotoIndex = mode === "views" ? Math.max(0, gotoEntries().findIndex(item => item.here)) : 0;
-    goto.open(Math.min(80, renderer.width - 4), 8); renderGoto(); update();
-  };
+  // The picker: `/` searches every view, box and mapped file in the project, `g` only the views (see viewer/pickers.ts).
+  const viewHaving = (element: string) => viewIn(diagrams, diagram, element);
+  const gotoPicker = createGotoPicker({ screen: renderer, widget: goto, candidates: mode => pickCandidates({ views: diagrams, current: diagram, mode, files, ignore: config?.ignore ?? [] }),
+    viewOf: element => String(viewHaving(element)?.[1].title ?? ""), go: pick => { if (pick.kind === "view") goToView(pick.view!); else landOn(pick.element!, pick.path); }, update: () => update() });
+  const themePicker = createThemePicker({ renderer, picker, recolour: () => [renderer.root, inspector], themes, names: themeNames, order: themeOrder, name: themeName, mode: themeMode,
+    wanted: wantedTheme, fixedMode: Boolean(environment.mode), say: text => { message = text; }, redraw: () => { dirty = true; update(); }, update: () => update(), run: effect => runTask(effect), closing: () => closing });
   const goToView = (id: string) => {
     goto.close();
     if (id === String(diagram.id)) { update(); return; }
     try {
       const next = getDiagram(id);
-      history.push(visit()); if (history.length > 32) history.shift();
-      animating = false; pendingVisit = { diagram: next };
+      remember(state, visit());
+      camera.animating = false; state.pendingVisit = { diagram: next };
     } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
   };
   // Go to a box (and, for a file, show it in the Files section): in place when this view has it, else in the view that fits it best. Back returns.
   const showFile = (path: string) => {
     const index = selectedPaths().indexOf(path);
     if (index < 0) return;
-    fileCursor = index; sections.files.open = true; touched.add("files"); focusSection = "files"; scrollToSection = "files"; inspectorPreference = "open";
+    state.fileCursor = index; sections.files.open = true; touched.add("files"); state.focusSection = "files"; scrollToSection = "files"; inspectorPreference = "open";
   };
   const landOn = (element: string, path?: string) => {
     goto.close();
@@ -1068,168 +665,48 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (here) { selectNode(here, true); if (path) showFile(path); update(); return; }
     const best = viewHaving(element);
     if (!best) { message = "That is not in any view"; update(); return; }
-    history.push(visit()); if (history.length > 32) history.shift();
-    animating = false; pendingVisit = { diagram: getDiagram(best[0]), select: element, file: path };
+    remember(state, visit());
+    camera.animating = false; state.pendingVisit = { diagram: getDiagram(best[0]), select: element, file: path };
     message = `Went to ${String(best[1].title ?? best[0])}`;
   };
-  // Ask about a node: type a question, with the component's context, into the agent's own tmux pane.
-  let asking: typeof selected;
-  const askContext = (target: NonNullable<typeof selected>) => {
+  // Ask about a node (`t`), or ask the agent to improve the map (`m`) or trace a flow (`d`), or name it yourself (`n`): see viewer/ask-dialog.ts.
+  const askContext = (target: Node) => {
     const title = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const links = [...diagram.edges.filter(edge => edge.source === target.id).map(edge => `→ ${title(edge.target)}`),
       ...diagram.edges.filter(edge => edge.target === target.id).map(edge => `← ${title(edge.source)}`)];
     const activity = [...new Set((byElement.get(String(target.modelRef ?? "")) ?? []).flatMap(event => event.paths.map(path => `${event.operation} ${path}`)))];
     return { files: files.get(String(target.modelRef ?? "")) ?? [], links, activity };
   };
-  // What to send with the question: files, connections, activity. Tab moves between the question and these toggles.
-  const askInclude = [true, true, false];
-  // `t` asks a question; `m` asks the agent to improve the map; `n` is the person's own name and note (two steps, no agent).
-  let askMode: "ask" | "map" | "flow" | "name" | "note" = "ask", editKey = "", editTitle = "";
-  let askFocus = -1, askSpans: { from: number; to: number }[] = [];
-  const renderAsk = () => {
-    if (!asking) return;
-    if (askMode !== "ask") {
-      const names = { map: "Ask the agent to improve the map", flow: "Ask the agent to trace a flow", name: "Name", note: "Note" } as const;
-      ask.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(names[askMode]), fg(palette.muted)(" ")]);
-      ask.content.content = new StyledText([fg(palette.muted)("about".padEnd(8)), fg(palette.text)(asking.title), fg(palette.purple)(`  ${asking.id}`), nl, fg(palette.muted)(askMode === "map" ? "it reads the files, then edits the overlay" : askMode === "flow" ? "it reads the code, then records a journey you can trace with F" : askMode === "name" ? "step 1 of 2" : "step 2 of 2 · empty clears it")]);
-      askPrompt.fg = palette.accent;
-      ask.foot.content = new StyledText(borderHints(askMode === "map" || askMode === "flow" ? [["enter", "send"], ["alt+enter", "new line"], ["esc", "cancel"]] : [["enter", askMode === "name" ? "next" : "save"], ["esc", "cancel"]]));
-      ask.meta.content = new StyledText([fg(palette.muted)(" ")]);
-      renderer.requestRender();
-      return;
-    }
-    ask.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)("Ask the agent"), fg(palette.muted)(" ")]);
-    const context = askContext(asking), counts = [context.files.length, context.links.length, context.activity.length], names = ["files", "connections", "activity"];
-    const chunks: TextChunk[] = [fg(palette.muted)("about".padEnd(8)), fg(palette.text)(asking.title), fg(palette.purple)(`  ${asking.id}`), nl, fg(palette.muted)("include".padEnd(8))];
-    let column = 8;
-    askSpans = [];
-    names.forEach((name, index) => {
-      const on = askInclude[index], focused = askFocus === index;
-      const paint = (chunk: TextChunk) => focused ? { ...chunk, bg: hot } : chunk;
-      const text = `${on ? "●" : "○"} ${name} ${counts[index]}`;
-      if (index) { chunks.push(fg(palette.muted)("   ")); column += 3; }
-      chunks.push(paint(fg(on ? palette.accent : palette.border)(on ? "● " : "○ ")), paint(fg(on ? palette.body : palette.border)(`${name} `)), paint(fg(palette.border)(String(counts[index]))));
-      askSpans.push({ from: column, to: column + text.length });
-      column += text.length;
-    });
-    ask.content.content = new StyledText(chunks);
-    askPrompt.fg = askFocus < 0 ? palette.accent : palette.border;
-    ask.foot.content = new StyledText(borderHints(askFocus < 0 ? [["enter", "send"], ["alt+enter", "new line"], ["tab", "context"], ["esc", "cancel"]]
-      : [["← →", "choose"], ["space", "toggle"], ["tab", "back to question"], ["esc", "cancel"]]));
-    ask.meta.content = new StyledText([fg(binding ? palette.incoming : palette.muted)(" ● "), fg(palette.border)(`${liveLabel()} `)]);
-    renderer.requestRender();
-  };
-  const focusAsk = (index: number) => { askFocus = index; if (index < 0) askInput.focus(); else askInput.blur(); renderAsk(); };
-  ask.content.onMouseDown = event => {
-    const column = event.x - ask.content.x;
-    if (event.y - ask.content.y !== 1) return;
-    const index = askSpans.findIndex(span => column >= span.from && column < span.to);
-    if (index >= 0) { askInclude[index] = !askInclude[index]; focusAsk(index); }
-  };
-  const openAsk = (target: NonNullable<typeof selected>, mode: typeof askMode, text: string, placeholder: string) => {
-    asking = target; askMode = mode; animating = false;
-    askInput.placeholder = placeholder;
-    askInput.setText(text); askInput.gotoBufferEnd(); askInput.height = 1; askRow.height = 3;
-    ask.open(Math.min(76, renderer.width - 4), 10);
-    focusAsk(-1); message = ""; update();
-  };
-  const beginAsk = () => {
-    if (!options.parent) { message = "Ask needs the viewer opened with pathlight show, which knows your agent's pane"; update(); return; }
-    if (!selected) return;
-    openAsk(selected, "ask", "", "What do you want to know about it?");
-  };
-  // Map editing needs the element's overlay key, which `pathlight draft` records; a hand-written model has none.
-  const withKey = (target: NonNullable<typeof selected>, then: (key: string) => Effect.Effect<void>) =>
-    runTask(readKeys(view.workspace).pipe(
-      Effect.flatMap(keys => {
-        const key = keys.get(String(target.modelRef ?? "")) ?? keys.get(String(target.id));
-        return key ? then(key) : Effect.sync(() => { message = "Only a model made by pathlight draft can be edited here; edit your model file instead"; update(); });
-      }),
-      Effect.catch(() => Effect.void)));
-  const beginMap = () => {
-    if (!options.parent) { message = "Changing the map needs the viewer opened with pathlight show, which knows your agent's pane"; update(); return; }
-    const target = selected;
-    if (target) withKey(target, key => Effect.sync(() => { editKey = key; openAsk(target, "map", "", "What should it work out, or what should it be called?"); }));
-  };
-  const beginFlow = () => {
-    if (!options.parent) { message = "Tracing a flow needs the viewer opened with pathlight show, which knows your agent's pane"; update(); return; }
-    if (selected) openAsk(selected, "flow", "", "What should it trace? (for example: what happens when someone places an order)");
-  };
-  const beginName = () => {
-    const target = selected;
-    if (target) withKey(target, key => readEntry(view.workspace, key).pipe(Effect.flatMap(entry => Effect.sync(() => {
-      editKey = key; editTitle = target.title; noteDraft = entry?.note ?? "";
-      openAsk(target, "name", entry?.title ?? target.title, "Name");
-    })), Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
-  };
-  let noteDraft = "";
-  ask.dismiss = () => finishAsk();
+  const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext,
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; }, background: hot });
   help.dismiss = () => help.close();
   summary.dismiss = () => { summary.close(); update(); };
   goto.dismiss = () => { goto.close(); update(); };
-  picker.dismiss = () => cancelThemes();
-  function finishAsk() { asking = undefined; askMode = "ask"; askInput.blur(); ask.close(); update(); }
-  // The question and the chosen context go to the agent's pane and are submitted there; an empty question sends nothing.
-  const sendAsk = () => {
-    const target = asking, parent = options.parent, question = askInput.plainText.trim();
-    if (target && askMode === "name") { editTitle = question; askMode = "note"; askInput.setText(noteDraft); askInput.gotoBufferEnd(); askInput.placeholder = "A line about what it is for"; renderAsk(); return; }
-    if (target && askMode === "note") {
-      const key = editKey, entry = { title: editTitle, note: question }, generated = target.title;
-      finishAsk(); message = "Saving the name and rebuilding the map…"; update();
-      runTask(saveElement(view.workspace, key, entry, generated).pipe(
-        Effect.tap(() => Effect.sync(() => { message = "Saved as yours · the map is rebuilding"; update(); })),
-        Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
-      return;
-    }
-    if (!target || !parent || !question) return;
-    const context = askContext(target);
-    if (askMode === "flow") {
-      const text = flowMessage({ title: target.title, id: String(target.id), files: context.files, links: context.links }, question);
-      finishAsk();
-      runTask(sendToPane(parent, text, true).pipe(
-        Effect.tap(() => Effect.sync(() => { message = `Asked the agent to trace a flow from ${target.title} · F shows it once it is written`; update(); })),
-        Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
-      return;
-    }
-    if (askMode === "map") {
-      const text = mapMessage({ title: target.title, id: String(target.id), key: editKey, files: context.files, links: context.links }, question);
-      finishAsk();
-      runTask(sendToPane(parent, text, true).pipe(
-        Effect.tap(() => Effect.sync(() => { message = `Asked the agent to improve ${target.title} · it replies in the agent pane`; update(); })),
-        Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
-      return;
-    }
-    const text = askMessage({ title: target.title, id: String(target.id), files: askInclude[0] ? context.files : [], links: askInclude[1] ? context.links : [], activity: askInclude[2] ? context.activity : [] }, question);
-    const about = target.title, session = binding ? liveLabel() : "the agent";
-    finishAsk();
-    runTask(sendToPane(parent, text, true).pipe(
-      Effect.tap(() => Effect.sync(() => { message = `Asked ${session} about ${about} · reply lands in the agent pane`; update(); })),
-      Effect.catch(error => Effect.sync(() => { message = error.message; update(); }))));
-  };
+  picker.dismiss = () => themePicker.cancel();
   let scrollToSection: SectionKey | undefined;
   const touched = new Set<SectionKey>();
   // A number focuses a section (and opens it); pressing it again hands the keys back to the diagram.
   const focusOn = (key: SectionKey) => {
     const entry = sections[key];
-    if (focusSection === key) { focusSection = undefined; update(); return; }
+    if (state.focusSection === key) { state.focusSection = undefined; update(); return; }
     if (!inspector.visible) inspectorPreference = "open";
-    entry.open = true; touched.add(key); focusSection = key; scrollToSection = key; update();
+    entry.open = true; touched.add(key); state.focusSection = key; scrollToSection = key; update();
   };
   const foldSection = (key: SectionKey) => { sections[key].open = !sections[key].open; touched.add(key); update(); };
   for (const key of sectionOrder) sections[key].header.onMouseDown = event => {
     event.preventDefault(); event.stopPropagation();
-    if (fileMode || asking) return;
+    if (fileMode || dialog.asking) return;
     // The first click focuses the section; clicking the focused one folds it.
-    if (focusSection === key) foldSection(key); else { focusSection = key; touched.add(key); scrollToSection = key; }
+    if (state.focusSection === key) foldSection(key); else { state.focusSection = key; touched.add(key); scrollToSection = key; }
     update();
   };
   inspectorAsk.onMouseDown = event => {
     event.preventDefault(); event.stopPropagation();
-    if (fileMode || help.visible || summary.visible || goto.visible || picker.visible || asking || pendingVisit) return;
-    beginAsk();
+    if (fileMode || help.visible || summary.visible || goto.visible || picker.visible || dialog.asking || state.pendingVisit) return;
+    dialog.beginAsk();
   };
   let clickedFile = -1;
-  const endFiles = () => { clickedFile = -1; fileMode = false; focusSection = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
+  const endFiles = () => { clickedFile = -1; fileMode = false; state.focusSection = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
   const openFile = (path: string, line?: number, returned = `Returned from editor: ${path}`) => {
     editorActive = true;
     searchInput.blur();
@@ -1246,21 +723,21 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const openAtChange = (path: string) => runTask(firstChange(view.workspace, path).pipe(
     Effect.tap(line => Effect.sync(() => openFile(path, line, line ? `Returned from ${path} (opened at its first change, line ${line})` : undefined)))));
   const beginFiles = () => {
-    fileMode = true; fileCursor = 0; fileQuery = ""; sections.files.open = true; touched.add("files"); focusSection = "files"; scrollToSection = "files"; inspectorPreference = "open"; message = fileError;
+    fileMode = true; state.fileCursor = 0; fileQuery = ""; sections.files.open = true; touched.add("files"); state.focusSection = "files"; scrollToSection = "files"; inspectorPreference = "open"; message = fileError;
     searchInput.placeholder = "Filter mapped files"; searchInput.value = ""; searchPrompt.content = " files › "; searchPrompt.fg = palette.outgoing;
     searchRow.visible = true; heading.visible = false; searchInput.focus();
   };
   searchInput.on("input", (value: string) => {
-    if (fileMode) { fileQuery = value; fileCursor = 0; message = ""; update(); }
+    if (fileMode) { fileQuery = value; state.fileCursor = 0; message = ""; update(); }
   });
   nodeListText.onMouseDown = event => {
-    if (help.visible || summary.visible || goto.visible || picker.visible || asking || pendingVisit) return;
+    if (help.visible || summary.visible || goto.visible || picker.visible || dialog.asking || state.pendingVisit) return;
     const node = diagram.nodes[event.y - nodeListText.y];
     if (node) selectNode(node, false);
   };
   viewport.onMouseDown = event => {
-    if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || asking || pendingVisit) return;
-    focusSection = undefined;
+    if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || dialog.asking || state.pendingVisit) return;
+    state.focusSection = undefined;
     if (fileMode) { endFiles(); message = ""; }
     // Hit the displayed cell bounds, not the fractional world-space plane:
     // rounding can put a group's visible title just outside that plane.
@@ -1272,244 +749,191 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   renderer.keyInput.on("paste", event => {
     if (!goto.visible) return;
     event.preventDefault();
-    gotoQuery = (gotoQuery + new TextDecoder().decode(event.bytes).replace(/[\x00-\x1f\x7f]/g, " ")).slice(0, 256); gotoIndex = 0; renderGoto();
+    gotoPicker.paste(new TextDecoder().decode(event.bytes));
   });
-  renderer.keyInput.on("keypress", key => {
-    if (editorActive) return;
-    if (key.ctrl && key.name === "c") { key.preventDefault(); stop(); return; }
-    if (pendingVisit) { key.preventDefault(); return; }
-    if (asking) {
-      if (key.name === "escape") { key.preventDefault(); finishAsk(); }
-      else if (key.name === "tab") { key.preventDefault(); if (askMode === "ask") focusAsk(askFocus < 0 ? 0 : -1); }
-      else if (askFocus >= 0) {
-        key.preventDefault();
-        if (key.name === "left" || key.name === "h") focusAsk((askFocus + 2) % 3);
-        else if (key.name === "right" || key.name === "l") focusAsk((askFocus + 1) % 3);
-        else if (key.name === "space" || key.sequence === " ") { askInclude[askFocus] = !askInclude[askFocus]; renderAsk(); }
-      }
-      else if (key.name === "return" && !key.meta && !key.option && !key.shift) { key.preventDefault(); sendAsk(); }
-      return;
-    }
-    if (picker.visible) {
-      key.preventDefault();
-      if (key.name === "escape" || key.sequence === "T") cancelThemes();
-      else if (key.name === "return") keepTheme();
-      else if (key.name === "up" || key.name === "k") moveTheme(themeIndex - 1);
-      else if (key.name === "down" || key.name === "j") moveTheme(themeIndex + 1);
-      else if (key.name === "pageup") moveTheme(Math.max(0, themeIndex - themeRows()));
-      else if (key.name === "pagedown") moveTheme(Math.min(themeNames.length - 1, themeIndex + themeRows()));
-      else if (key.name === "home") moveTheme(0);
-      else if (key.name === "end") moveTheme(themeNames.length - 1);
-      else if (key.ctrl && key.name === "c") stop();
-      return;
-    }
-    if (goto.visible) {
-      key.preventDefault();
-      const entries = gotoEntries(), page = gotoRows(entries.length);
-      const move = (to: number) => { gotoIndex = entries.length ? (to + entries.length) % entries.length : 0; renderGoto(); };
-      if (key.name === "escape") { goto.close(); update(); }
-      else if (key.name === "return") {
-        const entry = entries[gotoIndex];
-        if (entry?.kind === "view") goToView(entry.view!);
-        else if (entry) landOn(entry.element!, entry.path);
-      }
-      else if (key.name === "up" || (key.ctrl && key.name === "p")) move(gotoIndex - 1);
-      else if (key.name === "down" || (key.ctrl && key.name === "n")) move(gotoIndex + 1);
-      else if (key.name === "pageup") { gotoIndex = Math.max(0, gotoIndex - page); renderGoto(); }
-      else if (key.name === "pagedown") { gotoIndex = Math.min(Math.max(0, entries.length - 1), gotoIndex + page); renderGoto(); }
-      else if (key.name === "home") { gotoIndex = 0; renderGoto(); }
-      else if (key.name === "end") { gotoIndex = Math.max(0, entries.length - 1); renderGoto(); }
-      else if (key.ctrl && key.name === "u") { gotoQuery = ""; gotoIndex = 0; renderGoto(); }
-      else if (key.name === "backspace") { gotoQuery = gotoQuery.slice(0, -1); gotoIndex = 0; renderGoto(); }
-      else if (key.ctrl && key.name === "c") stop();
-      else if (!key.ctrl && !key.meta && key.sequence.length === 1 && key.sequence >= " ") { gotoQuery += key.sequence; gotoIndex = 0; renderGoto(); }
-      return;
-    }
-    if (summary.visible) {
-      key.preventDefault();
-      if (key.name === "escape" || key.name === "c" || key.sequence === "?") { summary.close(); update(); }
-      else if (key.name === "j" || key.name === "down") { reviewCursor++; summary.content.content = summaryContent(); update(); }
-      else if (key.name === "k" || key.name === "up") { reviewCursor = Math.max(0, reviewCursor - 1); summary.content.content = summaryContent(); update(); }
-      else if (key.name === "y") decideOn("accepted");
-      else if (key.name === "n") decideOn("rejected");
+  // Which action a key means is decided in viewer/keys.ts; here it is done.
+  const glide = (change: () => void) => camera.glide(change);
+  const perform = (action: Action) => {
+    const play = replay;
+    const replayGo = (index: number) => { if (play) { play.playing = false; showStep(index); } };
+    const key_ = state.focusSection;
+    switch (action.type) {
+      case "stop": stop(); return;
+      case "swallow": return;
+      case "askCancel": dialog.finish(); return;
+      case "askTab": dialog.tab(); return;
+      case "askChoose": dialog.choose(action.by); return;
+      case "askToggle": dialog.toggle(); return;
+      case "askSend": dialog.send(); return;
+      case "themeCancel": themePicker.cancel(); return;
+      case "themeKeep": themePicker.keep(); return;
+      case "themeMove": themePicker.move(action.to); return;
+      case "gotoClose": case "gotoGo": case "gotoMove": case "gotoPage": case "gotoHome": case "gotoEnd": case "gotoClear": case "gotoErase": case "gotoType": gotoPicker.key(action); return;
+      case "summaryClose": summary.close(); update(); return;
+      case "reviewMove": reviewCursor = Math.max(0, reviewCursor + action.by); summary.content.content = summaryContent(); update(); return;
+      case "decide": decideOn(action.verdict); return;
       // Read before deciding: the import that makes the dependency, at its line.
-      else if (key.name === "e") { const example = reviewItems(diff, decisions)[reviewCursor]?.example; if (example) openFile(example.from, example.line, `Returned from ${example.from}:${example.line}`); }
-      return;
-    }
-    if (help.visible) { key.preventDefault(); if (key.name === "escape" || key.sequence === "?") help.close();
-      else if (key.name === "v" && !key.ctrl) { vimTraverses = !vimTraverses; showHelp(); }
-      else if (key.ctrl && key.name === "c") stop(); return; }
-    if (!key.ctrl && !key.meta && replayKey(key)) return;
-    if (!fileMode && !key.ctrl && !key.meta && /^[1-4]$/.test(key.sequence)) { key.preventDefault(); focusOn((["activity", activeFlow ? "steps" : "connections", "files", "flows"] as const)[Number(key.sequence) - 1] ?? "activity"); return; }
-    if (focusSection && !fileMode) {
-      const entry = sections[focusSection], key_ = focusSection;
-      const items = key_ === "connections" ? connectionItems.length : key_ === "files" ? selectedPaths().length : key_ === "flows" ? flowItems.length : 0;
-      const move = (step: number) => {
-        if (key_ === "activity") { sections.activity.content.scrollBy(step * 2); return; }
-        if (key_ === "steps") { goToStep(flowStep + step); return; }
-        if (!items) return;
-        if (key_ === "files") fileCursor = (fileCursor + step + items) % items; else cursor[key_] = (cursor[key_] + step + items) % items;
-        scrollToSection = undefined; update();
-      };
-      if (key.name === "escape") { key.preventDefault(); focusSection = undefined; update(); return; }
-      if (key.name === "tab") {
-        key.preventDefault();
+      case "reviewRead": { const example = reviewItems(diff, decisions)[reviewCursor]?.example; if (example) openFile(example.from, example.line, `Returned from ${example.from}:${example.line}`); return; }
+      case "helpClose": help.close(); return;
+      case "helpSwap": vimTraverses = !vimTraverses; showHelp(); return;
+      case "replayExit": endReplay(); return;
+      case "replayStep": if (play) replayGo(play.index + action.by); return;
+      case "replayHome": replayGo(0); return;
+      case "replayEnd": if (play) replayGo(play.data.steps.length - 1); return;
+      case "replayTurn": {
+        if (!play) return;
+        const turns = play.data.turns, turn = replayTurn(), last = play.data.steps.length - 1;
+        replayGo(action.by > 0 ? turns[turn + 1] ?? last : play.index > (turns[turn] ?? 0) ? turns[turn] ?? 0 : turns[turn - 1] ?? 0); return;
+      }
+      case "replayToggle":
+        if (!play) return;
+        if (!play.playing && play.index >= play.data.steps.length - 1) showStep(play.data.turns.at(-1) ?? 0);
+        play.playing = !play.playing; play.next = Date.now() + 1000 / play.speed; update(); return;
+      case "replaySpeed": if (play) { play.speed = play.speed === 1 ? 2 : play.speed === 2 ? 4 : 1; update(); } return;
+      case "focus": focusOn(action.section); return;
+      case "sectionLeave": state.focusSection = undefined; update(); return;
+      case "sectionTab": {
         const shown = shownSections();
-        focusSection = shown[(Math.max(0, shown.indexOf(key_)) + (key.shift ? -1 : 1) + shown.length) % shown.length];
-        if (focusSection) { sections[focusSection].open = true; scrollToSection = focusSection; }
+        state.focusSection = shown[(Math.max(0, shown.indexOf(key_!)) + action.by + shown.length) % shown.length];
+        if (state.focusSection) { sections[state.focusSection].open = true; scrollToSection = state.focusSection; }
         update(); return;
       }
-      if (key.name === "space" || key.sequence === " ") { key.preventDefault(); entry.open = !entry.open; touched.add(key_); update(); return; }
-      if (key.name === "up" || key.name === "k") { key.preventDefault(); move(-1); return; }
-      if (key.name === "down" || key.name === "j") { key.preventDefault(); move(1); return; }
-      if ((key.name === "left" || key.name === "h") && !key.shift) { key.preventDefault(); focusSection = undefined; update(); return; }
-      if ((key.name === "right" || key.name === "l") && !key.shift) { key.preventDefault(); return; }
-      if (key.name === "return") {
-        key.preventDefault();
+      case "sectionFold": sections[key_!].open = !sections[key_!].open; touched.add(key_!); update(); return;
+      case "sectionMove": {
+        if (key_ === "activity") { sections.activity.content.scrollBy(action.by * 2); return; }
+        if (key_ === "steps") { flowMode.goTo(flowMode.step + action.by); return; }
+        const items = key_ === "connections" ? connectionItems.length : key_ === "files" ? selectedPaths().length : key_ === "flows" ? flowItems.length : 0;
+        if (!items) return;
+        if (key_ === "files") state.fileCursor = (state.fileCursor + action.by + items) % items; else state.cursor[key_!] = (state.cursor[key_!] + action.by + items) % items;
+        scrollToSection = undefined; update(); return;
+      }
+      case "sectionEnter":
         if (key_ === "connections") {
-          const target = diagram.nodes.find(node => String(node.id) === connectionItems[cursor.connections]);
+          const target = diagram.nodes.find(node => String(node.id) === connectionItems[state.cursor.connections]);
           if (target) { message = ""; selectNode(target, true); }
         } else if (key_ === "files") {
-          const path = selectedPaths()[fileCursor];
+          const path = selectedPaths()[state.fileCursor];
           if (path) openAtChange(path);
-        } else if (key_ === "steps") goToStep(flowStep);
+        } else if (key_ === "steps") flowMode.goTo(flowMode.step);
         else if (key_ === "flows") {
-          const entry = flowItems[cursor.flows];
-          if (entry) { focusSection = undefined; enterFlow(entry.flow, entry.steps[0]); }
+          const entry = flowItems[state.cursor.flows];
+          if (entry) { state.focusSection = undefined; flowMode.enter(entry.flow, entry.steps[0]); }
         }
         return;
+      case "cycleFlow": flowMode.cycle(); return;
+      case "flowStep": flowMode.goTo(flowMode.step + action.by); return;
+      case "exitFlow": flowMode.exit(); return;
+      case "search": camera.animating = false; gotoPicker.begin("all"); return;
+      case "back": {
+        const saved = state.history.at(-1);
+        if (saved) { const next = getDiagram(saved.view); state.history.pop(); state.pendingVisit = { diagram: next, restore: saved }; camera.animating = false; }
+        else { message = "No previous view"; update(); }
+        return;
       }
-    }
-    if (!fileMode && key.sequence === "F") { key.preventDefault(); cycleFlow(); return; }
-    if (!fileMode && activeFlow && !key.ctrl && !key.meta) {
-      if (key.sequence === "]") { key.preventDefault(); goToStep(flowStep + 1); return; }
-      if (key.sequence === "[") { key.preventDefault(); goToStep(flowStep - 1); return; }
-      if (key.name === "escape") { key.preventDefault(); exitFlow(); return; }
-    }
-    if (!fileMode && key.sequence === "/") { key.preventDefault(); animating = false; beginGoto("all"); return; }
-    if (!fileMode && key.name === "b") {
-      key.preventDefault();
-      const saved = history.at(-1);
-      if (saved) { const next = getDiagram(saved.view); history.pop(); pendingVisit = { diagram: next, restore: saved }; animating = false; }
-      else { message = "No previous view"; update(); }
-      return;
-    }
-    if (!fileMode && (key.name === "o" || key.name === "return")) {
-      key.preventDefault();
-      if (key.name === "return" && selected?.children.length) selectNode(diagram.nodes.find(node => node.id === selected?.children[0]), true);
-      else openLink();
-      return;
-    }
-    if (!fileMode && key.name === "backspace") { key.preventDefault(); selectNode(diagram.nodes.find(node => node.id === selected?.parent), true); return; }
-    const direction = ({ h: "left", j: "down", k: "up", l: "right", left: "left", down: "down", up: "up", right: "right" } as const)[key.name as "h"];
-    const vimKey = key.name.length === 1;
-    if (!fileMode && key.name === "g" && !key.ctrl && !key.shift) { key.preventDefault(); beginGoto("views"); return; }
-    if (!fileMode && key.name === "t" && !key.ctrl && key.sequence === "T") { key.preventDefault(); beginThemes(); return; }
-    if (!fileMode && key.name === "t" && !key.ctrl) { key.preventDefault(); beginAsk(); return; }
-    if (!fileMode && key.name === "m" && !key.ctrl) { key.preventDefault(); beginMap(); return; }
-    if (!fileMode && key.name === "d" && !key.ctrl) { key.preventDefault(); beginFlow(); return; }
-    if (!fileMode && key.name === "n" && !key.ctrl) { key.preventDefault(); beginName(); return; }
-    if (!fileMode && key.name === "c" && !key.ctrl) {
-      key.preventDefault(); summary.foot.content = new StyledText(borderHints([["esc", "close"]])); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
-    }
-    if (!fileMode && key.name === "p" && !key.ctrl) { key.preventDefault(); beginReplay(); return; }
-    if (!fileMode && key.name === "w" && !key.ctrl) {
-      key.preventDefault();
-      const work = newestWork();
-      // Going to the work is asking to watch it, so follow turns on with the jump (`a` stops it); a viewer with no session has nothing to follow.
-      const startFollow = () => { if (binding || following) { followCamera = true; followPaused = false; focusedCall = ""; followSince = Date.now(); } };
-      if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); if (followCamera) message = "Following the work (a to stop)"; update(); }
-      else if (work) {
-        history.push(visit()); if (history.length > 32) history.shift();
-        animating = false; startFollow(); pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: `Went to ${work.title}${followCamera ? " · following (a to stop)" : ""}` }; update();
-      } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
-      return;
-    }
-    if (!fileMode && key.name === "v" && !key.ctrl) {
-      key.preventDefault(); vimTraverses = !vimTraverses;
-      message = vimTraverses ? "hjkl select nodes, arrows pan" : "Arrows select nodes, hjkl pan"; update(); return;
-    }
-    if (!fileMode && listMode && ["up", "down", "j", "k"].includes(key.name)) {
-      key.preventDefault();
-      const index = diagram.nodes.findIndex(node => node.id === selected?.id), count = diagram.nodes.length;
-      selectNode(diagram.nodes[(index + (key.name === "up" || key.name === "k" ? -1 : 1) + count) % count], false);
-      return;
-    }
-    if (!fileMode && direction && vimKey === vimTraverses && !key.shift) { key.preventDefault(); traverse(direction); return; }
-    const before = { x: centerX, y: centerY, scale };
-    if (animating) { centerX = targetX; centerY = targetY; scale = targetScale; }
-    if (!fileMode) key.preventDefault();
-    if (key.ctrl && key.name === "c" || !fileMode && key.name === "q") { stop(); return; }
-    if (fileMode) {
-      const paths = selectedPaths();
-      if (key.name === "escape") { key.preventDefault(); endFiles(); }
-      else if (["up", "down", "tab", "pageup", "pagedown"].includes(key.name)) {
-        key.preventDefault();
-        const direction = key.name === "up" || key.name === "pageup" || key.name === "tab" && key.shift ? -1 : 1;
-        const step = key.name === "pageup" || key.name === "pagedown" ? Math.max(1, sections.files.content.viewport.height - 1) : 1;
-        if (paths.length) fileCursor = (fileCursor + direction * step % paths.length + paths.length) % paths.length;
-        clickedFile = -1;
-      } else if (key.ctrl && key.name === "r") {
-        key.preventDefault();
+      case "open":
+        if (action.enter && state.selected?.children.length) selectNode(diagram.nodes.find(node => node.id === state.selected?.children[0]), true);
+        else openLink();
+        return;
+      case "parent": selectNode(diagram.nodes.find(node => node.id === state.selected?.parent), true); return;
+      case "views": gotoPicker.begin("views"); return;
+      case "themes": themePicker.begin(); return;
+      case "ask": dialog.beginAsk(); return;
+      case "map": dialog.beginMap(); return;
+      case "trace": dialog.beginFlow(); return;
+      case "name": dialog.beginName(); return;
+      case "session": summary.foot.content = new StyledText(borderHints(hints.close)); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
+      case "replay": beginReplay(); return;
+      case "work": {
+        const work = newestWork();
+        // Going to the work is asking to watch it, so follow turns on with the jump (`a` stops it); a viewer with no session has nothing to follow.
+        const startFollow = () => { if (binding || following) { followCamera = true; followPaused = false; focusedCall = ""; followSince = Date.now(); } };
+        if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); if (followCamera) message = "Following the work (a to stop)"; update(); }
+        else if (work) {
+          remember(state, visit());
+          camera.animating = false; startFollow(); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: `Went to ${work.title}${followCamera ? " · following (a to stop)" : ""}` }; update();
+        } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
+        return;
+      }
+      case "swap": vimTraverses = !vimTraverses; message = vimTraverses ? "hjkl select nodes, arrows pan" : "Arrows select nodes, hjkl pan"; update(); return;
+      case "listMove": {
+        const index = diagram.nodes.findIndex(node => node.id === state.selected?.id), count = diagram.nodes.length;
+        selectNode(diagram.nodes[(index + action.by + count) % count], false); return;
+      }
+      case "traverse": traverse(action.direction); return;
+      case "endFiles": endFiles(); break;
+      case "fileMove": {
+        const paths = selectedPaths(), step = action.page ? Math.max(1, sections.files.content.viewport.height - 1) : 1;
+        if (paths.length) state.fileCursor = (state.fileCursor + action.by * step % paths.length + paths.length) % paths.length;
+        clickedFile = -1; break;
+      }
+      case "refreshFiles":
         if (!refreshing) {
           refreshing = true; message = "Refreshing files...";
           runTask(nodeFiles(view.workspace, config).pipe(Effect.tap(next => Effect.sync(() => {
-            files = next; fileError = ""; fileCursor = 0; message = "Files refreshed"; update();
+            files = next; fileError = ""; state.fileCursor = 0; message = "Files refreshed"; update();
           })), Effect.catch(error => Effect.sync(() => { message = error.message; update(); })),
           Effect.ensuring(Effect.sync(() => { refreshing = false; }))));
         }
+        break;
+      case "fileOpen": { const path = selectedPaths()[state.fileCursor]; if (path) openAtChange(path); break; }
+      case "help": showHelp(); break;
+      case "inspector": inspectorPreference = inspector.visible ? "closed" : "open"; break;
+      case "scrollInspector": {
+        // The focused card scrolls; with none focused, the first open card that overflows does.
+        const card = key_ ? sections[key_].content : sectionOrder.map(name => sections[name].content).find(box => box.visible && box.scrollHeight > box.viewport.height);
+        (card ?? inspectorScroll).scrollBy(action.by * 5); break;
       }
-      else if (key.name === "return") {
-        key.preventDefault();
-        const path = paths[fileCursor];
-        if (path) openAtChange(path);
+      case "subagents":
+        showSubagents = !showSubagents;
+        message = showSubagents ? "Subagent calls shown" : "Subagent calls hidden";
+        if (replay) showStep(replay.index); else { events = visibleEvents(allEvents); indexEvents(); }
+        break;
+      case "follow":
+        if (followCamera && followPaused) { followPaused = false; message = "Following the work (a to stop)"; }
+        else { followCamera = !followCamera; followPaused = false; message = followCamera ? (binding || following ? "Following the work (a to stop)" : "Follow needs a bound session") : "Follow off"; }
+        focusedCall = ""; followSince = Date.now();
+        if (followCamera) followActivity();
+        break;
+      case "files": {
+        const call = flowMode.active?.steps[flowMode.step]?.call;
+        // In a flow, the step's function is what there is to read: open it where the file declares it now, not where it was when the flow was written.
+        if (call) runTask(io("Native.readCall", () => readFile(join(view.workspace, call.file), "utf8")).pipe(
+          Effect.map(source => declarationLine(source, call.name)),
+          Effect.catch(() => Effect.succeed(undefined)),
+          Effect.tap(line => Effect.sync(() => openFile(call.file, line, line ? `Returned from ${call.name}` : `${call.name} is no longer declared in ${call.file}; opened it at the top`)))));
+        else beginFiles();
+        break;
       }
-    } else if (key.sequence === "?") showHelp();
-    else if (key.name === "i") { inspectorPreference = inspector.visible ? "closed" : "open"; }
-    else if (key.name === "pageup" || key.name === "pagedown") {
-      // The focused card scrolls; with none focused, the first open card that overflows does.
-      const card = focusSection ? sections[focusSection].content : sectionOrder.map(name => sections[name].content).find(box => box.visible && box.scrollHeight > box.viewport.height);
-      (card ?? inspectorScroll).scrollBy(key.name === "pageup" ? -5 : 5);
-    }
-    else if (key.name === "s") {
-      showSubagents = !showSubagents;
-      message = showSubagents ? "Subagent calls shown" : "Subagent calls hidden";
-      if (replay) showStep(replay.index); else { events = visibleEvents(allEvents); indexEvents(); }
-      update();
-    }
-    else if (key.name === "a") {
-      if (followCamera && followPaused) { followPaused = false; message = "Following the work (a to stop)"; }
-      else { followCamera = !followCamera; followPaused = false; message = followCamera ? (binding || following ? "Following the work (a to stop)" : "Follow needs a bound session") : "Follow off"; }
-      focusedCall = ""; followSince = Date.now();
-      if (followCamera) followActivity();
-    }
-    else if (key.name === "e" && activeFlow?.steps[flowStep]?.call) {
-      // In a flow, the step's function is what there is to read: open it where the file declares it now, not where it was when the flow was written.
-      const call = activeFlow.steps[flowStep]!.call!;
-      runTask(io("Native.readCall", () => readFile(join(view.workspace, call.file), "utf8")).pipe(
-        Effect.map(source => declarationLine(source, call.name)),
-        Effect.catch(() => Effect.succeed(undefined)),
-        Effect.tap(line => Effect.sync(() => openFile(call.file, line, line ? `Returned from ${call.name}` : `${call.name} is no longer declared in ${call.file}; opened it at the top`)))));
-    }
-    else if (key.name === "e") beginFiles();
-    else if (key.name === "tab") {
-      const index = diagram.nodes.findIndex(node => node.id === selected?.id);
-      pauseFollow();
-      selected = diagram.nodes[(index + (key.shift ? -1 : 1) + diagram.nodes.length) % diagram.nodes.length];
-      fileCursor = 0; resetInspectorScroll();
-    } else if (key.name === "+" || key.name === "=" || key.sequence === "+") { autoFit = false; pauseFollow(); scale = Math.max(2, scale / 1.25); }
-    else if (key.name === "-" || key.sequence === "-") { autoFit = false; pauseFollow(); scale = Math.min(128, scale * 1.25); }
-    else if (direction === "left") { autoFit = false; pauseFollow(); centerX -= scale * 6; }
-    else if (direction === "right") { autoFit = false; pauseFollow(); centerX += scale * 6; }
-    else if (direction === "down") { autoFit = false; pauseFollow(); centerY += scale * 3 / cellAspect(); }
-    else if (direction === "up") { autoFit = false; pauseFollow(); centerY -= scale * 3 / cellAspect(); }
-    else if (key.name === "f") { autoFit = true; fit(); }
-    else if (key.name === "0") { autoFit = false; pauseFollow(); scale = 16; }
-    else if (key.name === "r" && selected) { autoFit = false; centerX = selected.x + selected.width / 2; centerY = selected.y + selected.height / 2; }
-    if (centerX !== before.x || centerY !== before.y || scale !== before.scale) {
-      animateTo(); centerX = before.x; centerY = before.y; scale = before.scale;
+      case "nextNode": {
+        const index = diagram.nodes.findIndex(node => node.id === state.selected?.id);
+        pauseFollow();
+        state.selected = diagram.nodes[(index + action.by + diagram.nodes.length) % diagram.nodes.length];
+        state.fileCursor = 0; resetInspectorScroll(); break;
+      }
+      case "zoom": camera.autoFit = false; pauseFollow(); glide(() => { camera.scale = action.by > 0 ? Math.max(2, camera.scale / 1.25) : Math.min(128, camera.scale * 1.25); }); break;
+      case "pan": {
+        camera.autoFit = false; pauseFollow();
+        const direction = action.direction;
+        glide(() => {
+          if (direction === "left") camera.centerX -= camera.scale * 6; else if (direction === "right") camera.centerX += camera.scale * 6;
+          else if (direction === "down") camera.centerY += camera.scale * 3 / camera.cellAspect(); else camera.centerY -= camera.scale * 3 / camera.cellAspect();
+        });
+        break;
+      }
+      case "fit": camera.autoFit = true; glide(fit); break;
+      case "actualSize": camera.autoFit = false; pauseFollow(); glide(() => { camera.scale = 16; }); break;
+      case "centre": { const selected = state.selected; if (selected) { camera.autoFit = false; glide(() => { camera.centerX = selected.x + selected.width / 2; camera.centerY = selected.y + selected.height / 2; }); } break; }
+      case "idle": case "pass": break;
     }
     update();
+  };
+  renderer.keyInput.on("keypress", key => {
+    if (editorActive) return;
+    const layer = state.pendingVisit ? "visit" : dialog.asking ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : "main";
+    const action = keyAction(key, { layer, askContext: dialog.focus >= 0, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, vim: vimTraverses });
+    if (!action) return;
+    if (action.type !== "pass") key.preventDefault();
+    perform(action);
   });
   let lastInspectorKey = "";
   renderer.on("frame", () => {
@@ -1521,20 +945,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   renderer.setFrameCallback(async deltaMs => {
     if (editorActive || closing) return;
     try {
-    if (pendingReload) {
-      const next = pendingReload; pendingReload = undefined;
-      const target = next.diagrams.get(String(diagram.id));
+    if (state.pendingReload) {
+      const next = state.pendingReload; state.pendingReload = undefined;
+      const raw = next.diagrams.get(String(diagram.id)), target = raw && shape(raw);
       if (!target?.nodes.length) { message = `View '${diagram.id}' is gone or empty in the new model; showing the previous version`; }
       else {
         const before = new Set(diagram.nodes.map(node => String(node.id)));
-        const keep = selected ? String(selected.id) : undefined;
+        const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
         diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError;
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;
-        nodeObjects = mountNodes(); routes = computeRoutes();
-        selected = diagram.nodes.find(node => String(node.id) === keep) ?? diagram.nodes[0];
-        fileCursor = Math.min(fileCursor, Math.max(0, selectedPaths().length - 1));
+        nodeObjects = mountNodes(); routes = computeRoutes(); gapFor = "";
+        state.selected = diagram.nodes.find(node => String(node.id) === keep) ?? diagram.nodes[0];
+        state.fileCursor = Math.min(state.fileCursor, Math.max(0, selectedPaths().length - 1));
         indexEvents();
         const added = diagram.nodes.filter(node => !before.has(String(node.id))).map(node => node.title);
         const removed = [...before].filter(id => !diagram.nodes.some(node => String(node.id) === id));
@@ -1544,16 +968,16 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       }
       update();
     }
-    if (pendingVisit) {
-      const next = pendingVisit; pendingVisit = undefined;
+    if (state.pendingVisit) {
+      const next = state.pendingVisit; state.pendingVisit = undefined;
       for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
       diagram = next.diagram;
-      nodeObjects = mountNodes(); routes = computeRoutes();
-      selected = firstNode(diagram); fileCursor = 0; resetInspectorScroll(); message = next.notice ?? "";
-      initialFit = false; animating = false;
+      nodeObjects = mountNodes(); routes = computeRoutes(); gapFor = "";
+      state.selected = firstNode(diagram); state.fileCursor = 0; resetInspectorScroll(); message = next.notice ?? "";
+      initialFit = false; camera.animating = false;
       if (next.restore) restore(next.restore);
-      else { autoFit = true; fit(); targetX = centerX; targetY = centerY; targetScale = scale; }
-      if (next.select) selected = nodeForElement(next.select) ?? selected;
+      else { camera.autoFit = true; fit(); camera.settle(); }
+      if (next.select) state.selected = nodeForElement(next.select) ?? state.selected;
       if (next.file) showFile(next.file);
       update();
     }
@@ -1564,21 +988,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       previousWidth = viewport.width; previousHeight = viewport.height;
       canvas.width = Math.max(1, viewport.width); canvas.height = Math.max(1, viewport.height);
       redrawAfterResize = true;
-      if (autoFit && !initialFit) { const before = { x: centerX, y: centerY, scale }; fit(); animateTo(); centerX = before.x; centerY = before.y; scale = before.scale; }
+      if (camera.autoFit && !initialFit) { const before = camera.placement(); fit(); camera.animateTo(); camera.centerX = before.x; camera.centerY = before.y; camera.scale = before.scale; }
       update();
     } else if (initialFit && viewport.width > 1 && viewport.height > 1 && ++stableLayoutFrames >= 2) {
       initialFit = false; revealStart = Date.now();
-      fit(); targetX = centerX; targetY = centerY; targetScale = scale;
+      fit(); camera.settle();
       update();
     }
-    if (animating) {
-      const fraction = 1 - Math.exp(-Math.min(deltaMs, 100) / 65);
-      centerX += (targetX - centerX) * fraction; centerY += (targetY - centerY) * fraction; scale += (targetScale - scale) * fraction;
-      if (Math.abs(targetX - centerX) + Math.abs(targetY - centerY) + Math.abs(targetScale - scale) < 0.02) {
-        centerX = targetX; centerY = targetY; scale = targetScale; animating = false;
-      }
-      update();
-    }
+    if (camera.step(deltaMs)) update();
     if (revealProgress() < 1 || revealStart !== undefined) { update(); if (revealProgress() >= 1) revealStart = undefined; }
     if (!dirty) return;
     dirty = false;
@@ -1591,9 +1008,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const left = rect.x, top = rect.y, right = rect.x + rect.width - 1, bottom = rect.y + rect.height - 1;
         return x >= left && x <= right && y >= top && y <= bottom && (!node.children.length || x === left || x === right || y === top || y === bottom);
       });
-      for (const cell of rasterize(routes, point => projected(point.x, point.y), isCovered, selected ? String(selected.id) : undefined, edgeMarks())) {
-        if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width || cell.y >= viewport.height) continue;
-        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : cell.tone === "path" ? palette.purple : palette.edgeDim;
+      for (const cell of rasterize([...routes, ...gaps], point => camera.projected(point.x, point.y), isCovered, state.selected ? String(state.selected.id) : undefined, edgeMarks(diff, diagram.nodes, diagram.edges, flowPath))) {
+        // A connector stops a cell short of the inspector's divider, so it never reads as a line into the panel.
+        if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width - 1 || cell.y >= viewport.height) continue;
+        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : cell.tone === "path" || cell.tone === "gap" ? palette.purple : palette.edgeDim;
         canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(fg), bg);
       }
     })();
@@ -1603,23 +1021,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     } catch (error) { renderError = error; stop(); }
   });
   // Live reload: the model, its layout and the activity mapping are re-read when their files change, keeping camera and selection.
-  const reloadWorld = Effect.gen(function* () {
-    const raw = yield* readActivityConfig(view.workspace).pipe(
-      Effect.catchIf(error => !binding && !following && hasCode(error, "ENOENT"), () => Effect.succeed(undefined)));
-    const nextConfig = binding || following || raw?.project === view.project ? raw : undefined;
-    let nextError = "";
-    const nextFiles = yield* nodeFiles(view.workspace, nextConfig).pipe(Effect.catch(error => Effect.sync(() => { nextError = error.message; return new Map<string, string[]>(); })));
-    const nextDiagrams = yield* Effect.gen(function* () {
-      const source = yield* acquireModel(view.workspace);
-      if (source.hasErrors()) return yield* Effect.fail(failure("Reload.model", "The model has errors; showing the last good version"));
-      const model = yield* io("LikeC4.layout", () => source.layoutedModel(view.project));
-      return new Map([...model.views()].map(entry => [String(entry.id), entry.$view]));
-    }).pipe(Effect.scoped);
-    if (nextConfig) yield* validateActivityMapping(view, nextConfig);
-    pendingReload = { diagrams: nextDiagrams, config: nextConfig, files: nextFiles, fileError: nextError, notice: "" };
+  const reloadWorld = Effect.suspend(() => loadWorld(view, { watching: Boolean(binding || following), reload: true })).pipe(Effect.flatMap(next => Effect.sync(() => {
+    state.pendingReload = { ...next, notice: "" };
     renderer.requestRender();
-    yield* Effect.sync(loadFlows);
-  });
+    loadFlows();
+  })));
   let reloading = false, again = false, reloadTimer: ReturnType<typeof setTimeout> | undefined;
   const triggerReload = () => {
     if (closing) return;
@@ -1636,13 +1042,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     Effect.catch(() => Effect.sync(() => { message = "Live reload unavailable: the model will not update until the viewer is reopened"; return undefined; }))),
     watcher => Effect.sync(() => { clearTimeout(reloadTimer); watcher?.close(); }));
   yield* Effect.gen(function* () {
-    const next = yield* readStale(view.workspace), nextDiff = yield* readDiff(view.workspace), nextDecisions = yield* readDecisions(view.workspace);
-    // A plan belongs to the work it was set for: one set more than two hours before the watched session began (or, watching none, before now) is not
-    // shown, so an old plan never marks today's work `off plan`. The two hours leave room for a person to state the scope and then start the agent.
-    const set = yield* readPlan(view.workspace);
-    const started = binding && set ? yield* sessionStart(view.workspace, binding).pipe(Effect.catch(() => Effect.succeed(undefined))) : undefined;
-    const nextPlan = set && set.time >= (started ?? Date.now()) - 7_200_000 ? set : undefined;
-    drafted = yield* io("Native.drafted", () => readFile(join(view.workspace, home, modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
+    const { stale: next, diff: nextDiff, decisions: nextDecisions, plan: nextPlan, drafted: isDraft, words: nextWords } = yield* readChecks(view.workspace, binding);
+    drafted = isDraft;
+    if (JSON.stringify([...nextWords]) !== JSON.stringify([...words])) { words = nextWords; dirty = true; if (!editorActive) update(); }
     if (next?.time !== stale?.time && stale !== undefined) loadFlows();
     if (JSON.stringify(next) !== JSON.stringify(stale) || JSON.stringify(nextDiff) !== JSON.stringify(diff) || JSON.stringify(nextPlan) !== JSON.stringify(plan) || JSON.stringify(nextDecisions) !== JSON.stringify(decisions)) {
       stale = next; diff = nextDiff; plan = nextPlan; decisions = nextDecisions; dirty = true;

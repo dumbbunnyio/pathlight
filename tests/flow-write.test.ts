@@ -78,6 +78,11 @@ test("flow add writes a checked journey; refuses unknown components, unread file
 
     expect(await fails(...base, "--step", "customer -> parcel.storefrnt: x", "--step", "customer -> parcel.storefront: y")).toContain("Did you mean parcel.storefront");
     expect(await fails(...base.slice(0, -1), "src/nope.ts", ...hops)).toContain("not a file in the workspace");
+    // `..` is refused as a path segment, not inside a name: a catch-all route such as `[...slug].ts` is an ordinary file.
+    await writeFile(join(directory, "src/[...slug].ts"), "export const b = 1;\n");
+    expect(await fails(...base.slice(0, -1), "src/../src/checkout.ts", ...hops)).toContain("not a file in the workspace");
+    expect(await cli("flow", "add", "catch-all", "--workspace", directory, "--title", "Catch-all", "--reads", "src/[...slug].ts", ...hops)).toContain("Wrote catch-all.behavior.c4");
+    await cli("flow", "remove", "catch-all", "--workspace", directory);
     expect(await fails("flow", "add", "place-order", "--workspace", directory, "--title", "T", ...hops)).toContain("--reads");
     expect(await fails(...base, "--step", "customer -> parcel.storefront: only one")).toContain("at least two steps");
     expect(existsSync(join(directory, "place-order.behavior.c4"))).toBe(false);

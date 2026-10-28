@@ -56,13 +56,23 @@ export function stepsCard(flow: FlowMap, current: number, byElement: ReadonlyMap
     starts.push(line);
     const here = index === current;
     const at = journey ? (step.to ? [step.to] : []) : step.elements;
-    const comp = at.length ? clip(`${elementTitle(at[0]!)}${at.length > 1 ? ` +${at.length - 1}` : ""}`, 16) : "";
+    // A journey's first step names the card it leaves too, so the `▶` on that card and the `1` on the next agree with the reader.
+    const comp = journey && index === 0 && step.from && step.to ? `${elementTitle(step.from)} → ${elementTitle(step.to)}`
+      : at.length ? `${elementTitle(at[0]!)}${at.length > 1 ? ` +${at.length - 1}` : ""}` : "";
     const touched = at.some(element => (byElement.get(element)?.length ?? 0) > 0);
     anyTouched ||= touched;
-    const titleRoom = Math.max(6, width - 2 - 3 - 1 - comp.length - 2);
-    chunks.push(...lit([fg(palette.accent)(here ? "› " : "  "), fg(here ? palette.accent : palette.purple)(`${step.n}`.padStart(2) + " "),
-      fg(step.mark === "bug" ? palette.failure : step.mark === "fixed" ? palette.green : here ? palette.text : palette.body)(clip(step.title, titleRoom).padEnd(titleRoom)),
-      fg(palette.muted)(` ${comp}`), fg(palette.accent)(touched ? " ●" : "  "), nl], here, background)); line++;
+    const tone = step.mark === "bug" ? palette.failure : step.mark === "fixed" ? palette.green : here ? palette.text : palette.body;
+    const head = [fg(palette.accent)(here ? "› " : "  "), fg(here ? palette.accent : palette.purple)(`${step.n}`.padStart(2) + " ")];
+    const dot = fg(palette.accent)(touched ? " ●" : "  ");
+    // The event gets the whole width; the component shares its row when both fit, else it takes the next one. The step being read shows its event in full.
+    const room = Math.max(6, width - 5 - 2);
+    if (step.title.length + 1 + comp.length <= room) {
+      chunks.push(...lit([...head, fg(tone)(step.title.padEnd(room - comp.length)), fg(palette.muted)(comp), dot, nl], here, background)); line++;
+    } else {
+      const words = here ? wrapWords(step.title, room) : [clip(step.title, room)];
+      words.forEach((text, row) => { chunks.push(...lit([...(row ? [indent(5)] : head), fg(tone)(clip(text, room).padEnd(room)), row ? fg(palette.muted)("  ") : dot, nl], here, background)); line++; });
+      if (comp) { chunks.push(...lit([indent(5), fg(palette.muted)(clip(comp, room).padEnd(room + 2)), nl], here, background)); line++; }
+    }
     if (!here) return;
     const latest = at.flatMap(element => byElement.get(element) ?? []).sort((a, b) => b.time - a.time)[0];
     if (latest) {

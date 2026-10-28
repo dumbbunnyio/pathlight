@@ -31,14 +31,16 @@ const viewRows = Effect.fn("Catalog.viewRows")(function* (workspace: string) {
   for (const project of source.projects()) {
     const model = yield* io("LikeC4.compute", () => source.computedModel(project));
     // LikeC4 adds a "Landscape" index view when none is written; only written views have a source file.
-    for (const view of model.views()) views.push({ project, id: view.id, title: view.title ?? view.id, written: Boolean(view.$view.sourcePath) });
+    for (const view of model.views()) views.push({ project, id: view.id, title: view.title ?? view.id, written: Boolean(view.$view.sourcePath), journey: view.$view._type === "dynamic" });
   }
   return { workspace: directory, views };
 }, Effect.scoped);
 
+/** Every view, the package views first; a journey (a LikeC4 dynamic view, such as one `pathlight flow add` wrote) is marked and listed after them. */
 export const listViews = Effect.fn("Catalog.list")(function* (workspace: string) {
   const { workspace: directory, views } = yield* viewRows(workspace);
-  return { workspace: directory, views: views.map(({ project, id, title }) => ({ project, id, title })) };
+  const ordered = [...views.filter(view => !view.journey), ...views.filter(view => view.journey)];
+  return { workspace: directory, views: ordered.map(({ project, id, title, journey }) => ({ project, id, title, ...(journey ? { journey: true } : {}) })) };
 });
 
 /** The view `open` shows when none is named: the written view called `index`, else the first written view, else any. */

@@ -15,7 +15,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
       mappings: [{ glob: "src/api.ts", element: "parcel.commerce.api" }] }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "navigation", "-x", "180", "-y", "46",
       "-e", "VISUAL=nvim -u NONE -i NONE -n", "-P", "-F", "#{pane_id}", process.execPath, resolve("src/cli.ts"), "view", "services",
-      "--workspace", directory, "--project", "parcel", "--session", "navigation", "--source", "claude");
+      "--workspace", directory, "--project", "parcel", "--session", "navigation", "--source", "claude", "--select", "customer");
     const capture = async (text: string | RegExp) => {
       let output = "";
       for (let attempt = 0; attempt < 160; attempt++) {
@@ -82,7 +82,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("parcel/services");
     await tmux("send-keys", "-t", pane, "b");
-    const restored = await capture("Selected: parcel.commerce.api");
+    const restored = await capture(/parcel\/checkout[\s\S]*Selected: parcel\.commerce\.api/);
     expect(restored).toContain("parcel/checkout");
     expect(restored).toMatch(/─ ■/);
     expect(restored.match(/zoom \d+%/)?.[0]).toBe(selectedApi.match(/zoom \d+%/)?.[0]);

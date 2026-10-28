@@ -59,7 +59,7 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
   try {
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "flow", "-x", "170", "-y", "42", "-P", "-F", "#{pane_id}",
-      process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", directory, "--project", "parcel");
+      process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", directory, "--project", "parcel", "--select", "customer");
     const screen = () => tmux("capture-pane", "-p", "-t", pane);
     const until = async (predicate: (text: string) => boolean, label: string) => {
       let output = "";
@@ -73,7 +73,7 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
     // Flows are read after the first frame; the card says so when the selected component is in one.
     const before = await until(text => text.includes("In flows") && text.includes("◇ Placing an order"), "the In flows card");
     expect(before).toContain("◇ reading");
-    expect(before).not.toContain("2 Steps");
+    expect(before).not.toContain("Steps");
 
     await tmux("send-keys", "-t", pane, "F");
     const first = await until(text => /^ flow /m.test(text) && text.includes("1/5") && text.includes("opens checkout"), "flow mode on step 1");
@@ -92,7 +92,7 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
     // Esc leaves flow mode and brings back the connections.
     await tmux("send-keys", "-t", pane, "Escape");
     const left = await until(text => /^ diagram /m.test(text) && text.includes("Connects"), "diagram mode");
-    expect(left).not.toContain("2 Steps");
+    expect(left).not.toContain("Steps");
 
     // The next F is the other flow, a state diagram: its bug mark shows in the reader.
     await tmux("send-keys", "-t", pane, "F", "F");
@@ -120,6 +120,28 @@ test("a flow is shown on the screen as text, so an agent can check it", async ()
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
+test("F keeps the fitted camera, and a hop with no connector has its gap drawn, dotted in the agent's colour", async () => {
+  const directory = await workspace(false);
+  try {
+    const see = async (keys: string[], ansi = false) => {
+      const out = join(directory, `screen-${keys.length}-${ansi}.txt`);
+      await run("sh", ["-c", `"$1" "$2" see services --workspace "$3" --project parcel --cols 150 --rows 36 --select customer ${keys.length ? `--keys '${keys.join(",")}'` : ""} ${ansi ? "--ansi" : ""} > "$4"`, "sh", process.execPath, resolve("src/cli.ts"), directory, out]);
+      return readFile(out, "utf8");
+    };
+    // Entering flow mode on a fitted view moves nothing: the same zoom, and every card where it was.
+    const plain = await see([]), flow = await see(["F"]);
+    const zoom = (text: string) => /zoom \d+%/.exec(text)?.[0];
+    expect(zoom(flow)).toBe(zoom(plain));
+    // Only the diagram's columns: the step reader names the same components.
+    const at = (text: string, label: string) => { const rows = text.split("\n").map(line => line.slice(0, 100)); const row = rows.findIndex(line => line.includes(label)); return [row, rows[row]?.indexOf(label)]; };
+    for (const label of ["Storefr", "Inventory", "Payment"]) expect(at(flow, label)).toEqual(at(plain, label));
+    // The step orders → shipping has no relationship: its gap is the only dotted run in the agent's violet (#7466b0).
+    const violetDots = (text: string) => (text.match(/38;2;116;102;176[^m]*m[┈┊]/g) ?? []).length;
+    expect(violetDots(await see([], true))).toBe(0);
+    expect(violetDots(await see(["F"], true))).toBeGreaterThan(0);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
 test("e on a step that names a function opens it in the editor at the line the file declares it on now", async () => {
   const directory = await workspace(false);
   const socket = join("/tmp", `c4fe-${process.pid}.sock`);
@@ -133,7 +155,7 @@ test("e on a step that names a function opens it in the editor at the line the f
     await mkdir(join(directory, "bin"));
     await writeFile(join(directory, "bin/nvim"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${join(directory, "editor-args")}"\n`, { mode: 0o755 });
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "flow", "-x", "170", "-y", "42", "-P", "-F", "#{pane_id}",
-      "env", `VISUAL=${join(directory, "bin/nvim")}`, process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", directory, "--project", "parcel");
+      "env", `VISUAL=${join(directory, "bin/nvim")}`, process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", directory, "--project", "parcel", "--select", "customer");
     const until = async (predicate: (text: string) => boolean, label: string) => {
       let output = "";
       for (let attempt = 0; attempt < 160; attempt++) {

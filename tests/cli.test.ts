@@ -41,6 +41,18 @@ test("lists real project views without starting a terminal viewer", async () => 
   });
 });
 
+test("list marks a journey and lists it after the package views", async () => {
+  const copy = join(directory, "with-journey");
+  await cp("examples/parcel", copy, { recursive: true, filter: source => !source.includes(".cache") });
+  await writeFile(join(copy, "journey.c4"), "views {\n  dynamic view placing {\n    title 'Placing an order'\n    customer -> parcel.storefront 'opens checkout'\n  }\n}\n");
+  const result = await invoke("list", "--workspace", copy);
+  expect(result.code).toBe(0);
+  const views = JSON.parse(result.stdout).views as { id: string; journey?: boolean }[];
+  expect(views.map(view => view.id)).toEqual(["index", "services", "checkout", "placing"]);
+  expect(views.at(-1)).toMatchObject({ id: "placing", journey: true });
+  expect(views.filter(view => view.journey)).toHaveLength(1);
+});
+
 test("rejects unknown view IDs rather than interpreting them as export patterns or shell commands", async () => {
   for (const view of ["*", "missing", "index; touch injected"]) {
     const result = await invoke("show", view, "--workspace", workspace, "--pane", "%0");

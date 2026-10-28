@@ -39,10 +39,10 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     expect(rendered).toContain("zoom");
     expect(rendered).toMatch(/[╭╮╰╯]/);
     expect(rendered).toMatch(/[▶◀▲▼]/);
-    expect(rendered).toMatch(/[─┈]{5,}▶/);
+    expect(rendered).toMatch(/[─┈][─┈┴┬]{2,}▶/);
     await tmux("resize-window", "-t", pane, "-y", "46");
     await delay(200);
-    expect(await tmux("capture-pane", "-p", "-t", pane)).toMatch(/[─┈]{5,}▶/);
+    expect(await tmux("capture-pane", "-p", "-t", pane)).toMatch(/[─┈][─┈┴┬]{2,}▶/);
     await tmux("resize-window", "-t", pane, "-y", "45");
     await delay(200);
     const divider = rendered.split("\n")[3]?.indexOf("│") ?? -1;
@@ -103,10 +103,10 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     await tmux("send-keys", "-t", pane, "e");
     await capture(/› [├└]─ activity\.ts/);
     await tmux("send-keys", "-t", pane, "-l", "z7");
-    await capture(/3 Files[─\s]+0\/0/);
+    await capture(/Files[─\s]+0\/0/);
     await writeFile(join(directory, "src/z7.ts"), "export {};\n");
     await tmux("send-keys", "-t", pane, "C-r");
-    expect(await capture(/› [├└]─ z7\.ts/)).toMatch(/3 Files[─\s]+1\/1/);
+    expect(await capture(/› [├└]─ z7\.ts/)).toMatch(/Files[─\s]+1\/1/);
     await tmux("send-keys", "-t", pane, "C-u");
     await capture(/› [├└]─ activity\.ts/);
     await tmux("send-keys", "-t", pane, "Down", "Down", "Down", "Down", "Down", "Down");

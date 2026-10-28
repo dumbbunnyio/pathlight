@@ -1,23 +1,14 @@
 import { fg, StyledText, type TextChunk } from "@opentui/core";
-import type { Hint } from "../ui";
 import { palette } from "../ui";
+import { helpGroups } from "./keys";
 import { nl } from "./text";
 
 /**
  * The keyboard help: four groups of keys, two columns when there is room (Diagram on the left; Inspector, Agent and Global stacked on the right).
- * The group for where the keys are right now is in the accent colour; the rest are dim. `vim` says which family selects (the other pans).
+ * The group for where the keys are right now is in the accent colour; the rest are dim. The rows are viewer/keys.ts's table.
  */
 export function helpContent(options: { inspector: boolean; vim: boolean; screenWidth: number; version: string }) {
-  const arrows = "← ↑ ↓ →", { vim } = options;
-  const groups: { name: string; active: boolean; rows: Hint[] }[] = [
-    { name: "Diagram", active: !options.inspector, rows: [[vim ? "h j k l" : arrows, "select a neighbour"], [vim ? arrows : "h j k l", "pan"], ["+ -", "zoom"], ["f", "fit everything"],
-      ["0", "actual size"], ["r", "centre the selection"], ["tab", "next node"], ["enter", "into a group / open a link"], ["backspace", "up to the parent"],
-      ["o", "open the linked view"], ["g", "go to any view"], ["b", "back"], ["F", "trace a flow (F again: next, last one leaves)"], ["[ ]", "step through the flow"]] },
-    { name: "Inspector", active: options.inspector, rows: [["i", "toggle the inspector"], ["1-4", "focus a card"], ["j k", "move / scroll"], ["space", "fold card"],
-      ["PgUp PgDn", "scroll the inspector"], ["e", "browse mapped files (in a flow: read the step's function)"], ["esc", "back to diagram"]] },
-    { name: "Agent", active: false, rows: [["t", "ask the agent about it"], ["m", "ask it to improve the map"], ["d", "ask it to trace a flow"], ["n", "name and note it yourself"], ["w", "jump to the agent's work, and follow it"], ["c", "review new dependencies, and what the session touched"], ["a", "follow the work"], ["s", "show or hide subagent calls"], ["p", "replay the session"]] },
-    { name: "Global", active: false, rows: [["/", "search views, boxes, files"], ["T", "choose a theme"], ["?", "this help"], ["q", "quit"]] },
-  ];
+  const groups = helpGroups(options.vim).map(group => ({ ...group, active: group.name === "Diagram" ? !options.inspector : group.name === "Inspector" && options.inspector }));
   const wide = options.screenWidth >= 100;
   const width = Math.min(96, options.screenWidth - 4), inner = width - 6, column = wide ? Math.floor((inner - 4) / 2) : inner, keyWidth = 12;
   // One group as lines of chunks, each exactly `column` cells wide.

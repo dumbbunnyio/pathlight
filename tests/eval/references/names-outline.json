@@ -1,0 +1,19 @@
+{
+  "repo": "outline",
+  "commit": "d3b094352",
+  "note": "Phase 1 baseline (2026-10-27). Written from the code by the person scoring, before the namer ran in this workspace. The draft of this repo only has top-level boxes, so the hard boxes are the small folders and single files: the README states none of their purposes. Each concept is a group of words, any one of which says that thing; each forbidden phrase is a plausible reading the code contradicts.",
+  "elements": {
+    ".claude": { "concepts": [["skill", "claude"], ["verify", "verification", "prove", "demo", "reproduce"], ["browser", "headless", "playwright", "isolated", "instance", "container"]], "forbidden": ["settings", "permission"] },
+    "__mocks__": { "concepts": [["mock", "stub", "fake"], ["test", "vitest"], ["window", "browser", "localstorage", "console", "jsdom", "ctx"]], "forbidden": ["jest", "api response", "fixture data"] },
+    ".oxlint": { "concepts": [["lint", "oxlint"], ["rule", "plugin", "custom", "local"], ["mobx", "sequelize", "koa", "react router", "react-router", "vitest", "editor", "bundle", "minif"]], "forbidden": ["eslint", "ignore list"] },
+    "build.js": { "concepts": [["build", "compile", "swc"], ["server", "backend"], ["watch", "copy", "static", "plugin"]], "forbidden": ["webpack", "bundles the client", "client bundle", "frontend bundle", "bundles the app"] },
+    "i18next-parser.config.js": { "concepts": [["i18n", "translation", "locale", "i18next"], ["extract", "parse", "parser", "scan", "key", "catalog"]], "forbidden": ["runtime", "loads translations", "translation service"] },
+    "lint-staged.config.mjs": { "concepts": [["commit", "staged", "hook", "git"], ["format", "oxfmt", "lint", "oxlint"], ["translation", "i18n", "dedupe"]], "forbidden": ["ci pipeline", "github action", "eslint", "prettier"] },
+    "relativeci.config.js": { "concepts": [["relativeci", "relative ci"], ["bundle", "webpack-stats", "stats", "size"]], "forbidden": ["relative import", "path alias", "relative path", "continuous integration pipeline"] },
+    "vite.config.mts": { "concepts": [["vite"], ["client", "frontend", "web app", "browser", "spa", "react"], ["pwa", "dev server", "build", "bundle", "manifest"]], "forbidden": ["server build", "test runner"] },
+    "vitest.config.mts": { "concepts": [["vitest", "test"], ["project", "server", "app", "shared", "jsdom", "environment"]], "forbidden": ["jest", "end-to-end", "e2e", "playwright"] },
+    "vitest.d.ts": { "concepts": [["vitest"], ["type", "global", "declaration", "typing"]], "forbidden": ["setup file", "mocks"] },
+    "plugins": { "concepts": [["plugin", "integration", "extension"], ["slack", "github", "auth", "sso", "provider", "notion", "webhook", "storage", "search", "import"]], "forbidden": ["editor plugin", "prosemirror", "vite plugin", "babel"] },
+    "shared": { "concepts": [["shared", "common", "both"], ["app", "client", "frontend", "browser"], ["server", "backend"], ["editor", "i18n", "translation", "type", "util"]], "forbidden": ["published", "npm package"] }
+  }
+}
