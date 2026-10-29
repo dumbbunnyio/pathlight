@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { checkWorkspace } from "../src/check";
 import { listViews } from "../src/catalog";
-import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, viewCap, witness } from "../src/draft";
+import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, openFloor, openShare, viewCap, witness } from "../src/draft";
 import { readdir } from "node:fs/promises";
 import { mappingIn, overlayIn, run } from "./effects";
 
@@ -464,33 +464,98 @@ test("an overlay merge makes several folders one top-level component, and the mo
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test("an overlay split gives each subfolder its own component and every file exactly one owner", async () => {
-  const files = {
+test("an overlay split opens a folder under half the way the draft opens one: its subfolders and its loose files inside it, every file with one owner", async () => {
+  const files: Record<string, string> = {
     "package.json": JSON.stringify({ name: "solo" }),
     "src/big/a/one.ts": "export const one = 1;\n", "src/big/a/two.ts": "export const two = 1;\n", "src/big/a/three.ts": "export const three = 1;\n",
     "src/big/b/four.ts": "import { one } from '../a/one';\nexport const four = one;\n", "src/big/b/five.ts": "export const five = 1;\n", "src/big/b/six.ts": "export const six = 1;\n",
     "src/big/top.ts": "import { four } from './b/four';\nexport const top = four;\n",
-    "src/other/x.ts": "import { top } from '../big/top';\nexport const x = top;\n", "src/other/y.ts": "export const y = 1;\n", "src/other/z.ts": "export const z = 1;\n",
+    "src/other/x.ts": "import { top } from '../big/top';\nexport const x = top;\n",
   };
+  // big holds 7 of 15 files: under half, so only the split opens it.
+  for (const n of [1, 2, 3, 4, 5, 6, 7]) files[`src/other/o${n}.ts`] = "export const o = 1;\n";
   const directory = await withOverlay(files, { version: 1, elements: {}, splits: [{ key: "src/big", by: "agent" }] });
   try {
     const made = await Effect.runPromise(draftWorkspace(directory));
     expect(made.problems).toEqual([]);
+    expect(made).toMatchObject({ folders: 1, components: 4 });
     const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
-    for (const title of ["big/a", "big/b", "big (files)"]) expect(model).toContain(`component '${title}'`);
+    expect(model).toContain("  big = folder 'big' {\n    description '7 files, 9 lines'\n    a = component 'a' {");
+    for (const title of ["a", "b", "loose files"]) expect(model).toContain(`component '${title}'`);
     const config = JSON.parse(await readFile(mappingIn(directory), "utf8")) as { mappings: { glob: string; element: string }[] };
-    expect(config.mappings.map(item => item.element)).toContain("big_b");
+    expect(config.mappings.filter(item => item.element.startsWith("big.")).map(item => [item.glob, item.element])).toEqual([["src/big/a/**", "big.a"], ["src/big/b/**", "big.b"], ["src/big/top.ts", "big.root"]]);
     for (const path of Object.keys(files).filter(name => name.startsWith("src/"))) {
       const owners = new Set(config.mappings.filter(item => new Bun.Glob(item.glob).match(path)).map(item => item.element));
       expect([path, owners.size]).toEqual([path, 1]);
     }
     const check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
-    // The imports across the split are real relationships now: b uses a, the loose file uses b.
-    expect(model).toContain("big_b -> big_a");
-    expect(model).toContain("big_files -> big_b");
+    // The imports inside the opened folder are real relationships now: b uses a, the loose file uses b.
+    expect(model).toContain("big.b -> big.a");
+    expect(model).toContain("big.root -> big.b");
+    expect(model).toContain("other -> big.root");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+/** `count` files in `folder`, each importing nothing, so a fixture can hold a hundred files without listing them. */
+const many = (folder: string, count: number, extension = "ts") => Object.fromEntries(Array.from({ length: count }, (_, n) => [`${folder}/f${n}.${extension}`, extension === "ts" ? `export const f${n} = ${n};\n` : `// ${n}\n`]));
+
+/** Drafts a workspace and returns what opened, checking every time that the mapping claims each file once and that `check` is clean. */
+const drafted = async (files: Record<string, string>) => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-open-"));
+  try {
+    await write(directory, { "package.json": JSON.stringify({ name: "app" }), ...files });
+    const made = await Effect.runPromise(draftWorkspace(directory));
+    const config = JSON.parse(await readFile(mappingIn(directory), "utf8")) as { mappings: { glob: string; element: string }[] };
+    for (const path of Object.keys(files).filter(name => name.endsWith(".ts"))) {
+      expect([path, new Set(config.mappings.filter(item => new Bun.Glob(item.glob).match(path)).map(item => item.element)).size]).toEqual([path, 1]);
+    }
+    expect((await Effect.runPromise(checkWorkspace(directory))).summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
+    const keys = JSON.parse(await readFile(join(directory, ".cache", "pathlight", "keys.json"), "utf8")) as { keys: Record<string, string> };
+    return { made, model: await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8"), keys: keys.keys, mappings: config.mappings };
+  } finally { await rm(directory, { recursive: true, force: true }); }
+};
+
+test("a folder that is more than half of its package and holds at least openFloor read files opens: children titled by name, keyed by path", async () => {
+  expect([openFloor, openShare]).toEqual([100, 0.9]);
+  // core holds 110 of 130 read files (85%): over half, under nine in ten, at the floor's side of it.
+  const { made, model, keys, mappings } = await drafted({
+    ...many("src/core/ui", 60), ...many("src/core/data", 50), ...many("src/cli", 20),
+    "src/core/ui/view.ts": `import { f0 } from "../data/f0";\nexport const view = f0;\n`, "src/cli/main.ts": `import { view } from "../core/ui/view";\nexport const main = view;\n`,
+  });
+  expect(made).toMatchObject({ folders: 1, components: 3, relationships: 2 });
+  expect(model).toContain("  element folder\n");
+  expect(model).toContain("  core = folder 'core' {\n    description '111 files, 112 lines'\n    data = component 'data' {");
+  expect(model).toContain("    ui = component 'ui' {");
+  expect(model).toContain("  cli -> core.ui '1 import'");
+  expect(model).toContain("  core.ui -> core.data '1 import'");
+  expect([keys["core"], keys["core.ui"], keys["core.data"], keys["cli"]]).toEqual(["src/core", "src/core/ui", "src/core/data", "src/cli"]);
+  expect(mappings.map(item => [item.glob, item.element])).toEqual([["src/cli/**", "cli"], ["src/core/data/**", "core.data"], ["src/core/ui/**", "core.ui"]]);
+}, 60_000);
+
+test("a folder at the same share with fewer than openFloor read files stays one box, and one at exactly half stays shut", async () => {
+  // 17 of 20 is 85%: most of the package, but neither big nor nearly all of it.
+  const small = await drafted({ ...many("src/core/ui", 9), ...many("src/core/data", 8), ...many("src/cli", 3) });
+  expect(small.made).toMatchObject({ folders: 0, components: 2 });
+  expect(small.model).toContain("  core = component 'core' {");
+  expect(small.model).not.toContain("element folder");
+  const half = await drafted({ ...many("src/core/ui", 60), ...many("src/core/data", 60), ...many("src/cli", 120) });
+  expect(half.made).toMatchObject({ folders: 0, components: 2 });
+}, 60_000);
+
+test("a folder holding nine in ten of a small package's read files opens, and files the scan does not read do not count against it", async () => {
+  // 18 of 20 read files; the ten Rust files beside the CLI are drawn but not counted.
+  const { made, model } = await drafted({ ...many("src/core/ui", 9), ...many("src/core/data", 9), ...many("src/cli", 2), ...many("src/cli/native", 10, "rs") });
+  expect(made).toMatchObject({ folders: 1 });
+  expect(model).toContain("  core = folder 'core' {");
+}, 60_000);
+
+test("a chain of single folders opens at the first level that is several things, and no further (`model` is LikeC4 syntax, so its id gets an underscore)", async () => {
+  const { made, model, keys } = await drafted({ ...many("src/main/java/org/acme/app/web", 3), ...many("src/main/java/org/acme/app/data", 3), ...many("src/main/java/org/acme/app/model", 3) });
+  expect(made).toMatchObject({ folders: 1, components: 3 });
+  expect(model).toContain("  app = folder 'app' {");
+  expect(Object.entries(keys).sort()).toEqual([["app", "src/main/java/org/acme/app"], ["app.data", "src/main/java/org/acme/app/data"], ["app.model_", "src/main/java/org/acme/app/model"], ["app.web", "src/main/java/org/acme/app/web"]]);
+}, 60_000);
 
 test("a pinned relationship title labels an arrow imports support, and the count moves to its description", async () => {
   const directory = await withOverlay(monorepo, { version: 1, elements: {}, relationships: [{ from: "packages/core#loose", to: "packages/core/src/database", title: "reads and writes rows", by: "human" }] });
