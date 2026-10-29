@@ -3,6 +3,9 @@ import { palette } from "../ui";
 import { helpGroups, type Tier } from "./keys";
 import { nl, wrapWords } from "./text";
 
+/** The help frame's widest: wider than a dialog's, so every label sits on one line at 140 columns. */
+export const helpCap = 132;
+
 /** What each connector colour means, in the colours themselves; the diff's pair only when a diff is loaded. */
 const legendItems = (diff: boolean): [glyph: string, color: string, label: string][] => [
   ["──", palette.outgoing, "out of the selected box"], ["──", palette.incoming, "into it"], ["┈┈", palette.edgeDim, "other relationships"],
@@ -16,8 +19,8 @@ const legendItems = (diff: boolean): [glyph: string, color: string, label: strin
 export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: number; version: string; diff?: boolean }) {
   const groups = helpGroups(options.vim).map(group => ({ ...group, active: group.tier === options.tier }));
   const wide = options.screenWidth >= 100;
-  // The frame is at most 100 columns: the content is its inside.
-  const inner = Math.min(96, options.screenWidth - 8), gap = 3;
+  // The frame is at most `helpCap` columns wide (100 below 100 columns), four of them its border and padding: the content is its inside.
+  const inner = Math.min((wide ? helpCap : 100) - 4, options.screenWidth - 8), gap = 3;
   const column = wide ? Math.floor((inner - gap * (groups.length - 1)) / groups.length) : inner;
   // One group as lines of chunks, each exactly `column` cells wide, its keys as wide as its longest; a label too long for its column wraps under itself.
   const lines = (group: typeof groups[number]): TextChunk[][] => {

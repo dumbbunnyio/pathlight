@@ -32,7 +32,7 @@ import { cardLook } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
-import { helpContent } from "./viewer/help";
+import { helpCap, helpContent } from "./viewer/help";
 import { allotSections, firstQuestion, headContent, nodeListContent, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
 import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
@@ -161,7 +161,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const guide = helpContent({ tier, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version, diff: diff !== undefined });
     help.content.content = guide.content; help.meta.content = guide.meta;
     help.foot.content = new StyledText(borderHints(hints.help));
-    if (help.visible) help.place(guide.width, guide.height); else help.open(guide.width, guide.height);
+    if (help.visible) help.place(guide.width, guide.height, helpCap); else help.open(guide.width, guide.height, helpCap);
   };
   // With nothing selected the head says what the app is: the note of the box the view is about, else of the model's first top-level box.
   const appNote = () => {

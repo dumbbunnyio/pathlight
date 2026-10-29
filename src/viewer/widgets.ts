@@ -121,14 +121,15 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
     const title = onBorder({ left: 1, top: -1 }, titleChunks), meta = onBorder({ right: 1, top: -1 }), foot = onBorder({ left: 1, bottom: -1 });
     const content = new TextRenderable(renderer, { selectable: false, fg: palette.body, wrapMode: "none", flexShrink: 0 });
     for (const child of [content, title.box, meta.box, foot.box]) panel.add(child);
-    // `columns` and `rows` are the content's; the frame adds its border and padding, and is at most 100 columns wide (and never wider or taller than the screen).
-    const place = (columns: number, rows: number) => {
-      const w = Math.max(20, Math.min(columns + 4, 100, renderer.width - 2)), h = Math.max(3, Math.min(rows + 2, renderer.height - 2));
+    // `columns` and `rows` are the content's; the frame adds its border and padding, and is at most `cap` columns wide (100 for a dialog; help passes
+    // its own) and never wider or taller than the screen.
+    const place = (columns: number, rows: number, cap = 100) => {
+      const w = Math.max(20, Math.min(columns + 4, cap, renderer.width - 2)), h = Math.max(3, Math.min(rows + 2, renderer.height - 2));
       panel.width = w; panel.height = h;
       panel.left = Math.floor((renderer.width - w) / 2); panel.top = Math.max(0, Math.floor((renderer.height - h) / 2));
     };
     return Object.assign(modal, { scrim, panel, content, title, meta, foot, place,
-      open(columns: number, rows: number) { place(columns, rows); scrim.visible = panel.visible = true; },
+      open(columns: number, rows: number, cap?: number) { place(columns, rows, cap); scrim.visible = panel.visible = true; },
       close() { scrim.visible = panel.visible = false; } });
   };
   const help = makeModal([fg(palette.accent)("◆ "), fg(palette.text)("Keyboard shortcuts")]);

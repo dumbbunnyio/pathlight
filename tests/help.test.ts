@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { palette } from "../src/ui";
-import { helpContent } from "../src/viewer/help";
+import { helpCap, helpContent } from "../src/viewer/help";
 import { type Action, helpGroups, type KeyMode, type KeyPress, keyAction, tierOf } from "../src/viewer/keys";
 
 const press = (name: string, sequence = name.length === 1 ? name : "", extra: Partial<KeyPress> = {}): KeyPress => ({ name, sequence, ctrl: false, meta: false, shift: false, ...extra });
@@ -53,6 +53,13 @@ test("from 100 columns the tiers stand side by side; below that they stack, and 
     const heads = accent(tier);
     expect(heads.filter(chunk => chunk.fg?.equals(heads[tier - 1]!.fg!))).toHaveLength(1);
   }
+});
+
+test("help's frame is its own width, 132 at 140 columns, not a dialog's 100", () => {
+  expect(helpCap).toBe(132);
+  expect(helpContent({ tier: 1, vim: true, screenWidth: 140, version: "0" }).width).toBe(helpCap - 4);
+  expect(helpContent({ tier: 1, vim: true, screenWidth: 120, version: "0" }).width).toBe(112);
+  expect(helpContent({ tier: 1, vim: true, screenWidth: 80, version: "0" }).width).toBe(72);
 });
 
 test("tab moves through what is on screen: into the inspector and through its cards, a step in a flow, and never another box", () => {
