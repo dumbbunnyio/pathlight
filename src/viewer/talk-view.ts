@@ -44,7 +44,8 @@ export const renderText = (text: string, width: number): TextChunk[][] => {
 };
 
 /**
- * The conversation as the talk shows it: each message under `you · 12:04` or `agent · 12:04`, a blank row apart, oldest first, so the newest is at the bottom. With
+ * The conversation as the talk shows it: each message under `you · 12:04` or `agent · 12:04`, a blank row apart, oldest first, so the newest is at the bottom;
+ * the person's own words stand apart, `you` in the accent colour and the text one column in. With
  * nothing to show, one dim line saying why (`empty`), and nothing invented.
  */
 export const talkContent = (messages: readonly Message[], options: { width: number; empty: string }) => {
@@ -54,8 +55,9 @@ export const talkContent = (messages: readonly Message[], options: { width: numb
   for (const message of messages) {
     // A blank row between messages: a code block or a list must not run into the next one's label.
     if (rows.length) rows.push([]);
-    rows.push([fg(message.role === "you" ? palette.incoming : palette.muted)(message.role), fg(palette.border)(` · ${clock(message.at)}`)]);
-    rows.push(...renderText(message.text, width));
+    const yours = message.role === "you";
+    rows.push([fg(yours ? palette.accent : palette.muted)(message.role), fg(palette.border)(` · ${clock(message.at)}`)]);
+    rows.push(...(yours ? renderText(message.text, width - 1).map(row => [fg(palette.body)(" "), ...row]) : renderText(message.text, width)));
   }
   return { content: new StyledText(rows.flatMap((row, index) => [...index ? [nl] : [], ...row])), lines: rows.length };
 };

@@ -24,7 +24,7 @@
   │ LikeC4 cata… │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┴▶│ PNG export   │─┈╯                    │                                                        
   ╰──────────────╯                          ╰──────────────╯                       │                                                        
                                                                                    │                                                        
-  ·           ·           ·            ·           ·           ·            ·      │                                                        
+  ·           ·           ·            ·           ·           ·            ·      │ ────────────────────────────────────────────────────── 
                                                                                    │                                                        
                                                                                    │ ▎Ask    Improve the map    Trace a flow                
                                                                                    │ ● files 0  ● connections 2  ○ activity 0  ● draw it    

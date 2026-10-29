@@ -51,7 +51,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
   /** The talk's rows, drawn for the column as it is now: `width` is the room inside it, `height` its rows. */
   const render = (width: number, height: number) => {
     for (const widget of [talk.head, talk.scroll, talk.rule, talk.row, talk.hint]) widget.visible = showing;
-    talk.tabs.visible = talk.include.visible = showing && Boolean(current?.fresh);
+    talk.top.visible = talk.tabs.visible = talk.include.visible = showing && Boolean(current?.fresh);
     if (!showing || !current) return;
     const target = options.selected(), conversation = options.conversation(), live = options.live();
     talk.head.content = talkHeader({ subject: target?.title, state: conversation.state, spin: spinAt(Date.now()), session: live.bound ? live.label : undefined, width });
@@ -66,7 +66,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
       const line = talkIncludeLine({ tab: current.tab, include, counts: [context.files.length, context.links.length, context.activity.length], focus: focus === "toggles" ? toggle : -1, mapReady, width, background: options.background });
       talk.include.content = line.content; talk.include.height = line.rows; includeSpans = line.spans;
     }
-    talk.rule.content = new StyledText([fg(palette.rule)("─".repeat(Math.max(1, width)))]);
+    talk.rule.content = talk.top.content = new StyledText([fg(palette.rule)("─".repeat(Math.max(1, width)))]);
     talk.input.placeholder = current.fresh ? offered || placeholders[current.tab] : "reply…";
     talk.prompt.fg = focus === "field" ? palette.accent : palette.border;
     // Three rows, growing to a third of the column, then scrolling.
