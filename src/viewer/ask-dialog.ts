@@ -19,14 +19,14 @@ type Widgets = ReturnType<typeof createWidgets>;
  * are `relevant`'s choice (the ones on the component's edges), read when it is sent.
  */
 export function createAskDialog<Target extends AskTarget>(options: {
-  renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "ask" | "askInput" | "askPrompt" | "askRow">; workspace: string; parent: string | undefined;
+  renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "ask" | "askInput" | "askPrompt" | "askRow" | "askColumns">; workspace: string; parent: string | undefined;
   selected: () => Target | undefined; context: (target: Target) => { files: string[]; links: string[]; activity: string[] }; relevant: (target: Target) => Effect.Effect<string[]>;
   live: () => { bound: boolean; label: string };
   say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void;
   /** A request went to the agent; `drawing` when it asks for a journey to be recorded (`t` with `draw it`, or `d`). */
   asked: (drawing: boolean) => void; background: RGBA;
 }) {
-  const { renderer, workspace } = options, { ask, askInput, askPrompt, askRow } = options.widgets;
+  const { renderer, workspace } = options, { ask, askInput, askPrompt, askRow, askColumns } = options.widgets;
   const tell = (message: string) => { options.say(message); options.update(); };
   let asking: Target | undefined;
   // What to send with the question: files, connections, activity, and whether to draw the answer. `draw it` follows the question (on for a
@@ -84,8 +84,8 @@ export function createAskDialog<Target extends AskTarget>(options: {
   const open = (target: Target, next: typeof mode, text: string, placeholder: string) => {
     asking = target; mode = next; drawFlipped = undefined; offered = ""; options.opening();
     askInput.placeholder = placeholder;
-    askInput.setText(text); askInput.gotoBufferEnd(); askInput.height = 1; askRow.height = 3;
-    ask.open(Math.min(76, renderer.width - 4), 10);
+    askInput.setText(text); askInput.gotoBufferEnd(); askInput.height = 3; askRow.height = 3;
+    ask.open(askColumns(), 6);
     focusOn(-1); options.say(""); options.update();
   };
   const withKey = (target: Target, then: (key: string) => Effect.Effect<void>) =>

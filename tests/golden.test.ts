@@ -73,3 +73,19 @@ test("the watched-140x36 screen matches its snapshot", async () => {
     expect(screen).toBe(await readFile(file, "utf8"));
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+// `n` names a box of a drafted map; the frozen fixture is a hand-written model, so a copy gets the keys file the draft would have written. The
+// screen is the first step of the two, in the modal frame, with the generated name in its three-row field.
+test("the name-140x36 screen matches its snapshot", async () => {
+  const directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "pathlight-golden-name-"));
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    await mkdir(join(directory, ".cache", "pathlight"), { recursive: true });
+    await writeFile(join(directory, ".cache", "pathlight", "keys.json"), JSON.stringify({ version: 1, keys: { plugin: "plugins" } }));
+    const out = join(directory, "screen.txt");
+    await run("sh", ["-c", `"$1" "$2" see live --workspace "$3" --project viewer --cols 140 --rows 36 --keys n > "$4"`, "sh", process.execPath, resolve("src/cli.ts"), directory, out]);
+    const screen = await readFile(out, "utf8"), file = "tests/golden/name-140x36.txt";
+    if (process.env.UPDATE_GOLDEN === "1") { await mkdir("tests/golden", { recursive: true }); await writeFile(file, screen); return; }
+    expect(screen).toBe(await readFile(file, "utf8"));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

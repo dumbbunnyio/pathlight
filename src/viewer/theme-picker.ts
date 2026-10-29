@@ -42,7 +42,7 @@ export function createThemePicker(options: {
       preview: theme => { const entry = themes.get(theme); if (!entry) return undefined; try { return paletteOf(entry, mode); } catch { return undefined; } } });
     picker.content.content = made.content; picker.meta.content = made.meta;
     picker.foot.content = new StyledText(borderHints(hints.themes));
-    picker.place(Math.min(64, renderer.width - 4), shown + 4);
+    picker.place(Math.min(58, renderer.width - 10), shown);
   };
   const move = (to: number) => { index = (to + names.length) % names.length; apply(names[index]!); render(); };
   options.run(io("Native.terminalColors", () => renderer.getPalette({ timeout: 1000 })).pipe(
@@ -57,7 +57,7 @@ export function createThemePicker(options: {
     })),
     Effect.catch(() => Effect.void)));
   return {
-    begin() { base = name; index = Math.max(0, names.indexOf(name)); top = 0; picker.open(Math.min(64, renderer.width - 4), rows() + 4); render(); options.update(); },
+    begin() { base = name; index = Math.max(0, names.indexOf(name)); top = 0; picker.open(Math.min(58, renderer.width - 10), rows()); render(); options.update(); },
     move(to: "up" | "down" | "pageup" | "pagedown" | "home" | "end") {
       move({ up: index - 1, down: index + 1, pageup: Math.max(0, index - rows()), pagedown: Math.min(names.length - 1, index + rows()), home: 0, end: names.length - 1 }[to]);
     },

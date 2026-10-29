@@ -83,14 +83,15 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   const statusRight = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   const footer = new BoxRenderable(renderer, { height: 1, flexShrink: 0, flexDirection: "row", justifyContent: "space-between", paddingRight: 1 });
   footer.add(statusLeft); footer.add(statusRight);
-  // A modal is one 1-column rounded frame over a dimmed backdrop. Its title, metadata and key hints are set into the border rows
-  // (small panel-coloured texts laid over the border), so there is no separate header or footer.
-  const makeModal = (color: string, titleChunks: TextChunk[], dim = 0.8) => {
+  // A modal is one thin frame over a dimmed backdrop: a single line in the dim edge colour, one column of padding left and right and none above or
+  // below. Its title, metadata and key hints are set into the border rows (small panel-coloured texts laid over the border), so there is no
+  // separate header or footer.
+  const makeModal = (titleChunks: TextChunk[], dim = 0.8) => {
     const modal = { dismiss: () => {}, get visible() { return panel.visible; } };
     const scrim = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", zIndex: 19000, visible: false,
       backgroundColor: RGBA.fromValues(0.02, 0.03, 0.04, dim), onMouse(event) { event.preventDefault(); event.stopPropagation(); if (event.type === "down") modal.dismiss(); } });
-    const panel = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: 60, height: 10, border: true, borderStyle: "rounded", borderColor: color,
-      backgroundColor: palette.panel, paddingLeft: 2, paddingRight: 2, paddingTop: 1, paddingBottom: 1, zIndex: 20000, visible: false, flexDirection: "column" });
+    const panel = new BoxRenderable(renderer, { position: "absolute", left: 0, top: 0, width: 60, height: 10, border: true, borderStyle: "single", borderColor: palette.edgeDim,
+      backgroundColor: palette.panel, paddingLeft: 1, paddingRight: 1, zIndex: 20000, visible: false, flexDirection: "column" });
     const onBorder = (options: { left?: number; right?: number; top?: number; bottom?: number }, initial?: TextChunk[]) => {
       const text = new TextRenderable(renderer, { selectable: false, wrapMode: "none", flexShrink: 0, fg: palette.muted });
       const box = new BoxRenderable(renderer, { position: "absolute", height: 1, flexDirection: "row", backgroundColor: palette.panel, ...options });
@@ -102,38 +103,40 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
     const title = onBorder({ left: 1, top: -1 }, titleChunks), meta = onBorder({ right: 1, top: -1 }), foot = onBorder({ left: 1, bottom: -1 });
     const content = new TextRenderable(renderer, { selectable: false, fg: palette.body, wrapMode: "none", flexShrink: 0 });
     for (const child of [content, title.box, meta.box, foot.box]) panel.add(child);
-    // `height` is the whole frame: its content rows plus the border and one blank row of padding top and bottom.
-    const place = (width: number, height: number) => {
-      const w = Math.max(20, Math.min(width, renderer.width - 2)), h = Math.max(5, Math.min(height, renderer.height - 2));
+    // `columns` and `rows` are the content's; the frame adds its border and padding, and is at most 100 columns wide (and never wider or taller than the screen).
+    const place = (columns: number, rows: number) => {
+      const w = Math.max(20, Math.min(columns + 4, 100, renderer.width - 2)), h = Math.max(3, Math.min(rows + 2, renderer.height - 2));
       panel.width = w; panel.height = h;
       panel.left = Math.floor((renderer.width - w) / 2); panel.top = Math.max(0, Math.floor((renderer.height - h) / 2));
     };
     return Object.assign(modal, { scrim, panel, content, title, meta, foot, place,
-      open(width: number, height: number) { place(width, height); scrim.visible = panel.visible = true; },
+      open(columns: number, rows: number) { place(columns, rows); scrim.visible = panel.visible = true; },
       close() { scrim.visible = panel.visible = false; } });
   };
-  const help = makeModal(palette.edgeDim, [fg(palette.accent)("◆ "), fg(palette.text)("Keyboard shortcuts")]);
-  const summary = makeModal(palette.edgeDim, [fg(palette.text)("This session")]);
-  const ask = makeModal(palette.accent, [fg(palette.text)("Ask the agent")]);
-  const goto = makeModal(palette.edgeDim, [fg(palette.text)("Go to view")]);
+  const help = makeModal([fg(palette.accent)("◆ "), fg(palette.text)("Keyboard shortcuts")]);
+  const summary = makeModal([fg(palette.text)("This session")]);
+  const ask = makeModal([fg(palette.text)("Ask the agent")]);
+  const goto = makeModal([fg(palette.text)("Go to view")]);
   // No backdrop dimming: the diagram behind is the preview.
-  const picker = makeModal(palette.edgeDim, [fg(palette.accent)("◆ "), fg(palette.text)("Theme")], 0);
-  // The question: a field one step darker than the modal that grows to four rows, then scrolls. Enter sends, Alt+Enter adds a line.
-  const askRows = () => Math.min(4, Math.max(1, askInput.virtualLineCount));
-  const askInput = new TextareaRenderable(renderer, { flexGrow: 1, height: 1, wrapMode: "word", placeholder: "What do you want to know about it?", placeholderColor: palette.border,
+  const picker = makeModal([fg(palette.accent)("◆ "), fg(palette.text)("Theme")], 0);
+  // The field: one step darker than the modal, three rows, growing to six, then scrolling. Enter sends, Alt+Enter adds a line.
+  const askRows = () => Math.min(6, Math.max(3, askInput.virtualLineCount));
+  const askInput = new TextareaRenderable(renderer, { flexGrow: 1, height: 3, wrapMode: "word", placeholder: "What do you want to know about it?", placeholderColor: palette.border,
     backgroundColor: palette.background, textColor: palette.text, focusedBackgroundColor: palette.background, focusedTextColor: palette.text,
     cursorColor: palette.accent, cursorStyle: { style: "block", blinking: false },
     keyBindings: [{ name: "return", meta: true, action: "newline" }, { name: "return", shift: true, action: "newline" }],
     onContentChange: () => fitAsk() });
   const askPrompt = new TextRenderable(renderer, { selectable: false, content: "›", fg: palette.accent, wrapMode: "none", flexShrink: 0, width: 1, marginRight: 1 });
-  const askRow = new BoxRenderable(renderer, { height: 3, width: "100%", flexShrink: 0, flexDirection: "row", backgroundColor: palette.background, marginTop: 1, paddingLeft: 1, paddingRight: 1, paddingTop: 1, paddingBottom: 1 });
+  const askRow = new BoxRenderable(renderer, { height: 3, width: "100%", flexShrink: 0, flexDirection: "row", backgroundColor: palette.background, marginTop: 1, paddingLeft: 1, paddingRight: 1 });
   askRow.add(askPrompt); askRow.add(askInput);
   ask.panel.add(askRow);
+  // The dialog's content: two lines, a blank, and the field.
+  const askColumns = () => Math.min(70, renderer.width - 10);
   const fitAsk = () => {
     const rows = askRows();
     if (askInput.height === rows) return;
-    askInput.height = rows; askRow.height = rows + 2;
-    if (ask.visible) ask.place(Math.min(76, renderer.width - 4), rows + 9);
+    askInput.height = rows; askRow.height = rows;
+    if (ask.visible) ask.place(askColumns(), rows + 3);
     renderer.requestRender();
   };
   // The narrow-terminal view: every node as a row (indented by depth), the selection marked; it replaces the diagram.
@@ -145,5 +148,5 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   nodeList.add(nodeListText);
   viewport.add(canvas); viewport.add(nodeList); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   for (const child of [topBar, body, footer, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel, goto.scrim, goto.panel, picker.scrim, picker.panel]) renderer.root.add(child);
-  return { topBar, headingText, badgeText, heading, breadcrumb, crumbHint, breadcrumbRow, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, fitAsk, nodeList, nodeListText };
+  return { topBar, headingText, badgeText, heading, breadcrumb, crumbHint, breadcrumbRow, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, askColumns, fitAsk, nodeList, nodeListText };
 }

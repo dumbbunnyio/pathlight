@@ -106,7 +106,7 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
   for (const resource of resources) resource.dispose();
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
-  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, fitAsk, nodeList, nodeListText } = createWidgets(renderer);
+  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, askColumns, fitAsk, nodeList, nodeListText } = createWidgets(renderer);
   if (!binding && !following) { sections.activity.box.visible = false; sections.activity.box.height = 0; }
   let connectionItems: string[] = [];
   let fileLines: number[] = [];
@@ -158,7 +158,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const guide = helpContent({ tier, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version, diff: diff !== undefined });
     help.content.content = guide.content; help.meta.content = guide.meta;
     help.foot.content = new StyledText(borderHints(hints.help));
-    if (help.visible) help.place(guide.width, guide.height + 4); else help.open(guide.width, guide.height + 4);
+    if (help.visible) help.place(guide.width, guide.height); else help.open(guide.width, guide.height);
   };
   // With nothing selected the head says what the app is: the note of the box the view is about, else of the model's first top-level box.
   const appNote = () => {
@@ -330,11 +330,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // `c`: the review of new dependencies on top (when there are any), then what the session touched.
   const summaryContent = () => {
-    const items = reviewItems(diff, decisions), frame = Math.min(100, renderer.width - 6);
+    const items = reviewItems(diff, decisions), columns = Math.min(96, renderer.width - 10);
     reviewCursor = Math.min(reviewCursor, Math.max(0, items.length - 1));
-    const head = reviewSection(items, { base: diff?.base ?? "HEAD", cursor: reviewCursor, width: frame - 6, title: elementTitle, drawnLater: drafted, background: rowBackground });
+    const head = reviewSection(items, { base: diff?.base ?? "HEAD", cursor: reviewCursor, width: columns, title: elementTitle, drawnLater: drafted, background: rowBackground });
     const made = sessionSummary({ session: binding ? `${binding.source}:${binding.session.slice(0, 8)}` : undefined, config, events, elementTitle, screenWidth: renderer.width, ruleWidth: bodyWidth(), now: Date.now() });
-    summary.place(items.length ? frame : made.size[0], made.size[1] + head.lines);
+    summary.place(items.length ? columns : made.size[0], made.size[1] + head.lines);
     summary.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(items.length ? "Review" : "This session"), fg(palette.muted)(" ")]);
     summary.foot.content = new StyledText(borderHints(items.length ? hints.review : hints.close));
     return new StyledText([...head.chunks, ...made.chunks]);
@@ -718,7 +718,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const neighbours = diagram.nodes.filter(node => near.has(node.id)).flatMap(node => files.get(String(node.modelRef ?? "")) ?? []);
     return relevantFiles({ files: files.get(String(target.modelRef ?? "")) ?? [], neighbours, imports: list, description: describe(target.description) });
   }));
-  const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
+  const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow, askColumns }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
     live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); }, background: hot });
   askInput.onContentChange = () => { fitAsk(); dialog.typed(); };
   help.dismiss = () => help.close();
@@ -886,7 +886,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "map": dialog.beginMap(); return;
       case "trace": dialog.beginFlow(); return;
       case "name": dialog.beginName(); return;
-      case "session": summary.foot.content = new StyledText(borderHints(hints.close)); summary.open(60, 12); summary.content.content = summaryContent(); update(); return;
+      case "session": summary.foot.content = new StyledText(borderHints(hints.close)); summary.open(56, 8); summary.content.content = summaryContent(); update(); return;
       case "replay": beginReplay(); return;
       case "work": {
         const work = newestWork();
