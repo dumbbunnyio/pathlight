@@ -13,8 +13,9 @@ export const sectionOrder: SectionKey[] = ["activity", "steps", "connections", "
 export const numberedCards = (shown: readonly SectionKey[]) => sectionOrder.filter(key => key === "files" || shown.includes(key));
 
 /**
- * Every widget of the viewer, built once and added to the screen: the header, the diagram's viewport and canvas, the inspector and its cards, the
- * footer, the modals (help, session, ask, go to, theme) and the narrow-terminal node list. What they show is set by the viewer on each update.
+ * Every widget of the viewer, built once and added to the screen: the header, the diagram's viewport and canvas, the column (the inspector's two
+ * faces: the node and its cards, and the talk), the footer, the modals (help, session, naming, go to, theme) and the narrow-terminal node list. What
+ * they show is set by the viewer on each update.
  */
 export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRenderer>>) {
   const topBar = new BoxRenderable(renderer, { height: 3, flexShrink: 0, border: ["bottom"], borderColor: palette.border, paddingLeft: 1, paddingRight: 1 });
@@ -78,6 +79,23 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   const inspectorActions = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 2, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   const inspectorAsk = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   inspector.add(inspectorActions); inspector.add(inspectorAsk);
+  // The column's other face, the talk: whom it is about and what the agent is doing, the conversation (newest at the bottom, staying there unless
+  // scrolled up), the kinds of request and what goes with the first one, a rule, the field, and the keys. Shown in place of the node face.
+  const line = () => new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none", visible: false });
+  const talkHead = line(), talkTabs = line(), talkInclude = line(), talkRule = line(), talkHint = line();
+  const talkScroll = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, marginTop: 1, scrollX: false, scrollY: true, stickyScroll: true, stickyStart: "bottom", visible: false,
+    verticalScrollbarOptions: { showArrows: false, trackOptions: { foregroundColor: palette.edgeDim, backgroundColor: palette.panel } } });
+  const talkText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.body, wrapMode: "none" });
+  talkScroll.add(talkText);
+  const talkInput = new TextareaRenderable(renderer, { flexGrow: 1, height: 3, wrapMode: "word", placeholder: "", placeholderColor: palette.border,
+    backgroundColor: palette.background, textColor: palette.text, focusedBackgroundColor: palette.background, focusedTextColor: palette.text,
+    cursorColor: palette.accent, cursorStyle: { style: "block", blinking: false },
+    keyBindings: [{ name: "return", meta: true, action: "newline" }, { name: "return", shift: true, action: "newline" }] });
+  const talkPrompt = new TextRenderable(renderer, { selectable: false, content: "›", fg: palette.accent, wrapMode: "none", flexShrink: 0, width: 1, marginRight: 1 });
+  const talkRow = new BoxRenderable(renderer, { height: 3, width: "100%", flexShrink: 0, flexDirection: "row", backgroundColor: palette.background, paddingLeft: 1, paddingRight: 1, visible: false });
+  talkRow.add(talkPrompt); talkRow.add(talkInput);
+  for (const child of [talkHead, talkScroll, talkTabs, talkInclude, talkRule, talkRow, talkHint]) inspector.add(child);
+  const talk = { head: talkHead, scroll: talkScroll, text: talkText, tabs: talkTabs, include: talkInclude, rule: talkRule, row: talkRow, prompt: talkPrompt, input: talkInput, hint: talkHint };
   // One bottom row: the mode badge (the only filled block on screen), then key hints or a short-lived notice; zoom and version on the right.
   const statusLeft = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 1, flexGrow: 1, fg: palette.muted, wrapMode: "none" });
   const statusRight = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
@@ -115,28 +133,28 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   };
   const help = makeModal([fg(palette.accent)("◆ "), fg(palette.text)("Keyboard shortcuts")]);
   const summary = makeModal([fg(palette.text)("This session")]);
-  const ask = makeModal([fg(palette.text)("Ask the agent")]);
+  const naming = makeModal([fg(palette.text)("Name")]);
   const goto = makeModal([fg(palette.text)("Go to view")]);
   // No backdrop dimming: the diagram behind is the preview.
   const picker = makeModal([fg(palette.accent)("◆ "), fg(palette.text)("Theme")], 0);
-  // The field: one step darker than the modal, three rows, growing to six, then scrolling. Enter sends, Alt+Enter adds a line.
-  const askRows = () => Math.min(6, Math.max(3, askInput.virtualLineCount));
-  const askInput = new TextareaRenderable(renderer, { flexGrow: 1, height: 3, wrapMode: "word", placeholder: "What do you want to know about it?", placeholderColor: palette.border,
+  // The field: one step darker than the modal, three rows, growing to six, then scrolling. Enter goes on, Alt+Enter adds a line.
+  const nameRows = () => Math.min(6, Math.max(3, nameInput.virtualLineCount));
+  const nameInput = new TextareaRenderable(renderer, { flexGrow: 1, height: 3, wrapMode: "word", placeholder: "Name", placeholderColor: palette.border,
     backgroundColor: palette.background, textColor: palette.text, focusedBackgroundColor: palette.background, focusedTextColor: palette.text,
     cursorColor: palette.accent, cursorStyle: { style: "block", blinking: false },
     keyBindings: [{ name: "return", meta: true, action: "newline" }, { name: "return", shift: true, action: "newline" }],
-    onContentChange: () => fitAsk() });
-  const askPrompt = new TextRenderable(renderer, { selectable: false, content: "›", fg: palette.accent, wrapMode: "none", flexShrink: 0, width: 1, marginRight: 1 });
-  const askRow = new BoxRenderable(renderer, { height: 3, width: "100%", flexShrink: 0, flexDirection: "row", backgroundColor: palette.background, marginTop: 1, paddingLeft: 1, paddingRight: 1 });
-  askRow.add(askPrompt); askRow.add(askInput);
-  ask.panel.add(askRow);
+    onContentChange: () => fitName() });
+  const namePrompt = new TextRenderable(renderer, { selectable: false, content: "›", fg: palette.accent, wrapMode: "none", flexShrink: 0, width: 1, marginRight: 1 });
+  const nameRow = new BoxRenderable(renderer, { height: 3, width: "100%", flexShrink: 0, flexDirection: "row", backgroundColor: palette.background, marginTop: 1, paddingLeft: 1, paddingRight: 1 });
+  nameRow.add(namePrompt); nameRow.add(nameInput);
+  naming.panel.add(nameRow);
   // The dialog's content: two lines, a blank, and the field.
-  const askColumns = () => Math.min(70, renderer.width - 10);
-  const fitAsk = () => {
-    const rows = askRows();
-    if (askInput.height === rows) return;
-    askInput.height = rows; askRow.height = rows;
-    if (ask.visible) ask.place(askColumns(), rows + 3);
+  const nameColumns = () => Math.min(70, renderer.width - 10);
+  const fitName = () => {
+    const rows = nameRows();
+    if (nameInput.height === rows) return;
+    nameInput.height = rows; nameRow.height = rows;
+    if (naming.visible) naming.place(nameColumns(), rows + 3);
     renderer.requestRender();
   };
   // The narrow-terminal view: every node as a row (indented by depth), the selection marked; it replaces the diagram.
@@ -147,6 +165,6 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   const nodeListText = new TextRenderable(renderer, { selectable: false, bg: palette.background, width: "100%", flexShrink: 0, fg: palette.body, wrapMode: "none" });
   nodeList.add(nodeListText);
   viewport.add(canvas); viewport.add(nodeList); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
-  for (const child of [topBar, body, footer, help.scrim, help.panel, summary.scrim, summary.panel, ask.scrim, ask.panel, goto.scrim, goto.panel, picker.scrim, picker.panel]) renderer.root.add(child);
-  return { topBar, headingText, badgeText, heading, breadcrumb, crumbHint, breadcrumbRow, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, askColumns, fitAsk, nodeList, nodeListText };
+  for (const child of [topBar, body, footer, help.scrim, help.panel, summary.scrim, summary.panel, naming.scrim, naming.panel, goto.scrim, goto.panel, picker.scrim, picker.panel]) renderer.root.add(child);
+  return { topBar, headingText, badgeText, heading, breadcrumb, crumbHint, breadcrumbRow, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, talk, statusLeft, statusRight, footer, help, summary, naming, goto, picker, nameInput, namePrompt, nameRow, nameColumns, fitName, nodeList, nodeListText };
 }

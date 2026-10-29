@@ -20,14 +20,14 @@
   │ Agent adapters  │                 parent                    files                   1–4        focus a card, esc   │                    
  ·╰─────────────────│ t               ask how          g        go to any view                     or tab leaves       │                    
                     │                 something        b        back                    j k        move in the card    │                    
-  ╭─────────────────│                 works            i        inspector               space      fold the card       │                    
-  │ LikeC4 catalog  │ F               step through a   f        fit everything          PgUp PgDn  scroll the          │                    
- ·╰─────────────────│                 flow             0  + -   actual size, zoom                  inspector           │                    
-                    │ [ ]             steps, esc       r        centre the selection    v          swap hjkl and       │                    
-                    │                 leaves           ← ↑ ↓ →  pan                                arrows              │                    
- ·       ·      ·   │ ?               this help                                         q          quit                │                    
+  ╭─────────────────│                 works            i        inspector, or the       space      fold the card       │                    
+  │ LikeC4 catalog  │ F               step through a            talk and back           PgUp PgDn  scroll the          │                    
+ ·╰─────────────────│                 flow             z        widen the talk                     inspector           │                    
+                    │ [ ]             steps, esc       f        fit everything          v          swap hjkl and       │                    
+                    │                 leaves           0  + -   actual size, zoom                  arrows              │                    
+ ·       ·      ·   │ ?               this help        r        centre the selection    q          quit                │                    
+                    │                                  ← ↑ ↓ →  pan                                                    │                    
                     └─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────┘                    
-                                                                                                 │                                          
                                                                                                  │                                          
  ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
                                                                                                  │ ──────────────────────────────────────── 

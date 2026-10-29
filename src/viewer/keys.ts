@@ -7,9 +7,11 @@ export type Direction = "left" | "right" | "up" | "down";
 
 /** Where the keys go: the modal on top, if any, else the diagram with whatever mode it is in. */
 export interface KeyMode {
-  layer: "visit" | "ask" | "picker" | "goto" | "summary" | "help" | "main";
-  /** In the ask dialog: whether the context toggles (not the question) have the keys. */
+  layer: "visit" | "ask" | "talk" | "picker" | "goto" | "summary" | "help" | "main";
+  /** In the talk: whether the context toggles (not the field) have the keys. */
   askContext: boolean;
+  /** The talk: whether the column shows it, whether its tabs are still up (nothing sent yet), and whether the field's cursor is on its first row. */
+  talk?: { showing: boolean; fresh: boolean; top: boolean };
   replay: boolean; fileMode: boolean; focusSection: SectionKey | undefined; flow: boolean; listMode: boolean;
   /** The cards `1`–`4` focus, in order (viewer/widgets.ts `numberedCards`). */
   cards: readonly SectionKey[];
@@ -23,7 +25,9 @@ export interface KeyMode {
  */
 export type Action =
   | { type: "stop" } | { type: "swallow" } | { type: "idle" } | { type: "pass" }
-  | { type: "askCancel" } | { type: "askTab" } | { type: "askChoose"; by: 1 | 2 } | { type: "askToggle" } | { type: "askSend" }
+  | { type: "askCancel" } | { type: "askSend" }
+  | { type: "talkLeave" } | { type: "talkTab"; by: -1 | 1 } | { type: "talkToggles" } | { type: "talkField" } | { type: "talkChoose"; by: 1 | 3 } | { type: "talkToggle" }
+  | { type: "talkSend" } | { type: "talkScroll"; by: -1 | 1 } | { type: "talkBack" } | { type: "talkWiden" }
   | { type: "themeCancel" } | { type: "themeKeep" } | { type: "themeMove"; to: "up" | "down" | "pageup" | "pagedown" | "home" | "end" }
   | { type: "gotoClose" } | { type: "gotoGo" } | { type: "gotoMove"; by: -1 | 1 } | { type: "gotoPage"; by: -1 | 1 } | { type: "gotoHome" } | { type: "gotoEnd" }
   | { type: "gotoClear" } | { type: "gotoErase" } | { type: "gotoType"; text: string }
@@ -47,16 +51,26 @@ const directions: Record<string, Direction> = { h: "left", j: "down", k: "up", l
 export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   if (key.ctrl && key.name === "c") return { type: "stop" };
   if (mode.layer === "visit") return { type: "swallow" };
+  // The naming modal (`n`): its field has every key but these.
   if (mode.layer === "ask") {
     if (key.name === "escape") return { type: "askCancel" };
-    if (key.name === "tab") return { type: "askTab" };
+    if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "askSend" };
+    return undefined;
+  }
+  // The talk's field or its toggles have the keys: Esc steps back one level, Tab changes the kind of request until it is sent.
+  if (mode.layer === "talk") {
+    if (key.name === "escape") return mode.askContext ? { type: "talkField" } : { type: "talkLeave" };
+    if (key.name === "tab") return mode.talk?.fresh ? { type: "talkTab", by: key.shift ? -1 : 1 } : { type: "swallow" };
     if (mode.askContext) {
-      if (key.name === "left" || key.name === "h") return { type: "askChoose", by: 2 };
-      if (key.name === "right" || key.name === "l") return { type: "askChoose", by: 1 };
-      if (key.name === "space" || key.sequence === " ") return { type: "askToggle" };
+      if (key.name === "left" || key.name === "h") return { type: "talkChoose", by: 3 };
+      if (key.name === "right" || key.name === "l") return { type: "talkChoose", by: 1 };
+      if (key.name === "space" || key.sequence === " ") return { type: "talkToggle" };
+      if (key.name === "down" || key.name === "j") return { type: "talkField" };
       return { type: "swallow" };
     }
-    if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "askSend" };
+    if (key.name === "up" && mode.talk?.fresh && mode.talk.top) return { type: "talkToggles" };
+    if (key.name === "pageup" || key.name === "pagedown") return { type: "talkScroll", by: key.name === "pageup" ? -1 : 1 };
+    if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "talkSend" };
     return undefined;
   }
   if (mode.layer === "picker") {
@@ -108,6 +122,9 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "s") return { type: "replaySpeed" };
   }
   const files = mode.fileMode;
+  // With the talk showing, Esc steps back in it (a widened talk narrows, then the talk closes) before anything on the diagram.
+  if (!files && mode.talk?.showing && key.name === "escape") return { type: "talkBack" };
+  if (!files && plain && key.name === "z") return { type: "talkWiden" };
   if (!files && plain && /^[1-4]$/.test(key.sequence)) { const section = mode.cards[Number(key.sequence) - 1]; return section ? { type: "focus", section } : { type: "idle" }; }
   // In a flow `tab` is a step, from the diagram or a card; elsewhere it moves diagram → each card → diagram (the viewer leaves at either end).
   if (!files && mode.flow && plain && key.name === "tab") return { type: "flowStep", by: key.shift ? -1 : 1 };
@@ -179,7 +196,7 @@ export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" 
       ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
     { name: "Direct it", tier: 2, rows: [["t", "tell it what to change", ["ask"]], ["c", "session and review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
-      ["/", "search views, boxes, files", ["search"]], ["g", "go to any view", ["views"]], ["b", "back", ["back"]], ["i", "inspector", ["inspector"]],
+      ["/", "search views, boxes, files", ["search"]], ["g", "go to any view", ["views"]], ["b", "back", ["back"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
       ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
     { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a flow", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
       ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],
@@ -211,8 +228,5 @@ export const hints = {
   close: [["esc", "close"]] as Hint[],
   goto: [["type", "search"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]] as Hint[],
   themes: [["↑↓", "preview"], ["enter", "keep"], ["esc", "cancel"]] as Hint[],
-  askSend: [["enter", "send"], ["alt+enter", "new line"], ["esc", "cancel"]] as Hint[],
   askSave: (next: boolean): Hint[] => [["enter", next ? "next" : "save"], ["esc", "cancel"]],
-  askQuestion: [["enter", "send"], ["alt+enter", "new line"], ["tab", "context"], ["esc", "cancel"]] as Hint[],
-  askContext: [["← →", "choose"], ["space", "toggle"], ["tab", "back to question"], ["esc", "cancel"]] as Hint[],
 };

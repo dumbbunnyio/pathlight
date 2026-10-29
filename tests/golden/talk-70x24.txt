@@ -1,0 +1,24 @@
+ ◆ pathlight / Pathlight implementation                               
+ viewer/live · 6 nodes                                                
+──────────────────────────────────────────────────────────────────────
+ Talk · Agent adapters                                   ○ no session 
+                                                                      
+ no session bound yet · the reply lands in the agent pane             
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+ ▎Ask    Improve the map    Trace a flow                              
+ include ● files 0  ● connections 2  ○ activity 0  ● draw it          
+ ──────────────────────────────────────────────────────────────────── 
+  › how does Agent adapters work?                                     
+                                                                      
+                                                                      
+ enter send   alt+enter line   tab kind   esc diagram                 
+ talk   Selected: plugin                          zoom 65%  │  ? help 

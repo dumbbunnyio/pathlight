@@ -62,7 +62,7 @@ test("n pins a name and note from the viewer, m asks the agent to improve the ma
     await until(shown.pane, text => text.includes("Money side"), "renamed box after reload");
     // The agent request carries the key and goes to the harness pane.
     await tmux("send-keys", "-t", shown.pane, "m");
-    await until(shown.pane, text => text.includes("Ask the agent to improve the map"), "map prompt");
+    await until(shown.pane, text => text.includes("▎Improve the map") && text.includes("it reads the files"), "the talk on the map tab");
     await tmux("send-keys", "-t", shown.pane, "-l", "what is this for?");
     await tmux("send-keys", "-t", shown.pane, "Enter");
     const typed = (await until(harness, text => text.replace(/\n/g, "").includes("overlay key:"), "request echoed")).replace(/\n/g, "");

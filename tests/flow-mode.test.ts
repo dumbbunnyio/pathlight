@@ -243,16 +243,19 @@ test("F opens the journey a t just drew, whatever the selection, and its arrival
     };
     await until(text => text.includes("In flows") && text.includes("◇ Placing an order"), "the first flow through the selection");
     await delay(700);
-    const zoom = /zoom \d+%/.exec(await screen())?.[0];
-    expect(zoom).toBeDefined();
     // The offered first question is a how-question: draw it is on, and Enter sends it.
     await tmux("send-keys", "-t", shown.pane, "t");
-    await until(text => text.includes("Ask the agent") && text.includes("● draw it"), "the ask dialog with draw it on");
+    await until(text => text.includes("Talk ·") && text.includes("● draw it"), "the talk with draw it on");
     await tmux("send-keys", "-t", shown.pane, "Enter");
     await until(text => text.includes("have the path recorded as a pathlight journey"), "the question in the agent's pane", harness);
-    const before = await until(text => !text.includes("Ask the agent"), "the dialog closed");
-    const selection = /Selected: (\S+)/.exec(before)?.[1];
+    // After the send the talk stays showing and the keys are back on the diagram; from here on, nothing may move.
+    const before = await until(text => text.includes("Talk ·") && /^ diagram /m.test(text), "the keys back on the diagram");
+    // The toast for the request fills the footer for a moment; the zoom shows again when it has gone.
+    const settled = await until(text => /zoom \d+%/.test(text) && !text.includes("Asked"), "the toast gone");
+    const selection = /Selected: (\S+)/.exec(settled)?.[1], zoom = /zoom \d+%/.exec(settled)?.[0];
     expect(selection).toBeDefined();
+    expect(zoom).toBeDefined();
+    expect(before).toContain("Talk ·");
     await writeFile(join(directory, "paying.behavior.c4"), `views {
   dynamic view paying {
     title 'Paying for an order'

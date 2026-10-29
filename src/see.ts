@@ -15,16 +15,23 @@ const compiled = Bun.main.startsWith("/$bunfs/") || Bun.main.includes("~BUN");
  * (so the same view and size always draw the same cells), is given the keys, and is captured once the picture has stopped changing. An agent cannot
  * look at the viewer, so this is how it checks what a person would see; the tests use it to compare screens against snapshots.
  *
- * It never reads a saved theme (the config directory is empty) and never touches another tmux server or pane.
+ * It never reads a saved theme (the config directory is empty) and never touches another tmux server or pane. With `agent`, a pane running `cat`
+ * in the same private server stands in for the agent's pane, so the talk and the review can be opened and what they type goes nowhere else.
  */
-export const seeView = Effect.fn("See.view")(function* (options: { view: View; cols: number; rows: number; select?: string; keys?: readonly string[]; ansi?: boolean; follow?: boolean }) {
+export const seeView = Effect.fn("See.view")(function* (options: { view: View; cols: number; rows: number; select?: string; keys?: readonly string[]; ansi?: boolean; follow?: boolean; agent?: boolean }) {
   const directory = yield* Effect.acquireRelease(io("See.directory", () => mkdtemp(join(tmpdir(), "pathlight-see-"))), path => io("See.remove", () => rm(path, { recursive: true, force: true })).pipe(Effect.ignore));
   const socket = join(directory, "tmux.sock"), ready = join(directory, "ready.json"), config = join(directory, "config");
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, "-f", "/dev/null", ...args]);
   yield* Effect.addFinalizer(() => tmux("kill-server").pipe(Effect.ignore));
+  const size = ["-x", String(options.cols), "-y", String(options.rows)];
+  const agent = options.agent ? (yield* tmux("new-session", "-d", "-s", "see", ...size, "-P", "-F", "#{pane_id}", "cat")).trim() : undefined;
   const viewer = [process.execPath, ...(compiled ? [] : [fileURLToPath(new URL("./cli.ts", import.meta.url))]),
-    "view", options.view.id, "--workspace", options.view.workspace, "--project", options.view.project, "--ready", ready, ...(options.select ? ["--select", options.select] : []), ...(options.follow ? ["--follow"] : [])];
-  yield* tmux("new-session", "-d", "-s", "see", "-x", String(options.cols), "-y", String(options.rows), "env", `XDG_CONFIG_HOME=${config}`, "COLORTERM=truecolor", ...viewer);
+    "view", options.view.id, "--workspace", options.view.workspace, "--project", options.view.project, "--ready", ready, ...(options.select ? ["--select", options.select] : []), ...(options.follow ? ["--follow"] : []),
+    ...(agent ? ["--parent", agent] : [])];
+  const environment = ["env", `XDG_CONFIG_HOME=${config}`, "COLORTERM=truecolor", ...viewer];
+  // The viewer's window is the session's current one, so the keys and the captures go to it.
+  if (agent) yield* tmux("new-window", "-t", "see", ...environment);
+  else yield* tmux("new-session", "-d", "-s", "see", ...size, ...environment);
 
   const text = yield* io("See.ready", () => readFile(ready, "utf8")).pipe(
     Effect.catchIf(error => hasCode(error, "ENOENT"), () => Effect.succeed(undefined)),

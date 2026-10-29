@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { copyFile } from "node:fs/promises";
 import { mappingIn, run, toolActivity, writeActivity } from "./effects";
 
 /**
@@ -20,6 +21,10 @@ const screens: { name: string; args: string[] }[] = [
   { name: "docked-launcher-140x36", args: ["--cols", "140", "--rows", "36", "--select", "launcher"] },
   { name: "docked-wide-260x50", args: ["--cols", "260", "--rows", "50", "--select", "viewer"] },
   { name: "help-140x36", args: ["--cols", "140", "--rows", "36", "--keys", "?"] },
+  // The talk, opened with `t` beside a stand-in agent pane (`see --agent`): its tabs, toggles and offered question, with no session bound.
+  { name: "talk-140x36", args: ["--cols", "140", "--rows", "36", "--agent", "--keys", "t"] },
+  { name: "talk-overlay-100x30", args: ["--cols", "100", "--rows", "30", "--agent", "--keys", "t"] },
+  { name: "talk-70x24", args: ["--cols", "70", "--rows", "24", "--agent", "--keys", "t"] },
 ];
 
 // `run` trims its output, which would move the first row; `see` is read here through a file for the same reason.
@@ -85,6 +90,27 @@ test("the name-140x36 screen matches its snapshot", async () => {
     const out = join(directory, "screen.txt");
     await run("sh", ["-c", `"$1" "$2" see live --workspace "$3" --project viewer --cols 140 --rows 36 --keys n > "$4"`, "sh", process.execPath, resolve("src/cli.ts"), directory, out]);
     const screen = await readFile(out, "utf8"), file = "tests/golden/name-140x36.txt";
+    if (process.env.UPDATE_GOLDEN === "1") { await mkdir("tests/golden", { recursive: true }); await writeFile(file, screen); return; }
+    expect(screen).toBe(await readFile(file, "utf8"));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+// The talk after its first request, beside a recorded session whose pointer names the conversation fixture; its turn ended half a minute ago, so the
+// state line says `done`. Times are shown on the person's clock, so the screen is taken in UTC.
+test.each([{ name: "talk-reply-140x36", keys: "t,Enter" }, { name: "talk-wide-140x36", keys: "t,Enter,z" }])("the $name screen matches its snapshot", async ({ name, keys }) => {
+  const directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "pathlight-golden-talk-"));
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [] }));
+    const binding = { source: "claude" as const, session: "talk-golden" };
+    await writeActivity(directory, { ...toolActivity(directory, binding, "c1", "Read", { file_path: join(directory, "model.c4") }, "completed"), time: Date.now() - 60_000 });
+    await copyFile("tests/fixtures/conversation/claude.jsonl", join(directory, "conversation.jsonl"));
+    await mkdir(join(directory, ".cache", "pathlight", "sessions"), { recursive: true });
+    await writeFile(join(directory, ".cache", "pathlight", "sessions", "claude-talk-golden.json"), JSON.stringify({ version: 1, source: "claude", session: "talk-golden",
+      transcript: join(directory, "conversation.jsonl"), waiting: false, ended: Date.now() - 30_000 }));
+    const out = join(directory, "screen.txt");
+    await run("sh", ["-c", `TZ=UTC "$1" "$2" see live --workspace "$3" --project viewer --cols 140 --rows 36 --agent --follow --keys "$5" > "$4"`, "sh", process.execPath, resolve("src/cli.ts"), directory, out, keys]);
+    const screen = await readFile(out, "utf8"), file = `tests/golden/${name}.txt`;
     if (process.env.UPDATE_GOLDEN === "1") { await mkdir("tests/golden", { recursive: true }); await writeFile(file, screen); return; }
     expect(screen).toBe(await readFile(file, "utf8"));
   } finally { await rm(directory, { recursive: true, force: true }); }

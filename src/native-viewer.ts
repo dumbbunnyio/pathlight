@@ -22,6 +22,8 @@ import { checkFlows } from "./flows";
 import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges } from "./flow-view";
 import { attempt, failure, io } from "./effects";
 import { writeReady } from "./ready";
+import { createConversationReader, type Message } from "./conversation";
+import { readSession, type SessionPointer } from "./sessions";
 import { declarationsFor } from "./languages";
 import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
 import { createCamera } from "./viewer/camera";
@@ -36,6 +38,7 @@ import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys"
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
 import { createThemePicker } from "./viewer/theme-picker";
 import { createAskDialog } from "./viewer/ask-dialog";
+import type { TalkState } from "./viewer/talk-view";
 import { reviewSection } from "./viewer/review-view";
 import { choose, createState, firstNode, remember, type Visit } from "./viewer/state";
 import { createFlowMode, stepElement } from "./viewer/flow-mode";
@@ -106,7 +109,7 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
   for (const resource of resources) resource.dispose();
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
-  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, statusLeft, statusRight, footer, help, summary, ask, goto, picker, askInput, askPrompt, askRow, askColumns, fitAsk, nodeList, nodeListText } = createWidgets(renderer);
+  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, talk, statusLeft, statusRight, footer, help, summary, naming, goto, picker, nameInput, namePrompt, nameRow, nameColumns, fitName, nodeList, nodeListText } = createWidgets(renderer);
   if (!binding && !following) { sections.activity.box.visible = false; sections.activity.box.height = 0; }
   let connectionItems: string[] = [];
   let fileLines: number[] = [];
@@ -222,18 +225,25 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const badgeContent = () => headerBadge({ width: renderer.width, replay: Boolean(replay), live: liveLabel(), bound: Boolean(binding), watching: Boolean(binding || following),
     busy: events.some(isActive), open: pending(reviewItems(diff, decisions)).length, stale, now: Date.now() });
   let activityError = "";
+  // The talk's width: two fifths of the terminal between 44 and 64 columns, or, widened with `z`, all but a strip of diagram.
+  const talkWidth = () => dialog.wide ? Math.max(44, Math.min(renderer.width - 8, 120)) : Math.min(64, Math.max(44, Math.round(renderer.width * 0.4)));
   const layout = () => {
     const side = renderer.width >= 120;
     listMode = renderer.width < 80;
-    const visible = inspectorPreference === "open" || inspectorPreference === "auto" && side;
-    // Wide terminals dock the inspector beside the diagram; narrower ones show it as an overlay on the right, toggled with `i`.
+    const talking = dialog.showing;
+    const visible = talking || inspectorPreference === "open" || inspectorPreference === "auto" && side;
+    // Wide terminals dock the inspector beside the diagram; narrower ones show it as an overlay on the right, toggled with `i`. Under 80 columns the
+    // talk takes the whole body, as the node list does.
     const mount: typeof mounted = !visible ? "none" : side ? "docked" : "overlay";
     if (mount === "overlay") {
-      const width = Math.min(renderer.width - 2, Math.max(38, Math.floor(renderer.width * 0.5)));
+      const width = talking ? listMode ? renderer.width : Math.min(renderer.width - 2, talkWidth()) : Math.min(renderer.width - 2, Math.max(38, Math.floor(renderer.width * 0.5)));
       const geometry = `${width}/${body.y}/${body.height}`;
-      if (geometry !== overlayGeometry) { overlayGeometry = geometry; inspector.width = width; inspector.left = renderer.width - width; inspector.top = body.y; inspector.height = Math.max(3, body.height); }
+      if (geometry !== overlayGeometry) {
+        overlayGeometry = geometry; inspector.width = width; inspector.left = renderer.width - width; inspector.top = body.y; inspector.height = Math.max(3, body.height);
+        inspector.border = width === renderer.width ? false : ["left"];
+      }
     }
-    const key = `${side}/${mount}`;
+    const key = `${side}/${mount}/${talking}/${dialog.wide}`;
     if (key === layoutKey) return;
     layoutKey = key;
     body.direction = "horizontal";
@@ -251,8 +261,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       renderer.root.add(inspector);
     }
     const total = renderer.width;
-    const panelSize = Math.min(64, Math.max(38, Math.floor(renderer.width * 0.30)));
-    body.minSizes = mount === "docked" ? [36, 28] : [1];
+    // A change of width is a resize: the diagram refits while it is fitted.
+    const panelSize = talking ? talkWidth() : Math.min(64, Math.max(38, Math.floor(renderer.width * 0.30)));
+    body.minSizes = mount === "docked" ? [talking && dialog.wide ? 4 : 36, 28] : [1];
     body.sizes = mount === "docked" ? [Math.max(1, total - panelSize - 1), panelSize] : [total];
   };
   let message = "", lastToast = "";
@@ -480,7 +491,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const head = headContent({ title: selected?.title, kind: selected?.kind ? String(selected.kind) : "", technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
       tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
       by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length, app: selected ? undefined : appNote() });
-    inspectorTitle.content = head.title;
+    // A reply that came while the node face showed: one word where the talk's state line stands, and nothing else.
+    const titleChunk = head.title.chunks[0]!, titleRoom = Math.max(10, inspector.width - 3);
+    inspectorTitle.content = dialog.replied && !dialog.showing ? new StyledText([titleChunk, fg(palette.accent)(`${" ".repeat(Math.max(1, titleRoom - titleChunk.text.length - 7))}replied`)]) : head.title;
     inspectorHead.content = head.what; inspectorHead.visible = head.hasWhat;
     inspectorId.content = head.about; inspectorId.visible = head.hasAbout;
     headRows = head.rows;
@@ -547,10 +560,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       title: selected?.title, canAsk: Boolean(options.parent), background: hot, first: !engaged });
     inspectorActions.content = pinned.actions;
     inspectorAsk.content = pinned.ask;
+    // The column's two faces: the node (its head, cards, actions and question line) or the talk.
+    const talking = dialog.showing;
+    inspectorScroll.visible = inspectorActions.visible = inspectorAsk.visible = !talking;
+    dialog.render(Math.max(10, inspector.width - (mounted === "overlay" && inspector.border ? 3 : 2)), inspector.height);
     if (summary.visible) summary.content.content = summaryContent();
     if (goto.visible) gotoPicker.render();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    const mode = replay ? "replay" : fileMode ? "files" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "flow" : "diagram";
+    const mode = replay ? "replay" : fileMode ? "files" : dialog.focus !== "none" ? "talk" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "flow" : "diagram";
     const work = binding || following ? newestWork() : undefined;
     if (message !== lastToast) {
       lastToast = message;
@@ -718,9 +735,22 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const neighbours = diagram.nodes.filter(node => near.has(node.id)).flatMap(node => files.get(String(node.modelRef ?? "")) ?? []);
     return relevantFiles({ files: files.get(String(target.modelRef ?? "")) ?? [], neighbours, imports: list, description: describe(target.description) });
   }));
-  const dialog = createAskDialog<Node>({ renderer, widgets: { ask, askInput, askPrompt, askRow, askColumns }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
-    live: () => ({ bound: Boolean(binding), label: liveLabel() }), say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); }, background: hot });
-  askInput.onContentChange = () => { fitAsk(); dialog.typed(); };
+  // The talk's conversation: read from the file the bound session's pointer names while the talk has been opened in this run, kept in memory only.
+  let pointer: SessionPointer | undefined, conversation: { messages: readonly Message[]; error: boolean } = { messages: [], error: false };
+  const talkState = (): TalkState => {
+    if (!pointer) return undefined;
+    if (pointer.waiting) return "waiting";
+    // Working while a turn is open, or a call is newer than the turn's end (the journal knows the live tools); done for a while after it ended.
+    if (pointer.ended === null || events.some(isActive) || (events[0]?.time ?? 0) > pointer.ended) return "working";
+    return Date.now() - pointer.ended < 10 * 60_000 ? "done" : undefined;
+  };
+  const talkConversation = () => ({ messages: conversation.messages, state: talkState(),
+    empty: !binding ? "no session bound yet · the reply lands in the agent pane" : conversation.error ? "cannot read the conversation"
+      : !pointer?.transcript ? "nothing recorded from this session's conversation yet · the reply lands in the agent pane" : "no messages yet" });
+  const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); }, background: hot });
+  nameInput.onContentChange = () => fitName();
+  talk.input.onContentChange = () => dialog.typed();
   help.dismiss = () => help.close();
   summary.dismiss = () => { summary.close(); update(); };
   goto.dismiss = () => { goto.close(); update(); };
@@ -737,15 +767,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const foldSection = (key: SectionKey) => { sections[key].open = !sections[key].open; touched.add(key); update(); };
   for (const key of sectionOrder) sections[key].header.onMouseDown = event => {
     event.preventDefault(); event.stopPropagation();
-    if (fileMode || dialog.asking) return;
+    if (fileMode || dialog.naming || dialog.showing) return;
     // The first click focuses the section; clicking the focused one folds it.
     if (state.focusSection === key) foldSection(key); else { state.focusSection = key; touched.add(key); scrollToSection = key; }
     update();
   };
   inspectorAsk.onMouseDown = event => {
     event.preventDefault(); event.stopPropagation();
-    if (fileMode || help.visible || summary.visible || goto.visible || picker.visible || dialog.asking || state.pendingVisit) return;
-    dialog.beginAsk();
+    if (fileMode || help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || state.pendingVisit) return;
+    dialog.ask(!engaged && state.selected ? firstQuestion(state.selected.title) : "");
   };
   let clickedFile = -1;
   const endFiles = () => { clickedFile = -1; fileMode = false; state.focusSection = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
@@ -773,12 +803,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (fileMode) { fileQuery = value; state.fileCursor = 0; message = ""; update(); }
   });
   nodeListText.onMouseDown = event => {
-    if (help.visible || summary.visible || goto.visible || picker.visible || dialog.asking || state.pendingVisit) return;
+    if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || state.pendingVisit) return;
     const node = diagram.nodes[event.y - nodeListText.y];
     if (node) selectNode(node, false);
   };
   viewport.onMouseDown = event => {
-    if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || dialog.asking || state.pendingVisit) return;
+    if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || state.pendingVisit) return;
+    // A click on the diagram hands the keys back to it; the talk stays showing.
+    if (dialog.focus !== "none") dialog.blur();
     state.focusSection = undefined;
     if (fileMode) { endFiles(); message = ""; }
     // Hit the displayed cell bounds, not the fractional world-space plane:
@@ -802,11 +834,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     switch (action.type) {
       case "stop": stop(); return;
       case "swallow": return;
-      case "askCancel": dialog.finish(); return;
-      case "askTab": dialog.tab(); return;
-      case "askChoose": dialog.choose(action.by); return;
-      case "askToggle": dialog.toggle(); return;
-      case "askSend": dialog.send(); return;
+      case "askCancel": dialog.finishName(); return;
+      case "askSend": dialog.nameNext(); return;
+      case "talkLeave": dialog.blur(); return;
+      case "talkTab": dialog.tab(action.by); return;
+      case "talkToggles": dialog.toToggles(); return;
+      case "talkField": dialog.toField(); return;
+      case "talkChoose": dialog.choose(action.by); return;
+      case "talkToggle": dialog.toggle(); return;
+      case "talkSend": dialog.send(); return;
+      case "talkScroll": dialog.scroll(action.by); return;
+      case "talkBack": dialog.back(); return;
+      case "talkWiden": dialog.widen(); return;
       case "themeCancel": themePicker.cancel(); return;
       case "themeKeep": themePicker.keep(); return;
       case "themeMove": themePicker.move(action.to); return;
@@ -865,7 +904,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
           if (entry) { state.focusSection = undefined; flowMode.enter(entry.flow, entry.steps[0]); }
         }
         return;
-      case "cycleFlow": flowMode.cycle(); return;
+      // The step reader is on the node face: reading a flow turns the column to it (the talk is kept; `i` goes back).
+      case "cycleFlow": if (dialog.showing) { dialog.flip(); inspectorPreference = "open"; } flowMode.cycle(); return;
       case "flowStep": flowMode.goTo(flowMode.step + action.by); return;
       case "exitFlow": flowMode.exit(); return;
       case "search": camera.animating = false; gotoPicker.begin("all"); return;
@@ -882,9 +922,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "parent": selectNode(diagram.nodes.find(node => node.id === state.selected?.parent), true); return;
       case "views": gotoPicker.begin("views"); return;
       case "themes": themePicker.begin(); return;
-      case "ask": dialog.beginAsk(!engaged && state.selected ? firstQuestion(state.selected.title) : ""); return;
-      case "map": dialog.beginMap(); return;
-      case "trace": dialog.beginFlow(); return;
+      case "ask": dialog.ask(!engaged && state.selected ? firstQuestion(state.selected.title) : ""); return;
+      case "map": dialog.map(); return;
+      case "trace": dialog.trace(); return;
       case "name": dialog.beginName(); return;
       case "session": summary.foot.content = new StyledText(borderHints(hints.close)); summary.open(56, 8); summary.content.content = summaryContent(); update(); return;
       case "replay": beginReplay(); return;
@@ -922,7 +962,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         break;
       case "fileOpen": { const path = selectedPaths()[state.fileCursor]; if (path) openAtChange(path); break; }
       case "help": showHelp(); break;
-      case "inspector": inspectorPreference = inspector.visible ? "closed" : "open"; break;
+      // With a talk, `i` flips the column between its faces; otherwise it shows or hides the inspector.
+      // On a narrow terminal the node face is an overlay that starts hidden: flipping to it shows it.
+      case "inspector": if (dialog.exists) { dialog.flip(); if (!dialog.showing) inspectorPreference = "open"; } else inspectorPreference = inspector.visible ? "closed" : "open"; break;
       case "scrollInspector": {
         // The focused card scrolls; with none focused, the first open card that overflows does.
         const card = key_ ? sections[key_].content : sectionOrder.map(name => sections[name].content).find(box => box.visible && box.scrollHeight > box.viewport.height);
@@ -968,8 +1010,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   renderer.keyInput.on("keypress", key => {
     if (editorActive) return;
-    const layer = state.pendingVisit ? "visit" : dialog.asking ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : "main";
-    const action = keyAction(key, { layer, askContext: dialog.focus >= 0, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
+    const layer = state.pendingVisit ? "visit" : dialog.naming ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : dialog.focus !== "none" ? "talk" : "main";
+    const action = keyAction(key, { layer, askContext: dialog.focus === "toggles", talk: { showing: dialog.showing, fresh: dialog.fresh, top: dialog.atTop }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
     if (!action) return;
     if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();
@@ -1115,6 +1157,26 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (changed || events.some(isActive) || flashing || wasFlashing || Date.now() - lastPaint > 2000) { wasFlashing = flashing; activityError = ""; lastPaint = Date.now(); if (!editorActive) update(); }
   }).pipe(Effect.catch(() => Effect.sync(() => { if (!activityError) message = "Activity unavailable: the journal could not be read"; activityError = "Activity unavailable"; if (!editorActive) update(); })),
     Effect.repeat(Schedule.spaced("250 millis")), Effect.forkScoped);
+  // The talk's conversation, once a talk has been opened in this run: the bound session's pointer, then whatever its file gained since the last read.
+  // Nothing of it is written anywhere; a reply never moves the camera, the selection or the column (on the node face it only says `replied`).
+  let talked = false, reader: ReturnType<typeof createConversationReader> | undefined, readerFor = "", heard = "";
+  yield* Effect.gen(function* () {
+    talked ||= dialog.exists;
+    if (!talked || !binding || replay) return;
+    const next = yield* readSession(view.workspace, binding);
+    const moved = JSON.stringify(next) !== JSON.stringify(pointer);
+    pointer = next;
+    const source = next?.transcript ? `${next.source}/${next.session}/${next.transcript}` : "";
+    if (source !== readerFor) { readerFor = source; reader = next?.transcript ? createConversationReader(next) : undefined; }
+    const read = reader ? yield* reader.poll().pipe(Effect.map(messages => ({ messages, error: false })), Effect.catch(() => Effect.succeed({ messages: [] as Message[], error: true })))
+      : { messages: [] as Message[], error: false };
+    const last = read.messages.at(-1), now = `${source}/${read.messages.length}/${last?.id}/${last?.text.length}/${read.error}`;
+    if (now !== heard) {
+      if (heard && last?.role === "agent") dialog.noteReply();
+      heard = now; conversation = read;
+      if (!editorActive) update();
+    } else if ((moved || dialog.showing && talkState() === "working") && !editorActive) update();
+  }).pipe(Effect.catch(() => Effect.void), Effect.repeat(Schedule.spaced("250 millis")), Effect.forkScoped);
   renderer.start(); update();
   const ready = yield* io("Native.firstFrame", () => Promise.race([displayed.promise.then(() => true), stopped.promise.then(() => false), renderer.closed.then(() => false)]));
   if (ready && options.ready) yield* writeReady(options.ready, { ready: true });
