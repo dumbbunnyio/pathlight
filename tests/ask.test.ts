@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -60,127 +60,161 @@ test("test files come last in a request, however many neighbours import them", (
     ["server/env.ts", "server/main.ts", "server/test/factories.ts", "server/__mocks__/x.ts", "server/routes/auth.spec.ts", "server/utils/a.test.ts"]);
 });
 
-test("t types a question about the selected node into the harness pane; Enter submits it and Alt+Enter adds a line", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "pathlight-ask-"));
-  const socket = join("/tmp", `c4a-${process.pid}.sock`);
+/** A viewer opened with `show` beside `cat`, which stands in for the agent: whatever the viewer types into its pane, `cat` echoes back. */
+const beside = async (name: string, prepare?: (directory: string) => Promise<void>, show: string[] = []) => {
+  const directory = await mkdtemp(join(tmpdir(), `pathlight-${name}-`));
+  const socket = join("/tmp", `c4${name.slice(0, 3)}-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
+  await cp("tests/fixtures/viewer", directory, { recursive: true });
+  await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
+  await prepare?.(directory);
+  const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", name, "-x", "280", "-y", "44", "-P", "-F", "#{pane_id}", "cat");
+  const shown = JSON.parse(await run(process.execPath, [resolve("src/cli.ts"), "show", "live", "--workspace", directory, "--project", "viewer", "--pane", harness, "--socket", socket, ...show])) as { pane: string };
+  const until = async (pane: string, predicate: (text: string) => boolean, label: string) => {
+    let output = "";
+    for (let attempt = 0; attempt < 100; attempt++) {
+      output = await tmux("capture-pane", "-p", "-J", "-t", pane);
+      if (predicate(output)) return output;
+      await delay(50);
+    }
+    throw new Error(`Missing ${label}:\n${output}`);
+  };
+  // `cat` shows what it was sent twice (the terminal's echo and its own output); a request has arrived when it is there twice.
+  const arrived = (text: string) => until(harness, output => output.replace(/\n/g, "").split(text).length > 2, `"${text.slice(0, 40)}" echoed back`);
+  // One key at a time: Esc followed at once by a letter reads as Alt and that letter.
+  const keys = async (...keys: string[]) => { for (const key of keys) { await tmux("send-keys", "-t", shown.pane, key); await delay(60); } };
+  const type = (text: string) => tmux("send-keys", "-t", shown.pane, "-l", text);
+  const close = async () => { await tmux("kill-server").catch(() => undefined); await rm(directory, { recursive: true, force: true }); };
+  await until(shown.pane, text => text.includes("Selected: plugin"), "viewer");
+  await delay(700);
+  return { directory, harness, pane: shown.pane, tmux, until, arrived, keys, type, close };
+};
+
+test("t opens the talk in the column: the first Enter sends ask.ts's message unchanged, later ones the typed text alone, and the keys go back to the diagram", async () => {
+  const at = await beside("talk");
   try {
-    await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer",
-      mappings: [{ glob: "plugins/**", element: "plugin" }] }));
-    // `cat` stands in for the agent harness: it echoes whatever is typed into its pane.
-    const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "ask-test", "-x", "170", "-y", "44", "-P", "-F", "#{pane_id}", "cat");
-    const shown = JSON.parse(await run(process.execPath, [resolve("src/cli.ts"), "show", "live", "--workspace", directory,
-      "--project", "viewer", "--pane", harness, "--socket", socket])) as { pane: string };
-    const until = async (pane: string, predicate: (text: string) => boolean, label: string) => {
-      let output = "";
-      for (let attempt = 0; attempt < 100; attempt++) {
-        output = await tmux("capture-pane", "-p", "-t", pane);
-        if (predicate(output)) return output;
-        await delay(50);
-      }
-      throw new Error(`Missing ${label}:\n${output}`);
-    };
-    await until(shown.pane, text => text.includes("Selected: plugin"), "viewer");
-    await delay(700);
     // On first open t offers the first question about the box the view opens on, with draw it on, so the first ask is one Enter.
-    await tmux("send-keys", "-t", shown.pane, "t");
-    await until(shown.pane, text => text.includes("Ask the agent") && text.includes("how does Agent adapters work?") && text.includes("● draw it"), "first question offered, draw it on");
-    await tmux("send-keys", "-t", shown.pane, "Enter");
-    const first = await until(harness, text => (text.replace(/\n/g, "").match(/how does Agent adapters work\?/g) ?? []).length >= 2, "first question echoed back");
-    expect(first.replace(/\n/g, "")).toContain('About the "Agent adapters" component (plugin): how does Agent adapters work?');
-    expect(first.replace(/\n/g, "")).toContain("have the path recorded as a pathlight journey");
-    // Once asked, t opens empty.
-    await tmux("send-keys", "-t", shown.pane, "t");
-    await until(shown.pane, text => text.includes("Ask the agent"), "ask prompt");
-    // An empty question does not send: the prompt stays open.
-    await tmux("send-keys", "-t", shown.pane, "Enter");
+    await at.keys("t");
+    const opened = await at.until(at.pane, text => text.includes("Talk · Agent adapters") && text.includes("how does Agent adapters work?") && text.includes("● draw it"), "the talk with the first question offered");
+    expect(opened).toContain("▎Ask");
+    expect(opened).not.toContain("Ask the agent");
+    await at.keys("Enter");
+    // Byte for byte what src/ask.ts builds: the files a request names are none here (the fixture maps no source), its connections are the view's.
+    const first = askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"], activity: [] }, "how does Agent adapters work?", true);
+    await at.arrived(first);
+    const sent = await at.until(at.pane, text => text.includes("✓ Asked the agent about Agent adapters"), "asked toast");
+    // After a send the talk stays showing, its tabs gone, the keys on the diagram.
+    expect(sent).toContain("Talk · Agent adapters");
+    expect(sent).not.toContain("▎Ask");
+    expect(sent).toContain("diagram");
+    // t focuses the field again (same subject, no tabs); an empty field sends nothing.
+    await at.keys("t");
+    await at.until(at.pane, text => text.includes(" talk ") && text.includes("enter send"), "the field focused");
+    await at.keys("Enter");
     await delay(300);
-    expect(await tmux("capture-pane", "-p", "-t", shown.pane)).toContain("Ask the agent");
-    await tmux("send-keys", "-t", shown.pane, "-l", "why does this exist?");
-    await until(shown.pane, text => text.includes("○ draw it"), "draw it off for a why-question");
-    await tmux("send-keys", "-t", shown.pane, "Enter");
-    const typed = await until(harness, text => (text.replace(/\n/g, "").match(/why does this exist\?/g) ?? []).length >= 2, "submitted line echoed back");
-    const joined = typed.replace(/\n/g, "");
-    expect(joined).toContain('About the "Agent adapters" component (plugin): why does this exist?');
-    expect(joined).toContain("connects: → Activity metadata, → tmux launcher");
-    expect(joined).toContain("before editing any file run pathlight plan plugin");
-    expect(joined.split("why does this exist?")[1]).not.toContain("pathlight journey");
-    const toast = await until(shown.pane, text => text.includes("Asked"), "asked toast");
-    expect(toast).toContain("✓ Asked the agent about Agent adapters");
-    expect(toast).not.toContain("Ask the agent");
-    // Tab moves to the include row; Space turns connections off, so the next question carries no connections.
-    await tmux("send-keys", "-t", shown.pane, "t");
-    await until(shown.pane, text => text.includes("Ask the agent"), "second ask prompt");
-    await until(shown.pane, text => text.includes("● connections 2"), "connections on by default");
-    await tmux("send-keys", "-t", shown.pane, "Tab", "Right", "Space");
-    await until(shown.pane, text => text.includes("○ connections 2") && text.includes("← → choose"), "connections off, include row hints");
-    await tmux("send-keys", "-t", shown.pane, "Tab");
-    // Alt+Enter adds a line instead of sending.
-    await tmux("send-keys", "-t", shown.pane, "-l", "second");
-    await tmux("send-keys", "-t", shown.pane, "M-Enter");
-    await tmux("send-keys", "-t", shown.pane, "-l", "one");
+    expect(await at.tmux("capture-pane", "-p", "-t", at.pane)).toContain("enter send");
+    // A later message is the typed text alone; Alt+Enter adds a line in the field rather than sending.
+    await at.type("yes, record it");
+    await at.keys("M-Enter");
+    await at.type("as a journey");
     await delay(300);
-    expect(await tmux("capture-pane", "-p", "-t", shown.pane)).toContain("Ask the agent");
-    await tmux("send-keys", "-t", shown.pane, "Enter");
-    const submitted = await until(harness, text => (text.replace(/\n/g, "").match(/second one/g) ?? []).length >= 2, "second line echoed back");
-    expect(submitted.replace(/\n/g, "").split("second one")[1]).not.toContain("connects:");
-    // A how-question turns draw it on; the user can flip it off and back, and the request then asks for the path to be recorded.
-    await until(shown.pane, text => !text.includes("Ask the agent"), "dialog closed");
-    await tmux("send-keys", "-t", shown.pane, "t");
-    await until(shown.pane, text => text.includes("Ask the agent"), "third ask prompt");
-    await tmux("send-keys", "-t", shown.pane, "-l", "how is a call recorded?");
-    await until(shown.pane, text => text.includes("● draw it"), "draw it on for a how-question");
-    await tmux("send-keys", "-t", shown.pane, "Tab", "Right", "Right", "Right", "Space");
-    await until(shown.pane, text => text.includes("○ draw it"), "draw it flipped off");
-    await tmux("send-keys", "-t", shown.pane, "Space", "Tab");
-    await until(shown.pane, text => text.includes("● draw it"), "draw it back on");
-    await tmux("send-keys", "-t", shown.pane, "Enter");
-    const drawn = await until(harness, text => (text.replace(/\n/g, "").match(/how is a call recorded\?/g) ?? []).length >= 2, "how-question echoed back");
-    expect(drawn.replace(/\n/g, "").split("how is a call recorded?")[1]).toContain("have the path recorded as a pathlight journey");
-  } finally {
-    await tmux("kill-server").catch(() => {});
-    await rm(directory, { recursive: true, force: true });
-  }
+    expect((await at.tmux("capture-pane", "-p", "-t", at.harness)).split("yes, record it").length).toBe(1);
+    await at.keys("Enter");
+    await at.until(at.harness, text => text.includes("as a journey"), "the reply echoed back");
+    const echoed = (await at.tmux("capture-pane", "-p", "-t", at.harness)).replace(/\n/g, "").split(first.slice(-40)).at(-1)!;
+    expect(echoed).toContain("yes, record it");
+    expect(echoed).not.toContain("About the");
+    // m after a send begins a new talk, with its tabs again, on the map tab (dim here: the fixture is no draft).
+    await at.keys("Escape", "m");
+    await at.until(at.pane, text => text.includes("▎Improve the map") && text.includes("needs a map drawn by pathlight draft"), "a new talk on the map tab");
+    // Tab moves between the kinds of request and keeps the typed text.
+    await at.type("what is it");
+    await at.keys("Tab");
+    await at.until(at.pane, text => text.includes("▎Trace a flow") && text.includes("what is it"), "the trace tab, the text kept");
+    await at.keys("Tab");
+    await at.until(at.pane, text => text.includes("▎Ask") && text.includes("● connections 2"), "back to the question tab");
+    // Up from the field's first row reaches the toggles: connections off, so the request carries none.
+    await at.keys("BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace");
+    await at.type("why does this exist?");
+    await at.keys("Up", "Right", "Space");
+    await at.until(at.pane, text => text.includes("○ connections 2") && text.includes("← → choose"), "connections off");
+    await at.keys("Down", "Enter");
+    await at.arrived(askMessage({ title: "Agent adapters", id: "plugin", files: [], links: [], activity: [] }, "why does this exist?", false));
+  } finally { await at.close(); }
 }, 60_000);
 
-test("d asks the agent to trace a flow: the request names the skill, the command and the component's files, and nothing is sent until Enter", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "pathlight-ask-flow-"));
-  const socket = join("/tmp", `c4f-${process.pid}.sock`);
-  const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
+test("Esc steps back: the field, then the talk, and the node face returns with the diagram exactly where it was; i flips faces and keeps the talk", async () => {
+  const at = await beside("faces");
   try {
-    await cp("tests/fixtures/viewer", directory, { recursive: true });
-    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
-    const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "flow-test", "-x", "170", "-y", "44", "-P", "-F", "#{pane_id}", "cat");
-    const shown = JSON.parse(await run(process.execPath, [resolve("src/cli.ts"), "show", "live", "--workspace", directory, "--project", "viewer", "--pane", harness, "--socket", socket])) as { pane: string };
-    const until = async (pane: string, predicate: (text: string) => boolean, label: string) => {
-      let output = "";
-      for (let attempt = 0; attempt < 100; attempt++) {
-        output = await tmux("capture-pane", "-p", "-J", "-t", pane);
-        if (predicate(output)) return output;
-        await delay(50);
-      }
-      throw new Error(`Missing ${label}:\n${output}`);
-    };
-    await until(shown.pane, text => text.includes("Selected: plugin"), "viewer");
-    await delay(700);
-    await tmux("send-keys", "-t", shown.pane, "d");
-    await until(shown.pane, text => text.includes("Ask the agent to trace a flow"), "flow prompt");
-    await tmux("send-keys", "-t", shown.pane, "Enter");
+    const before = await at.tmux("capture-pane", "-p", "-t", at.pane);
+    await at.keys("t");
+    await at.until(at.pane, text => text.includes("Talk · Agent adapters"), "the talk");
+    // `i` flips to the node face and back without closing the talk (the field has the keys first, so Esc hands them to the diagram).
+    await at.keys("Escape", "i");
+    await at.until(at.pane, text => !text.includes("Talk · Agent adapters") && text.includes("Connects"), "the node face");
+    await at.keys("i");
+    await at.until(at.pane, text => text.includes("Talk · Agent adapters") && text.includes("▎Ask"), "the talk again, still fresh");
+    // Selecting another box flips nothing: the talk's header names it as the subject of the next request.
+    await at.keys("l");
+    await at.until(at.pane, text => text.includes("Talk · Activity metadata") || text.includes("Talk · tmux launcher"), "the new subject");
+    await at.keys("h");
+    await at.until(at.pane, text => text.includes("Talk · Agent adapters"), "back on the first box");
+    // z widens it, and Esc narrows it before it closes the talk.
+    await at.keys("z");
+    await at.until(at.pane, text => text.includes("z narrower"), "the wide talk");
+    await at.keys("Escape");
+    await at.until(at.pane, text => text.includes("z wider"), "narrow again");
+    await at.keys("Escape");
+    await at.until(at.pane, text => !text.includes("Talk ·"), "the talk closed");
+    await delay(600);
+    // Everything is where it was; only the question line changed, since choosing a box yourself ends the offer of the first question.
+    const asked = (screen: string) => screen.replace(/› (how does Agent adapters work\?|ask about Agent adapters…) +t/, "› QUESTION t");
+    expect(asked(await at.tmux("capture-pane", "-p", "-t", at.pane))).toBe(asked(before));
+  } finally { await at.close(); }
+}, 60_000);
+
+test("a line the host appends to the conversation file shows in the talk within one poll, and nothing of it is written by pathlight", async () => {
+  let transcript = "";
+  const at = await beside("reply", async directory => {
+    transcript = join(directory, "conversation.jsonl");
+    await writeFile(transcript, await readFile("tests/fixtures/conversation/claude.jsonl", "utf8"));
+    await mkdir(join(directory, ".cache", "pathlight", "sessions"), { recursive: true });
+    await writeFile(join(directory, ".cache", "pathlight", "sessions", "claude-host.json"), JSON.stringify({ version: 1, source: "claude", session: "host", transcript, waiting: false, ended: Date.now() }));
+  }, ["--session", "host", "--source", "claude"]);
+  try {
+    await at.keys("t");
+    await at.until(at.pane, text => text.includes("Cancelling releases the courier first"), "the fixture's conversation");
+    await at.keys("Escape");
+    await appendFile(transcript, `${JSON.stringify({ type: "assistant", uuid: "late", timestamp: new Date().toISOString(), message: { id: "msg_late", role: "assistant", content: [{ type: "text", text: "Recorded it as a journey." }] } })}\n`);
+    const shown = await at.until(at.pane, text => text.includes("Recorded it as a journey."), "the appended reply");
+    expect(shown).toContain("Talk · Agent adapters");
+    // On the node face a reply only says so, in one word.
+    await at.keys("i");
+    await at.until(at.pane, text => text.includes("Connects"), "the node face");
+    await appendFile(transcript, `${JSON.stringify({ type: "assistant", uuid: "later", timestamp: new Date().toISOString(), message: { id: "msg_later", role: "assistant", content: [{ type: "text", text: "Done." }] } })}\n`);
+    await at.until(at.pane, text => /Agent adapters\s+replied/.test(text), "replied");
+    const written = await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: join(at.directory, ".cache"), dot: true }));
+    for (const path of written) expect(await readFile(join(at.directory, ".cache", path), "utf8"), path).not.toContain("Recorded it as a journey");
+  } finally { await at.close(); }
+}, 60_000);
+
+test("d opens the talk on the trace tab: the request names the skill, the command and the component's files, and nothing is sent until Enter", async () => {
+  const at = await beside("flow");
+  try {
+    await at.keys("d");
+    await at.until(at.pane, text => text.includes("▎Trace a flow") && text.includes("it reads the code, then records a journey"), "the trace tab");
+    await at.keys("Enter");
     await delay(300);
-    expect(await tmux("capture-pane", "-p", "-t", harness)).not.toContain("pathlight journey");
-    await tmux("send-keys", "-t", shown.pane, "-l", "how an adapter records a call");
-    await tmux("send-keys", "-t", shown.pane, "Enter");
-    const typed = (await until(harness, text => text.replace(/\n/g, "").includes("Do not change product code."), "request echoed back")).replace(/\n/g, "");
+    expect(await at.tmux("capture-pane", "-p", "-t", at.harness)).not.toContain("pathlight journey");
+    await at.type("how an adapter records a call");
+    await at.keys("Enter");
+    const typed = (await at.until(at.harness, text => text.replace(/\n/g, "").includes("Do not change product code."), "request echoed back")).replace(/\n/g, "");
     expect(typed).toContain('Trace how this works in the "Agent adapters" component (plugin) and record it as a pathlight journey: how an adapter records a call');
     expect(typed).toContain("pathlight flow add");
     expect(typed).not.toContain("tracer");
     expect(typed).toContain("pathlight-behavior skill");
-    await until(shown.pane, text => text.includes("Asked the agent to trace a flow"), "toast");
-  } finally {
-    await tmux("kill-server").catch(() => undefined);
-    await rm(directory, { recursive: true, force: true });
-  }
+    await at.until(at.pane, text => text.includes("Asked the agent to trace a flow"), "toast");
+  } finally { await at.close(); }
 }, 60_000);
 
 test("a flow request is one clean line that keeps the rules: confirm each hop in a file, name the files, change no product code", () => {

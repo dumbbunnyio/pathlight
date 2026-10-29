@@ -5,7 +5,9 @@ import { z } from "zod";
 import { run } from "../../src/process";
 import { existsSync } from "node:fs";
 import { readFile, readdir, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
 import { toolActivity, turnActivity, writeActivity, type ActivityEvent } from "../../src/activity";
+import { recordSession, type SessionChange } from "../../src/sessions";
 import { ActivitySubscriptions } from "../../src/activity-subscriptions";
 import { Effect, Fiber, Queue, Stream } from "effect";
 import { io } from "../../src/effects";
@@ -44,7 +46,8 @@ export default Plugin.define({
     const mapped = () => existsSync(join(workspace, ".pathlight", "pathlight.activity.json"));
     const stopped = new Set<SessionID>();
     const eligibility = new Map<SessionID, { inWorkspace: boolean; root: boolean }>();
-    const queue = Effect.runSync(Queue.sliding<{ event: ActivityEvent; sessionID: SessionID; recording: { active: boolean }; auto: boolean }>(128));
+    // A pending write: a journal event, or a change to the session's pointer (where its conversation is, whether it waits for the person, when its turn ended).
+    const queue = Effect.runSync(Queue.sliding<{ write: () => Effect.Effect<unknown, unknown>; sessionID: SessionID; recording: { active: boolean }; auto: boolean }>(128));
     const recordings = new Map<SessionID, { active: boolean }>();
     let disposed = false;
     const worker = Effect.runFork(Stream.fromQueue(queue).pipe(Stream.runForEach(pending => Effect.gen(function* () {
@@ -56,21 +59,29 @@ export default Plugin.define({
         known = { inWorkspace: (yield* io("Plugin.sessionWorkspace", () => realpath(session.location.directory))) === root, root: session.parentID === undefined };
         eligibility.set(pending.sessionID, known);
       }
-      if (known.inWorkspace && (known.root || !pending.auto)) yield* writeActivity(workspace, pending.event);
+      if (known.inWorkspace && (known.root || !pending.auto)) yield* pending.write();
     }).pipe(Effect.ignore))));
-    const enqueue = (sessionID: SessionID, make: () => ActivityEvent) => {
+    // `prepare` makes the write at the moment of the event (so a tool event carries its time), and only when the session is being recorded.
+    const enqueue = (sessionID: SessionID, prepare: () => () => Effect.Effect<unknown, unknown>) => {
       const watched = subscriptions.watching(sessionID);
       if (disposed || !(watched || record && !stopped.has(sessionID) && mapped())) return;
       try {
         let recording = recordings.get(sessionID);
         if (!recording) { recording = { active: true }; recordings.set(sessionID, recording); }
-        Queue.offerUnsafe(queue, { event: make(), sessionID, recording, auto: !watched });
+        Queue.offerUnsafe(queue, { write: prepare(), sessionID, recording, auto: !watched });
       } catch { /* Observation must not change tool execution. */ }
     };
     const observe = (event: { sessionID: SessionID; id: string; tool: string; input: unknown }, phase: ActivityEvent["phase"]) => {
       if (event.tool.startsWith("pathlight")) return;
-      enqueue(event.sessionID, () => Effect.runSync(toolActivity(workspace, { source: "opencode", session: event.sessionID }, event.id, event.tool, event.input, phase)));
+      enqueue(event.sessionID, () => {
+        const made = Effect.runSync(toolActivity(workspace, { source: "opencode", session: event.sessionID }, event.id, event.tool, event.input, phase));
+        return () => writeActivity(workspace, made);
+      });
     };
+    // OpenCode keeps the conversation in its own database; the pointer names it, and the viewer reads the session's rows from it (and keeps nothing).
+    const database = join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "opencode", "opencode.db");
+    const pointer = (sessionID: SessionID, change: SessionChange) =>
+      enqueue(sessionID, () => () => recordSession(workspace, { source: "opencode", session: sessionID }, { ...existsSync(database) ? { transcript: database } : {}, ...change }));
     // When a turn ends, `check` and `diff` run, as the Claude plugin's Stop hook does: the viewer's out-of-date badge and its review of new dependencies
     // come from them. Only in a workspace with a mapping, one run at a time (a turn that ends during a run gets one more), and nothing is reported.
     let checking = false, again = false;
@@ -88,10 +99,14 @@ export default Plugin.define({
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: listening.signal })) {
-          if (turnEnded.has(event.type)) { void endOfTurn(); continue; }
-          if (event.type !== "session.execution.started") continue;
-          const sessionID = (event.data as { sessionID: SessionID }).sessionID;
-          enqueue(sessionID, () => Effect.runSync(turnActivity({ source: "opencode", session: sessionID })));
+          const sessionID = (event.data as { sessionID?: SessionID } | undefined)?.sessionID;
+          // A permission request is OpenCode waiting for the person in its own pane; a reply, a new turn or the turn's end clears it.
+          if (sessionID && event.type === "permission.asked") pointer(sessionID, { waiting: true });
+          if (sessionID && event.type === "permission.replied") pointer(sessionID, { waiting: false });
+          if (turnEnded.has(event.type)) { if (sessionID) pointer(sessionID, { waiting: false, ended: Date.now() }); void endOfTurn(); continue; }
+          if (event.type !== "session.execution.started" || !sessionID) continue;
+          enqueue(sessionID, () => { const marker = Effect.runSync(turnActivity({ source: "opencode", session: sessionID })); return () => writeActivity(workspace, marker); });
+          pointer(sessionID, { waiting: false, ended: null });
         }
       } catch { /* Turn markers are optional: replay falls back to pauses between calls. */ }
     })();

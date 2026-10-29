@@ -31,10 +31,13 @@ export const pickCandidates = (options: { views: ReadonlyMap<string, WhereView>;
   return [...views.filter(item => !item.here), ...boxes, ...mapped];
 };
 
+/** The picker's inside: as wide as before the frame was made thin, so its rows read the same. */
+const gotoColumns = (screenWidth: number) => Math.min(74, screenWidth - 10);
+
 /** The picker's list, `rows` of it from `top`, with the query line on top. `viewOf` names the view a box elsewhere opens in. */
 export const gotoContent = (entries: readonly Pick[], options: { query: string; index: number; top: number; rows: number; screenWidth: number; viewOf: (element: string) => string }) => {
   const { index, top, rows } = options;
-  const inner = Math.min(80, options.screenWidth - 4) - 6, contextWidth = Math.min(26, Math.floor(inner / 3)), nameWidth = Math.max(10, inner - 1 - 5 - 1 - contextWidth - 1);
+  const inner = gotoColumns(options.screenWidth), contextWidth = Math.min(26, Math.floor(inner / 3)), nameWidth = Math.max(10, inner - 1 - 5 - 1 - contextWidth - 1);
   const fit = (text: string, width: number) => text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text.padEnd(width);
   const chunks: TextChunk[] = [fg(palette.incoming)(" › "), fg(palette.text)(options.query), fg(palette.incoming)("▏"), nl];
   if (!entries.length) chunks.push(fg(palette.muted)(" Nothing matches"), nl);
@@ -87,7 +90,7 @@ export function createGotoPicker(options: {
     const made = gotoContent(list, { query, index, top, rows, screenWidth: screen.width, viewOf: options.viewOf });
     widget.content.content = made.content; widget.meta.content = made.meta;
     widget.foot.content = new StyledText(borderHints(hints.goto));
-    widget.place(Math.min(80, screen.width - 4), rows + 1 + (list.length ? 0 : 1) + 4);
+    widget.place(gotoColumns(screen.width), rows + 1 + (list.length ? 0 : 1));
   };
   return {
     render,
@@ -95,7 +98,7 @@ export function createGotoPicker(options: {
       query = ""; top = 0; items = options.candidates(mode);
       widget.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(mode === "views" ? "Go to view" : "Search"), fg(palette.muted)(" ")]);
       index = mode === "views" ? Math.max(0, entries().findIndex(item => item.here)) : 0;
-      widget.open(Math.min(80, screen.width - 4), 8); render(); options.update();
+      widget.open(gotoColumns(screen.width), 4); render(); options.update();
     },
     /** A paste is text for the query, not keys. */
     paste(text: string) { query = (query + text.replace(/[\x00-\x1f\x7f]/g, " ")).slice(0, 256); index = 0; render(); },

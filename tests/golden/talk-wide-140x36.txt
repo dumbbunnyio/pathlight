@@ -1,0 +1,36 @@
+ ◆ pathlight / Pathlight implementation                                                                             ● live claude:talk-gol  
+ viewer/live · 6 nodes                                                                                              last ✓ read model.c4 1m 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ·         ·       │ Talk · Agent adapters                                                                                             done 
+                   │                                                                                                                        
+                   │ you · 12:04                                                                                                            
+                   │ Where are the order totals computed?                                                                                   
+                   │                                                                                                                        
+ ·         ·       │ agent · 12:04                                                                                                          
+                   │ Totals are computed in one place.                                                                                      
+                   │                                                                                                                        
+                   │ - `sumLines` adds the lines                                                                                            
+                   │ - tax is applied last                                                                                                  
+ ·         ·       │                                                                                                                        
+                   │ agent · 12:04                                                                                                          
+                   │ Where                                                                                                                  
+                   │                                                                                                                        
+ ·         ·       │ In `total.ts`:                                                                                                         
+      ╭─╮          │                                                                                                                        
+  ╭─╮ ╭─╮─┈╮  ╭─╮  │   export const total = sumLines(lines) * (1 + tax)                                                                     
+  ╭─╮▶│ │─╭─╮▶│ │  │                                                                                                                        
+  │ │─╰─╯▶│ ││╰─╯  │ you · 12:06                                                                                                            
+ ·╰─╯     ╰─╯      │ what happens when an order is cancelled?                                                                               
+                   │                                                                                                                        
+                   │ agent · 12:06                                                                                                          
+                   │ Cancelling releases the courier first, then closes the order. Want me to record this as a journey?                     
+                   │                                                                                                                        
+ ·         ·       │                                                                                                                        
+                   │                                                                                                                        
+                   │                                                                                                                        
+                   │ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+ ·         ·       │  › reply…                                                                                                              
+                   │                                                                                                                        
+                   │                                                                                                                        
+                   │ t reply   z narrower   i node   esc close                                                                              
+ diagram   Selected: plugin  ✓ Asked claude:talk-gol about Agent adapters · the reply shows here · F shows the path once it is recorded     

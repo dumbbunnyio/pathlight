@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { activityLines, activityRows, retainedEvents } from "../src/activity";
 import { claudeIgnores } from "../src/claude";
-import { activityDirectory, readActivity, toolActivity, writeActivity, claudeActivity, run } from "./effects";
+import { activityDirectory, readActivity, toolActivity, writeActivity, claudeActivity, claudeSession, mappingIn, run } from "./effects";
 import { ActivitySubscriptions } from "../src/activity-subscriptions";
 
 test("tool observation keeps only metadata and maps explicit paths without exposing inputs", async () => {
@@ -155,5 +155,51 @@ test("cancelling journal publication waits for a pending write before temporary-
   try {
     const output = await run(process.execPath, [resolve("tests/fixtures/activity-cancellation.ts"), directory]);
     expect(JSON.parse(output)).toEqual({ operations: ["written", "cleanup"], temporary: [] });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("the session pointer holds the conversation file's path, the waiting flag and the end of a turn, and never a word of the conversation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-session-"));
+  try {
+    const transcript = join(directory, "t.jsonl");
+    const hook = (event: string, extra: Record<string, unknown> = {}) => ({ hook_event_name: event, session_id: "s-1", cwd: directory, transcript_path: transcript, ...extra });
+    const file = join(directory, ".cache", "pathlight", "sessions", "claude-s-1.json");
+    expect(await claudeSession(directory, hook("UserPromptSubmit", { prompt: "SECRET question" }))).toEqual({ version: 1, source: "claude", session: "s-1", transcript, waiting: false, ended: null });
+    // Waiting for the person in its own pane: a permission prompt or a host dialog. An idle notice is not one, and leaves the flag as it was.
+    expect((await claudeSession(directory, hook("Notification", { notification_type: "permission_prompt", message: "Claude needs your permission" }))).waiting).toBe(true);
+    expect((await claudeSession(directory, hook("Notification", { notification_type: "idle_prompt" }))).waiting).toBe(true);
+    expect((await claudeSession(directory, hook("PostToolUse", { tool_use_id: "c", tool_name: "Bash", tool_input: {} }))).waiting).toBe(false);
+    for (const type of ["elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"]) {
+      expect((await claudeSession(directory, hook("Notification", { notification_type: type }))).waiting).toBe(true);
+      await claudeSession(directory, hook("PreToolUse", { tool_use_id: "c", tool_name: "Read", tool_input: {} }));
+    }
+    const before = Date.now();
+    const ended = await claudeSession(directory, hook("Stop", { last_assistant_message: "SECRET reply", stop_hook_active: false }));
+    expect(ended.ended).toBeGreaterThanOrEqual(before);
+    const text = await readFile(file, "utf8");
+    expect(JSON.parse(text)).toEqual(ended);
+    expect(text).not.toContain("SECRET");
+    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["ended", "session", "source", "transcript", "version", "waiting"]);
+    expect((await claudeSession(directory, hook("UserPromptSubmit", { prompt: "next" }))).ended).toBeNull();
+    await expect(claudeSession(directory, { ...hook("Stop"), cwd: tmpdir() })).rejects.toThrow("does not match");
+    await expect(claudeSession(directory, { ...hook("Stop"), transcript_path: "relative.jsonl" })).rejects.toThrow("absolute path");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("pathlight record with a Notification or Stop payload writes the session pointer and nothing to the journal", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-record-notify-"));
+  try {
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "p", mappings: [] }));
+    const record = (payload: unknown) => run("sh", ["-c", `printf '%s' "$1" | "$2" "$3" record --workspace "$4"`, "sh", JSON.stringify(payload), process.execPath, resolve("src/cli.ts"), directory]);
+    const base = { session_id: "s-2", cwd: directory, transcript_path: join(directory, "t.jsonl") };
+    await record({ ...base, hook_event_name: "Notification", notification_type: "permission_prompt", message: "Claude needs your permission" });
+    await record({ ...base, hook_event_name: "Stop", last_assistant_message: "SECRET", stop_hook_active: false });
+    expect(await readActivity(directory, { source: "claude", session: "s-2" })).toEqual([]);
+    const pointer = JSON.parse(await readFile(join(directory, ".cache", "pathlight", "sessions", "claude-s-2.json"), "utf8"));
+    expect(pointer).toMatchObject({ source: "claude", session: "s-2", waiting: false });
+    expect(typeof pointer.ended).toBe("number");
+    // A tool call still goes to the journal as before.
+    await record({ ...base, hook_event_name: "PostToolUse", tool_use_id: "c", tool_name: "Read", tool_input: {} });
+    expect((await readActivity(directory, { source: "claude", session: "s-2" })).map(event => event.tool)).toEqual(["Read"]);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

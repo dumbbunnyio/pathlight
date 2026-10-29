@@ -72,14 +72,14 @@ export function nowCard(options: { error: string; bound: boolean; following: boo
 }
 
 /**
- * The session summary (`c`): what the retained journal says the agent did, as observed counts, never a claim about outcomes. `size` is the frame it
- * needs, as width and height.
+ * The session summary (`c`): what the retained journal says the agent did, as observed counts, never a claim about outcomes. `size` is the room its
+ * content needs, as columns and rows.
  */
 export function sessionSummary(options: { session: string | undefined; config: ActivityConfig | undefined; events: ActivityEvent[]; elementTitle: (id: string) => string;
   screenWidth: number; ruleWidth: number; now: number }): { chunks: TextChunk[]; size: [number, number] } {
   const { config, now, elementTitle } = options;
-  if (!options.session || !config) return { chunks: [fg(palette.muted)("Not bound to an agent session. Start the viewer with --follow or --session.")], size: [60, 5] };
-  if (!options.events.length) return { chunks: [fg(palette.muted)("No calls recorded yet.")], size: [60, 5] };
+  if (!options.session || !config) return { chunks: [fg(palette.muted)("Not bound to an agent session. Start the viewer with --follow or --session.")], size: [76, 1] };
+  if (!options.events.length) return { chunks: [fg(palette.muted)("No calls recorded yet.")], size: [56, 1] };
   const rows = activityRows(options.events, config, now, 128);
   const width = Math.max(30, Math.floor(options.screenWidth * 0.8) - 8);
   const byComponent = new Map<string, { reads: number; edits: number; commands: number; last: number }>();
@@ -112,7 +112,7 @@ export function sessionSummary(options: { session: string | undefined; config: A
   }
   if (!files.length) chunks.push(fg(palette.muted)("  no edits observed"), nl);
   chunks.push(nl, fg(palette.border)("Counts come from the retained calls, not totals. Commands show files they name."));
-  return { chunks, size: [Math.min(100, options.screenWidth - 6), chunks.filter(chunk => chunk.text.includes("\n")).length + 4] };
+  return { chunks, size: [Math.min(96, options.screenWidth - 10), chunks.filter(chunk => chunk.text.includes("\n")).length + 1] };
 }
 
 /** The header's one activity line: "now" while a tool runs, "last" once it has an outcome, then what it did, to which file, in which component. */

@@ -89,6 +89,10 @@ from appearing in the viewer. Viewing is distinct from recording: opening a
 bound CLI viewer consumes retained events, and closing it does not stop an
 already-enabled observer. No source code or tool payloads belong in the journal.
 
+### Talking to the agent beside the diagram (implemented 2026-10-29)
+
+The inspector's column has a second face, the talk: `t`, `m` and `d` open it, and it shows the bound session's conversation (the person's prompts and the agent's text, in order, with their times) above a field. The first request of a talk is the same line `t`, `m` or `d` always typed into the agent's pane; later ones are the typed text alone. The reply is read from the host's own conversation file (Claude Code's transcript, OpenCode's database) while the talk is open in this run, held in memory and never copied; the hooks record only where that file is, whether the agent is waiting for the person in its pane, and when its turn ended. A state line says `working`, `waiting for you in its pane` or `done`. What it does not do: it calls no model and stores no prose; it shows no tool calls, results, thinking or subagent turns; permission prompts and the host's own dialogs are answered in the agent's pane, not in the talk; it never moves the camera, the selection or the column on a reply. Full screen is tmux's pane zoom until Pathlight is embedded in a host.
+
 ### Continuity and safe ownership are product features
 
 Search cancellation, linked-view history and editor return preserve orientation.

@@ -164,10 +164,19 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
     return { element, files: owned.size, large, folders: large ? folderOf([...owned]) : [] };
   }).sort((a, b) => b.files - a.files || order(a.element, b.element));
 
-  // Direct children per parent over all model elements ("" is the top level).
+  // Direct children per parent over all model elements ("" is the top level). An element with a readable view of its own (one `of` it that is not a
+  // declared listing) is met as the cards that view draws inside it, which may be fewer than its children: those are what is side by side.
   const children = new Map<string, number>();
   for (const id of elements) { const parent = id.includes(".") ? id.slice(0, id.lastIndexOf(".")) : ""; children.set(parent, (children.get(parent) ?? 0) + 1); }
-  const wide = [...children].filter(([, count]) => count > 9).map(([parent, count]) => ({ parent, children: count })).sort((a, b) => b.children - a.children || order(a.parent, b.parent));
+  const listings = new Set(config.entries ?? []), drawnInside = new Map<string, number>();
+  for (const view of model.views()) {
+    const of = (view.$view as { viewOf?: unknown }).viewOf;
+    if (of === undefined || listings.has(String(view.id))) continue;
+    const cards = view.$view.nodes.filter(node => node.parent !== null && String(node.parent) === String(of)).length;
+    drawnInside.set(String(of), Math.max(drawnInside.get(String(of)) ?? 0, cards));
+  }
+  const wide = [...children].map(([parent, count]) => ({ parent, children: drawnInside.get(parent) ?? count })).filter(item => item.children > 9)
+    .sort((a, b) => b.children - a.children || order(a.parent, b.parent));
 
   // Which views a person can reach by following navigateTo.
   const viewLinks = new Map<string, Set<string>>();

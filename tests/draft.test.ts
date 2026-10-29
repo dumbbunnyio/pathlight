@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { checkWorkspace } from "../src/check";
-import { listViews } from "../src/catalog";
+import { acquireModel, listViews } from "../src/catalog";
 import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, folderCap, loops, openFloor, openShare, viewCap, witness } from "../src/draft";
 import { readdir } from "node:fs/promises";
 import { mappingIn, overlayIn, run } from "./effects";
@@ -575,6 +575,31 @@ test("an opened folder has its own view: its children as cards with links to the
   expect([...view("core_all_components").matchAll(/include (\w+) with/g)]).toHaveLength(14);
   // The index draws the folder and opens its view.
   expect(view("index")).toContain("include core with {\n      navigateTo core_components\n    }");
+}, 60_000);
+
+test("a view of a #minor element keeps its frame: the exclusion of minor elements is followed by the element itself, so its cards sit inside it", async () => {
+  // Twenty-two top folders of 31 files, and zz, split by the overlay into ten subfolders of three: zz is the weakest of 23 and so #minor, and its own
+  // view (ten children, nine drawn) excludes #minor, which took zz out of it and left nine loose cards.
+  const files: Record<string, string> = { "package.json": JSON.stringify({ name: "app" }) };
+  for (let n = 0; n < 22; n++) Object.assign(files, many(`src/t${String(n).padStart(2, "0")}`, 31));
+  for (let n = 0; n < 10; n++) Object.assign(files, many(`src/zz/s${n}`, 3));
+  const directory = await withOverlay(files, { version: 1, elements: {}, splits: [{ key: "src/zz", by: "agent" }] });
+  try {
+    expect((await Effect.runPromise(draftWorkspace(directory))).problems).toEqual([]);
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect(model).toMatch(/ zz = folder 'zz' \{\n\s+#minor/);
+    const own = model.slice(model.indexOf("  view zz_components "), model.indexOf("\n  }\n", model.indexOf("  view zz_components ")));
+    expect(own).toContain("    exclude * where tag is #minor\n    include zz\n");
+    const nodes = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const source = yield* acquireModel(directory);
+      const model = yield* Effect.promise(() => source.computedModel([...source.projects()][0]!));
+      return [...model.view("zz_components" as never).nodes()].map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent.id) : null }));
+    })));
+    expect(nodes.find(node => node.id === "zz")).toEqual({ id: "zz", parent: null });
+    expect(nodes.filter(node => node.parent === "zz")).toHaveLength(9);
+    // A view of an element that is not minor is unchanged: the index excludes minor elements and includes nothing back.
+    expect(model.slice(model.indexOf("  view index "), model.indexOf("\n  }\n", model.indexOf("  view index ")))).not.toMatch(/exclude \* where tag is #minor\n\s+include/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
 test("a chain of single folders opens at the first level that is several things, and no further (`model` is LikeC4 syntax, so its id gets an underscore)", async () => {

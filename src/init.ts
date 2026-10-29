@@ -31,7 +31,27 @@ export const projectSkillCopies = (workspace: string) => Object.keys(skillFiles)
   try { return new RegExp(`^name: ${basename(dirname(path))}\\s*$`, "m").test(readFileSync(path, "utf8").slice(0, 400)); } catch { return false; }
 });
 
-const hookEvents = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit"] as const;
+const hookEvents = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Notification"] as const;
+
+/** The rule that lets Claude Code run pathlight without asking, so "yes, record it" or "yes, update the diagram" does not stop in its pane. */
+export const pathlightPermission = "Bash(pathlight *)";
+
+/** Adds the pathlight rule to a project's shared Claude settings, keeping every other setting and rule. */
+export const claudePermissions = (current: unknown): Record<string, unknown> => {
+  const settings = isRecord(current) ? { ...current } : {};
+  const permissions = isRecord(settings.permissions) ? { ...settings.permissions } : {};
+  const allow = Array.isArray(permissions.allow) ? [...permissions.allow] : [];
+  if (!allow.includes(pathlightPermission)) allow.push(pathlightPermission);
+  return { ...settings, permissions: { ...permissions, allow } };
+};
+
+/** Whether a project's shared Claude settings already let pathlight run without asking. */
+export const hasPathlightPermission = (workspace: string) => {
+  try {
+    const settings: unknown = JSON.parse(readFileSync(join(workspace, ".claude", "settings.json"), "utf8"));
+    return isRecord(settings) && isRecord(settings.permissions) && Array.isArray(settings.permissions.allow) && settings.permissions.allow.includes(pathlightPermission);
+  } catch { return false; }
+};
 
 const kebab = (text: string) => text.replace(/([a-z\d])([A-Z])/g, "$1-$2").toLowerCase().replace(/[^a-z\d]+/g, "-").replace(/^-|-$/g, "");
 
@@ -111,6 +131,17 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
     notes.push("Claude Code: hooks added to .claude/settings.local.json (per-user, not shared).");
 
   } else notes.push("Claude Code: no local hooks written (using the plugin).");
+
+  // Edits to the person's own files still ask; running pathlight (name, flow add, plan) does not, so an answer given in the viewer is not stopped in the pane.
+  if (options.claudeHooks || claudePluginInstalled()) {
+    const sharedPath = join(workspace, ".claude", "settings.json");
+    const shared = yield* readOptional(sharedPath);
+    const current = shared ? yield* json(shared) : {};
+    if (!hasPathlightPermission(workspace)) {
+      yield* writeText(sharedPath, `${JSON.stringify(claudePermissions(current), null, 2)}\n`);
+      notes.push(`Claude Code: ${pathlightPermission} added to the allowed rules in .claude/settings.json, so the agent can run pathlight without asking.`);
+    } else notes.push(`Claude Code: .claude/settings.json already allows ${pathlightPermission}.`);
+  }
 
   // The skills are the same files for both hosts. Claude Code reads .claude/skills, but a copy there outranks the plugin's skill and goes stale
   // when the plugin updates, so with the plugin installed none is written and an earlier one is removed. OpenCode documents .agents/skills (and .claude/skills).

@@ -7,7 +7,10 @@ import { readActivity, mappingIn } from "./effects";
 
 const hookCommand = async () => {
   const manifest = JSON.parse(await readFile("plugins/claude/hooks/hooks.json", "utf8")) as { hooks: Record<string, { hooks: { command: string; async?: boolean }[] }[]> };
-  expect(Object.keys(manifest.hooks).sort()).toEqual(["PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit"]);
+  expect(Object.keys(manifest.hooks).sort()).toEqual(["Notification", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit"]);
+  // The turn's end goes on the session pointer before the checks run (the payload is read once, by record).
+  expect(manifest.hooks.Stop![0]!.hooks[0]!.command).toContain("{ pathlight record --workspace \"$f\"; pathlight check");
+  expect(manifest.hooks.Notification![0]!.hooks[0]!.async).toBe(true);
   const { UserPromptSubmit: _prompt, Stop: _stop, ...recording } = manifest.hooks;
   const commands = new Set(Object.values(recording).flat().flatMap(entry => entry.hooks.map(hook => hook.command)));
   expect(commands.size).toBe(1);

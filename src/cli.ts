@@ -9,7 +9,7 @@ import { writeReady } from "./ready";
 import { atShellPrompt, showView } from "./tmux";
 import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
 import { mappingPath } from "./layout";
-import { claudeActivity, claudeIgnores } from "./claude";
+import { claudeActivity, claudeJournals, claudeSession } from "./claude";
 import { initGlobal, initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
 import { draftWorkspace } from "./draft";
@@ -40,7 +40,7 @@ pathlight init [--workspace PATH] [--no-claude-hooks]
 pathlight init --global
 pathlight show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket PATH]
 pathlight view VIEW [--workspace PATH] [--project NAME] [--select ELEMENT]
-pathlight see VIEW [--workspace PATH] [--project NAME] [--cols N] [--rows N] [--select ELEMENT] [--keys KEY,KEY] [--ansi] [--follow]
+pathlight see VIEW [--workspace PATH] [--project NAME] [--cols N] [--rows N] [--select ELEMENT] [--keys KEY,KEY] [--ansi] [--follow] [--agent]
 pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--pane %ID] [--socket PATH]
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
@@ -59,7 +59,7 @@ in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --for
 setup is the first run: it checks the machine and the workspace, says what it would write, and with --yes draws a first model from the code when there is none. It never rewrites a model you wrote and leaves hooks and recording to init.
 init wires Claude Code hooks, the pathlight skill and the OpenCode plugin into a workspace. init --global registers the OpenCode plugin for every project instead (in OpenCode's own opencode.json); it records only in projects with a mapping.
 show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
-see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. For agents and tests.
+see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. --agent puts a pane running cat in that private server as the agent's pane, so t, m and d can be drawn and sent; nothing leaves it. For agents and tests.
 open follows the most recent session and shows VIEW if given, else the view named index, else the first view.
 Typed at a shell prompt in tmux it turns that pane into the viewer; run by an agent it splits a pane beside it.
 --here always uses the current terminal and --split always splits.
@@ -93,7 +93,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -191,7 +191,9 @@ try {
     } else if (command === "record") {
       yield* readActivityConfig(values.workspace);
       const input = yield* json(yield* readStdin);
-      if (!claudeIgnores(input)) yield* writeActivity(values.workspace, yield* claudeActivity(resolve(values.workspace), input));
+      // The session pointer first (every hook names the conversation file), then the journal for the hooks it records.
+      yield* claudeSession(resolve(values.workspace), input);
+      if (claudeJournals(input)) yield* writeActivity(values.workspace, yield* claudeActivity(resolve(values.workspace), input));
     } else if (command === "see") {
       if (!id) return yield* invalid("Missing view ID. Use pathlight list.");
       const size = (name: string, text: string | undefined, fallback: number) => {
@@ -200,7 +202,7 @@ try {
       };
       const mappedProject = values.project ?? (yield* readActivityConfig(values.workspace).pipe(Effect.map(mapping => mapping.project), Effect.catch(() => Effect.succeed(undefined))));
       const view = yield* selectView(values.workspace, id, mappedProject && (yield* listViews(values.workspace)).views.some(entry => entry.id === id && entry.project === mappedProject) ? mappedProject : values.project);
-      const screen = yield* seeView({ view, cols: yield* size("cols", values.cols, 120), rows: yield* size("rows", values.rows, 36), select: values.select, keys: values.keys?.split(",").map(key => key.trim()).filter(Boolean), ansi: values.ansi, follow: values.follow });
+      const screen = yield* seeView({ view, cols: yield* size("cols", values.cols, 120), rows: yield* size("rows", values.rows, 36), select: values.select, keys: values.keys?.split(",").map(key => key.trim()).filter(Boolean), ansi: values.ansi, follow: values.follow, agent: values.agent });
       process.stdout.write(screen);
     } else if (command === "show" || command === "view" || command === "open") {
       if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");

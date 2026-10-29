@@ -16,7 +16,8 @@ const legendItems = (diff: boolean): [glyph: string, color: string, label: strin
 export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: number; version: string; diff?: boolean }) {
   const groups = helpGroups(options.vim).map(group => ({ ...group, active: group.tier === options.tier }));
   const wide = options.screenWidth >= 100;
-  const width = Math.min(wide ? 132 : 96, options.screenWidth - 4), inner = width - 6, gap = 3;
+  // The frame is at most 100 columns: the content is its inside.
+  const inner = Math.min(96, options.screenWidth - 8), gap = 3;
   const column = wide ? Math.floor((inner - gap * (groups.length - 1)) / groups.length) : inner;
   // One group as lines of chunks, each exactly `column` cells wide, its keys as wide as its longest; a label too long for its column wraps under itself.
   const lines = (group: typeof groups[number]): TextChunk[][] => {
@@ -50,5 +51,5 @@ export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: nu
   }
   chunks.pop();
   height += legend.length + 1;
-  return { content: new StyledText(chunks), height, width, meta: new StyledText([fg(palette.muted)(` pathlight ${options.version} `)]) };
+  return { content: new StyledText(chunks), height, width: inner, meta: new StyledText([fg(palette.muted)(` pathlight ${options.version} `)]) };
 }

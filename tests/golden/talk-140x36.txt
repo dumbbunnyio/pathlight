@@ -1,0 +1,36 @@
+ ◆ pathlight / Pathlight implementation                                                                                                     
+ viewer/live · 6 nodes                                                                                                                      
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                   │ Talk · Agent adapters                     ○ no session 
+                                                                                   │                                                        
+                                                                                   │ no session bound yet · the reply lands in the agent    
+                                                                                   │ pane                                                   
+  ·           ·           ·            ·           ·           ·            ·      │                                                        
+                                                                                   │                                                        
+                                                                                   │                                                        
+                                                                                   │                                                        
+                                                                                   │                                                        
+                                                                                   │                                                        
+  ·           ·           ·            ·           ·           ·            ·      │                                                        
+                       ╭──────────────╮                                            │                                                        
+                     ╭▶│ Activity me… │─┈┈┈┈┈┈┈┈┈┈┈┈╮                              │                                                        
+                     │ ╰──────────────╯             ┊                              │                                                        
+                     │                              ┊                              │                                                        
+  ╭──────────────╮   │ ╭──────────────╮             ┊            ╭──────────────╮  │                                                        
+  │ Agent adapt… │───┴▶│ tmux launch… │─┈┈┬┈┈┈┈┈┈┈┈┈┴┈┈┈┈┈┈┈┈┈┬┈▶│ Persistent … │  │                                                        
+  ╰──────────────╯     ╰──────────────╯·  ┊        ·          ┊· ╰──────────────╯  │                                                        
+                                          ┊                   ┊                    │                                                        
+  ╭──────────────╮                        ┊ ╭──────────────╮  ┊                    │                                                        
+  │ LikeC4 cata… │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┴▶│ PNG export   │─┈╯                    │                                                        
+  ╰──────────────╯                          ╰──────────────╯                       │                                                        
+                                                                                   │                                                        
+  ·           ·           ·            ·           ·           ·            ·      │                                                        
+                                                                                   │                                                        
+                                                                                   │ ▎Ask    Improve the map    Trace a flow                
+                                                                                   │ ● files 0  ● connections 2  ○ activity 0  ● draw it    
+                                                                                   │ ────────────────────────────────────────────────────── 
+                                                                                   │  › how does Agent adapters work?                       
+  ·           ·           ·            ·           ·           ·            ·      │                                                        
+                                                                                   │                                                        
+                                                                                   │ enter send   alt+enter line   tab kind   esc diagram   
+ talk   Selected: plugin                                                                                                zoom 77%  │  ? help 
