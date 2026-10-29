@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { Effect, Schema } from "effect";
-import { draftOf, draftWorkspace, Overlay, readManifests, unreadLines } from "./draft";
+import { draftOf, draftWorkspace, generatedMarker, Overlay, readManifests, unreadLines } from "./draft";
 import { readOverlay } from "./edit";
 import { failure, io } from "./effects";
-import { homeOf, overlayFile } from "./layout";
+import { homeOf, modelFile, overlayFile } from "./layout";
+import { checkFlows } from "./flows";
 import { declarationsFor } from "./languages";
+import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace } from "./scan";
 
 /**
@@ -345,5 +347,110 @@ export function formatNamed(result: Named) {
   if (result.unchanged.length) lines.push(`${result.unchanged.length} already said exactly this.`);
   if (result.kept.length) lines.push(`Kept the names a person wrote for: ${result.kept.join(", ")}.`);
   if (result.unknown.length) lines.push(`No box has these keys (see pathlight brief): ${result.unknown.join(", ")}.`);
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * `pathlight brief --first-day`: what a person new to the code reads first, derived each time from the scan, the names on the map and the recorded
+ * journeys, and stored nowhere. Six parts, each present and honest when empty: what it is, how it is built, where it starts, the journeys to follow,
+ * the files to read first (a fact rule: the declared starts, then the largest file of each remaining top-level box), and how sure the names are.
+ */
+export interface FirstDay {
+  project: string;
+  /** Whether the map is `pathlight draft`'s: a model a person wrote has no boxes for the briefing to list. */
+  drafted: boolean;
+  /** The box that holds the whole app (`box`), or, when no box does (a flat map), the project's own words (`project`). */
+  what: { source: "box"; key: string; title?: string; note?: string; inferred: boolean } | { source: "project"; text: string; from: string } | { source: "none" };
+  built: { key: string; title: string; note?: string; inferred: boolean; named: boolean; files: number; lines: number }[];
+  numbers: { boxes: number; files: number; imports: number; languages: string[]; unread: { language: string; files: number }[] };
+  starts: EntryPoint[];
+  journeys: { id: string; title: string; kind: "journey" | "state diagram"; steps: number; findings: number }[];
+  journeysError?: string;
+  read: { file: string; box?: string; why: string }[];
+  sure: { named: number; inferred: number; unnamed: number; byPerson: number; recorded?: { at: number; commit?: string }; unchanged?: { same: number; of: number } };
+}
+
+const inferredMark = /\binferred\b/i;
+/** A note's own "(inferred from …)" is shown as one `(inferred)` mark, so every line says it the same way. */
+const plainNote = (note: string) => note.replace(/\s*\([^()]*\binferred\b[^()]*\)\.?\s*$/i, "").trim();
+const languageNames: Record<string, string> = { typescript: "TypeScript", javascript: "JavaScript", python: "Python", go: "Go" };
+const declaredStart = (entry: EntryPoint) => entry.why !== "no other file imports it";
+
+export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: string) {
+  const root = yield* io("Brief.workspace", () => realpath(workspace));
+  const all = yield* briefOf(root);
+  const scan = yield* scanWorkspace(root);
+  const context = yield* contextOf(root);
+  const starts = yield* entryPointsOf(root, all);
+  const byKey = new Map(all.map(box => [box.key, box] as const));
+  const top = byKey.get(".") ?? (all.filter(box => box.depth === 0 && box.kind === "package").length === 1 ? all.find(box => box.depth === 0 && box.kind === "package") : undefined);
+  // The README's first paragraph of prose, its links and emphasis read as plain words, cut after two sentences.
+  const paragraph = context.readme?.split(/\n\s*\n/).map(part => part.replace(/^#.*$/gm, "").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`]{1,2}([^*_`]+)[*_`]{1,2}/g, "$1").replace(/\s+/g, " ").trim())
+    .find(part => part.length > 40 && !/^[!<[|]/.test(part))?.match(/^(.*?[.!?])(?=\s|$)\s*(.*?[.!?](?=\s|$))?/)?.slice(1).filter(Boolean).join(" ").trim();
+  const what: FirstDay["what"] = top
+    ? { source: "box", key: top.key, ...(top.name?.title ? { title: top.name.title } : {}), ...(top.name?.note ? { note: plainNote(top.name.note) } : {}), inferred: inferredMark.test(top.name?.note ?? "") }
+    : context.description ? { source: "project", text: context.description, from: "package.json" } : paragraph ? { source: "project", text: paragraph.slice(0, 400), from: "README" } : { source: "none" };
+  const level = [...all.filter(box => !box.parent && box !== top), ...(top?.inside ?? []).flatMap(key => byKey.get(key) ?? [])]
+    .sort((a, b) => b.lines - a.lines || (a.key < b.key ? -1 : 1));
+  const built = level.map(box => ({ key: box.key, title: box.name?.title ?? box.generated, ...(box.name?.note ? { note: plainNote(box.name.note) } : {}),
+    inferred: inferredMark.test(box.name?.note ?? ""), named: Boolean(box.name?.title || box.name?.note), files: box.files.length, lines: box.lines }));
+  const drafted = yield* io("Brief.drafted", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
+  const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
+  const journeys = flows.found ? [...flows.found.journeys.map(item => ({ id: item.id, title: item.title, kind: "journey" as const, steps: item.steps.length, findings: item.findings.length })),
+    ...flows.found.flows.map(item => ({ id: item.view ?? item.id, title: item.title, kind: "state diagram" as const, steps: item.steps.length, findings: item.findings.length }))] : [];
+  // Read these first: the files the project declares as starts, then the largest file of each top-level box not yet covered, five at most.
+  const read: FirstDay["read"] = [];
+  for (const entry of starts.filter(declaredStart)) if (read.length < 5 && !read.some(item => item.file === entry.file)) read.push({ file: entry.file, ...(entry.box ? { box: entry.box } : {}), why: entry.why });
+  const holds = (box: BriefBox, file: string) => box.files.some(item => item.path === file);
+  for (const item of built) {
+    const box = byKey.get(item.key)!;
+    if (read.length >= 5 || read.some(chosen => holds(box, chosen.file)) || !box.files[0]) continue;
+    read.push({ file: box.files[0].path, box: box.key, why: `the largest file of ${item.title} (${box.files[0].lines.toLocaleString("en")} lines)` });
+  }
+  const named = all.filter(box => box.name?.title || box.name?.note);
+  const recordedAt = yield* io("Brief.namedTime", async () => (await Bun.file(join(root, namedPath)).stat()).mtimeMs).pipe(Effect.catch(() => Effect.succeed(undefined)));
+  const commit = recordedAt === undefined ? undefined : yield* run("git", ["-C", root, "log", "-1", "--format=%h", `--before=@${Math.ceil(recordedAt / 1000)}`]).pipe(Effect.map(text => text.trim() || undefined), Effect.catch(() => Effect.succeed(undefined)));
+  const prints = yield* readNamed(root);
+  const tracked = named.filter(box => box.name?.by !== "human");
+  return {
+    project: context.name ?? posix.basename(root), drafted,
+    what, built,
+    numbers: { boxes: all.length, files: scan.coverage.files, imports: scan.coverage.imports, languages: [...new Set(scan.files.map(file => languageNames[file.language] ?? file.language))].sort(),
+      unread: scan.coverage.unscanned.map(entry => ({ language: languageOf(`x${entry.extension}`), files: entry.files })) },
+    starts, journeys, ...(flows.error ? { journeysError: flows.error } : {}), read,
+    sure: { named: named.filter(box => !inferredMark.test(box.name?.note ?? "")).length, inferred: named.filter(box => inferredMark.test(box.name?.note ?? "")).length, unnamed: all.length - named.length,
+      byPerson: named.filter(box => box.name?.by === "human").length,
+      ...(recordedAt !== undefined ? { recorded: { at: recordedAt, ...(commit ? { commit } : {}) } } : {}),
+      ...(prints && tracked.length ? { unchanged: { same: tracked.filter(box => prints[box.key] === box.fingerprint).length, of: tracked.length } } : {}) },
+  } satisfies FirstDay;
+});
+
+export function formatFirstDay(day: FirstDay) {
+  const lines = [`# First day in ${day.project}`, "Derived from the scan, the names on the map and the recorded journeys; nothing here is stored. Names marked (inferred) were worked out from file names, not read in the code.", ""];
+  const mark = (inferred: boolean) => inferred ? " (inferred)" : "";
+  lines.push("## What it is");
+  if (day.what.source === "box") lines.push(day.what.title || day.what.note ? `${day.what.title ?? "(no title)"}${day.what.note ? ` — ${day.what.note}` : ""}${mark(day.what.inferred)} [${day.what.key}]` : `not named yet [${day.what.key}]`);
+  else if (day.what.source === "project") lines.push(`No box holds the whole app; in the project's own words (${day.what.from}): ${day.what.text}`);
+  else lines.push("not named yet: no box holds the whole app, and the project describes itself nowhere the scan reads");
+  lines.push("", "## How it is built");
+  if (!day.built.length) lines.push(day.drafted ? "nothing drawn yet" : "no drafted map: pathlight draft has not drawn one here (a model a person wrote is read with pathlight list and its own files)");
+  for (const box of day.built) lines.push(`- ${box.title}${box.note ? ` — ${box.note}` : box.named ? "" : " — not named yet"}${mark(box.inferred)} [${box.key}]`);
+  const { numbers } = day;
+  lines.push(`${numbers.boxes.toLocaleString("en")} box${numbers.boxes === 1 ? "" : "es"} · ${count(numbers.files, "file")} read · ${count(numbers.imports, "import")} · read: ${numbers.languages.join(", ") || "none"}${numbers.unread.length ? ` · not read: ${numbers.unread.map(entry => `${entry.files.toLocaleString("en")} ${entry.language}`).join(", ")}` : ""}`);
+  lines.push("", "## Where it starts");
+  if (!day.starts.length) lines.push(day.numbers.files ? "nothing declared, and every source file is imported by another" : "no source file the scan reads");
+  for (const entry of day.starts) lines.push(`${entry.file}${entry.box ? ` [${entry.box}]` : ""} — ${entry.why}`);
+  lines.push("", "## Journeys to follow");
+  if (day.journeysError) lines.push(`could not be read: ${day.journeysError}`);
+  else if (!day.journeys.length) lines.push("none recorded yet");
+  for (const journey of day.journeys) lines.push(`F  ${journey.title}  (${journey.kind} ${journey.id}, ${count(journey.steps, journey.kind === "journey" ? "step" : "state")}${journey.findings ? `, ${journey.findings} to check with pathlight flows` : ""})`);
+  lines.push("", "## Read these first");
+  if (!day.read.length) lines.push("no source file to suggest");
+  for (const item of day.read) lines.push(`${item.file}${item.box ? ` [${item.box}]` : ""} — ${item.why}`);
+  lines.push("", "## How sure");
+  const { sure } = day;
+  lines.push(`${sure.named} box${sure.named === 1 ? "" : "es"} named from the code${sure.byPerson ? ` (${sure.byPerson} by a person)` : ""}, ${sure.inferred} inferred from file names, ${sure.unnamed} not named.`);
+  if (sure.recorded) lines.push(`Named ${new Date(sure.recorded.at).toISOString().slice(0, 10)}${sure.recorded.commit ? `, when the newest commit was ${sure.recorded.commit}` : ""}${sure.unchanged ? `; ${sure.unchanged.same} of ${sure.unchanged.of} named boxes have the same files as then` : ""}.`);
+  else if (sure.named + sure.inferred) lines.push("Nothing records when the names were written.");
   return `${lines.join("\n")}\n`;
 }

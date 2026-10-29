@@ -18,7 +18,7 @@ import { setPlan } from "./plan";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
 import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
-import { briefOf, changedBoxes, contextOf, entryPointsOf, formatBrief, formatContext, formatEntryPoints, formatNamed, nameBoxes, select, type NameEntry } from "./brief";
+import { briefOf, changedBoxes, contextOf, entryPointsOf, firstDayOf, formatBrief, formatContext, formatEntryPoints, formatFirstDay, formatNamed, nameBoxes, select, type NameEntry } from "./brief";
 import { addFlow, formatAdded, removeFlow } from "./flow-write";
 import { doctor, formatDoctor, hasFailures } from "./doctor";
 import { setup } from "./setup";
@@ -31,7 +31,7 @@ pathlight diff [--workspace PATH] [--base REV] [--json] [--quiet]
 pathlight flows [--workspace PATH] [--json] [--strict] [--quiet]
 pathlight flow add ID --title TEXT --reads FILE,FILE --step "FROM -> TO [over http|websocket|process]: EVENT [@ FILE#FUNCTION]" ... [--workspace PATH] [--project NAME] [--force]
 pathlight flow remove ID [--workspace PATH]
-pathlight brief [KEY ... | --changed] [--workspace PATH] [--json]
+pathlight brief [KEY ... | --changed | --first-day] [--workspace PATH] [--json]
 pathlight name KEY --title TEXT --note TEXT [--workspace PATH]
 pathlight name --from FILE|- [--workspace PATH]
 pathlight plan [ELEMENT ...] [--workspace PATH]
@@ -52,7 +52,7 @@ relationships with no import behind them and imports with no relationship. --str
 diff compares the relationships the imports support now with those at a git commit (default HEAD): which the working tree added or lost, and new imports with no relationship. The viewer draws them; static evidence only.
 flows checks the state diagrams an agent wrote (*.behavior.c4) against the files they name and the commit they were synced at: files that are gone or changed since, arrows with no event, decisions with one answer, states nothing reaches, states that name no file. A flow is the agent's reading, so this finds what is wrong or old, never that it is right. --strict exits 1 if anything is found.
 flow add writes a journey you worked out from the code: a LikeC4 dynamic view of hops between components, as ID.behavior.c4, stamped with the commit and the files you read. It checks every component against the model and takes the file back out if the model would stop compiling; it decides nothing about what happens. A step can name the function it calls with a trailing @ FILE#FUNCTION: the file must be one you read and must export that name, and its declaration is copied as written (pathlight flows says when it changes). A hop the code makes over HTTP, a websocket or a spawned process, which no import backs, is written FROM -> TO over http: EVENT, and flows does not report it as missing from the model; use it only when you read both the request and the code that answers it. flow remove deletes only a file flow add wrote.
-brief lists, for each box of the draft (or only the boxes under the keys you give, children first), the files it owns with their sizes, what it imports from and what imports it, what is inside it and any name it has: what an agent needs to say what each box is for. With no keys it opens with what the project says about itself (its package description and the start of its README). brief --changed lists only the boxes that are new or whose files changed since pathlight name recorded them, so a later run names just those. name saves the names and notes the agent worked out (one box with --title and --note, or many from a JSON file of {"key","title","note"} entries, a dash for standard input) as the agent's reading (by "agent"), redraws once, never replaces a name a person wrote, and refuses a key that is not a box.
+brief lists, for each box of the draft (or only the boxes under the keys you give, children first), the files it owns with their sizes, what it imports from and what imports it, what is inside it and any name it has: what an agent needs to say what each box is for. With no keys it opens with what the project says about itself (its package description and the start of its README). brief --changed lists only the boxes that are new or whose files changed since pathlight name recorded them, so a later run names just those. brief --first-day prints the briefing for a person new to the code: what it is, how it is built, where it starts, the journeys to follow (F in the viewer), the files to read first and how sure the names are, derived each time from the scan, the names and the recorded journeys and stored nowhere. name saves the names and notes the agent worked out (one box with --title and --note, or many from a JSON file of {"key","title","note"} entries, a dash for standard input) as the agent's reading (by "agent"), redraws once, never replaces a name a person wrote, and refuses a key that is not a box.
 plan says which elements you are about to work on (ids from the model); the viewer outlines them and marks activity outside them. No ids clears the plan.
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
@@ -93,7 +93,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, "first-day": { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -142,6 +142,10 @@ try {
         process.stdout.write(formatAdded(added, steps.length));
       } else if (id === "remove") process.stdout.write(`Removed ${yield* removeFlow(values.workspace, name)}.\n`);
       else return yield* invalid("Use pathlight flow add ID ... or pathlight flow remove ID. pathlight flows lists and checks them.");
+    } else if (command === "brief" && values["first-day"]) {
+      if (id || extra.length || values.changed) return yield* invalid("--first-day takes no keys and no --changed: it is about the whole map.");
+      const day = yield* firstDayOf(values.workspace);
+      process.stdout.write(values.json ? `${JSON.stringify(day, null, 2)}\n` : formatFirstDay(day));
     } else if (command === "brief") {
       const all = yield* briefOf(values.workspace);
       const chosen = values.changed ? { missing: [] as string[], boxes: [] as typeof all } : select(all, [...(id ? [id] : []), ...extra]);

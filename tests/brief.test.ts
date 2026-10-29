@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
@@ -224,5 +224,65 @@ test("Python and Go starts: pyproject.toml's scripts, a __main__.py or main.py, 
     expect(starts).not.toContain("_test.go");
     expect(starts).not.toContain("test_orders.py");
     expect(starts).not.toContain("go/internal/storage/entry.go");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+// Everything under a folder, with each file's modification time: what --first-day must leave exactly as it was.
+const snapshot = async (root: string) => {
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  return Promise.all(entries.filter(entry => entry.isFile()).map(async entry => { const path = join(entry.parentPath, entry.name); return `${path} ${(await stat(path)).mtimeMs}`; })).then(list => list.sort());
+};
+
+test("brief --first-day prints its six parts from the facts and the names, each honest when empty, and writes nothing", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-"));
+  try {
+    await write(directory);
+    await run("git", ["-C", directory, "init", "-q"]);
+    await Effect.runPromise(draftWorkspace(directory));
+    const before = await snapshot(directory);
+    const bare = await cli("brief", "--first-day", "--workspace", directory);
+    expect(await snapshot(directory)).toEqual(before);
+    expect(bare.match(/^## .*$/gm)).toEqual(["## What it is", "## How it is built", "## Where it starts", "## Journeys to follow", "## Read these first", "## How sure"]);
+    expect(bare).toContain("## What it is\nnot named yet: no box holds the whole app");
+    expect(bare).toContain("- session — not named yet [src/session]");
+    expect(bare).toContain("## Journeys to follow\nnone recorded yet");
+    expect(bare).toContain("0 boxes named from the code, 0 inferred from file names, 4 not named.");
+    // The numbers are the scan's own.
+    const scan = JSON.parse(await cli("scan", "--workspace", directory));
+    expect(bare).toContain(`4 boxes · ${scan.coverage.files} files read · ${scan.coverage.imports} imports · read: TypeScript`);
+
+    await writeFile(join(directory, "names.json"), JSON.stringify([
+      { key: "src/session", title: "Sessions", note: "Starts a session against the database." },
+      { key: "src/database", title: "Database", note: "Holds the connection. (inferred from file names)" }]));
+    await cli("name", "--workspace", directory, "--from", join(directory, "names.json"));
+    await cli("flow", "add", "start-session", "--workspace", directory, "--title", "Starting a session", "--reads", "src/session.ts", "--step", "session -> database: opens the connection", "--step", "database -> session: hands it back");
+    const day = await cli("brief", "--first-day", "--workspace", directory);
+    expect(day).toContain("- Sessions — Starts a session against the database. [src/session]");
+    expect(day).toContain("- Database — Holds the connection. (inferred) [src/database]");
+    expect(day).toMatch(/F {2}Starting a session {2}\(journey start-session, 2 steps/);
+    expect(day).toContain("1 box named from the code, 1 inferred from file names, 2 not named.");
+    expect(day).toMatch(/Named \d{4}-\d{2}-\d{2}; 2 of 2 named boxes have the same files as then\./);
+    const read = day.slice(day.indexOf("## Read these first")).split("\n").slice(1, day.slice(day.indexOf("## Read these first")).split("\n").indexOf(""));
+    expect(read).toEqual([
+      "src/session.ts [src/session] — the largest file of Sessions (2 lines)", "src/database/query.ts [src/database] — the largest file of Database (2 lines)",
+      "src/index.ts [.#loose] — the largest file of loose files (2 lines)", "benchmarks/bench.ts [benchmarks] — the largest file of benchmarks (2 lines)"]);
+    // The same as data.
+    const data = JSON.parse(await cli("brief", "--first-day", "--json", "--workspace", directory));
+    expect(data.journeys).toEqual([{ id: "start-session", title: "Starting a session", kind: "journey", steps: 2, findings: expect.any(Number) }]);
+    expect(data.numbers.files).toBe(scan.coverage.files);
+    expect(data.sure).toMatchObject({ named: 1, inferred: 1, unnamed: 2 });
+    await expect(cli("brief", "--first-day", "src/session", "--workspace", directory)).rejects.toThrow(/takes no keys/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 90_000);
+
+test("a declared start is read first, and a map with a box for the whole app says what it is from that box", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-app-"));
+  try {
+    await write(directory);
+    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "demo", description: "A demo of sessions.", bin: { demo: "./src/index.ts" } }));
+    await Effect.runPromise(draftWorkspace(directory));
+    const day = await cli("brief", "--first-day", "--workspace", directory);
+    expect(day).toContain("## What it is\nNo box holds the whole app; in the project's own words (package.json): A demo of sessions.");
+    expect(day).toContain("## Read these first\nsrc/index.ts [.#loose] — bin “demo”");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
