@@ -561,6 +561,9 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   const describe = (...sentences: (string | undefined)[]) => { const text = sentences.filter(Boolean).join(" "); return text ? [`    description ${quote(text)}`] : []; };
   const thinNote = (minimum: number) => minimum > 1 ? `Connections with fewer than ${minimum} imports are hidden here. Select a component to see all of its connections.` : undefined;
   const hide = (minimum: number) => minimum > 1 ? [`    exclude * -> * where tag is #lt${minimum}`] : [];
+  // The exclusion would take a minor element out of its own view, leaving its children loose with no frame; it is put back (by its full id, which a
+  // child of the same name does not shadow).
+  const withoutMinor = (scope: string) => ["    exclude * where tag is #minor", ...(minor.has(scope) ? [`    include ${scope}`] : [])];
   // Inside a view scoped to an element, names resolve against that element first, so its children are named locally ("app.loose.app" would
   // find the child `app` and look for `loose` below it); an unscoped view names things in full.
   const links = (shown: readonly string[], group: ReadonlySet<string>, scope?: string) => shown.flatMap(id => group.has(id) || connected.has(id)
@@ -581,7 +584,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     const shown = [...inGroup].filter(id => !minor.has(id)).sort(byText);
     const minimum = thinned(id => inGroup.has(id), id => minor.has(id) ? undefined : inGroup.has(id) ? id : drawnOutside(id), shown);
     const result = ["", `  view ${componentsView(group.id)} of ${group.id} {`, `    title ${quote(title)}`, ...describe(hidden(inGroup.size - shown.length, allView(group.id)), thinNote(minimum)), "    include *", ...links(shown, new Set(), group.id),
-      ...(shown.length < inGroup.size ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }"];
+      ...(shown.length < inGroup.size ? withoutMinor(group.id) : []), ...hide(minimum), "    autoLayout LeftRight", "  }"];
     if (shown.length < inGroup.size) {
       entries.push(allView(group.id));
       const all = thinned(id => inGroup.has(id), id => inGroup.has(id) ? id : drawnOutside(id), [...inGroup]);
@@ -634,7 +637,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
       ? `Opened by the draft: it holds ${readIn(filesUnder(item, folder.id)).toLocaleString("en-US")} of the ${readIn(filesUnder(item, holder?.id)).toLocaleString("en-US")} files the scan reads in ${holder ? holder.title : draft.flat ? "the workspace" : item.title}.`
       : "Opened by a split in the overlay.";
     const result = ["", `  view ${componentsView(folder.id)} of ${folder.id} {`, `    title ${quote(folder.title)}`, ...describe(why, hidden(members.length - shown.length, allView(folder.id)), thinNote(minimum)), "    include *",
-      ...links(shown, new Set(folders), folder.id), ...links(groups, new Set(groups), folder.id), ...(thin ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }"];
+      ...links(shown, new Set(folders), folder.id), ...links(groups, new Set(groups), folder.id), ...(thin ? withoutMinor(folder.id) : []), ...hide(minimum), "    autoLayout LeftRight", "  }"];
     if (thin) {
       entries.push(allView(folder.id));
       const all = thinned(inside, drawn, [...members, ...groups]);
@@ -695,7 +698,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
       const drawnShown = (id: string) => hiddenHere(id) || minor.has(packageOf.get(id) ?? "") ? undefined : drawn(id);
       const minimum = thinned(id => own.has(id), drawnShown, [...shown, ...groups]);
       out.push("", `  view ${componentsView(item.id)} of ${item.id} {`, `    title ${quote(item.title)}`, ...describe(hidden(top.length - shown.length, allView(item.id)), thinNote(minimum)), "    include *", ...links(shown, new Set(folders), item.id), ...links(groups, new Set(groups), item.id),
-        ...(top.length > shown.length || draft.packages.some(other => minor.has(other.id)) ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }");
+        ...(top.length > shown.length || draft.packages.some(other => minor.has(other.id)) ? withoutMinor(item.id) : []), ...hide(minimum), "    autoLayout LeftRight", "  }");
       if (top.length > shown.length) {
         entries.push(allView(item.id));
         const all = thinned(id => own.has(id), drawn, [...top, ...groups]);

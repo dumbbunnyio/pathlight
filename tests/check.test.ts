@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { Effect, Schema } from "effect";
 import { overviewId } from "../src/catalog";
 import { Check, checkWorkspace, formatCheck, hasFindings } from "../src/check";
+import { draftWorkspace } from "../src/draft";
 import { run } from "./effects";
 
 const write = async (root: string, files: Record<string, string>) => {
@@ -176,6 +177,42 @@ test("an element with many direct children is reported as wide, and grouping the
     await write(directory, { "model.c4": model(grouped) });
     check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.wide).toEqual([]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("the side-by-side hint counts the cards an element's own view draws inside it: a view that thins to nine is not flagged, one that draws ten is, a listing does not count", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-check-drawn-"));
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    const flat = Array.from({ length: 10 }, (_, index) => `  part${index} = component 'Part ${index}'`).join("\n");
+    const model = (views: string) => `specification { element component }\nmodel {\n  system = component 'System' {\n${flat}\n  }\n}\nviews {\n  view live { include system.* autoLayout LeftRight }\n${views}\n}\n`;
+    const hint = async (views: string, entries?: string[]) => {
+      await write(directory, { "model.c4": model(views), ".pathlight/pathlight.activity.json": JSON.stringify({ ...JSON.parse(mapping([])), ...entries ? { entries } : {} }) });
+      return (await Effect.runPromise(checkWorkspace(directory))).wide;
+    };
+    expect(await hint("  view own of system { include * }")).toEqual([{ parent: "system", children: 10 }]);
+    expect(await hint("  view own of system { include *\n exclude system.part9 }")).toEqual([]);
+    // A complete listing is big on purpose; with only a listing of its own, the element is met as its model children.
+    expect(await hint("  view own of system { include *\n exclude system.part9 }\n  view every of system { include * }", ["every"])).toEqual([]);
+    expect(await hint("  view every of system { include * }", ["every"])).toEqual([{ parent: "system", children: 10 }]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("a drafted folder of fourteen children whose view draws nine gets no side-by-side hint", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-check-folder-"));
+  try {
+    const files: Record<string, string> = { "package.json": JSON.stringify({ name: "app" }) };
+    for (let n = 1; n <= 14; n++) for (let f = 0; f < 3; f++) files[`src/core/c${n}/f${f}.ts`] = n > 1 ? `import { f0 } from "../c1/f0";\nexport const f${f} = f0;\n` : `export const f${f} = ${f};\n`;
+    await write(directory, files);
+    const made = await Effect.runPromise(draftWorkspace(directory));
+    expect(made).toMatchObject({ folders: 1, components: 14 });
+    const check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.wide).toEqual([]);
+    expect(formatCheck(check)).not.toContain("side by side");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
