@@ -88,7 +88,7 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
     expect(second).not.toContain("≠");
     await tmux("send-keys", "-t", pane, "]", "]", "]");
     const last = await until(text => text.includes("Selected: parcel.fulfillment.shipping") && text.includes("5/5"), "step 5");
-    expect(last).toContain("≠ no relationship in the model");
+    expect(last).toContain("≠ no arrow on the map for this hop");
     // Esc leaves flow mode and brings back the connections.
     await tmux("send-keys", "-t", pane, "Escape");
     const left = await until(text => /^ diagram /m.test(text) && text.includes("Connects"), "diagram mode");

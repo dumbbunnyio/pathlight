@@ -86,7 +86,7 @@ test("a hop over http, a websocket or a process round-trips through flow add and
     expect(over.steps[1]).toMatchObject({ over: "http", call: { name: "postLabel" } });
     expect(over.findings).toEqual([]);
     expect(plain.steps[1]!.over).toBeUndefined();
-    expect(plain.findings.join("\n")).toContain("with no relationship between them in the model");
+    expect(plain.findings.join("\n")).toContain("and the map has no arrow between them");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
