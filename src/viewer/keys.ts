@@ -186,15 +186,15 @@ export type Tier = 1 | 2 | 3;
 
 /**
  * The keyboard help in three tiers, named for how far along the user is with this codebase: everyone starts by understanding it, then directs the
- * agent, then shapes the map. `t` is in the first two (asking and telling are one key). `vim` says which family selects (the other pans).
+ * agent, then shapes the map. `t` is listed once, in the first (asking and telling are one key). `vim` says which family selects (the other pans).
  */
 export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" | "Shape the map"; tier: Tier; rows: HelpRow[] }[] => {
   const arrows = "← ↑ ↓ →";
   return [
     { name: "Understand it", tier: 1, rows: [[`click, ${vim ? "h j k l" : arrows}`, "select a box, a neighbour", ["traverse", "listMove"]],
-      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter, o", "into a group, open a link", ["open"]], ["backspace", "up to the parent", ["parent"]], ["t", "ask how something works", ["ask"]],
+      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter, o", "into a group, open a link", ["open"]], ["backspace", "up to the parent", ["parent"]], ["t", "ask how it works, or tell it what to change", ["ask"]],
       ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
-    { name: "Direct it", tier: 2, rows: [["t", "tell it what to change", ["ask"]], ["c", "session and review", ["session"]],
+    { name: "Direct it", tier: 2, rows: [["c", "what it did this session, and the review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
       ["/", "search views, boxes, files", ["search"]], ["g", "go to any view", ["views"]], ["b", "back", ["back"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
       ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
@@ -205,7 +205,7 @@ export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" 
   ];
 };
 
-/** The tier a key's action belongs to, for the accent in `?`; `t` counts as the first (it asks before it tells). Undefined for a mode's own keys. */
+/** The tier a key's action belongs to, for the accent in `?`. Undefined for a mode's own keys. */
 export const tierOf = (action: Action): Tier | undefined => {
   const tiers = helpGroups(true).flatMap(group => group.rows.flatMap(row => row[2].map(does => [does, group.tier] as const)));
   return tiers.find(([does]) => does === action.type)?.[1];

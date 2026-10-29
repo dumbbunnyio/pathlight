@@ -13,7 +13,7 @@ test("? names three tiers, in the order a user goes through them", () => {
   expect(helpGroups(true).map(group => group.tier)).toEqual([1, 2, 3]);
 });
 
-test("every action a key has on the diagram, in a flow, in the node list or in a focused card is in exactly one tier; t is in the first two", () => {
+test("every action a key has on the diagram, in a flow, in the node list or in a focused card is in exactly one tier, t included", () => {
   // A mode's own keys (replay, the file filter, a card's tab and enter) are named in the footer while it is on, not in `?`.
   const footerOnly = new Set<Action["type"]>(["replayExit", "replayStep", "replayHome", "replayEnd", "replayTurn", "replayToggle", "replaySpeed",
     "endFiles", "fileMove", "refreshFiles", "fileOpen", "sectionEnter", "idle", "pass", "swallow"]);
@@ -27,7 +27,7 @@ test("every action a key has on the diagram, in a flow, in the node list or in a
   const listed = helpGroups(true).flatMap(group => group.rows.flatMap(row => row[2].map(does => ({ does, tier: group.tier }))));
   for (const does of seen) {
     const tiers = listed.filter(entry => entry.does === does).map(entry => entry.tier);
-    expect(tiers, does).toEqual(does === "ask" ? [1, 2] : [expect.any(Number)]);
+    expect(tiers, does).toEqual([expect.any(Number)]);
   }
   // Nothing is listed that no key does.
   for (const { does } of listed) expect(seen.has(does), does).toBe(true);
@@ -89,23 +89,29 @@ test("h j k l stay on their side: in a focused card left and right do nothing, a
   expect(helpGroups(true).flatMap(group => group.rows).find(row => row[0] === "1–4")?.[1]).toBe("focus a card, esc or tab leaves");
 });
 
-test("? explains the connector colours above the tiers, in the colours themselves, with the diff's pair only when a diff is loaded", () => {
+test("? explains the connector colours above the tiers, in the colours themselves, three to a row in the tiers' columns, a rule under them, and the diff's pair only when a diff is loaded", () => {
   const plain = helpContent({ tier: 1, vim: true, screenWidth: 140, version: "0" });
   const rows = text(plain.content).split("\n");
-  expect(rows[0]!.trimEnd()).toBe("── out of the selected box  ── into it  ┈┈ other relationships  ── the agent's reading (a flow)");
-  expect(rows[1]!.trim()).toBe("");
-  expect(rows[2]).toStartWith("Understand it");
+  expect(rows[0]!.trimEnd()).toMatch(/^── out of the selected box +── into it +┈┈ other relationships$/);
+  // Each item starts where its tier's column starts.
+  const heads = rows.find(line => line.startsWith("Understand it"))!;
+  expect([rows[0]!.indexOf("── into it"), rows[0]!.indexOf("┈┈ other")]).toEqual([heads.indexOf("Direct it"), heads.indexOf("Shape the map")]);
+  expect(rows[1]!.trimEnd()).toBe("── the agent's reading (a flow)");
+  expect(rows[2]).toMatch(/^─+$/);
+  expect(rows[2]!.length).toBe(heads.length);
+  expect(rows[3]!.trim()).toBe("");
+  expect(rows[4]).toStartWith("Understand it");
   expect(plain.height).toBe(rows.length);
   const colour = (content: typeof plain.content, glyphAt: number) => content.chunks.filter(chunk => /^[─┈]{2}$/.test(chunk.text))[glyphAt]!.fg!;
   const hex = [palette.outgoing, palette.incoming, palette.edgeDim, palette.purple, palette.green, palette.failure];
   const diff = helpContent({ tier: 1, vim: true, screenWidth: 140, version: "0", diff: true });
-  expect(text(diff.content)).toMatch(/── added since the base\s+┈┈ lost/);
+  expect(text(diff.content).split("\n")[1]!.trimEnd()).toMatch(/^── the agent's reading \(a flow\) +── added since the base +┈┈ lost$/);
   hex.forEach((value, index) => expect(colour(diff.content, index).equals(RGBA.fromHex(value)), value).toBe(true));
-  // Narrow, it wraps on whole items like the rows, every line as wide as the tiers.
+  // Narrow, one item to a row, every line as wide as the tiers.
   const narrow = helpContent({ tier: 1, vim: true, screenWidth: 60, version: "0", diff: true });
   const lines = text(narrow.content).split("\n");
-  const legend = lines.slice(0, lines.findIndex(line => line.startsWith("Understand it")) - 1);
-  expect(legend.length).toBeGreaterThan(1);
-  for (const line of legend) { expect(line.length).toBe(lines[legend.length + 1]!.length); expect(line).toMatch(/^(──|┈┈) /); }
+  const legend = lines.slice(0, lines.findIndex(line => line.startsWith("Understand it")) - 2);
+  expect(legend).toHaveLength(6);
+  for (const line of legend) { expect(line.length).toBe(lines[legend.length + 2]!.length); expect(line).toMatch(/^(──|┈┈) /); }
   expect(narrow.height).toBe(lines.length);
 });
