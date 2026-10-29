@@ -5,26 +5,26 @@
                                                                                                  │                                          
  ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ 1 Connects ──────────────────────── 2  
                                                                                                  │   → Activity metadata  Records tool li…  
+                                                                                                 │   → tmux launcher      Opens a view      
     ┌─ ◆ Keyboard shortcuts ───────────────────────────────────────────────────────────────────────────────────────── pathlight 0.1.1 ─┐    
-    │ ── out of the selected box                 ── into it                                 ┈┈ other relationships                     │    
- ·  │ ── the agent's reading (a flow)                                                                                                  │    
+ ·  │ ── out of the selected box                 ── into it                                 ┈┈ other relationships                     │    
+    │ ── the agent's reading (a flow)                                                                                                  │    
     │ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────   │    
     │                                                                                                                                  │    
-    │ Understand it ──────────────────────────   Direct it ──────────────────────────────   Shape the map ──────────────────────────   │    
- ·  │ click, h j k l  select a box, a            c        what it did this session, and     d          ask it to trace a flow          │    
+ ·  │ Understand it ──────────────────────────   Direct it ──────────────────────────────   Shape the map ──────────────────────────   │    
+    │ click, h j k l  select a box, a            c        what it did this session, and     d          ask it to trace a flow          │    
     │                 neighbour                           the review                        m          ask it to improve the map       │    
-    │ tab             through the inspector,     a        follow the work                   n          name and note it yourself       │    
- ·  │                 in a flow: next step       w        jump to the agent's work          p          replay the session              │    
-    │ enter, o        into a group, open a       e        files (in a flow: its code)       s          subagent calls                  │    
-  ╭─│                 link                       /        search views, boxes, files        T          choose a theme                  │    
-  │ │ backspace       up to the parent           g        go to any view                    1–4        focus a card, esc or tab        │    
- ·╰─│ t               ask how it works, or       b        back                                         leaves                          │    
-    │                 tell it what to change     i        inspector, or the talk and back   j k        move in the card                │    
-  ╭─│ F               step through a flow        z        widen the talk                    space      fold the card                   │    
-  │ │ [ ]             steps, esc leaves          f        fit everything                    PgUp PgDn  scroll the inspector            │    
- ·╰─│ ?               this help                  0  + -   actual size, zoom                 v          swap hjkl and arrows            │    
-    │                                            r        centre the selection              q          quit                            │    
-    │                                            ← ↑ ↓ →  pan                                                                          │    
+ ·  │ tab             through the inspector,     a        follow the work                   n          name and note it yourself       │    
+    │                 in a flow: next step       w        jump to the agent's work          p          replay the session              │    
+  ╭─│ enter, o        into a group, open a       e        files (in a flow: its code)       s          subagent calls                  │    
+  │ │                 link                       /        search views, boxes, files        T          choose a theme                  │    
+ ·╰─│ b, backspace    back where you were,       g        go to any view                    1–4        focus a card, esc or tab        │    
+    │                 else up                    i        inspector, or the talk and back              leaves                          │    
+  ╭─│ t               ask how it works, or       z        widen the talk                    j k        move in the card                │    
+  │ │                 tell it what to change     f        fit everything                    space      fold the card                   │    
+ ·╰─│ F               step through a flow        0  + -   actual size, zoom                 PgUp PgDn  scroll the inspector            │    
+    │ [ ]             steps, esc leaves          r        centre the selection              v          swap hjkl and arrows            │    
+    │ ?               this help                  ← ↑ ↓ →  pan                               q          quit                            │    
  ·  └─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────────────────────────────────────┘    
                                                                                                  │                                          
                                                                                                  │                                          

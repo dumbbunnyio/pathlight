@@ -192,11 +192,11 @@ export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" 
   const arrows = "← ↑ ↓ →";
   return [
     { name: "Understand it", tier: 1, rows: [[`click, ${vim ? "h j k l" : arrows}`, "select a box, a neighbour", ["traverse", "listMove"]],
-      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter, o", "into a group, open a link", ["open"]], ["backspace", "up to the parent", ["parent"]], ["t", "ask how it works, or tell it what to change", ["ask"]],
+      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter, o", "into a group, open a link", ["open"]], ["b, backspace", "back where you were, else up", ["back", "parent"]], ["t", "ask how it works, or tell it what to change", ["ask"]],
       ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
     { name: "Direct it", tier: 2, rows: [["c", "what it did this session, and the review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
-      ["/", "search views, boxes, files", ["search"]], ["g", "go to any view", ["views"]], ["b", "back", ["back"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
+      ["/", "search views, boxes, files", ["search"]], ["g", "go to any view", ["views"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
       ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
     { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a flow", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
       ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],

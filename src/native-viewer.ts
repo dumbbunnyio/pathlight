@@ -828,6 +828,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   });
   // Which action a key means is decided in viewer/keys.ts; here it is done.
   const glide = (change: () => void) => camera.glide(change);
+  // Back: the newest visit whose view still exists, camera and selection restored; one the model lost since is passed over. False when there is none.
+  const goBack = () => {
+    for (let saved = state.history.pop(); saved; saved = state.history.pop()) {
+      if (!diagrams.get(saved.view)?.nodes.length) continue;
+      state.pendingVisit = { diagram: getDiagram(saved.view), restore: saved }; camera.animating = false;
+      return true;
+    }
+    return false;
+  };
   // Whatever a key's case throws is said in the footer, never printed over the screen.
   const perform = (action: Action) => {
     try { act(action); } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
@@ -914,21 +923,23 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "flowStep": flowMode.goTo(flowMode.step + action.by); return;
       case "exitFlow": flowMode.exit(); return;
       case "search": camera.animating = false; gotoPicker.begin("all"); return;
-      case "back": {
-        // The newest visit whose view still exists; one the model lost since is passed over.
-        for (let saved = state.history.pop(); saved; saved = state.history.pop()) {
-          if (!diagrams.get(saved.view)?.nodes.length) continue;
-          state.pendingVisit = { diagram: getDiagram(saved.view), restore: saved }; camera.animating = false;
-          return;
-        }
-        message = "No previous view"; update();
-        return;
-      }
+      case "back": if (!goBack()) { message = "No previous view"; update(); } return;
       case "open":
         if (action.enter && state.selected?.children.length) selectNode(diagram.nodes.find(node => node.id === state.selected?.children[0]), true);
         else openLink();
         return;
-      case "parent": selectNode(diagram.nodes.find(node => node.id === state.selected?.parent), true); return;
+      // `b` and backspace are one stack: backspace steps back too, and only with nowhere to go back to goes up, to the box that holds the selection
+      // in this view, else to the view whose box opens this one.
+      case "parent": {
+        if (goBack()) return;
+        const holder = diagram.nodes.find(node => node.id === state.selected?.parent);
+        if (holder) { selectNode(holder, true); return; }
+        const above = [...diagrams].find(([id, other]) => id !== String(diagram.id) && other.nodes.some(node => String(node.navigateTo ?? "") === String(diagram.id)));
+        if (!above) { message = "No previous view"; update(); return; }
+        const opener = above[1].nodes.find(node => String(node.navigateTo ?? "") === String(diagram.id))!;
+        camera.animating = false; state.pendingVisit = { diagram: getDiagram(above[0]), select: String(opener.modelRef ?? opener.id), notice: `Went to ${String(above[1].title ?? above[0])}` };
+        return;
+      }
       case "views": gotoPicker.begin("views"); return;
       case "themes": themePicker.begin(); return;
       case "ask": dialog.ask(!engaged && state.selected ? firstQuestion(state.selected.title) : ""); return;

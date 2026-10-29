@@ -100,3 +100,23 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await rm(directory, { recursive: true, force: true });
   }
 }, 40000);
+
+// `b` and backspace are one stack: backspace steps back through the visits as `b` does, and only with none left goes up, first to the box that holds
+// the selection in this view, then to the view whose box opens this one. `b` with nothing to go back to stays and says so.
+test("backspace steps back like b, and goes up only when there is nowhere to go back to", async () => {
+  const see = async (keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", "checkout", "--workspace", "examples/parcel", "--project", "parcel",
+    "--cols", "140", "--rows", "36", "--select", "parcel.commerce.api", "--keys", keys])).split("\n");
+  const where = (screen: string[]) => [screen.find(line => line.includes("parcel/"))!.trim().split(" ")[0], /Selected: (\S+)/.exec(screen.at(-1)!)?.[1]];
+  // Up through the boxes that hold the API in this view, then to the view whose box opens it.
+  expect(where(await see("BSpace,BSpace"))).toEqual(["parcel/checkout", "parcel"]);
+  const up = await see("BSpace,BSpace,BSpace");
+  expect(where(up)).toEqual(["parcel/services", "parcel.commerce"]);
+  expect(up.at(-1)).toContain("Went to Parcel / Service architecture");
+  // Into the linked view and straight back: backspace takes the visit, as b would.
+  expect(where(await see("BSpace,BSpace,BSpace,o,BSpace"))).toEqual(["parcel/services", "parcel.commerce"]);
+  expect(where(await see("BSpace,BSpace,BSpace,o,b"))).toEqual(["parcel/services", "parcel.commerce"]);
+  // b alone, with no visit behind it, stays.
+  const stays = await see("b");
+  expect(where(stays)).toEqual(["parcel/checkout", "parcel.commerce.api"]);
+  expect(stays.at(-1)).toContain("No previous view");
+}, 120_000);

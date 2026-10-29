@@ -325,8 +325,11 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("back 1");
     await delay(100);
-    // Services opens on its entry, the checkout API; Backspace goes up to the commerce group.
-    await tmux("send-keys", "-t", pane, "BSpace");
+    // Services opens on its entry, the checkout API; the commerce group is found by search (Backspace here would go back, since a visit is behind it).
+    await tmux("send-keys", "-t", pane, "/");
+    await tmux("send-keys", "-t", pane, "-l", "commerce");
+    await capture("› commerce");
+    await tmux("send-keys", "-t", pane, "Enter");
     await capture(/Selected: parcel\.commerce\s/);
     await tmux("send-keys", "-t", pane, "0", "+");
     await capture("zoom 125%");
@@ -348,8 +351,13 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "o");
     await capture("back 2");
     await delay(100);
-    // Checkout opens on its entry too; up to the commerce group, then Enter goes into it, to its first child.
-    await tmux("send-keys", "-t", pane, "BSpace", "Enter");
+    // Checkout opens on its entry too; to the commerce group by search, then Enter goes into it, to its first child.
+    await tmux("send-keys", "-t", pane, "/");
+    await tmux("send-keys", "-t", pane, "-l", "commerce");
+    await capture("› commerce");
+    await tmux("send-keys", "-t", pane, "Enter");
+    await capture(/Selected: parcel\.commerce\s/);
+    await tmux("send-keys", "-t", pane, "Enter");
     await capture("Selected: parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "0", "r");
     await delay(700);

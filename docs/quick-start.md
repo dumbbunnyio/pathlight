@@ -20,7 +20,7 @@ In a tmux pane, in the project you work in:
 
 ## Understand it
 
-Everyone starts here, even on their own code. Select boxes (a click, `h j k l`), go into a group with `enter` and back out with `backspace`. Ask how something works with `t`: a question about a path ("how does a document get saved?", "where does the token go?") is answered and recorded as a journey, which `F` walks on the diagram. Everything drawn this way is the agent's reading of the code, in violet, never something observed.
+Everyone starts here, even on their own code. Select boxes (a click, `h j k l`), go into a group with `enter`, and step back with `backspace` (or `b`): back where you were, else up a level. Ask how something works with `t`: a question about a path ("how does a document get saved?", "where does the token go?") is answered and recorded as a journey, which `F` walks on the diagram. Everything drawn this way is the agent's reading of the code, in violet, never something observed.
 
 ## Direct it
 
