@@ -6,6 +6,7 @@ import { draftOf, draftWorkspace, Overlay, readManifests, unreadLines } from "./
 import { readOverlay } from "./edit";
 import { failure, io } from "./effects";
 import { homeOf, overlayFile } from "./layout";
+import { declarationsFor } from "./languages";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace } from "./scan";
 
 /**
@@ -68,11 +69,14 @@ export const contextOf = Effect.fn("Brief.context")(function* (workspace: string
 });
 
 /**
- * Where a person or a process can start the code: what the project itself declares (package.json scripts, `bin`, `main`) and, from the import graph,
- * the source files no other file imports. Facts, not a guess about what the app does; each is shown with the box that holds the file.
+ * Where a person or a process can start the code: what the project itself declares (package.json scripts, `bin`, `main`; pyproject.toml's
+ * `[project.scripts]` and `[project.gui-scripts]`), the programs the code itself declares (a Go file of `package main` with `func main`, a Python
+ * `__main__.py` or `main.py`) and, from the import graph, the source files no other file imports. Facts, not a guess about what the app does; each is
+ * shown with the box that holds the file.
  */
 export interface EntryPoint { file: string; box?: string; why: string }
-const notEntry = /(^|\/)(tests?|__tests__|spec|fixtures?|mocks?)\/|\.(test|spec|d|config|stories)\.[cm]?[jt]sx?$|(^|\/)(vite|vitest|jest|tsup|rollup|webpack|eslint|oxlint)[.\w-]*\.[cm]?[jt]s$/;
+const notEntry = /(^|\/)(tests?|__tests__|spec|fixtures?|mocks?|testdata)\/|\.(test|spec|d|config|stories)\.[cm]?[jt]sx?$|(^|\/)(vite|vitest|jest|tsup|rollup|webpack|eslint|oxlint)[.\w-]*\.[cm]?[jt]s$|_test\.go$|(^|\/)(test_[^/]*|[^/]*_test|conftest)\.py$/;
+const notOurs = /(^|\/)(node_modules|\.venv|venv|site-packages|vendor)\//;
 const scriptSkipped = /^(test|check|lint|format|fmt|build|prepare|prepublish|postinstall|typecheck|types|clean)\b/;
 export const entryPointsOf = Effect.fn("Brief.entryPoints")(function* (workspace: string, boxes: readonly BriefBox[]) {
   const root = yield* io("Brief.workspace", () => realpath(workspace));
@@ -98,15 +102,48 @@ export const entryPointsOf = Effect.fn("Brief.entryPoints")(function* (workspace
     for (const [name, target] of bins) if (typeof target === "string") add(resolveIn(target), `bin “${name}”`);
     for (const key of ["main", "module"]) if (typeof record[key] === "string") add(resolveIn(record[key] as string), `package ${key}`);
   }
+  // A Python script entry is `module.path:function`: the module's file, beside the pyproject or under its `src/`.
+  for (const manifest of paths.filter(path => posix.basename(path) === "pyproject.toml" && !notOurs.test(path))) {
+    const directory = posix.dirname(manifest) === "." ? "" : posix.dirname(manifest);
+    const parsed = yield* io("Brief.pyproject", () => readFile(join(root, manifest), "utf8")).pipe(Effect.map((text): unknown => { try { return Bun.TOML.parse(text); } catch { return undefined; } }), Effect.catch(() => Effect.succeed(undefined as unknown)));
+    const project = typeof parsed === "object" && parsed ? (parsed as Record<string, unknown>).project : undefined;
+    if (typeof project !== "object" || !project) continue;
+    for (const table of ["scripts", "gui-scripts"]) {
+      const scripts = (project as Record<string, unknown>)[table];
+      if (typeof scripts !== "object" || !scripts) continue;
+      for (const [name, target] of Object.entries(scripts as Record<string, unknown>)) {
+        const module = typeof target === "string" ? target.split(":")[0]!.trim().replaceAll(".", "/") : "";
+        if (!module) continue;
+        const file = ["", "src/"].flatMap(base => [`${base}${module}.py`, `${base}${module}/__init__.py`]).map(path => posix.join(directory, path)).find(path => sources.has(path));
+        if (file) add(file, `script “${name}” in ${posix.join(directory, "pyproject.toml")}`);
+      }
+    }
+  }
+  // Programs the code declares: a Go `package main` holding `func main`, a Python `__main__.py` or `main.py`.
+  for (const file of scan.files) {
+    if (notEntry.test(file.path) || notOurs.test(file.path)) continue;
+    const name = posix.basename(file.path);
+    if (name === "__main__.py") add(file.path, "Python __main__ module");
+    else if (name === "main.py") add(file.path, "Python main.py");
+    else if (file.path.endsWith(".go")) {
+      const source = yield* io("Brief.go", () => readFile(join(root, file.path), "utf8")).pipe(Effect.catch(() => Effect.succeed("")));
+      if (!/^package\s+main\b/m.test(source)) continue;
+      const reader = yield* declarationsFor(file.path);
+      if (reader.declaration(source, "main")?.startsWith("func main(")) add(file.path, "Go package main with func main");
+    }
+  }
   const imported = new Set(scan.imports.map(edge => edge.to));
-  const roots = scan.files.filter(file => !imported.has(file.path) && !notEntry.test(file.path) && !found.has(file.path)).sort((a, b) => b.lines - a.lines || (a.path < b.path ? -1 : 1)).slice(0, 12);
+  // A Go package is imported as a whole and its files use each other without an import: a Go file is reached when any file of its folder is.
+  const goPackages = new Set(scan.imports.filter(edge => edge.to.endsWith(".go")).map(edge => posix.dirname(edge.to)));
+  const reached = (path: string) => imported.has(path) || (path.endsWith(".go") && goPackages.has(posix.dirname(path)));
+  const roots = scan.files.filter(file => !reached(file.path) && !notEntry.test(file.path) && !notOurs.test(file.path) && !found.has(file.path)).sort((a, b) => b.lines - a.lines || (a.path < b.path ? -1 : 1)).slice(0, 12);
   for (const file of roots) add(file.path, "no other file imports it");
   return [...found.values()];
 });
 
 export function formatEntryPoints(entries: readonly EntryPoint[]) {
   if (!entries.length) return "";
-  return `# Where the code can be started (declared by the project, or files nothing imports)\n${entries.map(entry => `${entry.file}${entry.box ? ` [${entry.box}]` : ""} — ${entry.why}`).join("\n")}\n\n`;
+  return `# Where the code can be started (declared by the project or the code, or files nothing imports)\n${entries.map(entry => `${entry.file}${entry.box ? ` [${entry.box}]` : ""} — ${entry.why}`).join("\n")}\n\n`;
 }
 
 export function formatContext(context: AppContext) {

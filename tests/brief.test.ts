@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
@@ -199,5 +199,30 @@ test("an opened folder is a box listed like a package: where it sits, what is in
     expect(core.files).toHaveLength(18);
     expect(boxes.find(box => box.key === "src/core/ui")).toMatchObject({ kind: "component", parent: "src/core", depth: 1, generated: "ui", imports: [{ key: "src/core/data", imports: 1 }] });
     expect(formatBrief([core], boxes)).toContain("## src/core  (folder · 18 files, 19 lines)\ngenerated name: core\n");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+test("Python and Go starts: pyproject.toml's scripts, a __main__.py or main.py, and a Go package main with func main; their tests are no starts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-entry-py-go-"));
+  try {
+    await cp("tests/fixtures/python", join(directory, "py"), { recursive: true });
+    await cp("tests/fixtures/go", join(directory, "go"), { recursive: true });
+    await writeFile(join(directory, "py", "pyproject.toml"), `[project]\nname = "shop"\nversion = "1.0"\n\n[project.scripts]\nshop = "shop.orders:run"\n\n[project.gui-scripts]\nshop-gui = "shop.catalog:show"\n`);
+    await writeFile(join(directory, "py", "src", "shop", "__main__.py"), "from shop import orders\n");
+    await writeFile(join(directory, "py", "src", "shop", "test_orders.py"), "from shop import orders\n");
+    await Effect.runPromise(draftWorkspace(directory));
+    const text = await cli("brief", "--workspace", directory);
+    const starts = text.slice(text.indexOf("# Where the code"), text.indexOf("\n\n", text.indexOf("# Where the code")));
+    expect(starts).toContain("py/src/shop/orders.py");
+    expect(starts).toMatch(/py\/src\/shop\/orders\.py \[[^\]]+\] — script “shop” in py\/pyproject\.toml/);
+    expect(starts).toMatch(/py\/src\/shop\/catalog\.py \[[^\]]+\] — script “shop-gui” in py\/pyproject\.toml/);
+    expect(starts).toContain("py/src/shop/__main__.py");
+    expect(starts).toMatch(/py\/app\/main\.py .*— Python main\.py/);
+    expect(starts).toMatch(/go\/cmd\/shop\/main\.go .*— Go package main with func main/);
+    // The other file of package main has no func main; a test file is never a start; a Go file whose package is imported is reached.
+    expect(starts).not.toContain("go/cmd/shop/extra.go — Go");
+    expect(starts).not.toContain("_test.go");
+    expect(starts).not.toContain("test_orders.py");
+    expect(starts).not.toContain("go/internal/storage/entry.go");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
