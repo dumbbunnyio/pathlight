@@ -31,6 +31,12 @@ export type ViewState<Node, Diagram, Reload> = ReturnType<typeof createState<Nod
 /** Back keeps the last 32 visits. */
 export const remember = (state: { history: Visit[] }, visit: Visit) => { state.history.push(visit); if (state.history.length > 32) state.history.shift(); };
 
+/** After a reload, the visits whose view is gone are dropped, so Back never returns to a view the model no longer has. */
+export const forgetGone = (state: { history: Visit[] }, exists: (view: string) => boolean) => {
+  const kept = state.history.filter(visit => exists(visit.view));
+  state.history.splice(0, state.history.length, ...kept);
+};
+
 /** A new selection starts its cards from the top. */
 export const choose = <Node>(state: { selected: Node | undefined; fileCursor: number; cursor: Record<SectionKey, number> }, node: Node) => {
   state.selected = node; state.fileCursor = 0; state.cursor.connections = 0;

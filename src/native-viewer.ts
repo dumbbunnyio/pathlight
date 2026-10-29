@@ -40,7 +40,7 @@ import { createThemePicker } from "./viewer/theme-picker";
 import { createAskDialog } from "./viewer/ask-dialog";
 import type { TalkState } from "./viewer/talk-view";
 import { reviewSection } from "./viewer/review-view";
-import { choose, createState, firstNode, remember, type Visit } from "./viewer/state";
+import { choose, createState, firstNode, forgetGone, remember, type Visit } from "./viewer/state";
 import { createFlowMode, stepElement } from "./viewer/flow-mode";
 import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
@@ -827,7 +827,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   });
   // Which action a key means is decided in viewer/keys.ts; here it is done.
   const glide = (change: () => void) => camera.glide(change);
+  // Whatever a key's case throws is said in the footer, never printed over the screen.
   const perform = (action: Action) => {
+    try { act(action); } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
+  };
+  const act = (action: Action) => {
     const play = replay;
     const replayGo = (index: number) => { if (play) { play.playing = false; showStep(index); } };
     const key_ = state.focusSection;
@@ -910,9 +914,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "exitFlow": flowMode.exit(); return;
       case "search": camera.animating = false; gotoPicker.begin("all"); return;
       case "back": {
-        const saved = state.history.at(-1);
-        if (saved) { const next = getDiagram(saved.view); state.history.pop(); state.pendingVisit = { diagram: next, restore: saved }; camera.animating = false; }
-        else { message = "No previous view"; update(); }
+        // The newest visit whose view still exists; one the model lost since is passed over.
+        for (let saved = state.history.pop(); saved; saved = state.history.pop()) {
+          if (!diagrams.get(saved.view)?.nodes.length) continue;
+          state.pendingVisit = { diagram: getDiagram(saved.view), restore: saved }; camera.animating = false;
+          return;
+        }
+        message = "No previous view"; update();
         return;
       }
       case "open":
@@ -1036,6 +1044,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
         diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; imports = undefined;
+        forgetGone(state, id => Boolean(diagrams.get(id)?.nodes.length));
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;
         nodeObjects = mountNodes(); routes = computeRoutes(); gapFor = "";
