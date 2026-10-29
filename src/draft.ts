@@ -327,6 +327,8 @@ export const viewCap = 16;
 export const openFloor = 100;
 /** …or at least this share of them. */
 export const openShare = 0.9;
+/** An opened folder's own view draws this many of its children as cards (its collections among them); the rest are in its "everything" view. */
+export const folderCap = 9;
 /** A readable view holds at most this many boxes in all: its own members plus the neighbours that connect to them. */
 export const crowdedAbove = 20;
 
@@ -402,8 +404,40 @@ export function witness(members: readonly string[], edges: readonly { from: stri
   return { edges: all.slice(0, limit).sort((a, b) => byText(a.from, b.from) || byText(a.to, b.to)), complete: all.length <= limit };
 }
 
+/**
+ * Where everything sits: the chain of what holds an element, from its package down (no package in a flat draft), and what a view scoped to some holder draws
+ * for any element: the holder's child that contains it, or, outside the holder, the element where the two chains part (a sibling, a collection, a package).
+ */
+const placesOf = (draft: Draft) => {
+  const chains = new Map<string, readonly string[]>();
+  for (const item of draft.packages) {
+    const top = draft.flat ? [] : [item.id];
+    const parents = new Map(item.folders.map(folder => [folder.id, folder.parent] as const));
+    const above = (folder: string | undefined): string[] => folder ? [...above(parents.get(folder)), folder] : [];
+    if (!draft.flat) chains.set(item.id, top);
+    for (const folder of item.folders) chains.set(folder.id, [...top, ...above(folder.id)]);
+    for (const group of item.groups) chains.set(group.id, [...top, ...above(group.folder), group.id]);
+    for (const entry of item.components) chains.set(entry.id, [...top, ...above(entry.folder), ...(entry.group ? [entry.group] : []), entry.id]);
+  }
+  const drawnIn = (scope: readonly string[]) => (id: string) => {
+    const chain = chains.get(id) ?? [id];
+    let at = 0;
+    while (at < scope.length && chain[at] === scope[at]) at++;
+    return chain[at];
+  };
+  return { chain: (id: string) => chains.get(id) ?? [id], drawnIn };
+};
+
+/** What a package (no `folder`) or an opened folder holds directly: its components and folders, which compete for room, and its collections. */
+const childrenOf = (item: DraftPackage, folder?: string) => ({
+  members: [...item.components.filter(entry => !entry.group && entry.folder === folder).map(entry => entry.id), ...item.folders.filter(inner => inner.parent === folder).map(inner => inner.id)].sort(byText),
+  groups: item.groups.filter(group => group.folder === folder).map(group => group.id),
+  folders: item.folders.filter(inner => inner.parent === folder).map(inner => inner.id),
+});
+
 export function analyse(draft: Draft): Analysis {
   const packageOf = new Map(draft.packages.flatMap(item => item.components.map(entry => [entry.id, item.id] as const)));
+  const { chain, drawnIn } = placesOf(draft);
   const weight = new Map<string, number>();
   const add = (id: string, n: number) => weight.set(id, (weight.get(id) ?? 0) + n);
   const tooling = new Set(draft.packages.flatMap(item => item.components.filter(entry => isTooling(entry.key)).map(entry => entry.id)));
@@ -413,7 +447,11 @@ export function analyse(draft: Draft): Analysis {
     add(edge.from, edge.imports); add(edge.to, edge.imports);
     const a = packageOf.get(edge.from), b = packageOf.get(edge.to);
     if (!draft.flat && a && b && a !== b) { add(a, edge.imports); add(b, edge.imports); }
+    // An opened folder counts what crosses its edge, as a package does.
+    const into = new Set(chain(edge.to)), outOf = new Set(chain(edge.from));
+    for (const folder of draft.packages.flatMap(item => item.folders)) if (outOf.has(folder.id) !== into.has(folder.id)) add(folder.id, edge.imports);
   }
+  const filesIn = (item: DraftPackage, id: string) => item.components.filter(entry => entry.id === id || entry.id.startsWith(`${id}.`)).reduce((sum, entry) => sum + entry.files.length, 0);
   const ranked = (ids: readonly string[], files: (id: string) => number) => [...ids].sort((a, b) =>
     Number(tooling.has(a)) - Number(tooling.has(b)) || (weight.get(b) ?? 0) - (weight.get(a) ?? 0) || files(b) - files(a) || byText(a, b));
   const minor = new Set<string>();
@@ -425,12 +463,20 @@ export function analyse(draft: Draft): Analysis {
   const neighboursOf = (inside: ReadonlySet<string>, drawn: (id: string) => string | undefined) => new Set(draft.relationships
     .filter(edge => inside.has(edge.from) !== inside.has(edge.to)).map(edge => drawn(inside.has(edge.from) ? edge.to : edge.from)).filter(Boolean)).size;
   for (const item of draft.packages) {
-    const top = item.components.filter(entry => !entry.group && !entry.folder);
+    const { members: top, groups } = childrenOf(item);
     const own = new Set(item.components.map(entry => entry.id));
     // The box drawn around the package is one more node.
-    const room = Math.max(5, crowdedAbove - 1 - item.groups.length - neighboursOf(own, id => packageOf.get(id)));
+    const room = Math.max(5, crowdedAbove - 1 - groups.length - neighboursOf(own, id => packageOf.get(id)));
     if (top.length <= room) continue;
-    for (const id of ranked(top.map(entry => entry.id), id => item.components.find(entry => entry.id === id)!.files.length).slice(room)) minor.add(id);
+    for (const id of ranked(top, id => filesIn(item, id)).slice(room)) minor.add(id);
+  }
+  // An opened folder draws its strongest children as cards, its collections among them, and leaves the rest to its "everything" view.
+  for (const item of draft.packages) for (const folder of item.folders) {
+    const { members, groups } = childrenOf(item, folder.id);
+    const inside = new Set(item.components.filter(entry => entry.id.startsWith(`${folder.id}.`)).map(entry => entry.id));
+    const room = Math.min(folderCap - groups.length, Math.max(5, crowdedAbove - 1 - groups.length - neighboursOf(inside, drawnIn(chain(folder.id)))));
+    if (members.length <= room) continue;
+    for (const id of ranked(members, id => filesIn(item, id)).slice(room)) minor.add(id);
   }
   // A collection that holds more than a view can show lists its strongest members and leaves the rest to its "everything" view.
   for (const item of draft.packages) for (const group of item.groups) {
@@ -486,7 +532,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     const result: string[] = [];
     for (const entry of item.components.filter(candidate => !candidate.group && candidate.folder === folder?.id)) result.push(`${indent}${local(entry.id, parent)} = component ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}  `), `${indent}  description ${quote(said(entry.note, facts(entry.files)))}`, `${indent}}`);
     for (const inner of item.folders.filter(candidate => candidate.parent === folder?.id)) {
-      result.push(`${indent}${local(inner.id, parent)} = folder ${quote(inner.title)} {`, `${indent}  description ${quote(said(inner.note, facts(item.components.filter(entry => entry.id.startsWith(`${inner.id}.`)).flatMap(entry => entry.files))))}`, ...block(item, `${indent}  `, inner.id, inner), `${indent}}`);
+      result.push(`${indent}${local(inner.id, parent)} = folder ${quote(inner.title)} {`, ...tagLine(inner.id, "component", `${indent}  `), `${indent}  description ${quote(said(inner.note, facts(item.components.filter(entry => entry.id.startsWith(`${inner.id}.`)).flatMap(entry => entry.files))))}`, ...block(item, `${indent}  `, inner.id, inner), `${indent}}`);
     }
     // A collection of small folders says how many folders; one of loose files would only say its file count twice.
     for (const group of item.groups.filter(candidate => candidate.folder === folder?.id)) {
@@ -510,7 +556,6 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   out.push("}", "", "views {");
 
   const packageOf = new Map(draft.packages.flatMap(item => item.components.map(entry => [entry.id, item.id] as const)));
-  const groupOf = new Map(draft.packages.flatMap(item => item.components.flatMap(entry => entry.group ? [[entry.id, entry.group] as const] : [])));
   const connected = new Set(draft.relationships.flatMap(edge => [edge.from, edge.to]));
   // LikeC4 wants a view's properties before its predicates.
   const describe = (...sentences: (string | undefined)[]) => { const text = sentences.filter(Boolean).join(" "); return text ? [`    description ${quote(text)}`] : []; };
@@ -531,10 +576,9 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     return thinning(nodes.size, minimum => new Set(relevant.filter(edge => edge.imports >= minimum)
       .flatMap(edge => { const from = drawn(edge.from), to = drawn(edge.to); return from && to && from !== to ? [`${from}\0${to}`] : []; })).size);
   };
-  const groupView = (item: DraftPackage, group: DraftGroup, drawnOutside: (id: string) => string | undefined) => {
+  const groupView = (item: DraftPackage, group: DraftGroup, drawnOutside: (id: string) => string | undefined, title = draft.flat ? group.title : `${item.title} / ${group.title}`) => {
     const inGroup = new Set(item.components.filter(entry => entry.group === group.id).map(entry => entry.id));
     const shown = [...inGroup].filter(id => !minor.has(id)).sort(byText);
-    const title = draft.flat ? group.title : `${item.title} / ${group.title}`;
     const minimum = thinned(id => inGroup.has(id), id => minor.has(id) ? undefined : inGroup.has(id) ? id : drawnOutside(id), shown);
     const result = ["", `  view ${componentsView(group.id)} of ${group.id} {`, `    title ${quote(title)}`, ...describe(hidden(inGroup.size - shown.length, allView(group.id)), thinNote(minimum)), "    include *", ...links(shown, new Set(), group.id),
       ...(shown.length < inGroup.size ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }"];
@@ -570,21 +614,51 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   }));
   const proofNote = (proof: readonly { complete: boolean }[]) => proof.some(item => !item.complete) ? "Each member is shown with the shortest way back to itself; only the strongest lines are drawn, the rest are in the model." : "Each member is shown with the shortest way back to itself.";
   const hidden = (count: number, all: string) => count ? `${plural(count, "smaller one")} ${count === 1 ? "is" : "are"} not shown here; ${all} lists everything.` : undefined;
+  const places = placesOf(draft);
+  const foldered = new Set(draft.packages.flatMap(item => item.components.filter(entry => entry.folder).map(entry => entry.id)));
+  // A component inside an opened folder is drawn on the folder (or the child of it that holds it); it is hidden only when that box is.
+  const gone = (drawn: (id: string) => string | undefined) => (id: string) => foldered.has(id) ? minor.has(drawn(id) ?? "") : minor.has(id);
+  const readIn = (files: readonly string[]) => files.filter(path => !unread.has(path)).length;
+  const filesUnder = (item: DraftPackage, id?: string) => item.components.filter(entry => !id || entry.id.startsWith(`${id}.`)).flatMap(entry => entry.files);
+  /** An opened folder's own view, drawn as a package's is, with its strongest children as cards and the rest in its "everything" view. */
+  const folderViews = (item: DraftPackage, folder: DraftFolder) => {
+    const scope = places.chain(folder.id), drawn = places.drawnIn(scope);
+    const inside = (id: string) => places.chain(id).includes(folder.id) && id !== folder.id;
+    const { members, groups, folders } = childrenOf(item, folder.id);
+    const shown = members.filter(id => !minor.has(id));
+    const thin = shown.length < members.length;
+    const drawnShown = (id: string) => { const node = drawn(id); return node && thin && minor.has(node) ? undefined : node; };
+    const minimum = thinned(inside, drawnShown, [...shown, ...groups]);
+    const holder = folder.parent ? item.folders.find(other => other.id === folder.parent)! : undefined;
+    const why = folder.opened
+      ? `Opened by the draft: it holds ${readIn(filesUnder(item, folder.id)).toLocaleString("en-US")} of the ${readIn(filesUnder(item, holder?.id)).toLocaleString("en-US")} files the scan reads in ${holder ? holder.title : draft.flat ? "the workspace" : item.title}.`
+      : "Opened by a split in the overlay.";
+    const result = ["", `  view ${componentsView(folder.id)} of ${folder.id} {`, `    title ${quote(folder.title)}`, ...describe(why, hidden(members.length - shown.length, allView(folder.id)), thinNote(minimum)), "    include *",
+      ...links(shown, new Set(folders), folder.id), ...links(groups, new Set(groups), folder.id), ...(thin ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }"];
+    if (thin) {
+      entries.push(allView(folder.id));
+      const all = thinned(inside, drawn, [...members, ...groups]);
+      result.push("", `  view ${allView(folder.id)} of ${folder.id} {`, `    title ${quote(`${folder.title} / everything`)}`, ...describe(why, thinNote(all)), "    include *", ...links(members, new Set(folders), folder.id), ...links(groups, new Set(groups), folder.id), ...hide(all), "    autoLayout LeftRight", "  }");
+    }
+    for (const group of item.groups.filter(candidate => candidate.folder === folder.id)) result.push(...groupView(item, group, places.drawnIn(places.chain(group.id)), `${folder.title} / ${group.title}`));
+    return result;
+  };
 
   if (draft.flat) {
     const item = draft.packages[0]!;
-    const drawn = (id: string) => groupOf.get(id) ?? id;
-    const top = item.components.filter(entry => !entry.group && !entry.folder).map(entry => entry.id);
-    const shown = top.filter(id => !minor.has(id)), groups = item.groups.filter(group => !group.folder).map(group => group.id);
-    const drawnShown = (id: string) => minor.has(id) ? undefined : drawn(id);
+    const drawn = places.drawnIn([]);
+    const { members: top, groups, folders } = childrenOf(item);
+    const shown = top.filter(id => !minor.has(id)), hiddenHere = gone(drawn);
+    const drawnShown = (id: string) => hiddenHere(id) ? undefined : drawn(id);
     const minimum = thinned(() => true, drawnShown, [...shown, ...groups]);
-    out.push("  view index {", "    title 'Components'", ...describe(hidden(top.length - shown.length, "all_components"), thinNote(minimum)), "    include *", ...links(shown, new Set()), ...links(groups, new Set(groups)), ...(top.length > shown.length ? ["    exclude * where tag is #minor"] : []), ...notBehavior, ...hide(minimum), "    autoLayout LeftRight", "  }");
+    out.push("  view index {", "    title 'Components'", ...describe(hidden(top.length - shown.length, "all_components"), thinNote(minimum)), "    include *", ...links(shown, new Set(folders)), ...links(groups, new Set(groups)), ...(top.length > shown.length ? ["    exclude * where tag is #minor"] : []), ...notBehavior, ...hide(minimum), "    autoLayout LeftRight", "  }");
     if (top.length > shown.length) {
       entries.push("all_components");
       const all = thinned(() => true, drawn, [...top, ...groups]);
-      out.push("", "  view all_components {", "    title 'All components'", ...describe(thinNote(all)), "    include *", ...links(top, new Set()), ...links(groups, new Set(groups)), ...notBehavior, ...hide(all), "    autoLayout LeftRight", "  }");
+      out.push("", "  view all_components {", "    title 'All components'", ...describe(thinNote(all)), "    include *", ...links(top, new Set(folders)), ...links(groups, new Set(groups)), ...notBehavior, ...hide(all), "    autoLayout LeftRight", "  }");
     }
-    for (const group of item.groups) out.push(...groupView(item, group, drawn));
+    for (const group of item.groups.filter(candidate => !candidate.folder)) out.push(...groupView(item, group, drawn));
+    for (const folder of item.folders) out.push(...folderViews(item, folder));
     if (analysis.componentCycles.size) {
       entries.push("cycles");
       const found = [...analysis.componentCycles.values()].flat();
@@ -615,19 +689,20 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     }
     for (const item of draft.packages) {
       const own = new Set(item.components.map(entry => entry.id));
-      const drawn = (id: string) => own.has(id) ? groupOf.get(id) ?? id : packageOf.get(id);
-      const top = item.components.filter(entry => !entry.group && !entry.folder).map(entry => entry.id), groups = item.groups.filter(group => !group.folder).map(group => group.id);
-      const shown = top.filter(id => !minor.has(id));
-      const drawnShown = (id: string) => minor.has(id) || minor.has(packageOf.get(id) ?? "") ? undefined : drawn(id);
+      const drawn = places.drawnIn([item.id]);
+      const { members: top, groups, folders } = childrenOf(item);
+      const shown = top.filter(id => !minor.has(id)), hiddenHere = gone(drawn);
+      const drawnShown = (id: string) => hiddenHere(id) || minor.has(packageOf.get(id) ?? "") ? undefined : drawn(id);
       const minimum = thinned(id => own.has(id), drawnShown, [...shown, ...groups]);
-      out.push("", `  view ${componentsView(item.id)} of ${item.id} {`, `    title ${quote(item.title)}`, ...describe(hidden(top.length - shown.length, allView(item.id)), thinNote(minimum)), "    include *", ...links(shown, new Set(), item.id), ...links(groups, new Set(groups), item.id),
+      out.push("", `  view ${componentsView(item.id)} of ${item.id} {`, `    title ${quote(item.title)}`, ...describe(hidden(top.length - shown.length, allView(item.id)), thinNote(minimum)), "    include *", ...links(shown, new Set(folders), item.id), ...links(groups, new Set(groups), item.id),
         ...(top.length > shown.length || draft.packages.some(other => minor.has(other.id)) ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }");
       if (top.length > shown.length) {
         entries.push(allView(item.id));
         const all = thinned(id => own.has(id), drawn, [...top, ...groups]);
-        out.push("", `  view ${allView(item.id)} of ${item.id} {`, `    title ${quote(`${item.title} / everything`)}`, ...describe(thinNote(all)), "    include *", ...links(top, new Set(), item.id), ...links(groups, new Set(groups), item.id), ...hide(all), "    autoLayout LeftRight", "  }");
+        out.push("", `  view ${allView(item.id)} of ${item.id} {`, `    title ${quote(`${item.title} / everything`)}`, ...describe(thinNote(all)), "    include *", ...links(top, new Set(folders), item.id), ...links(groups, new Set(groups), item.id), ...hide(all), "    autoLayout LeftRight", "  }");
       }
-      for (const group of item.groups) out.push(...groupView(item, group, drawn));
+      for (const group of item.groups.filter(candidate => !candidate.folder)) out.push(...groupView(item, group, drawn));
+      for (const folder of item.folders) out.push(...folderViews(item, folder));
       if (analysis.componentCycles.has(item.id)) {
         entries.push(cyclesView(item.id));
         const proof = analysis.componentCycles.get(item.id)!.map(loop => witness(loop, draft.relationships));

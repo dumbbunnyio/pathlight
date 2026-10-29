@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { checkWorkspace } from "../src/check";
 import { listViews } from "../src/catalog";
-import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, openFloor, openShare, viewCap, witness } from "../src/draft";
+import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, folderCap, loops, openFloor, openShare, viewCap, witness } from "../src/draft";
 import { readdir } from "node:fs/promises";
 import { mappingIn, overlayIn, run } from "./effects";
 
@@ -494,6 +494,7 @@ test("an overlay split opens a folder under half the way the draft opens one: it
     expect(model).toContain("big.b -> big.a");
     expect(model).toContain("big.root -> big.b");
     expect(model).toContain("other -> big.root");
+    expect(model).toContain("view big_components of big {\n    title 'big'\n    description 'Opened by a split in the overlay.'");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -548,6 +549,27 @@ test("a folder holding nine in ten of a small package's read files opens, and fi
   const { made, model } = await drafted({ ...many("src/core/ui", 9), ...many("src/core/data", 9), ...many("src/cli", 2), ...many("src/cli/native", 10, "rs") });
   expect(made).toMatchObject({ folders: 1 });
   expect(model).toContain("  core = folder 'core' {");
+}, 60_000);
+
+test("an opened folder has its own view: its children as cards with links to their views, the nine strongest drawn and the other five in its everything view", async () => {
+  expect(folderCap).toBe(9);
+  // Fourteen folders under src/core, the only top folder: core holds every read file, so it opens. Every file of c2…c14 but c2's last imports c1, so
+  // c1 is the strongest, c2 the weakest, and the rest tie and go by name (c10…c14 before c3).
+  const files: Record<string, string> = {};
+  for (let n = 1; n <= 14; n++) for (let f = 0; f < 3; f++) files[`src/core/c${n}/f${f}.ts`] = n > 1 && f < n ? `import { f0 } from "../c1/f0";\nexport const f${f} = f0;\n` : `export const f${f} = ${f};\n`;
+  const { made, model } = await drafted(files);
+  expect(made).toMatchObject({ folders: 1, components: 14 });
+  const view = (id: string) => model.slice(model.indexOf(`  view ${id} `), model.indexOf("\n  }\n", model.indexOf(`  view ${id} `)));
+  const own = view("core_components");
+  expect(own).toContain("view core_components of core {\n    title 'core'\n    description 'Opened by the draft: it holds 42 of the 42 files the scan reads in the workspace. 5 smaller ones are not shown here; core_all_components lists everything.'");
+  // Each card opens its neighbourhood.
+  for (const match of own.matchAll(/include (\w+) with \{\n\s+navigateTo (\w+)/g)) expect(match[2]).toBe(`core_${match[1]}_near`);
+  expect([...own.matchAll(/include (\w+) with/g)].map(match => match[1])).toEqual(["c1", "c10", "c11", "c12", "c13", "c14", "c3", "c4", "c5"]);
+  expect(own).toContain("exclude * where tag is #minor");
+  expect([...model.matchAll(/c(\d+) = component 'c\d+' \{\n\s+#minor/g)].map(match => Number(match[1])).sort((a, b) => a - b)).toEqual([2, 6, 7, 8, 9]);
+  expect([...view("core_all_components").matchAll(/include (\w+) with/g)]).toHaveLength(14);
+  // The index draws the folder and opens its view.
+  expect(view("index")).toContain("include core with {\n      navigateTo core_components\n    }");
 }, 60_000);
 
 test("a chain of single folders opens at the first level that is several things, and no further (`model` is LikeC4 syntax, so its id gets an underscore)", async () => {
