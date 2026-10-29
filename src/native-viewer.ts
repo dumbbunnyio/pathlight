@@ -33,7 +33,7 @@ import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
-import { allotSections, firstQuestion, headContent, nodeListContent, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
+import { allotSections, firstQuestion, headContent, nodeListContent, opensLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
 import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
 import { createThemePicker } from "./viewer/theme-picker";
@@ -487,7 +487,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     const paths = selectedPaths();
     const selected = state.selected;
-    const opens = selected?.navigateTo ? `o opens ${diagrams.get(String(selected.navigateTo))?.title ?? selected.navigateTo}` : "";
+    const target = selected?.navigateTo ? diagrams.get(String(selected.navigateTo)) : undefined;
+    const opens = selected?.navigateTo ? opensLine(String(target?.title ?? selected.navigateTo), describe(target?.description)) : "";
     const head = headContent({ title: selected?.title, kind: selected?.kind ? String(selected.kind) : "", technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
       tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
       by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length, app: selected ? undefined : appNote() });

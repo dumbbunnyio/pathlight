@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { countsLine, headContent, pinnedLines, sectionHeader, splitDescription } from "../src/viewer/inspector-view";
+import { countsLine, headContent, opensLine, pinnedLines, sectionHeader, splitDescription } from "../src/viewer/inspector-view";
 import { type KeyMode, keyAction } from "../src/viewer/keys";
 import { numberedCards } from "../src/viewer/widgets";
 import { palette } from "../src/ui";
@@ -68,4 +68,10 @@ test("each card's header shows the key that focuses it, and the keys and the num
     cards.forEach((card, index) => expect(key(String(index + 1), cards, shown.includes("steps" as never))).toEqual({ type: "focus", section: card }));
     expect(key(String(cards.length + 1), cards)).toEqual({ type: "idle" });
   }
+});
+
+test("a box that opens a view the draft thinned says how many smaller boxes that view leaves out, beside what o opens", () => {
+  expect(opensLine("Inside internal", "7 smaller ones are not shown here; internal_all lists everything.")).toBe("7 smaller ones are not shown · o opens Inside internal");
+  expect(opensLine("Inside internal", "1 smaller one is not shown here; internal_all lists everything.")).toBe("1 smaller one is not shown · o opens Inside internal");
+  expect(opensLine("Services", "")).toBe("o opens Services");
 });

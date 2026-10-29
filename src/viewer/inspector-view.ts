@@ -48,10 +48,19 @@ export const headContent = (options: { title: string | undefined; kind: string; 
   const { words, counts } = options.title === undefined ? { words: options.app ?? "", counts: "" } : splitDescription(describe(options.description), options.note);
   const lines = [...(words ? wrapWords(words, width).map(line => ({ line, color: palette.body })) : []),
     ...(counts ? wrapWords(countsLine(counts, options.mapped), width).map(line => ({ line, color: palette.muted })) : []),
-    ...(opens ? [{ line: opens, color: palette.muted }] : [])];
+    ...(opens ? wrapWords(opens, width).map(line => ({ line, color: palette.muted })) : [])];
   const about = new StyledText(lines.flatMap((entry, index) => [...(index ? [nl] : []), fg(entry.color)(entry.line)]));
   return { title, what: new StyledText([fg(palette.muted)(what || " ")]), hasWhat: what !== "", about, hasAbout: lines.length > 0,
     rows: 1 + (what ? 1 : 0) + lines.length };
+};
+
+/**
+ * The muted line under a box that opens a view: what `o` opens, after how many smaller boxes that view leaves out when the draft's description of it
+ * says so (`7 smaller ones are not shown here; …`), since a view's own description is never shown.
+ */
+export const opensLine = (title: string, viewDescription: string) => {
+  const hidden = /\b(\d[\d,]*) smaller ones? (?:is|are) not shown\b/.exec(viewDescription)?.[1];
+  return `${hidden ? `${hidden} smaller ${hidden === "1" ? "one is" : "ones are"} not shown · ` : ""}o opens ${title}`;
 };
 
 /** Each card's share of the inspector, as `layoutSections` applies it. */
