@@ -4,6 +4,9 @@ import { palette } from "../ui";
 import { nl, spinAt } from "./text";
 
 /** A call is running if it started and has not been heard from for at most 30 s; after that it is unconfirmed, not running. */
+/** A subagent's label as a person reads it: the name after a plugin's prefix, without the `pathlight-` every Pathlight agent starts with (`tracer`, `namer`, `Explore`). */
+export const agentLabel = (agent: string) => agent.slice(agent.lastIndexOf(":") + 1).replace(/^pathlight-/, "") || agent;
+
 export const isActive = (event: ActivityEvent) => event.phase === "started" && Date.now() - event.time <= 30_000;
 
 /** What a node's mapped activity is doing right now: a running tool, or how a call that just ended finished. */
@@ -56,7 +59,7 @@ export function nowCard(options: { error: string; bound: boolean; following: boo
     const glyphTone = row.state === "failed" ? palette.failure : row.state === "started" ? palette.accent : row.state === "completed" ? palette.green : palette.muted;
     const op = (row.operation === "command" ? "run" : row.operation).padEnd(5);
     const first = row.paths[0]?.split("/").at(-1) ?? row.target;
-    const extra = `${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}${row.agent ? ` ·${row.agent.slice(0, 12)}` : ""}`;
+    const extra = `${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}${row.agent ? ` ·${agentLabel(row.agent).slice(0, 12)}` : ""}`;
     const age = formatAge(row.age);
     // Fixed grid: glyph (2) · op (5) · file + count · time, right aligned.
     const room = Math.max(4, width - 2 - 5 - age.length - 1);
@@ -126,6 +129,6 @@ export function ticker(config: ActivityConfig | undefined, events: ActivityEvent
   const tone = row.state === "failed" ? palette.failure : running ? (row.operation === "edit" ? palette.accent : row.operation === "read" ? palette.incoming : palette.command) : row.state === "completed" ? palette.green : palette.muted;
   const outcome = row.state === "failed" ? " failed" : row.state === "unconfirmed" ? ", no result" : "";
   return [fg(palette.border)(running ? "now  " : "last "), fg(tone)(`${glyph} `), fg(running ? tone : palette.body)(verb), fg(palette.body)(` ${row.target}`), fg(row.state === "failed" ? palette.failure : palette.muted)(outcome), fg(palette.muted)(" "),
-    ...(row.agent ? [fg(palette.muted)(`[${row.agent.slice(0, 16)}] `)] : []),
+    ...(row.agent ? [fg(palette.muted)(`[${agentLabel(row.agent).slice(0, 16)}] `)] : []),
     ...(row.elements.length ? [fg(palette.border)("in "), fg(palette.body)(row.elements.map(elementTitle).join(", ")), fg(palette.muted)(" ")] : []), fg(palette.border)(running && row.age < 1000 ? "" : formatAge(row.age))];
 }
