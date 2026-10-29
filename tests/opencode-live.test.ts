@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { Effect } from "effect";
 import { latestBinding, readActivity, readReplay } from "../src/activity";
+import { createConversationReader } from "../src/conversation";
+import { readSession } from "../src/sessions";
 import { run, mappingIn } from "./effects";
 
 // The real OpenCode V2 runtime (isolated config, `--standalone`) against a fake OpenAI-compatible model that follows a script, checked against what the
@@ -69,7 +71,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     await mkdir(join(directory, "bin"));
     await writeFile(join(directory, "bin", "pathlight"), `#!/bin/sh\nexec ${process.execPath} ${resolve("src/cli.ts")} "$@"\n`);
     await chmod(join(directory, "bin", "pathlight"), 0o755);
-    const dirs = Object.fromEntries(["config", "data", "state", "cache"].map(name => [name, join(directory, name)]));
+    const dirs = { config: join(directory, "config"), data: join(directory, "data"), state: join(directory, "state"), cache: join(directory, "cache") };
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "oc", "-x", "170", "-y", "45", "-c", workspace, "-P", "-F", "#{pane_id}",
       "env", "FAKE_KEY=x", `PATH=${join(directory, "bin")}:${process.env.PATH}`, `XDG_CONFIG_HOME=${dirs.config}`, `XDG_DATA_HOME=${dirs.data}`, `XDG_STATE_HOME=${dirs.state}`, `XDG_CACHE_HOME=${dirs.cache}`,
       Bun.which("opencode")!, "--standalone", "--auto");
@@ -112,6 +114,15 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     const summary = (found: Awaited<ReturnType<typeof events>>) => found.map(event => [event.tool, event.phase, event.operation, [...event.paths]].join(" ")).sort();
     expect(summary(await events(2))).toEqual(["read completed read src/activity.ts", "read completed read src/launcher.ts"]);
     await viewerShows(viewer, "src/launcher.ts");
+
+    // The talk's source: the session pointer names OpenCode's own database, and the reader finds the typed prompt there (and the reply once written).
+    // If the database is not where the plugin looks, this stops and says where it is rather than guessing.
+    const database = join(dirs.data, "opencode", "opencode.db");
+    const pointer = await until(() => Effect.runPromise(readSession(workspace, binding)), "the session pointer");
+    if (pointer.transcript !== database) throw new Error(`The pointer names ${pointer.transcript ?? "no database"}; OpenCode's database ${existsSync(database) ? `is at ${database}` : `is not at ${database}: ${(await readdir(dirs.data, { recursive: true })).filter(path => path.endsWith(".db")).join(", ") || "no .db file under XDG_DATA_HOME"}`}.`);
+    const reader = createConversationReader(pointer);
+    const talk = await until(async () => { const found = await Effect.runPromise(reader.poll()); return found.some(message => message.role === "agent" && message.text === "done") ? found : undefined; }, "the prompt and the reply in OpenCode's database");
+    expect(talk.filter(message => message.role === "you").map(message => message.text)).toEqual(["just talk to me", "read the files please"]);
 
     // The other tool kinds Claude records: a failure, an edit, and a shell command naming an existing file.
     await type("work through the list");
