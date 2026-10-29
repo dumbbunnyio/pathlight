@@ -9,6 +9,7 @@ import { type Diff, diffWorkspace, recordDiff } from "./diff";
 import { draftWorkspace } from "./draft";
 import { type Decisions, decide, pending, reviewItems, reviewMessage, type Verdict } from "./review";
 import type { Plan } from "./plan";
+import { readPoint } from "./point";
 import type { Stale } from "./stale";
 import { nodeFiles } from "./node-files";
 import { firstChange, openEditor } from "./editor";
@@ -199,7 +200,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
   };
   const liveLabel = () => binding ? `${binding.source}:${binding.session.slice(0, 8)}` : "waiting for a session";
-  const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id))]);
+  // The agent's pointer (`pathlight point`): the element it last asked the viewer to show, marked beside the view's name while it is the selection
+  // and until the next key. `pointSeen` is the newest pointer acted on; one older than the viewer is never acted on.
+  let pointMark: string | undefined, pointSeen = Date.now();
+  const pointed = () => pointMark !== undefined && String(state.selected?.modelRef ?? "") === pointMark;
+  const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id)),
+    ...(pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : [])]);
   // Right-hand: the live session when there is one (a spinner replaces the dot while a tool runs), otherwise nothing.
   // The last `pathlight check` (the Stop hook runs one at the end of each turn): shown only when the model and the code disagree, with how old that check is.
   let stale: Stale | undefined;
@@ -1038,6 +1044,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   renderer.keyInput.on("keypress", key => {
     if (editorActive) return;
+    if (pointMark !== undefined) { pointMark = undefined; update(); }
     const layer = state.pendingVisit ? "visit" : dialog.naming ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : dialog.focus !== "none" ? "talk" : "main";
     const action = keyAction(key, { layer, askContext: dialog.focus === "toggles", talk: { showing: dialog.showing, fresh: dialog.fresh, top: dialog.atTop }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
     if (!action) return;
@@ -1166,6 +1173,27 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (!editorActive) update();
     }
   }).pipe(Effect.repeat(Schedule.spaced("3 seconds")), Effect.forkScoped);
+  // The pointer is read on its own, more often than the checks, so a walk-through step moves the diagram when it is said. Each pointer is acted on
+  // once: the element is selected (in the view it names, else here, else in a view that draws it) and marked; nothing after that follows the agent.
+  // While a modal is open or the talk's field has the keys it is let go, as a reply is.
+  yield* Effect.gen(function* () {
+    const point = yield* readPoint(view.workspace);
+    if (!point) { if (pointMark !== undefined) { pointMark = undefined; update(); } return; }
+    if (point.at <= pointSeen || state.pendingVisit || state.pendingReload || editorActive) return;
+    pointSeen = point.at;
+    if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || dialog.focus !== "none") return;
+    const here = point.view === undefined || point.view === String(diagram.id) ? nodeForElement(point.element) : undefined;
+    if (here) {
+      pointMark = point.element; followSelecting = true;
+      try { message = ""; selectNode(here, true); } finally { followSelecting = false; }
+      return;
+    }
+    const elsewhere = point.view && diagrams.get(point.view)?.nodes.length ? [point.view, diagrams.get(point.view)!] as const : viewHaving(point.element);
+    if (!elsewhere) { message = `The agent pointed at ${point.element}, which no view draws`; update(); return; }
+    remember(state, visit());
+    pointMark = point.element; camera.animating = false;
+    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), select: point.element, notice: `Went to ${String(elsewhere[1].title ?? elsewhere[0])}` };
+  }).pipe(Effect.catch(() => Effect.void), Effect.repeat(Schedule.spaced("500 millis")), Effect.forkScoped);
   if (binding || following) yield* Effect.gen(function* () {
     if (replay) {
       if (replay.playing && Date.now() >= replay.next) {

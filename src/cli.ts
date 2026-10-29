@@ -18,6 +18,7 @@ import { setPlan } from "./plan";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
 import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
+import { setPoint } from "./point";
 import { briefOf, changedBoxes, contextOf, entryPointsOf, firstDayOf, formatBrief, formatContext, formatEntryPoints, formatFirstDay, formatNamed, nameBoxes, select, type NameEntry } from "./brief";
 import { addFlow, formatAdded, removeFlow } from "./flow-write";
 import { doctor, formatDoctor, hasFailures } from "./doctor";
@@ -35,6 +36,7 @@ pathlight brief [KEY ... | --changed | --first-day] [--workspace PATH] [--json]
 pathlight name KEY --title TEXT --note TEXT [--workspace PATH]
 pathlight name --from FILE|- [--workspace PATH]
 pathlight plan [ELEMENT ...] [--workspace PATH]
+pathlight point [ELEMENT [--view VIEW]] [--workspace PATH]
 pathlight draft [--workspace PATH] [--out DIR] [--force]
 pathlight init [--workspace PATH] [--no-claude-hooks]
 pathlight init --global
@@ -54,6 +56,7 @@ flows checks the state diagrams an agent wrote (*.behavior.c4) against the files
 flow add writes a journey you worked out from the code: a LikeC4 dynamic view of hops between components, as ID.behavior.c4, stamped with the commit and the files you read. It checks every component against the model and takes the file back out if the model would stop compiling; it decides nothing about what happens. A step can name the function it calls with a trailing @ FILE#FUNCTION: the file must be one you read and must export that name, and its declaration is copied as written (pathlight flows says when it changes). A hop the code makes over HTTP, a websocket or a spawned process, which no import backs, is written FROM -> TO over http: EVENT, and flows does not report it as missing from the model; use it only when you read both the request and the code that answers it. flow remove deletes only a file flow add wrote.
 brief lists, for each box of the draft (or only the boxes under the keys you give, children first), the files it owns with their sizes, what it imports from and what imports it, what is inside it and any name it has: what an agent needs to say what each box is for. With no keys it opens with what the project says about itself (its package description and the start of its README). brief --changed lists only the boxes that are new or whose files changed since pathlight name recorded them, so a later run names just those. brief --first-day prints the briefing for a person new to the code: what it is, how it is built, where it starts, the journeys to follow (F in the viewer), the files to read first and how sure the names are, derived each time from the scan, the names and the recorded journeys and stored nowhere. name saves the names and notes the agent worked out (one box with --title and --note, or many from a JSON file of {"key","title","note"} entries, a dash for standard input) as the agent's reading (by "agent"), redraws once, never replaces a name a person wrote, and refuses a key that is not a box.
 plan says which elements you are about to work on (ids from the model); the viewer outlines them and marks activity outside them. No ids clears the plan.
+point asks an open viewer to select one element (an id from the model, or a box's key from brief) once (in --view if given, else in a view that draws it) and mark it as the agent's pointing until a key is pressed; it never makes the viewer follow. Ids and a time only. With no viewer open on the workspace it does nothing and says so; with no element it clears the pointer.
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
 setup is the first run: it checks the machine and the workspace, says what it would write, and with --yes draws a first model from the code when there is none. It never rewrites a model you wrote and leaves hooks and recording to init.
@@ -93,7 +96,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, "first-day": { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, "first-day": { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" }, view: { type: "string" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -175,6 +178,9 @@ try {
     } else if (command === "plan") {
       const made = yield* setPlan(values.workspace, [...(id ? [id] : []), ...extra]);
       process.stdout.write(made ? `Plan: ${made.elements.join(", ")}\n` : "Plan cleared.\n");
+    } else if (command === "point") {
+      const pointed = yield* setPoint(values.workspace, id, values.view);
+      process.stdout.write("cleared" in pointed ? "Pointer cleared.\n" : pointed.written ? `Pointed the viewer at ${pointed.point.element}${pointed.point.view ? ` in ${pointed.point.view}` : ""}.\n` : "No viewer is open on this workspace, so nothing was pointed at. Open one with pathlight show or /pathlight:open.\n");
     } else if (command === "diff") {
       if (id) return yield* invalid("diff takes no argument. Use --base REV and --workspace PATH.");
       const diff = yield* diffWorkspace(values.workspace, values.base);
