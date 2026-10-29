@@ -12,8 +12,9 @@
     { "glob": "src/{native-viewer,flow-view,routes,ui,node-files,editor,fuzzy,search}.ts", "element": "viewer" },
     { "glob": "src/viewer/**", "element": "viewer" },
     { "glob": "src/{scan,scan-imports,check,draft,brief,stale,diff,plan,review,edit,flows,flow-write}.ts", "element": "scanner" },
+    { "glob": "src/languages/**", "element": "scanner" },
     { "glob": "src/{theme,retheme}.ts", "element": "themes" },
     { "glob": "src/themes/**", "element": "themes" }
   ],
-  "ignore": ["tests/**", "src/effects.ts", "src/assets.d.ts"]
+  "ignore": ["tests/**", "src/effects.ts", "src/assets.d.ts", "scripts/ansi2png.py"]
 }

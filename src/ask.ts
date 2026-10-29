@@ -9,7 +9,8 @@ export const isHowQuestion = (question: string) =>
 /**
  * The files a request names, at most six, by relevance rather than alphabetically: the component's files that import from or are imported by its
  * neighbours' files (most such imports first; type-only imports do not count), then the entry file its description names (`Entry is app/index.tsx.`),
- * else none. Eight alphabetical files told the agent nothing about where to start.
+ * else none. Test files come after every other file (import count within each group): a test helper every test imports is not where to start.
+ * Eight alphabetical files told the agent nothing about where to start.
  */
 export function relevantFiles(options: { files: readonly string[]; neighbours: readonly string[]; imports: readonly { from: string; to: string; kind?: string }[]; description?: string }) {
   const own = new Set(options.files), near = new Set(options.neighbours), weight = new Map<string, number>();
@@ -18,7 +19,8 @@ export function relevantFiles(options: { files: readonly string[]; neighbours: r
     const mine = own.has(from) && near.has(to) ? from : own.has(to) && near.has(from) ? to : undefined;
     if (mine) weight.set(mine, (weight.get(mine) ?? 0) + 1);
   }
-  const ranked = [...weight].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([file]) => file);
+  const test = (file: string) => /(^|\/)(test|tests|__tests__|__mocks__|spec)\//.test(file) || /\.(test|spec)\./.test(file.slice(file.lastIndexOf("/") + 1)) ? 1 : 0;
+  const ranked = [...weight].sort((a, b) => test(a[0]) - test(b[0]) || b[1] - a[1] || a[0].localeCompare(b[0])).map(([file]) => file);
   const entry = /\bentry(?: point)? is `?([\w@./[\]-]+\.\w+)`?/i.exec(options.description ?? "")?.[1];
   const picked = ranked.slice(0, 6);
   return entry && own.has(entry) && !picked.includes(entry) ? [...picked.slice(0, 5), entry] : picked;
@@ -40,7 +42,7 @@ export function askMessage(target: { title: string; id: string; files: readonly 
   ].filter(Boolean).join("; ");
   const id = clean(target.id);
   return `About the "${clean(target.title)}" component (${id}): ${clean(question).slice(0, 600)}${context ? ` [${context}]` : ""} `
-    + (draw ? `Answer here, and also record the path as a pathlight journey (pathlight flow add, as the pathlight skill says) so it appears on the map and F walks it. ` : "")
+    + (draw ? `Load the pathlight skill and follow its "Requests from the viewer" section: answer here, and have the path recorded as a pathlight journey (pathlight flow add) so it appears on the map and F walks it. ` : "")
     + `If this asks you to change the code, before editing any file run pathlight plan ${id} with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight skill says how); run pathlight plan with no ids when done.`;
 }
 

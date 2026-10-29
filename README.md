@@ -115,7 +115,7 @@ bun run pathlight show services --workspace examples/parcel
 ```
 
 Select nodes with the mouse or `h` `j` `k` `l`, which move to the nearest node in that direction. Arrow keys pan the Three camera (press `v` to swap the two). Tab moves into the inspector and through its cards (in a flow it steps). Connections are orthogonal thin lines with rounded bends. Press `/` to search every view, box and mapped file.
-The selected node's connections are solid, cyan for incoming and amber for outgoing; the rest are dotted. Move the Connects cursor (`2`) onto a row to read a long relationship in full.
+The selected node's connections are solid, cyan for incoming and amber for outgoing; the rest are dotted. Focus Connects (its number, or `tab`) and move the cursor onto a row to read a long relationship in full.
 Press `e` to browse the selected node's mapped files, then Enter to open one in your external editor (at its first uncommitted change, if it has one).
 Set `VISUAL` or `EDITOR` before starting the viewer. File browsing does not require live recording.
 Enter selects a group's first child or opens a leaf's linked view. Press `o` to open a group's linked view, `b` for view history, or Backspace for the parent group.
@@ -130,7 +130,7 @@ bun run pathlight view services --workspace examples/parcel
 
 ## Scan a codebase
 
-`pathlight scan --workspace . --out scan.json` reads the TypeScript and JavaScript source statically and writes the files, the imports between them, the packages they use, and what it could not read. It is a fact sheet for an agent (or you) drafting a LikeC4 model of a codebase that has none; it never writes the model itself. See [scan format](docs/scan.md).
+`pathlight scan --workspace . --out scan.json` reads the TypeScript, JavaScript, Python and Go source statically (the parsers are inside the binary: there is nothing more to install) and writes the files, the imports between them, the packages they use, and what it could not read. It is a fact sheet for an agent (or you) drafting a LikeC4 model of a codebase that has none; it never writes the model itself. See [scan format](docs/scan.md).
 
 A second skill, `pathlight-behavior`, teaches an agent to draw what a user sees as a state diagram (a `*.behavior.c4` file that `draft` leaves alone), mark states it found broken (`#bug`, red) or repaired (`#fixed`, green), and record the commit it read the code at. It is the agent's reading of the code, not a scan, and says so. The `pathlight` skill (`plugins/claude/skills/pathlight/SKILL.md`) teaches an agent this workflow: scan, draft the model and mapping, check until clean, show. The Claude plugin ships both, and `pathlight init` copies them into the workspace (`.claude/skills/`, or `.agents/skills/` with `--no-claude-hooks`); OpenCode documents reading both locations. With the Claude plugin installed, `init` writes no copy into `.claude/skills/` and removes ones it wrote earlier, because a project copy outranks the plugin's skill and stops it updating; `pathlight doctor` reports any that remain.
 

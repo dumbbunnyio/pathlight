@@ -21,6 +21,7 @@
     "likec4": "1.60.0",
     "opentui-split": "0.5.1",
     "resolve.exports": "2.0.4",
+    "web-tree-sitter": "0.25.10",
     "zod": "4.6.7"
   },
   "devDependencies": {

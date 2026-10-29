@@ -23,3 +23,14 @@ WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEM
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
+
+## Tree-sitter runtime and grammars
+
+`src/languages/grammars/` holds WebAssembly files copied unchanged from npm releases and compiled into the binary, each used under the MIT licence
+(the licence text above, with the copyright line below):
+
+| File | Package | Copyright |
+| --- | --- | --- |
+| `tree-sitter.wasm` | `web-tree-sitter` 0.25.10 (<https://github.com/tree-sitter/tree-sitter>) | Copyright (c) 2018-2024 Max Brunsfeld |
+| `tree-sitter-python.wasm` | `tree-sitter-python` 0.25.0 (<https://github.com/tree-sitter/tree-sitter-python>) | Copyright (c) 2016 Max Brunsfeld |
+| `tree-sitter-go.wasm` | `tree-sitter-go` 0.25.0 (<https://github.com/tree-sitter/tree-sitter-go>) | Copyright (c) 2014 Max Brunsfeld |

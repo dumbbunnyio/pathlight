@@ -249,7 +249,7 @@ test("F opens the journey a t just drew, whatever the selection, and its arrival
     await tmux("send-keys", "-t", shown.pane, "t");
     await until(text => text.includes("Ask the agent") && text.includes("● draw it"), "the ask dialog with draw it on");
     await tmux("send-keys", "-t", shown.pane, "Enter");
-    await until(text => text.includes("record the path as a pathlight journey"), "the question in the agent's pane", harness);
+    await until(text => text.includes("have the path recorded as a pathlight journey"), "the question in the agent's pane", harness);
     const before = await until(text => !text.includes("Ask the agent"), "the dialog closed");
     const selection = /Selected: (\S+)/.exec(before)?.[1];
     expect(selection).toBeDefined();

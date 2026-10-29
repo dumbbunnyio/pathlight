@@ -1,22 +1,19 @@
 // Written by pathlight flow. Delete it with: pathlight flow remove
 views {
   dynamic view record-call {
-    title 'A Claude Code tool call, from its hook to a box in the viewer'
-    description 'Agent-written from plugins/claude/hooks/hooks.json, src/cli.ts, src/claude.ts, src/activity.ts, src/native-viewer.ts. Synced at 0e05aa9.'
-    plugin -> launcher 'PreToolUse, PostToolUse or PostToolUseFailure hook pipes the hook JSON to pathlight record (async, only when the workspace has a mapping)' {
+    title 'Claude Code runs a tool: from the hook to the call on a box'
+    description 'Agent-written from plugins/claude/hooks/hooks.json, src/cli.ts, src/claude.ts, src/activity.ts, src/native-viewer.ts. Synced at 4b7b8d7.'
+    plugin -> launcher 'Claude Code fires the PreToolUse/PostToolUse hook, which runs `pathlight record --workspace` with the hook JSON on stdin' {
       notes 'over | process'
     }
-    launcher -> plugin 'record checks the mapping exists, skips SubagentHandback and decodes the hook into a phase and a subagent label' {
+    launcher -> plugin 'the record command hands the hook JSON to claudeActivity, which checks the cwd is inside the workspace and builds a tool event from it' {
       notes 'claudeActivity | src/claude.ts | export const claudeActivity = Effect.fn("Claude.fromHook")(function* (workspace: string, input: unknown) { const prompt = yield* Schema.decodeUnknownEffect(Prompt)(input).pipe(Effect.option); const hook = prompt._tag === "Some" ? { ...prom…'
     }
-    plugin -> activity 'turns the call into a metadata-only event (tool, read/edit/command, workspace paths, no arguments)' {
-      notes 'toolActivity | src/activity.ts | export const toolActivity = Effect.fn("Activity.fromTool")(function* (workspace: string, binding: ActivityBinding, call: string, tool: string, input: unknown, phase: ActivityEvent["phase"], cwd = workspace, agent?: string) { const args = S…'
-    }
-    launcher -> activity 'publishes the event as one file in the session journal under .cache/pathlight, pruned to 2048' {
+    launcher -> activity 'record writes the event as one small JSON file in the session journal' {
       notes 'writeActivity | src/activity.ts | export const writeActivity = Effect.fn("Activity.write")(function* (workspace: string, event: ActivityEvent) { const parsed = yield* Schema.decodeUnknownEffect(ActivityEvent, { onExcessProperty: "error" })(event); const directory = yield* …'
     }
-    activity -> viewer 'the viewer polls the journal every 250 ms, keeps the latest phase per call, and lights each box whose mapping glob matches a path' {
-      notes 'readActivity | src/activity.ts | export const readActivity = Effect.fn("Activity.read")(function* (workspace: string, binding: ActivityBinding) { const directory = yield* activityDirectory(workspace, binding); const files = yield* io("Activity.entries", () => readdir(dire…'
+    activity -> viewer 'the viewer polls the journal every 250 ms and shows the call on the boxes whose mapped files it names' {
+      notes 'viewNative | src/native-viewer.ts | export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) { const view = options.view; let binding = options.activ…'
     }
   }
 }

@@ -6,8 +6,8 @@ import { Effect } from "effect";
 import { readActivityConfig, type ActivityConfig } from "./activity";
 import { acquireModel, invalidModel } from "./catalog";
 import { failure, io } from "./effects";
+import { declarationsFor, type FrontEnd } from "./languages";
 import { run } from "./process";
-import { declarationOf } from "./scan-imports";
 
 /**
  * Whether the state diagrams an agent wrote (`*.behavior.c4`, see the pathlight-behavior skill) still agree with the code they were read from.
@@ -228,11 +228,12 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
     return assessFlow(input, exists, config, { changed: changedFor.get(input) ?? new Set(), known: candidate => changedSince.get(candidate) !== undefined });
   }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const elementsChanged = (changed: ReadonlySet<string>) => new Set([...changed].flatMap(path => elementsOf(config, path)));
-  const callFiles = new Map<string, string | undefined>();
+  const callFiles = new Map<string, { text: string; reader: FrontEnd } | undefined>();
   for (const file of new Set(journeyInputs.flatMap(input => input.steps.flatMap(step => parseCall(step.notes)?.file ?? [])))) {
-    callFiles.set(file, file.startsWith("/") || file.split("/").includes("..") ? undefined : yield* io("Flows.call", () => readFile(join(root, file), "utf8")).pipe(Effect.catch(() => Effect.succeed(undefined))));
+    const text = file.startsWith("/") || file.split("/").includes("..") ? undefined : yield* io("Flows.call", () => readFile(join(root, file), "utf8")).pipe(Effect.catch(() => Effect.succeed(undefined)));
+    callFiles.set(file, text === undefined ? undefined : { text, reader: yield* declarationsFor(file) });
   }
-  const declared = (file: string, name: string) => { const text = callFiles.get(file); return text === undefined ? undefined : declarationOf(text, name); };
+  const declared = (file: string, name: string) => { const call = callFiles.get(file); return call?.reader.declaration(call.text, name); };
   const journeys = journeyInputs.map(input => {
     const sha = syncOf(input.viewDescription);
     return assessJourney(input, { declared, changedElements: elementsChanged(changedFor.get(input) ?? new Set()), known: candidate => changedSince.get(candidate) !== undefined });

@@ -2,7 +2,7 @@ import { realpath, rename, writeFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
 import { checkWorkspace, type Check } from "./check";
-import { isUnscannedSource, listFiles } from "./scan";
+import { isScannedSource, isUnscannedSource, listFiles } from "./scan";
 import { io, json } from "./effects";
 
 /**
@@ -15,7 +15,7 @@ export const Stale = Schema.Struct({
   version: Schema.Literal(1), time: Count, unmapped: Count, unmatched: Count, unsupported: Count, undeclared: Count,
   // The check could not run because the model or the mapping is broken, so the counts are zero and mean nothing.
   invalid: Schema.optionalKey(Schema.Boolean),
-  // What the check could cover: source files the scan reads (TypeScript and JavaScript) and source files in languages it does not read. A stamp
+  // What the check could cover: source files the scan reads and source files in languages it does not read. A stamp
   // written before these were recorded has neither, and reads as before.
   read: Schema.optionalKey(Count), unread: Schema.optionalKey(Count),
 });
@@ -39,17 +39,14 @@ const writeStamp = Effect.fn("Stale.write")(function* (workspace: string, stamp:
   return stamp;
 });
 
-// The extensions the scan reads (src/scan.ts reads TypeScript and JavaScript).
-const scannedSource = (path: string) => /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(path);
-
 /** Records a finished check, with how much of the source it could read. Writing is best effort: a read-only workspace just never shows the badge. */
 export const recordStale = (workspace: string, check: Check) => Effect.gen(function* () {
   const listed = yield* listFiles(workspace).pipe(Effect.map(found => found.paths), Effect.catch(() => Effect.succeed(undefined)));
-  const coverage = listed ? { read: listed.filter(scannedSource).length, unread: listed.filter(isUnscannedSource).length } : {};
+  const coverage = listed ? { read: listed.filter(isScannedSource).length, unread: listed.filter(isUnscannedSource).length } : {};
   return yield* writeStamp(workspace, { ...staleOf(check), ...coverage });
 });
 
-/** Whether most of the source is in languages the check does not read, so "in sync" is true of the TypeScript and JavaScript only. */
+/** Whether most of the source is in languages the check does not read, so "in sync" is true only of the languages it reads. */
 export const partial = (stale: Stale | undefined) => stale?.read !== undefined && stale.unread !== undefined && stale.unread > stale.read;
 
 // The checks that fail because a model or mapping exists and is wrong. A workspace with no mapping at all is not using pathlight, and records nothing.

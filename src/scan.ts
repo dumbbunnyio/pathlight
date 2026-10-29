@@ -1,10 +1,10 @@
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { basename, join, posix } from "node:path";
 import { Effect, Schema } from "effect";
-import { exports as packageExports, imports as packageImports } from "resolve.exports";
 import { failure, io, json, type OperationError } from "./effects";
+import { frontEndFor, frontEnds, languageFor, scannedExtensions, type FrontEnd, type Resolution, type Workspace } from "./languages";
 import { run } from "./process";
-import { exportsOf, importsOf, type ImportKind, type ImportNames } from "./scan-imports";
+import type { ImportKind, ImportNames, ImportRef } from "./scan-imports";
 
 const Path = Schema.String.check(Schema.isMinLength(1));
 const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
@@ -17,14 +17,14 @@ const Kind = Schema.Literals(["import", "type", "reexport", "dynamic", "require"
  * dates or absolute paths, so scanning the same tree twice gives the same text.
  */
 /** Bump when a change to the scanner can change its output for the same files: `pathlight diff` keeps the base commit's scan and trusts it only for the same revision. */
-export const scanRevision = 4;
+export const scanRevision = 6;
 
 export const Scan = Schema.Struct({
   version: Schema.Literal(1),
   basis: Schema.Literal("static"),
   root: Schema.String,
   files: Schema.Array(Schema.Struct({
-    path: Path, language: Schema.Literals(["typescript", "javascript"]), lines: Count,
+    path: Path, language: Schema.Literals(["typescript", "javascript", "python", "go"]), lines: Count,
     // What the file offers to others, read from its `export` statements (names only; at most 80). Absent in scans made before 3.
     exports: Schema.optionalKey(Schema.Array(Schema.Struct({
       name: Schema.String.check(Schema.isMaxLength(200)),
@@ -53,15 +53,9 @@ export const readScan = Effect.fn("Scan.read")(function* (path: string) {
   return yield* Schema.decodeUnknownEffect(Scan, { onExcessProperty: "error" })(yield* json(text));
 });
 
-const languages: Record<string, "typescript" | "javascript"> = {
-  ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript", ".cts": "typescript",
-  ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
-};
-const sourceExtensions = Object.keys(languages);
-// Languages that carry imports but are not read by this scan (a .vue or .svelte file holds TypeScript inside markup).
+// Languages that carry imports but are not read by this scan (a .vue or .svelte file holds TypeScript inside markup); one a front end reads is not among them.
 const unscannedExtensions = new Set([".py", ".go", ".rs", ".java", ".kt", ".kts", ".rb", ".php", ".cs", ".swift", ".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm",
-  ".scala", ".dart", ".zig", ".ex", ".exs", ".lua", ".vue", ".svelte", ".astro"]);
-const jsToTs: Record<string, string[]> = { ".js": [".ts", ".tsx"], ".jsx": [".tsx"], ".mjs": [".mts"], ".cjs": [".cts"] };
+  ".scala", ".dart", ".zig", ".ex", ".exs", ".lua", ".vue", ".svelte", ".astro"].filter(extension => !scannedExtensions.has(extension)));
 const excludedDirectories = new Set([".git", ".cache", "node_modules"]);
 const limits = { entries: 50_000, bytes: 2 * 1024 * 1024 };
 
@@ -69,58 +63,13 @@ const extension = (path: string) => posix.extname(path);
 
 /** Source in a language this scan does not read: it is part of the code, but its imports are unknown. */
 export const isUnscannedSource = (path: string) => unscannedExtensions.has(extension(path));
+/** Source in a language this scan reads. */
+export const isScannedSource = (path: string) => scannedExtensions.has(extension(path));
 const languageNames: Record<string, string> = { ".py": "Python", ".go": "Go", ".rs": "Rust", ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin", ".rb": "Ruby",
   ".php": "PHP", ".cs": "C#", ".swift": "Swift", ".c": "C", ".cc": "C++", ".cpp": "C++", ".h": "C", ".hpp": "C++", ".m": "Objective-C", ".mm": "Objective-C",
   ".scala": "Scala", ".dart": "Dart", ".zig": "Zig", ".ex": "Elixir", ".exs": "Elixir", ".lua": "Lua", ".vue": "Vue", ".svelte": "Svelte", ".astro": "Astro" };
 /** The language an unscanned file is written in, by its extension. */
 export const languageOf = (path: string) => languageNames[extension(path)] ?? extension(path);
-
-/** The file a path names, trying what TypeScript and Node do: the exact file, `.js` for `.ts`, an added extension, then a directory index. */
-function resolveFile(files: ReadonlySet<string>, requested: string): string | undefined {
-  if (requested.startsWith("../") || requested === "..") return undefined;
-  // `./` and `../` name the folder itself, like `.` and `..` do: its index file.
-  const base = requested.replace(/\/+$/, "");
-  if (requested.endsWith("/")) {
-    const prefix = base ? `${base}/` : "";
-    for (const added of sourceExtensions) if (files.has(`${prefix}index${added}`)) return `${prefix}index${added}`;
-    return undefined;
-  }
-  if (files.has(base)) return base;
-  const ext = extension(base), stem = base.slice(0, base.length - ext.length);
-  for (const alternative of jsToTs[ext] ?? []) if (files.has(stem + alternative)) return stem + alternative;
-  for (const added of sourceExtensions) if (files.has(base + added)) return base + added;
-  for (const added of sourceExtensions) if (files.has(`${base}/index${added}`)) return `${base}/index${added}`;
-  return undefined;
-}
-
-/** JSON with comments and trailing commas, as tsconfig files are written. */
-const relaxedJson = (text: string) => {
-  let out = "", index = 0;
-  while (index < text.length) {
-    const char = text[index]!;
-    if (char === '"') {
-      let end = index + 1;
-      while (end < text.length && text[end] !== '"') end += text[end] === "\\" ? 2 : 1;
-      out += text.slice(index, end + 1); index = end + 1;
-    } else if (char === "/" && text[index + 1] === "/") { while (index < text.length && text[index] !== "\n") index++; }
-    else if (char === "/" && text[index + 1] === "*") { const end = text.indexOf("*/", index + 2); index = end < 0 ? text.length : end + 2; }
-    else { out += char; index++; }
-  }
-  return out.replace(/,(\s*[}\]])/g, "$1");
-};
-
-interface Alias { readonly directory: string; readonly baseUrl: string | undefined; readonly paths: Record<string, readonly string[]> }
-interface WorkspacePackage { readonly name: string; readonly directory: string; readonly manifest: Record<string, unknown>; readonly entries: readonly string[] }
-
-// The files a package.json `exports` value (or `main`, `module`, `types`) points at, whatever condition names it nests them under.
-const targetsOf = (value: unknown): string[] => typeof value === "string" ? [value]
-  : value && typeof value === "object" ? ["import", "module", "default", "types", "require"].flatMap(key => targetsOf((value as Record<string, unknown>)[key])) : [];
-
-const packageEntries = (manifest: Record<string, unknown>) => {
-  const exported = manifest.exports;
-  const root = exported && typeof exported === "object" && "." in exported ? (exported as Record<string, unknown>)["."] : exported;
-  return [...targetsOf(root), ...["module", "main", "types"].flatMap(key => targetsOf(manifest[key]))];
-};
 
 export const listFiles = Effect.fn("Scan.list")(function* (root: string) {
   const ignoredPath = (path: string) => /[\x00-\x1f\x7f]/.test(path);
@@ -152,111 +101,15 @@ const readText = (root: string, path: string) => io("Scan.read", async () => {
 }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
 /**
- * `exports` and `imports` (`#name`) in a package.json map a specifier, per runtime condition, to files in that package, including
- * `*` patterns. A static scan cannot know the runtime, so every condition the manifest names is followed and each variant is
- * reported (a platform file next to its siblings is one module in several forms). Resolution itself is `resolve.exports`.
- */
-const conditionsOf = (value: unknown): string[] => value && typeof value === "object"
-  ? Object.entries(value).flatMap(([key, nested]) => [key, ...conditionsOf(nested)]) : [];
-const mapped = (manifest: Record<string, unknown>, field: "exports" | "imports", specifier: string) => {
-  const named = [...new Set(conditionsOf(manifest[field]))].filter(key => !/^(#|\.\/|types|require|default|import)/.test(key));
-  const targets = new Set<string>();
-  for (const condition of ["import", ...named]) {
-    try {
-      const found = field === "exports" ? packageExports(manifest, specifier, { unsafe: true, conditions: [condition, "import", "default"] })
-        : packageImports(manifest, specifier, { unsafe: true, conditions: [condition, "import", "default"] });
-      for (const target of found ?? []) if (target.startsWith("./")) targets.add(target.slice(2));
-    } catch { /* the manifest does not map this specifier */ }
-  }
-  return [...targets];
-};
-
-const packageName = (specifier: string) => specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0]!;
-
-/**
- * Reads every TypeScript and JavaScript file under the workspace and reports the imports between them. A file is
- * listed with `git ls-files` (so ignored files are left out) or, outside a repository, by walking the tree.
- * Aliases from the nearest tsconfig `baseUrl` and `paths`, and workspace packages named in a package.json, are
- * followed, as are `exports` and `imports` maps (patterns and runtime conditions included); `extends` chains and bundler aliases are not, and what that leaves behind is listed
- * as unresolved rather than guessed.
+ * Reads every source file under the workspace that a front end reads (`src/languages/`) and reports the imports between them. A file is listed with
+ * `git ls-files` (so ignored files are left out) or, outside a repository, by walking the tree. Each file is read and parsed first, then each import is
+ * resolved by its language's rules, so a front end may consult what every file declares (a Go import reaches the files that declare the names it uses).
+ * What cannot be resolved is listed as unresolved rather than guessed.
  */
 export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: string) {
   const root = yield* io("Scan.workspace", () => realpath(workspace));
   const { listing, paths } = yield* listFiles(root);
   const files = new Set(paths);
-
-  const aliases = new Map<string, Alias>();
-  const packages: WorkspacePackage[] = [];
-  // Every package.json by directory, for `#` specifiers (the nearest one governs a file).
-  const manifests = new Map<string, Record<string, unknown>>();
-  yield* Effect.forEach(paths.filter(path => /(^|\/)(tsconfig|jsconfig)\.json$/.test(path) || (/(^|\/)package\.json$/.test(path) && !path.includes("node_modules/"))), path =>
-    Effect.gen(function* () {
-      const text = yield* readText(root, path);
-      const parsed = text === undefined ? undefined : yield* json(relaxedJson(text)).pipe(Effect.option);
-      const value = parsed?._tag === "Some" && parsed.value && typeof parsed.value === "object" ? parsed.value as Record<string, unknown> : undefined;
-      if (!value) return;
-      const directory = posix.dirname(path) === "." ? "" : posix.dirname(path);
-      if (basename(path) === "package.json") {
-        manifests.set(directory, value);
-        if (typeof value.name === "string") packages.push({ name: value.name, directory, manifest: value, entries: packageEntries(value) });
-        return;
-      }
-      const options = value.compilerOptions && typeof value.compilerOptions === "object" ? value.compilerOptions as Record<string, unknown> : {};
-      const paths = options.paths && typeof options.paths === "object" ? options.paths as Record<string, readonly string[]> : {};
-      const baseUrl = typeof options.baseUrl === "string" ? options.baseUrl : undefined;
-      if (baseUrl !== undefined || Object.keys(paths).length) aliases.set(directory, { directory, baseUrl, paths });
-    }), { concurrency: 8, discard: true });
-  packages.sort((a, b) => b.name.length - a.name.length);
-
-  const join_ = (directory: string, rest: string) => posix.normalize(directory ? posix.join(directory, rest) : rest);
-  const fromAlias = (from: string, specifier: string) => {
-    for (let directory = posix.dirname(from) === "." ? "" : posix.dirname(from); ; directory = posix.dirname(directory) === "." ? "" : posix.dirname(directory)) {
-      const alias = aliases.get(directory);
-      if (alias) {
-        for (const [pattern, targets] of Object.entries(alias.paths)) {
-          const star = pattern.indexOf("*");
-          const matched = star < 0 ? specifier === pattern ? "" : undefined
-            : specifier.startsWith(pattern.slice(0, star)) && specifier.endsWith(pattern.slice(star + 1)) && specifier.length >= pattern.length - 1
-              ? specifier.slice(star, specifier.length - (pattern.length - star - 1)) : undefined;
-          if (matched === undefined) continue;
-          for (const target of targets) {
-            const found = resolveFile(files, join_(join_(directory, alias.baseUrl ?? "."), target.replace("*", matched)));
-            if (found) return found;
-          }
-        }
-        if (alias.baseUrl !== undefined) {
-          const found = resolveFile(files, join_(join_(directory, alias.baseUrl), specifier));
-          if (found) return found;
-        }
-      }
-      if (!directory) return undefined;
-    }
-  };
-  const fromSubpathImport = (from: string, specifier: string) => {
-    let directory = posix.dirname(from) === "." ? "" : posix.dirname(from);
-    while (!manifests.has(directory) && directory) directory = posix.dirname(directory) === "." ? "" : posix.dirname(directory);
-    const manifest = manifests.get(directory);
-    if (!manifest) return [];
-    return [...new Set(mapped(manifest, "imports", specifier).flatMap(target => resolveFile(files, join_(directory, target)) ?? []))].filter(target => target !== from).sort();
-  };
-  const fromPackage = (specifier: string) => {
-    const owner = packages.find(item => specifier === item.name || specifier.startsWith(`${item.name}/`));
-    if (!owner) return undefined;
-    const rest = specifier.slice(owner.name.length + 1);
-    // An export usually names built output (`dist/index.mjs`); the same path under `src` is its source.
-    const sourcesOf = (entry: string) => {
-      const target = join_(owner.directory, entry), source = target.replace(/(^|\/)(dist|build|lib|out)\//, "$1src/");
-      return [target, source, source.slice(0, source.length - extension(source).length)];
-    };
-    // The manifest's `exports` map first (every runtime variant it names); a package without a usable one falls back to the conventional layout.
-    const declared = owner.manifest.exports === undefined ? [] : [...new Set(mapped(owner.manifest, "exports", specifier).flatMap(entry =>
-      sourcesOf(entry).flatMap(candidate => resolveFile(files, candidate) ?? []).slice(0, 1)))].sort();
-    if (declared.length) return { files: declared };
-    const candidates = rest ? [join_(owner.directory, rest), join_(owner.directory, `src/${rest}`)]
-      : [...owner.entries.flatMap(sourcesOf), join_(owner.directory, "src/index"), join_(owner.directory, "index")];
-    for (const candidate of candidates) { const found = resolveFile(files, candidate); if (found) return { files: [found] }; }
-    return { missing: true as const };
-  };
 
   const imports: Scan["imports"][number][] = [];
   // What each import takes, by position in `imports`, and the names each file declares itself: enough to follow a name through re-exports.
@@ -265,40 +118,38 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
   const unresolved: Scan["unresolved"][number][] = [];
   const external = new Map<string, Scan["external"][number]>();
   const scanned: Scan["files"][number][] = [];
+  const found = new Map<string, ImportRef[]>();
   let skipped = 0;
-  const sourcePaths = paths.filter(path => extension(path) in languages);
+  const sourcePaths = paths.filter(path => isScannedSource(path) && !frontEndFor(path)!.skips?.(path));
+  // A grammar is loaded only when the listing holds a file of its language, and once per process.
+  const present = frontEnds.filter(frontEnd => sourcePaths.some(path => frontEndFor(path) === frontEnd));
+  yield* Effect.forEach(present, frontEnd => io("Scan.grammar", () => frontEnd.load()), { discard: true });
   yield* Effect.forEach(sourcePaths, path => Effect.gen(function* () {
     const text = yield* readText(root, path);
     if (text === undefined) { skipped++; return; }
-    scanned.push({ path, language: languages[extension(path)]!, lines: text.length ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : 0, exports: exportsOf(text) });
-    declared.set(path, new Set(exportsOf(text, Infinity).filter(item => item.kind !== "reexport").map(item => item.kind === "default" ? "default" : item.name)));
-    for (const { specifier: raw, line, kind, names, reexport } of importsOf(text)) {
-      const add = (to: string) => { imports.push({ from: path, to, line, kind, specifier: raw }); taken.push({ names, reexport }); };
-      const specifier = raw.replace(/(?!^)[?#].*$/, "");
-      if (!specifier) continue;
-      const note = (reason: Scan["unresolved"][number]["reason"]) => unresolved.push({ from: path, specifier: raw, line, kind, reason });
-      if (specifier.startsWith("./") || specifier.startsWith("../") || specifier === "." || specifier === "..") {
-        const found = resolveFile(files, join_(posix.dirname(path) === "." ? "" : posix.dirname(path), specifier));
-        if (found) add(found); else note("not-found");
-        continue;
-      }
-      if (specifier.startsWith("/")) { note("not-found"); continue; }
-      const aliased = fromAlias(path, specifier);
-      if (aliased) { add(aliased); continue; }
-      const workspacePackage = fromPackage(specifier);
-      if (workspacePackage?.files) { for (const to of workspacePackage.files) add(to); continue; }
-      if (workspacePackage) { note("package-entry-not-found"); continue; }
-      if (specifier.startsWith("#")) {
-        const targets = fromSubpathImport(path, specifier);
-        if (targets.length) { for (const to of targets) add(to); } else note("alias-not-configured");
-        continue;
-      }
-      if (/^(@\/|~\/)/.test(specifier)) { note("alias-not-configured"); continue; }
-      const name = specifier.includes(":") ? specifier : packageName(specifier);
-      const key = `${path}\0${name}`;
-      if (!external.has(key)) external.set(key, { from: path, package: name, line, kind });
-    }
+    const frontEnd = frontEndFor(path)!;
+    scanned.push({ path, language: languageFor(path)!, lines: text.length ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : 0, exports: frontEnd.exports(text) });
+    declared.set(path, new Set(frontEnd.exports(text, Infinity).filter(item => item.kind !== "reexport").map(item => item.kind === "default" ? "default" : item.name)));
+    found.set(path, frontEnd.imports(text, path));
   }), { concurrency: 16, discard: true });
+
+  const context: Workspace = { paths, files, declared, read: path => readText(root, path) };
+  const resolvers = new Map<FrontEnd | undefined, (from: string, ref: ImportRef) => Resolution>();
+  for (const frontEnd of present) resolvers.set(frontEnd, yield* frontEnd.resolver(context));
+  for (const path of sourcePaths) {
+    const resolve = resolvers.get(frontEndFor(path));
+    for (const ref of found.get(path) ?? []) {
+      const { specifier: raw, line, kind, reexport } = ref;
+      const resolution = resolve!(path, ref);
+      if (!resolution) continue;
+      if ("files" in resolution) for (const { to, names } of resolution.files) { imports.push({ from: path, to, line, kind, specifier: raw }); taken.push({ names, reexport }); }
+      else if ("unresolved" in resolution) unresolved.push({ from: path, specifier: raw, line, kind, reason: resolution.unresolved });
+      else {
+        const key = `${path}\0${resolution.external}`;
+        if (!external.has(key)) external.set(key, { from: path, package: resolution.external, line, kind });
+      }
+    }
+  }
 
   const order = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
   const unscannedCounts = new Map<string, number>();

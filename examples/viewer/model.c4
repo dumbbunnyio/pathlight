@@ -43,7 +43,7 @@ model {
   viewer -> themes 'Applies the palette'
   plugin -> activity 'Records tool lifecycle'
   plugin -> launcher 'Opens a view'
-  catalog -> launcher 'Selects diagram'
+  launcher -> catalog 'Selects the view'
   launcher -> scanner 'Runs scan and check'
   scanner -> catalog 'Reads the model'
   scanner -> activity 'Reads the file mapping'
