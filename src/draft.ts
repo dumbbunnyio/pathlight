@@ -5,6 +5,7 @@ import { failure, io, json } from "./effects";
 import { configFile, home, mappingFile, modelFile, overlayFile } from "./layout";
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace, type Scan } from "./scan";
+import { scannedLanguages } from "./languages";
 
 /**
  * A first picture of a codebase made from facts alone, with no model in the loop: packages become boxes, the top-level folders
@@ -699,7 +700,7 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   // Boxes of unread code alone would be a picture with no arrows at all: the draft needs some code the scan reads.
   const unreadSet = new Set(unread);
   if (!draft.packages.some(item => item.components.some(entry => entry.files.some(path => !unreadSet.has(path))))) {
-    return yield* Effect.fail(failure("Draft.empty", "No TypeScript or JavaScript source was found to draw."));
+    return yield* Effect.fail(failure("Draft.empty", `No source in a language the scan reads (${scannedLanguages}) was found to draw.`));
   }
 
   // A model you wrote is never rewritten: only a previous draft (marked as generated) is replaced.
