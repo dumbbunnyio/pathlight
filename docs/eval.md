@@ -416,3 +416,17 @@ The draft opens a folder that holds more than half of its holder's read files an
 | Miniflux | 4 of 4 | 4 of 4 | 108 s / $0.45 | 0 of 30 (0 of 25) |
 
 The `mealie` note that fails reads "The FastAPI backend: HTTP routes call services, which use repositories over SQLAlchemy models … Also serves the built frontend in production." The last sentence is true (`mealie/app.py` line 160 calls `spa.mount_spa(app)`), so the reference's forbidden word, meant for a namer that takes the backend for the whole app, catches a correct note here. One run; the reference was not changed by the build. The review (2026-10-29) corrected the reference: `mealie` now forbids `vue` and `nuxt`, which only a note that puts the UI in the backend folder would say; the same namer overlay scores **9 of 10** against it (`frontend/vuetify.options.js` is the one miss, as in Phase 4), and the Phase 1 overlay stays 8 of 10.
+
+## First day (2026-10-29)
+
+`pathlight brief --first-day` puts the facts and the names together for a person new to the code. What can be measured without asking anyone: whether its **Where it starts** lists the files a person says the app really starts from. Each names reference now carries `entrypoints` (groups of files, any one of which counts), and `bun tests/eval/names.ts` prints the hits and misses after the name scores. Scratch copies of the three clones with their Phase 1 `.pathlight/`.
+
+| | starts the reference names | before (`main`: package.json only) | after |
+| --- | --- | --- | --- |
+| Outline | `server/index.ts` or `server/main.ts`; `app/index.tsx` | 1 of 2 (`app/index.tsx`, as a file nothing imports) | 1 of 2, the same |
+| Mealie | `mealie/app.py` or `mealie/main.py`; `frontend/nuxt.config.ts` | 0 of 2 | 1 of 2: `mealie/main.py`, script “mealie” in `pyproject.toml` |
+| Miniflux | `main.go` | 0 of 1 (twelve `_test.go` files filled the list) | 1 of 1: Go `package main` with `func main` |
+
+The two misses are honest: Outline's `start` script runs the built `build/server/index.js`, which the scan cannot map back to `server/index.ts` (it is imported by nothing but is not listed among the twelve largest unimported files either), and Nuxt has no entry file, only its configuration, which the rule leaves out with every `*.config.*`. Test files (`_test.go`, `test_*.py`, `*_test.py`, `conftest.py`) are no longer starts, and a Go file counts as imported when its package is (Go files of one package use each other without an import), which took Miniflux's list from twelve test files to `main.go` and the UI's scripts.
+
+**Names did not move.** The Phase 1 overlays score as before (Outline 12 of 12, Mealie 8 of 10, Miniflux 3 of 4) and the Phase 4a namer overlays as before (Mealie 9 of 10, Miniflux 4 of 4); this phase changes what the namer replies, not what it names. A fresh namer run per clone with the new reply, and one onboarding walk per clone, were not done in the build: under `--permission-mode dontAsk` with `Bash(pathlight *)` allowed, the namer's `pathlight name --from - <<'JSON'` heredoc is refused (the scratch copies stayed unnamed; logs under `.cache/eval/phase-4e/*/blocked-run/`), and a wider permission for a headless agent run was not taken without David. Both are left for the review.

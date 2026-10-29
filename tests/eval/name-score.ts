@@ -19,6 +19,9 @@ export const NameReference = Schema.Struct({
     concepts: Schema.Array(Schema.Array(Schema.String).check(Schema.isMinLength(1))).check(Schema.isMinLength(1)),
     forbidden: Schema.optionalKey(Schema.Array(Schema.String)),
   })),
+  // Where a person says the app really starts: each entry is a group of files, any one of which counts. Scored against what
+  // `pathlight brief --first-day` lists under "Where it starts".
+  entrypoints: Schema.optionalKey(Schema.Array(Schema.Array(Schema.String).check(Schema.isMinLength(1)))),
 });
 export interface NameReference extends Schema.Schema.Type<typeof NameReference> {}
 
@@ -68,6 +71,19 @@ export function formatNameScores(report: NameReport, workspace: string) {
   const ok = report.entries.filter(passes).length;
   lines.push("", `${ok} of ${report.entries.length} described boxes pass`);
   return lines.join("\n");
+}
+
+/** The reference's starts that the briefing lists (any file of a group counts), and those it does not. */
+export const scoreStarts = (reference: NameReference, listed: readonly string[]) => {
+  const found = new Set(listed);
+  const groups = reference.entrypoints ?? [];
+  return { hits: groups.filter(group => group.some(file => found.has(file))).map(group => [...group]), misses: groups.filter(group => !group.some(file => found.has(file))).map(group => [...group]) };
+};
+
+export function formatStarts(starts: ReturnType<typeof scoreStarts>) {
+  if (!starts.hits.length && !starts.misses.length) return "";
+  return ["", `starts: ${starts.hits.length} of ${starts.hits.length + starts.misses.length} listed under "Where it starts"`,
+    ...starts.hits.map(group => `✓ ${group.join(" / ")}`), ...starts.misses.map(group => `✗ ${group.join(" / ")}`)].join("\n");
 }
 
 /** What a workspace has now: the keys its draft recorded, and the overlay beside it. */
