@@ -17,6 +17,7 @@ export const readActivity = (...args: Parameters<typeof Activity.readActivity>) 
 export const writeActivity = (...args: Parameters<typeof Activity.writeActivity>) => Effect.runPromise(Activity.writeActivity(...args));
 export const toolActivity = (...args: Parameters<typeof Activity.toolActivity>) => Effect.runSync(Activity.toolActivity(...args));
 export const claudeActivity = (...args: Parameters<typeof Claude.claudeActivity>) => Effect.runPromise(Claude.claudeActivity(...args));
+export const claudeSession = (...args: Parameters<typeof Claude.claudeSession>) => Effect.runPromise(Claude.claudeSession(...args));
 
 // Pathlight keeps what it writes in one folder of the workspace; these make the folder when a test writes there.
 export const mappingIn = (directory: string) => { mkdirSync(join(directory, ".pathlight"), { recursive: true }); return join(directory, ".pathlight", "pathlight.activity.json"); };

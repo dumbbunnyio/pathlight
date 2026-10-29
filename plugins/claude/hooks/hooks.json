@@ -52,12 +52,23 @@
         ]
       }
     ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$f/.pathlight/pathlight.activity.json\" ] && command -v pathlight >/dev/null 2>&1 && pathlight record --workspace \"$f\" >/dev/null 2>&1; exit 0'",
+            "async": true
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$f/.pathlight/pathlight.activity.json\" ] && command -v pathlight >/dev/null 2>&1 && { pathlight check --workspace \"$f\" --quiet; pathlight diff --workspace \"$f\" --quiet; } >/dev/null 2>&1; exit 0'",
+            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$f/.pathlight/pathlight.activity.json\" ] && command -v pathlight >/dev/null 2>&1 && { pathlight record --workspace \"$f\"; pathlight check --workspace \"$f\" --quiet; pathlight diff --workspace \"$f\" --quiet; } >/dev/null 2>&1; exit 0'",
             "async": true
           }
         ]

@@ -17,3 +17,5 @@ export const homeOf = (workspace: string) => join(workspace, home);
 export const mappingPath = (workspace: string) => join(workspace, home, mappingFile);
 /** The overlay of names and notes of a workspace. */
 export const overlayPath = (workspace: string) => join(workspace, home, overlayFile);
+/** Where each recorded session's pointer to its host's conversation file is kept: regenerated state, so it is under `.cache/pathlight`. */
+export const sessionsPath = (workspace: string) => join(workspace, ".cache", "pathlight", "sessions");

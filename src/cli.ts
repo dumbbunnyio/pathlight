@@ -9,7 +9,7 @@ import { writeReady } from "./ready";
 import { atShellPrompt, showView } from "./tmux";
 import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
 import { mappingPath } from "./layout";
-import { claudeActivity, claudeIgnores } from "./claude";
+import { claudeActivity, claudeJournals, claudeSession } from "./claude";
 import { initGlobal, initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
 import { draftWorkspace } from "./draft";
@@ -191,7 +191,9 @@ try {
     } else if (command === "record") {
       yield* readActivityConfig(values.workspace);
       const input = yield* json(yield* readStdin);
-      if (!claudeIgnores(input)) yield* writeActivity(values.workspace, yield* claudeActivity(resolve(values.workspace), input));
+      // The session pointer first (every hook names the conversation file), then the journal for the hooks it records.
+      yield* claudeSession(resolve(values.workspace), input);
+      if (claudeJournals(input)) yield* writeActivity(values.workspace, yield* claudeActivity(resolve(values.workspace), input));
     } else if (command === "see") {
       if (!id) return yield* invalid("Missing view ID. Use pathlight list.");
       const size = (name: string, text: string | undefined, fallback: number) => {
