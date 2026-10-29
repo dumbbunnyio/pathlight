@@ -26,6 +26,10 @@ export const foldRequest = (text: string) => {
   return ends.length ? rest.slice(0, Math.min(...ends)) : rest;
 };
 
+// Claude Code keeps a long typed prompt (a request the viewer typed, most often) wrapped as one pasted element, the same id on both tags.
+const pasted = /^\s*<pasted_content id="([^"<>]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">\s*$/;
+export const unwrapPasted = (text: string) => pasted.exec(text)?.[2] ?? text;
+
 // Prompts the person did not type: slash commands and their output, background-task notices, shell escapes. They arrive as user lines without `isMeta`.
 const notTyped = /^<(command-name|command-message|local-command-|task-notification|bash-)/;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -45,8 +49,9 @@ export const createClaudeParser = () => {
     if (entry.type === "user") {
       const origin = isRecord(entry.origin) ? entry.origin.kind : undefined;
       if (origin !== undefined && origin !== "human") return;
-      const text = typeof content === "string" ? content : Array.isArray(content) && content.every(block => isRecord(block) && block.type !== "tool_result")
+      const raw = typeof content === "string" ? content : Array.isArray(content) && content.every(block => isRecord(block) && block.type !== "tool_result")
         ? content.flatMap(block => isRecord(block) && block.type === "text" && typeof block.text === "string" ? [block.text] : []).join("\n") : undefined;
+      const text = raw === undefined ? undefined : unwrapPasted(raw);
       if (!text?.trim() || notTyped.test(text.trimStart())) return;
       drafts.set(String(entry.uuid ?? `you-${drafts.size}`), { role: "you", at, blocks: new Map([[0, foldRequest(text)]]) });
       return;

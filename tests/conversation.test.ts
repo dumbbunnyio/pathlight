@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { askMessage, flowMessage, mapMessage } from "../src/ask";
-import { createConversationReader, conversationCap, foldRequest, parseClaudeLines, parseOpenCodeRows, tailConversation } from "../src/conversation";
+import { createConversationReader, conversationCap, foldRequest, unwrapPasted, parseClaudeLines, parseOpenCodeRows, tailConversation } from "../src/conversation";
 
 const fixture = "tests/fixtures/conversation/claude.jsonl";
 const lines = async () => (await readFile(fixture, "utf8")).split("\n").filter(Boolean);
@@ -16,6 +16,7 @@ test("the conversation is the prompts the person typed and the agent's text, in 
     ["you", "Where are the order totals computed?"],
     ["agent", "Totals are computed in one place."],
     ["agent", "## Where"],
+    // A long request is kept by Claude Code inside one `pasted_content` element; it is unwrapped and folded to the question.
     ["you", "what happens when an order is cancelled?"],
     ["agent", "Cancelling releases the courier first, then closes the order. Want me to record this as a journey?"],
   ]);
@@ -39,6 +40,10 @@ test("a request the viewer typed shows as the question alone: the context block 
   expect(foldRequest(flowMessage(target, "how a refund moves"))).toBe("how a refund moves");
   expect(foldRequest(flowMessage({ ...target, files: [], links: [] }, "how a refund moves"))).toBe("how a refund moves");
   expect(foldRequest("About the weather: it is fine")).toBe("About the weather: it is fine");
+  // Only a message that is one whole element is unwrapped: a paste among other words, or tags with different ids, stay as typed.
+  expect(unwrapPasted('<pasted_content id="a">\nhello\n</pasted_content id="a">\n')).toBe("hello");
+  expect(unwrapPasted('see <pasted_content id="a">\nhello\n</pasted_content id="a">')).toContain("<pasted_content");
+  expect(unwrapPasted('<pasted_content id="a">\nhello\n</pasted_content id="b">')).toContain("<pasted_content");
 });
 
 test("tailing reads only what was appended, waits for a line being written, and starts again when the file was replaced", async () => {
