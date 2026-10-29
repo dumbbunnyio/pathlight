@@ -511,16 +511,17 @@ const drafted = async (files: Record<string, string>) => {
     for (const path of Object.keys(files).filter(name => name.endsWith(".ts"))) {
       expect([path, new Set(config.mappings.filter(item => new Bun.Glob(item.glob).match(path)).map(item => item.element)).size]).toEqual([path, 1]);
     }
-    expect((await Effect.runPromise(checkWorkspace(directory))).summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
+    const check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
     const keys = JSON.parse(await readFile(join(directory, ".cache", "pathlight", "keys.json"), "utf8")) as { keys: Record<string, string> };
-    return { made, model: await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8"), keys: keys.keys, mappings: config.mappings };
+    return { made, model: await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8"), keys: keys.keys, mappings: config.mappings, large: check.size.filter(item => item.large).map(item => item.element) };
   } finally { await rm(directory, { recursive: true, force: true }); }
 };
 
 test("a folder that is more than half of its package and holds at least openFloor read files opens: children titled by name, keyed by path", async () => {
   expect([openFloor, openShare]).toEqual([100, 0.9]);
   // core holds 110 of 130 read files (85%): over half, under nine in ten, at the floor's side of it.
-  const { made, model, keys, mappings } = await drafted({
+  const { made, model, keys, mappings, large } = await drafted({
     ...many("src/core/ui", 60), ...many("src/core/data", 50), ...many("src/cli", 20),
     "src/core/ui/view.ts": `import { f0 } from "../data/f0";\nexport const view = f0;\n`, "src/cli/main.ts": `import { view } from "../core/ui/view";\nexport const main = view;\n`,
   });
@@ -532,6 +533,8 @@ test("a folder that is more than half of its package and holds at least openFloo
   expect(model).toContain("  core.ui -> core.data '1 import'");
   expect([keys["core"], keys["core.ui"], keys["core.data"], keys["cli"]]).toEqual(["src/core", "src/core/ui", "src/core/data", "src/cli"]);
   expect(mappings.map(item => [item.glob, item.element])).toEqual([["src/cli/**", "cli"], ["src/core/data/**", "core.data"], ["src/core/ui/**", "core.ui"]]);
+  // check's spread hint is for a box that may be several things: an opened folder is drawn as several, so the hint moves to its children.
+  expect(large).toEqual(["core.ui", "core.data"]);
 }, 60_000);
 
 test("a folder at the same share with fewer than openFloor read files stays one box, and one at exactly half stays shut", async () => {
@@ -540,6 +543,8 @@ test("a folder at the same share with fewer than openFloor read files stays one 
   expect(small.made).toMatchObject({ folders: 0, components: 2 });
   expect(small.model).toContain("  core = component 'core' {");
   expect(small.model).not.toContain("element folder");
+  // A folder the rule leaves shut keeps check's hint that it holds most of the files.
+  expect(small.large).toEqual(["core"]);
   const half = await drafted({ ...many("src/core/ui", 60), ...many("src/core/data", 60), ...many("src/cli", 120) });
   expect(half.made).toMatchObject({ folders: 0, components: 2 });
 }, 60_000);

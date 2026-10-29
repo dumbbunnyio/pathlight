@@ -111,3 +111,17 @@ test("a draft keeps readable views within the limit, and the scorer counts a cro
     expect(damaged.views.crowded).toBe(1);
   });
 }, 60_000);
+
+test("the scorer counts the cards drawn inside one box: an opened folder draws nine of its fourteen children, and fourteen once its cap is undone by hand", async () => {
+  const files: Record<string, string> = { "package.json": JSON.stringify({ name: "deep" }) };
+  for (let n = 1; n <= 14; n++) for (const file of ["a", "b", "c"]) files[`src/core/c${n}/${file}.ts`] = `export const ${file}${n} = 1;\n`;
+  await withDraft(files, async directory => {
+    const drafted = await score(directory);
+    expect(drafted.views.maxChildren).toBe(9);
+    const path = join(directory, ".pathlight", "pathlight.model.c4");
+    const model = await readFile(path, "utf8");
+    expect(model.match(/exclude \* where tag is #minor/g)).toHaveLength(1);
+    await writeFile(path, model.replace("    exclude * where tag is #minor\n", ""));
+    expect((await score(directory)).views.maxChildren).toBe(14);
+  });
+}, 60_000);

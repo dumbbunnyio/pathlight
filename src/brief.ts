@@ -15,7 +15,7 @@ import { isUnscannedSource, languageOf, listFiles, scanWorkspace } from "./scan"
  * describing the one folder it happened to open when the box is a folder plus a loose file.
  */
 export interface BriefBox {
-  key: string; id: string; kind: "package" | "collection" | "component";
+  key: string; id: string; kind: "package" | "folder" | "collection" | "component";
   /** The generated name (a folder or package name), as the viewer would show it with no overlay. */
   generated: string;
   /** The key of the box this one sits in. */
@@ -35,7 +35,7 @@ export interface BriefBox {
   importedBy: { key: string; generated: string; imports: number }[];
   /** Keys of the boxes inside this one. */
   inside: string[];
-  /** Depth below the top of the diagram: 0 is a package (or a top-level component of a flat workspace). */
+  /** Depth below the top of the diagram: 0 is a package (or a top-level component or folder of a flat workspace). */
   depth: number;
   name?: { title?: string; note?: string; by?: "human" | "agent" };
   /** A short hash of the contents of every file the box owns: when it differs from the one recorded at the last naming, the files changed since. */
@@ -148,17 +148,25 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
   const add = (box: BriefBox) => { boxes.set(box.key, box); byId.set(box.id, box); return box; };
   for (const item of draft.packages) {
     const parent = draft.flat ? undefined : add({ key: item.key, id: item.id, kind: "package", generated: item.title, files: [], lines: 0, other: [], otherCount: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 0, fingerprint: "", ...(overlay.elements[item.key] ? { name: overlay.elements[item.key] } : {}) });
-    const groups = new Map(item.groups.map(group => [group.id, add({ key: group.key, id: group.id, kind: "collection", generated: group.title, ...(parent ? { parent: parent.key } : {}), files: [], lines: 0, other: [], otherCount: 0, exports: [], imports: [], importedBy: [], inside: [], depth: 1, fingerprint: "", ...(overlay.elements[group.key] ? { name: overlay.elements[group.key] } : {}) })] as const));
+    // An opened folder is listed like a package: what it holds, gathered from inside it, and the imports that cross its edge.
+    const folders = new Map<string, BriefBox>();
+    for (const folder of item.folders) {
+      const holder = folder.parent ? folders.get(folder.parent) : parent;
+      const box = add({ key: folder.key, id: folder.id, kind: "folder", generated: folder.title, ...(holder ? { parent: holder.key } : {}), files: [], lines: 0, other: [], otherCount: 0, exports: [], imports: [], importedBy: [], inside: [], depth: holder ? holder.depth + 1 : 0, fingerprint: "", ...(overlay.elements[folder.key] ? { name: overlay.elements[folder.key] } : {}) });
+      folders.set(folder.id, box);
+      holder?.inside.push(box.key);
+    }
+    const groups = new Map(item.groups.map(group => [group.id, add({ key: group.key, id: group.id, kind: "collection", generated: group.title, ...((group.folder ? folders.get(group.folder) : parent) ? { parent: (group.folder ? folders.get(group.folder)! : parent!).key } : {}), files: [], lines: 0, other: [], otherCount: 0, exports: [], imports: [], importedBy: [], inside: [], depth: group.folder ? folders.get(group.folder)!.depth + 1 : 1, fingerprint: "", ...(overlay.elements[group.key] ? { name: overlay.elements[group.key] } : {}) })] as const));
     for (const component of item.components) {
       const group = component.group ? groups.get(component.group) : undefined;
-      const container = group ?? parent;
-      const box = add({ key: component.key, id: component.id, kind: "component", generated: component.title, ...(container ? { parent: container.key } : {}), files: sizes(component.files), lines: component.files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0), other: [], otherCount: 0, exports: [], imports: [], importedBy: [], inside: [], depth: group ? 2 : parent ? 1 : 0, fingerprint: "", ...(overlay.elements[component.key] ? { name: overlay.elements[component.key] } : {}) });
+      const container = group ?? (component.folder ? folders.get(component.folder) : undefined) ?? parent;
+      const box = add({ key: component.key, id: component.id, kind: "component", generated: component.title, ...(container ? { parent: container.key } : {}), files: sizes(component.files), lines: component.files.reduce((sum, path) => sum + (lines.get(path) ?? 0), 0), other: [], otherCount: 0, exports: [], imports: [], importedBy: [], inside: [], depth: container ? container.depth + 1 : 0, fingerprint: "", ...(overlay.elements[component.key] ? { name: overlay.elements[component.key] } : {}) });
       box.exports = [...new Map(box.files.flatMap(file => (offered.get(file.path) ?? []).map(item => ({ name: item.name, kind: item.kind, file: file.path }))).reverse().map(item => [item.name, item] as const)).values()].reverse().slice(0, 40);
       container?.inside.push(box.key);
       for (let up = container; up; up = up.parent ? boxes.get(up.parent) : undefined) { up.files.push(...box.files); up.lines += box.lines; }
     }
-    if (parent) parent.inside.push(...[...groups.values()].map(group => group.key));
-    for (const group of groups.values()) group.files = sizes(group.files.map(file => file.path));
+    for (const group of item.groups) (group.folder ? folders.get(group.folder) : parent)?.inside.push(group.key);
+    for (const box of [...groups.values(), ...folders.values()]) box.files = sizes(box.files.map(file => file.path));
     if (parent) parent.files = sizes(parent.files.map(file => file.path));
   }
   // Every other file goes to the first component whose globs claim it, as in the mapping the draft writes; what the draft ignores (tests) stays out.
@@ -180,6 +188,16 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
     if (!from || !to) continue;
     from.imports.push({ key: to.key, generated: to.generated, imports: edge.imports });
     to.importedBy.push({ key: from.key, generated: from.generated, imports: edge.imports });
+  }
+  // A folder's imports are those that cross its edge, counted by the component on the other side.
+  for (const item of draft.packages) for (const folder of item.folders) {
+    const box = byId.get(folder.id)!, inside = (id: string) => id.startsWith(`${folder.id}.`);
+    const tally = (list: BriefBox["imports"], other: BriefBox, imports: number) => { const found = list.find(entry => entry.key === other.key); if (found) found.imports += imports; else list.push({ key: other.key, generated: other.generated, imports }); };
+    for (const edge of draft.relationships) {
+      const from = byId.get(edge.from), to = byId.get(edge.to);
+      if (!from || !to || inside(edge.from) === inside(edge.to)) continue;
+      if (inside(edge.from)) tally(box.imports, to, edge.imports); else tally(box.importedBy, from, edge.imports);
+    }
   }
   const digests = new Map<string, string>();
   for (const file of scan.files) digests.set(file.path, createHash("sha1").update(yield* io("Brief.hash", () => readFile(join(root, file.path))).pipe(Effect.catch(() => Effect.succeed(Buffer.alloc(0))))).digest("hex"));

@@ -183,3 +183,21 @@ test("a box names the files its mapping claims that are not code, by kind, docum
     expect(text).toContain(", … and 7 more");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("an opened folder is a box listed like a package: where it sits, what is inside it, its files, and the imports that cross its edge", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-folder-"));
+  try {
+    // core holds 18 of the 20 read files, nine in ten, so the draft opens it.
+    const written: Record<string, string> = { "package.json": JSON.stringify({ name: "demo" }), "src/cli/main.ts": `import { view } from "../core/ui/f0";\nexport const main = view;\n`, "src/cli/args.ts": "export const args = 1;\n" };
+    for (const folder of ["ui", "data"]) for (let n = 0; n < 9; n++) written[`src/core/${folder}/f${n}.ts`] = folder === "ui" && n === 0 ? `import { f1 } from "../data/f1";\nexport const view = f1;\n` : `export const f${n} = ${n};\n`;
+    for (const [path, text] of Object.entries(written)) { await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), text); }
+    await Effect.runPromise(draftWorkspace(directory));
+    const boxes = await Effect.runPromise(briefOf(directory));
+    const core = boxes.find(box => box.key === "src/core")!;
+    expect(core).toMatchObject({ kind: "folder", id: "core", generated: "core", depth: 0, inside: ["src/core/data", "src/core/ui"], importedBy: [{ key: "src/cli", generated: "cli", imports: 1 }], imports: [] });
+    expect(core.parent).toBeUndefined();
+    expect(core.files).toHaveLength(18);
+    expect(boxes.find(box => box.key === "src/core/ui")).toMatchObject({ kind: "component", parent: "src/core", depth: 1, generated: "ui", imports: [{ key: "src/core/data", imports: 1 }] });
+    expect(formatBrief([core], boxes)).toContain("## src/core  (folder · 18 files, 19 lines)\ngenerated name: core\n");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
