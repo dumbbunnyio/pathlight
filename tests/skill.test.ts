@@ -6,7 +6,7 @@ import { run } from "./effects";
 
 const path = "plugins/claude/skills/pathlight/SKILL.md";
 
-test.each(["pathlight", "pathlight-behavior"])("the %s skill has valid frontmatter for both Claude Code and OpenCode", async name => {
+test.each(["pathlight", "pathlight-behavior", "pathlight-onboarding"])("the %s skill has valid frontmatter for both Claude Code and OpenCode", async name => {
   const text = await readFile(`plugins/claude/skills/${name}/SKILL.md`, "utf8");
   const [, frontmatter, body] = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/) ?? [];
   expect(frontmatter).toBeDefined();
@@ -19,7 +19,7 @@ test.each(["pathlight", "pathlight-behavior"])("the %s skill has valid frontmatt
   expect(body!.length).toBeGreaterThan(500);
 });
 
-test.each(["pathlight", "pathlight-behavior"])("every pathlight command and flag the %s skill names exists in the real CLI help", async name => {
+test.each(["pathlight", "pathlight-behavior", "pathlight-onboarding"])("every pathlight command and flag the %s skill names exists in the real CLI help", async name => {
   const text = await readFile(`plugins/claude/skills/${name}/SKILL.md`, "utf8");
   const help = await run(process.execPath, [resolve("src/cli.ts"), "--help"]);
   const commands = new Set(help.split("\n").flatMap(line => line.match(/^pathlight ([a-z]+)/)?.[1] ?? []));
@@ -81,5 +81,5 @@ test("a draft rerun leaves a behavior file beside it alone", async () => {
 
 // `pathlight init` compiles the skills in by name, so a skill added to the folder must be added there too.
 test("init embeds every skill in the plugin's skills folder", async () => {
-  expect((await readdir("plugins/claude/skills")).sort()).toEqual(["pathlight", "pathlight-behavior"]);
+  expect((await readdir("plugins/claude/skills")).sort()).toEqual(["pathlight", "pathlight-behavior", "pathlight-onboarding"]);
 });

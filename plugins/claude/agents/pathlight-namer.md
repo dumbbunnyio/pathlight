@@ -19,9 +19,8 @@ You give the boxes of a pathlight map a plain name and a one-sentence note that 
 
 Rules: read-only except for `pathlight name`. Do not change product code, the model, or the mapping, and do not run the viewer. Read and search files with the Read, Grep and Glob tools, not the shell. Use the shell only for `pathlight` commands and `git log`, `git show` or `ls`: some hosts refuse anything else, and a refused command does not mean the `pathlight` one will be refused, so still run it.
 
-Reply in this shape and nothing else:
+When the last batch is saved, run `pathlight brief --first-day --workspace .`: the briefing a person new to the code reads first, made from the scan and the names you just saved. Reply in this shape and nothing else:
 
-- How many boxes you named, and how many you could only infer.
-- Any box whose purpose you could not tell, with what you saw.
-- The app in one sentence, as the top box now says it, and up to three journeys worth tracing as flows, each as one line naming the file it starts at and what the person sees (for example “src/main.ts: a message typed in the chat window goes through the pipeline and the reply comes back”). Choose journeys that start at a listed entry point the app really uses, not a test or a one-off script. They are suggestions from what you read; do not trace or record them yourself.
-- Anything the command kept or refused.
+1. The briefing, exactly as the command printed it: do not summarise, reorder or add to it.
+2. Up to three journeys worth tracing as flows, each as one line naming the file it starts at and what the person sees (for example “src/main.ts: a message typed in the chat window goes through the pipeline and the reply comes back”). Choose journeys that start at a start the briefing lists and the app really uses, not a test or a one-off script. They are suggestions from what you read; do not trace or record them yourself.
+3. What you could not tell: any box whose purpose you could not tell, with what you saw, and anything the command kept or refused. Say "nothing" when there is nothing.

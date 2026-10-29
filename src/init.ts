@@ -10,10 +10,11 @@ import { hasCode, io, json, failure } from "./effects";
 
 import pathlightSkill from "../plugins/claude/skills/pathlight/SKILL.md" with { type: "text" };
 import behaviorSkill from "../plugins/claude/skills/pathlight-behavior/SKILL.md" with { type: "text" };
+import onboardingSkill from "../plugins/claude/skills/pathlight-onboarding/SKILL.md" with { type: "text" };
 
 const pluginRoot = fileURLToPath(new URL("../plugins", import.meta.url));
 /** The skills are compiled in, so `init` works from the single binary as well as from a checkout. */
-const skillFiles: Record<string, string> = { pathlight: pathlightSkill, "pathlight-behavior": behaviorSkill };
+const skillFiles: Record<string, string> = { pathlight: pathlightSkill, "pathlight-behavior": behaviorSkill, "pathlight-onboarding": onboardingSkill };
 /** Hook scripts and the OpenCode plugin are files in a checkout; a compiled binary has none, and the plugins supply them instead. */
 const hasCheckout = (path: string) => existsSync(join(pluginRoot, path));
 
