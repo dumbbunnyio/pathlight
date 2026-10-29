@@ -390,3 +390,29 @@ The `pathlight-namer` subagent on scratch copies of the three repos, with the Ph
 | Miniflux | 3 of 4 | **4 of 4**: `.github` is "GitHub automation and issue templates" | 42 s / $0.22 | 0 of 4 (1) |
 
 No note describes translation files (three large boxes mention translations among their contents, which is true), so `brief`'s list of other files was left as it is. One run per repository.
+
+## Open the big box (2026-10-28)
+
+The draft opens a folder that holds more than half of its holder's read files and, besides, either at least 100 of them (`openFloor`) or nine in ten of them (`openShare`), and has subfolders; the same test applies inside it, a chain of single folders collapses, and a `split` opens any folder with subfolders. An opened folder has its own view with its nine strongest children as cards (`folderCap`, collections among them) and the rest in its everything view. Scratch copies of the reference clones, drafted with `main` (before) and with this phase (after), scored with this phase's `tests/eval/run.ts` both times so the new count is there for both.
+
+| | boxes / relationships | opened folders (children, cards) | files the scorer counts | edges supported | undeclared | most boxes in a readable view | most cards inside one box |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Mealie, before | 13 / 3 | none | 802 of 802 | 3 of 3 | 0 | 6 | 4 |
+| Mealie, after | 36 / 62 | `mealie` (13, 9), `frontend/app` (10, 9) | 800 of 800 | 62 of 62 | 0 | 12 | 9 |
+| Miniflux, before | 4 / 1 | none | 440 of 440 | 1 of 1 | 0 | 4 | 0 |
+| Miniflux, after | 30 / 124 | `internal` (16, 9: eight children and the small-folders collection of ten) | 440 of 440 | 124 of 124 | 0 | 18 | 9 |
+| Outline, after (with its six journeys) | 15 / 9 | none | 2,417 of 2,417 | 9 of 9 | 0 | 8 | 7 |
+
+- **Outline and opencode do not change.** Their drafts are byte-identical to `main`'s, model and mapping, on copies without journeys; Outline's copy with its six journeys differs by one line, the `#behavior` exclusion that `main` wrote and LikeC4 rejected (on `main` its `check` fails; here it is clean). No opencode folder meets the rule: its biggest over-half folder holds 83 read files at 59%, and its highest share is 82%.
+- **Mealie's 802 → 800** is two test files, `frontend/app/tests/setup.ts` and `utils.ts`: `main`'s `frontend/app/**` claimed them by accident, and now `tests/` is not a child of the opened folder, so they are ignored on purpose like every other test.
+- **Pass marks hold**: every file claimed, every edge supported, no pair undeclared, no readable view over 20, no view drawing more than nine children of one box.
+- **Time**: `pathlight draft` (three runs) Mealie 0.75–0.79 s before, 0.76–0.78 s after; Miniflux 0.56–0.57 s both. `scanWorkspace` (median of five) is unchanged: Mealie 544 / 562 ms, Miniflux 393 / 392 ms (`src/scan.ts` did not change).
+
+**Names.** On the scratch copies with the clones' Phase 1 overlays, every existing key persists: Outline 12 of 12, Mealie 8 of 10, Miniflux 3 of 4, as before. The namer was then run once on Mealie and Miniflux as Phase 4 did (Phase 1 overlay removed, map redrawn unnamed, headless `claude -p` with the `pathlight-namer` subagent; logs and the overlay it wrote under `docs/internal/baseline/{mealie,v2}/phase-4a/logs/`):
+
+| | Phase 4 | now | time / cost | notes saying "inferred" (new boxes) |
+| --- | --- | --- | --- | --- |
+| Mealie | 9 of 10 | **8 of 10**: `frontend/vuetify.options.js` still fails as in Phase 4; `mealie` now fails for saying "frontend" | 141 s / $0.47 | 11 of 36 (7 of 21) |
+| Miniflux | 4 of 4 | 4 of 4 | 108 s / $0.45 | 0 of 30 (0 of 25) |
+
+The `mealie` note that fails reads "The FastAPI backend: HTTP routes call services, which use repositories over SQLAlchemy models … Also serves the built frontend in production." The last sentence is true (`mealie/app.py` line 160 calls `spa.mount_spa(app)`), so the reference's forbidden word, meant for a namer that takes the backend for the whole app, catches a correct note here. One run; the reference was not changed.
