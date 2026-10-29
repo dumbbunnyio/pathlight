@@ -593,12 +593,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const reveal = (target = state.selected) => { if (target) camera.reveal(target); };
   // Opt-in only (key `a`): select the node of the newest call, running or finished (reads end in milliseconds), and glide to it.
   // Only calls after follow was turned on (or resumed) count, so it shows work as it happens and never replays history. A component that is not in this view
-  // falls back to the nearest ancestor that is. The user's own selection or camera movement pauses it.
+  // but is in another goes there (the view `w` would choose, remembered so `b` returns); one no view has falls back to the nearest ancestor here.
+  // The user's own selection or camera movement pauses it.
   const followActivity = () => {
     const latest = events[0];
-    if (!followCamera || followPaused || !latest || latest.call === focusedCall || latest.time < followSince) return;
-    const target = [...elementsOf(rules, latest)].map(element => nodeOrAncestor(diagram, element)).filter((node): node is Node => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
+    if (!followCamera || followPaused || !latest || latest.call === focusedCall || latest.time < followSince || state.pendingVisit) return;
     focusedCall = latest.call;
+    const work = newestIn([latest], rules, diagram, diagrams);
+    if (work && "view" in work) {
+      if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming) { focusedCall = ""; return; }
+      remember(state, visit());
+      camera.animating = false; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: `Went to ${work.title} · following (a to stop)` };
+      return;
+    }
+    const target = work?.node ?? [...elementsOf(rules, latest)].map(element => nodeOrAncestor(diagram, element)).filter((node): node is Node => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
     if (!target) return;
     followSelecting = true;
     try { message = ""; selectNode(target, true); } finally { followSelecting = false; }
