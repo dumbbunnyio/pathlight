@@ -34,7 +34,8 @@ export interface Score {
   /** Of the element pairs the imports connect, how many a relationship covers. */
   pairs: { covered: number; undeclared: number; recall: number };
   assertions: { total: number; passed: number; failures: { assertion: Assertion; found: boolean }[] };
-  views: { count: number; maxNodes: number; medianNodes: number; maxEdges: number; crowded: number; listings: number };
+  /** `maxChildren`: in a readable view, the most cards drawn inside one box (a package's, a folder's or a collection's children side by side). */
+  views: { count: number; maxNodes: number; medianNodes: number; maxEdges: number; crowded: number; listings: number; maxChildren: number };
 }
 
 const within = (element: string, ancestor: string) => element === ancestor || element.startsWith(`${ancestor}.`);
@@ -61,7 +62,11 @@ export const scoreWorkspace = Effect.fn("Eval.score")(function* (workspace: stri
   const source = yield* acquireModel(workspace);
   const views = yield* io("Eval.views", async () => {
     const model = await source.computedModel(check.project);
-    return [...model.views()].map(view => ({ id: String(view.id), nodes: view.$view.nodes.length, edges: view.$view.edges.length }));
+    return [...model.views()].map(view => {
+      const inside = new Map<string, number>();
+      for (const node of view.$view.nodes) if (node.parent) inside.set(String(node.parent), (inside.get(String(node.parent)) ?? 0) + 1);
+      return { id: String(view.id), nodes: view.$view.nodes.length, edges: view.$view.edges.length, children: Math.max(0, ...inside.values()) };
+    });
   });
   // Views meant to be read are counted separately from the complete listings.
   const readable = views.filter(view => !listings.has(view.id));
@@ -74,7 +79,7 @@ export const scoreWorkspace = Effect.fn("Eval.score")(function* (workspace: stri
     edges: { declared: check.relationships.length, supported, unsupported, unverifiable, precision: ratio(supported, supported + unsupported) },
     pairs: { covered, undeclared: check.undeclared.length, recall: ratio(covered, covered + check.undeclared.length) },
     assertions: { total: results.length, passed: results.length - failures.length, failures },
-    views: { count: views.length, maxNodes: nodeCounts.at(-1) ?? 0, medianNodes: nodeCounts[Math.floor(nodeCounts.length / 2)] ?? 0, maxEdges: Math.max(0, ...views.map(view => view.edges)), crowded: readable.filter(view => view.nodes > crowdedAbove).length, listings: views.length - readable.length },
+    views: { count: views.length, maxNodes: nodeCounts.at(-1) ?? 0, medianNodes: nodeCounts[Math.floor(nodeCounts.length / 2)] ?? 0, maxEdges: Math.max(0, ...views.map(view => view.edges)), crowded: readable.filter(view => view.nodes > crowdedAbove).length, listings: views.length - readable.length, maxChildren: Math.max(0, ...readable.map(view => view.children)) },
   } satisfies Score;
 }, Effect.scoped);
 
@@ -86,7 +91,7 @@ export function formatScore(score: Score, name: string) {
     `  edges       ${percent(score.edges.precision)} supported by imports (${score.edges.supported} of ${score.edges.supported + score.edges.unsupported}${score.edges.unverifiable ? `, ${score.edges.unverifiable} unverifiable` : ""})`,
     `  pairs       ${percent(score.pairs.recall)} of connected element pairs declared (${score.pairs.undeclared} undeclared)`,
     `  authors     ${score.assertions.total ? `${score.assertions.passed} of ${score.assertions.total} stated rules hold` : "no reference rules given"}`,
-    `  views       ${score.views.count} views (${score.views.listings} complete listings); most boxes in a readable one ${score.views.maxNodes}, median ${score.views.medianNodes}; ${score.views.crowded} over ${crowdedAbove}; most lines in any view ${score.views.maxEdges}`];
+    `  views       ${score.views.count} views (${score.views.listings} complete listings); most boxes in a readable one ${score.views.maxNodes}, median ${score.views.medianNodes}; ${score.views.crowded} over ${crowdedAbove}; most cards inside one box ${score.views.maxChildren}; most lines in any view ${score.views.maxEdges}`];
   for (const item of score.assertions.failures) lines.push(`    ✗ ${item.assertion.kind === "edge" ? `${item.assertion.from} should depend on ${item.assertion.to}` : `${item.assertion.from} should not depend on ${item.assertion.to}`} (${item.assertion.source}: “${item.assertion.quote}”)`);
   return lines.join("\n");
 }

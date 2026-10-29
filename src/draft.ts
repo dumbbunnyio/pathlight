@@ -5,6 +5,7 @@ import { failure, io, json } from "./effects";
 import { configFile, home, mappingFile, modelFile, overlayFile } from "./layout";
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace, type Scan } from "./scan";
+import { scannedLanguages } from "./languages";
 
 /**
  * A first picture of a codebase made from facts alone, with no model in the loop: packages become boxes, the top-level folders
@@ -22,9 +23,20 @@ export interface DraftComponent {
   readonly key: string; readonly note?: string;
   /** The collection this component sits in, when it is not a top-level component of its package. */
   readonly group?: string;
+  /** The opened folder this component sits in (directly, or in one of its collections), when it is not in its package's own top level. */
+  readonly folder?: string;
 }
-export interface DraftGroup { readonly id: string; readonly key: string; readonly note?: string; readonly title: string; readonly package: string; readonly kind: "small" | "loose" }
-export interface DraftPackage { readonly id: string; readonly key: string; readonly note?: string; readonly title: string; /** The package.json name in full (the title drops a scope when that leaves the names unique). */ readonly name: string; readonly directory: string; readonly components: readonly DraftComponent[]; readonly groups: readonly DraftGroup[] }
+export interface DraftGroup { readonly id: string; readonly key: string; readonly note?: string; readonly title: string; readonly package: string; readonly kind: "small" | "loose"; /** The opened folder it sits in. */ readonly folder?: string }
+/**
+ * A folder drawn the way a package is: a box with its own children. The draft opens a folder that holds more than half of the read files of what holds it
+ * (and has subfolders), and a `split` in the overlay opens one by hand. `parent` is the opened folder it sits in; none means its package's top level.
+ */
+export interface DraftFolder { readonly id: string; readonly key: string; readonly note?: string; readonly title: string; readonly package: string; readonly directory: string; readonly parent?: string; /** Opened by the rule, not by a `split`. */ readonly opened: boolean }
+export interface DraftPackage {
+  readonly id: string; readonly key: string; readonly note?: string; readonly title: string; /** The package.json name in full (the title drops a scope when that leaves the names unique). */ readonly name: string; readonly directory: string;
+  /** Every component of the package, at whatever depth; `group` and `folder` say where each sits. */
+  readonly components: readonly DraftComponent[]; readonly groups: readonly DraftGroup[]; readonly folders: readonly DraftFolder[];
+}
 export interface Draft {
   readonly packages: readonly DraftPackage[];
   /** True when the workspace is one package: components are then the top level. */
@@ -84,14 +96,23 @@ const braces = (names: readonly string[]) => names.length === 1 ? escapeGlob(nam
 const byText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 /**
+ * What holds components: a package, or a folder the draft opened. `rel` is a file's path inside it (a package strips its source root), `folderPath` the
+ * workspace path of one of its folders, `prefixOf` the path a file's folder is claimed under, `joins` whether `x.ts` beside `x/` is one module there.
+ */
+interface Holder {
+  readonly files: readonly string[]; readonly key: string; readonly packageId: string; readonly folder?: string;
+  readonly rel: (path: string) => string; readonly folderPath: (top: string) => string; readonly prefixOf: (path: string, top: string) => string;
+  readonly qualify: (id: string) => string; readonly joins: (path: string) => boolean;
+}
+
+/**
  * `unread`: source files in languages the scan does not read (`isUnscannedSource`). They are drawn in the folders they live in, so the picture
  * leaves no part of the code out, but they bring no imports: an arrow to or from them is never drawn, and their description says so.
  */
 export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readonly { directory: string; name: string }[], overlay?: Overlay, unread: readonly string[] = []): Draft {
   const problems: string[] = [];
   const splits = new Set((overlay?.splits ?? []).map(item => item.key));
-  const splitSubfolders = new Map<string, Set<string>>();
-  const splitSeen = new Set<string>();
+  const splitSeen = new Set<string>(), splitOpened = new Set<string>();
   const merges = (overlay?.merges ?? []).map((item, index) => ({ ...item, index, applied: false }));
   const mergedKeys = new Set<string>();
   const ignoredBy = (path: string) => outside.find(item => item.pattern.test(path));
@@ -112,6 +133,113 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
   const taken = new Set<string>();
   const componentOf = new Map<string, string>();
   const packages: DraftPackage[] = [];
+  const stem = (path: string) => posix.basename(path).replace(/\.[^.]+$/, "").replace(/\.(d|config|test|spec)$/, "");
+  const fileGlobs = (members: readonly string[]) => {
+    const byDirectory = new Map<string, string[]>();
+    for (const path of members) byDirectory.set(posix.dirname(path), [...byDirectory.get(posix.dirname(path)) ?? [], posix.basename(path)]);
+    return [...byDirectory].sort(([a], [b]) => byText(a, b)).map(([folder, names]) => `${folder === "." ? "" : `${folder.split("/").map(escapeGlob).join("/")}/`}${braces(names.sort())}`);
+  };
+  // Only files the scan reads decide what opens, as they decide the source root: adding unread files never regroups a package.
+  const readCount = (members: readonly string[]) => members.filter(path => !unreadSet.has(path)).length;
+  // A folder holds subfolders when some file lies two levels below it.
+  const deeper = (directory: string, members: readonly string[]) => members.some(path => path.startsWith(`${directory}/`) && path.slice(directory.length + 1).includes("/"));
+  // A folder whose files all sit in one subfolder is not several things: the rule looks at that subfolder instead, so `src/main/java/org/acme/app` opens at
+  // `app`. A chain that ends in a folder with no subfolders opens nothing.
+  const opening = (directory: string, members: readonly string[]): string | undefined => {
+    if (!deeper(directory, members)) return undefined;
+    const next = new Set(members.map(path => path.startsWith(`${directory}/`) && path.slice(directory.length + 1).includes("/") ? path.slice(directory.length + 1).split("/")[0] : ""));
+    return next.size === 1 && !next.has("") ? opening(`${directory}/${[...next][0]}`, members) : directory;
+  };
+
+  /** Lays out the components, collections and opened folders of a package or an opened folder, the same rules at every depth. */
+  const lay = (box: Holder, out: { components: DraftComponent[]; groups: DraftGroup[]; folders: DraftFolder[] }) => {
+    const segment = (path: string) => { const rel = box.rel(path); return rel.includes("/") ? rel.slice(0, rel.indexOf("/")) : ""; };
+    const folders = new Set(box.files.map(segment).filter(Boolean));
+    // `session.ts` beside a `session/` folder is one module; every other loose file is a loose file.
+    const keyOf = (path: string) => segment(path) || (folders.has(stem(path)) && box.joins(path) ? stem(path) : "");
+    const groups = new Map<string, string[]>();
+    for (const path of box.files) groups.set(keyOf(path), [...groups.get(keyOf(path)) ?? [], path]);
+
+    // A folder is claimed whole (`folder/**`) only when everything under it belongs to the component; a folder that also holds another
+    // package's files (a root package whose `packages/` folder contains the others) is claimed file by file so no file has two owners.
+    const folderGlobs = (members: readonly string[]) => {
+      const owned = new Set(members);
+      const found = new Set<string>(), explicit: string[] = [];
+      for (const path of members) {
+        const folder = segment(path);
+        if (!folder) continue;
+        const prefix = box.prefixOf(path, folder);
+        if (kept.some(other => other.startsWith(`${prefix}/`) && !owned.has(other))) explicit.push(path);
+        else found.add(`${prefix.split("/").map(escapeGlob).join("/")}/**`);
+      }
+      return [...[...found].sort(), ...fileGlobs(explicit)];
+    };
+    const globsOf = (key: string) => { const members = groups.get(key)!; return [...folderGlobs(members), ...fileGlobs(members.filter(path => !segment(path)))]; };
+    // A merge applies in a package only when every folder it names is there; the folders then become one top-level component.
+    const mergedUnits: { title: string; key: string; files: string[]; globs: string[] }[] = [];
+    for (const item of merges) {
+      const here = item.keys.map(key => [...groups.keys()].find(candidate => candidate && box.folderPath(candidate) === key));
+      if (item.applied || here.some(found => found === undefined) || here.some(found => mergedKeys.has(found!))) continue;
+      item.applied = true;
+      const names = here as string[];
+      for (const name of names) mergedKeys.add(name);
+      mergedUnits.push({ title: item.title, key: `merge:${item.title}`, files: names.flatMap(name => groups.get(name)!), globs: [...new Set(names.flatMap(globsOf))].sort() });
+    }
+    const folderKeys = [...groups.keys()].filter(key => key && !mergedKeys.has(key)).sort();
+    // A folder opens when it is most of what holds it and too big to be one box, or nearly all of it (the view above would be one box and crumbs),
+    // or when the overlay splits it; it is then drawn the way a package is.
+    const total = readCount(box.files);
+    const opens = (count: number) => count * 2 > total && (count >= openFloor || count / total >= openShare);
+    const opened = new Map<string, { directory: string; split: boolean }>();
+    for (const key of folderKeys) {
+      const path = box.folderPath(key), members = groups.get(key)!;
+      if (splits.has(path)) {
+        splitSeen.add(path);
+        if (deeper(path, members)) { splitOpened.add(path); opened.set(key, { directory: path, split: true }); }
+        continue;
+      }
+      const directory = opens(readCount(members)) ? opening(path, members) : undefined;
+      if (directory) opened.set(key, { directory, split: false });
+    }
+    const small = folderKeys.filter(key => !opened.has(key) && groups.get(key)!.length < smallFolder);
+    const loose = (groups.get("") ?? []).sort();
+    // A collection only exists when it would hold several things; one small folder or a few loose files stay ordinary components.
+    const smallGroup = small.length >= 3, looseGroup = loose.length > looseFiles;
+    const inFolder = box.folder ? { folder: box.folder } : {};
+    if (smallGroup) out.groups.push({ id: box.qualify("small"), key: `${box.key}#small`, title: "small folders", package: box.packageId, kind: "small", ...inFolder });
+    if (looseGroup) out.groups.push({ id: box.qualify("loose"), key: `${box.key}#loose`, title: "loose files", package: box.packageId, kind: "loose", ...inFolder });
+
+    const componentTaken = new Set<string>(["small", "loose"]);
+    const add = (id: string, key: string, componentTitle: string, members: string[], globs: string[], group?: string) => {
+      const full = group ? `${group}.${id}` : box.qualify(id);
+      for (const path of members) componentOf.set(path, full);
+      out.components.push({ id: full, key, title: componentTitle, files: members.sort(), globs, ...(group ? { group } : {}), ...inFolder });
+    };
+    const smallTaken = new Set<string>();
+    for (const key of folderKeys) {
+      const members = groups.get(key)!;
+      const open = opened.get(key);
+      if (open) {
+        // Its children are titled by their own name, since the box they sit in names the rest, and keyed by their path.
+        const title = posix.basename(open.directory), id = box.qualify(unique(slug(open.split ? key : title), componentTaken));
+        out.folders.push({ id, key: open.directory, title, package: box.packageId, directory: open.directory, ...(box.folder ? { parent: box.folder } : {}), opened: !open.split });
+        const directory = open.directory;
+        lay({ files: members, key: directory, packageId: box.packageId, folder: id, rel: path => path.startsWith(`${directory}/`) ? path.slice(directory.length + 1) : posix.basename(path),
+          folderPath: top => `${directory}/${top}`, prefixOf: (_, top) => `${directory}/${top}`, qualify: child => `${id}.${child}`, joins: () => true }, out);
+        continue;
+      }
+      const inSmall = smallGroup && small.includes(key);
+      add(unique(slug(key), inSmall ? smallTaken : componentTaken), box.folderPath(key), key, members, globsOf(key), inSmall ? box.qualify("small") : undefined);
+    }
+    for (const unit of mergedUnits) add(unique(slug(unit.title), componentTaken), unit.key, unit.title, unit.files, unit.globs);
+    if (loose.length) {
+      if (looseGroup) {
+        const leaves = new Set<string>();
+        for (const path of loose) add(unique(slug(stem(path)), leaves), path, posix.basename(path), [path], fileGlobs([path]), box.qualify("loose"));
+      } else add(unique("root", componentTaken), `${box.key}#loose`, "loose files", loose, fileGlobs(loose));
+    }
+  };
+
   for (const directory of [...byPackage.keys()].sort()) {
     const files = byPackage.get(directory)!;
     const manifest = named.find(item => item.directory === directory);
@@ -120,95 +248,24 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
     // A box is only as wide as its label: lead with the package's own name, and keep the scope only where two packages would read the same.
     const title = manifests.filter(other => other.name.replace(/^@[^/]+\//, "") === short).length > 1 ? name : short;
     const packageId = flat ? "" : unique(slug(short), taken);
-    const qualify = (id: string) => packageId ? `${packageId}.${id}` : id;
     const inside = (path: string) => (directory ? path.slice(directory.length + 1) : path);
     // Source lives under src/ when most of the package does; files elsewhere keep their own top folder. Only files the scan reads decide it,
     // so adding unread files never regroups a package (and never orphans the names already given to its folders).
     const read = files.filter(path => !unreadSet.has(path));
     const sourceRoot = read.filter(path => inside(path).startsWith("src/")).length * 2 >= read.length ? "src/" : "";
-    const segment = (path: string) => { const rel = inside(path); const stripped = rel.startsWith(sourceRoot) ? rel.slice(sourceRoot.length) : rel; return stripped.includes("/") ? stripped.slice(0, stripped.indexOf("/")) : ""; };
-    const folders = new Set(files.map(segment).filter(Boolean));
     // A top folder is under the source root only if some of its files are; `benchmarks/` beside `src/` is `benchmarks`, not `src/benchmarks`.
     const inSource = (top: string) => files.some(path => inside(path).startsWith(`${sourceRoot}${top}/`));
-    const folderPath = (top: string) => [directory, sourceRoot && inSource(top) ? sourceRoot.replace(/\/$/, "") : "", top].filter(Boolean).join("/");
-    // A folder the overlay splits becomes one component per subfolder, and one for the files directly in it.
-    const splitKey = (path: string) => {
-      const top = segment(path);
-      if (!top || !splits.has(folderPath(top))) return undefined;
-      splitSeen.add(folderPath(top));
-      const rel = inside(path), stripped = rel.startsWith(sourceRoot) ? rel.slice(sourceRoot.length) : rel, parts = stripped.split("/");
-      if (parts.length > 2) { splitSubfolders.set(folderPath(top), (splitSubfolders.get(folderPath(top)) ?? new Set()).add(parts[1]!)); return `${top}/${parts[1]}`; }
-      return `${top}/_files`;
-    };
-    const stem = (path: string) => posix.basename(path).replace(/\.[^.]+$/, "").replace(/\.(d|config|test|spec)$/, "");
-    // `session.ts` beside a `session/` folder is one module; every other loose file is a loose file.
-    const keyOf = (path: string) => splitKey(path) ?? (segment(path) || (folders.has(stem(path)) && sourceRoot && inside(path).startsWith(sourceRoot) ? stem(path) : ""));
-    const groups = new Map<string, string[]>();
-    for (const path of files) groups.set(keyOf(path), [...groups.get(keyOf(path)) ?? [], path]);
-
-    const fileGlobs = (members: readonly string[]) => {
-      const byDirectory = new Map<string, string[]>();
-      for (const path of members) byDirectory.set(posix.dirname(path), [...byDirectory.get(posix.dirname(path)) ?? [], posix.basename(path)]);
-      return [...byDirectory].sort(([a], [b]) => byText(a, b)).map(([folder, names]) => `${folder === "." ? "" : `${folder.split("/").map(escapeGlob).join("/")}/`}${braces(names.sort())}`);
-    };
-
-    // A folder is claimed whole (`folder/**`) only when everything under it belongs to the component; a folder that also holds another
-    // package's files (a root package whose `packages/` folder contains the others) is claimed file by file so no file has two owners.
-    const folderGlobs = (members: readonly string[]) => {
-      const owned = new Set(members);
-      const out = new Set<string>(), explicit: string[] = [];
-      for (const path of members) {
-        const folder = splitKey(path) ?? segment(path);
-        if (!folder) continue;
-        if (folder.endsWith("/_files")) { explicit.push(path); continue; }
-        const prefix = `${[directory, inside(path).startsWith(sourceRoot) ? sourceRoot.replace(/\/$/, "") : ""].filter(Boolean).join("/")}/${folder}`.replace(/^\//, "");
-        if (kept.some(other => other.startsWith(`${prefix}/`) && !owned.has(other))) explicit.push(path);
-        else out.add(`${prefix.split("/").map(escapeGlob).join("/")}/**`);
-      }
-      return [...[...out].sort(), ...fileGlobs(explicit)];
-    };
-    const globsOf = (key: string) => { const members = groups.get(key)!; return [...folderGlobs(members), ...fileGlobs(members.filter(path => !segment(path)))]; };
-    // A merge applies in a package only when every folder it names is there; the folders then become one top-level component.
-    const mergedUnits: { title: string; key: string; files: string[]; globs: string[] }[] = [];
-    for (const item of merges) {
-      const here = item.keys.map(key => [...groups.keys()].find(candidate => candidate && folderPath(candidate) === key));
-      if (item.applied || here.some(found => found === undefined) || here.some(found => mergedKeys.has(found!))) continue;
-      item.applied = true;
-      const names = here as string[];
-      for (const name of names) mergedKeys.add(name);
-      mergedUnits.push({ title: item.title, key: `merge:${item.title}`, files: names.flatMap(name => groups.get(name)!), globs: [...new Set(names.flatMap(globsOf))].sort() });
-    }
-    const folderKeys = [...groups.keys()].filter(key => key && !mergedKeys.has(key)).sort();
-    const small = folderKeys.filter(key => groups.get(key)!.length < smallFolder);
-    const loose = (groups.get("") ?? []).sort();
-    // A collection only exists when it would hold several things; one small folder or a few loose files stay ordinary components.
-    const smallGroup = small.length >= 3, looseGroup = loose.length > looseFiles;
-    const packageGroups: DraftGroup[] = [];
-    if (smallGroup) packageGroups.push({ id: qualify("small"), key: `${directory || "."}#small`, title: "small folders", package: packageId, kind: "small" });
-    if (looseGroup) packageGroups.push({ id: qualify("loose"), key: `${directory || "."}#loose`, title: "loose files", package: packageId, kind: "loose" });
-
-    const componentTaken = new Set<string>(["small", "loose"]);
-    const components: DraftComponent[] = [];
-    const add = (id: string, key: string, componentTitle: string, members: string[], globs: string[], group?: string) => {
-      const full = group ? `${group}.${id}` : qualify(id);
-      for (const path of members) componentOf.set(path, full);
-      components.push({ id: full, key, title: componentTitle, files: members.sort(), globs, ...(group ? { group } : {}) });
-    };
-    const smallTaken = new Set<string>();
-    for (const key of folderKeys) {
-      const members = groups.get(key)!;
-      const inSmall = smallGroup && small.includes(key);
-      add(unique(slug(key), inSmall ? smallTaken : componentTaken), folderPath(key), key.endsWith("/_files") ? `${key.slice(0, -7)} (files)` : key, members, globsOf(key), inSmall ? qualify("small") : undefined);
-    }
-    for (const unit of mergedUnits) add(unique(slug(unit.title), componentTaken), unit.key, unit.title, unit.files, unit.globs);
-    if (loose.length) {
-      if (looseGroup) {
-        const leaves = new Set<string>();
-        for (const path of loose) add(unique(slug(stem(path)), leaves), path, posix.basename(path), [path], fileGlobs([path]), qualify("loose"));
-      } else add(unique("root", componentTaken), `${directory || "."}#loose`, "loose files", loose, fileGlobs(loose));
-    }
-    components.sort((a, b) => byText(a.id, b.id));
-    packages.push({ id: packageId, key: directory || ".", title, name, directory, components, groups: packageGroups });
+    const out = { components: [] as DraftComponent[], groups: [] as DraftGroup[], folders: [] as DraftFolder[] };
+    lay({
+      files, key: directory || ".", packageId,
+      rel: path => { const rel = inside(path); return rel.startsWith(sourceRoot) ? rel.slice(sourceRoot.length) : rel; },
+      folderPath: top => [directory, sourceRoot && inSource(top) ? sourceRoot.replace(/\/$/, "") : "", top].filter(Boolean).join("/"),
+      prefixOf: (path, top) => `${[directory, inside(path).startsWith(sourceRoot) ? sourceRoot.replace(/\/$/, "") : ""].filter(Boolean).join("/")}/${top}`.replace(/^\//, ""),
+      qualify: id => packageId ? `${packageId}.${id}` : id,
+      joins: path => Boolean(sourceRoot) && inside(path).startsWith(sourceRoot),
+    }, out);
+    out.components.sort((a, b) => byText(a.id, b.id));
+    packages.push({ id: packageId, key: directory || ".", title, name, directory, components: out.components, groups: out.groups, folders: out.folders });
   }
 
   // Imports can name files that are not source (a stylesheet, a JSON file): they belong to whichever component's globs claim them.
@@ -230,7 +287,7 @@ export function draftOf(scan: Pick<Scan, "files" | "imports">, manifests: readon
   for (const item of merges) if (!item.applied) problems.push(`merge '${item.title}': every folder it names must exist in one package and be in no other merge (${item.keys.join(", ")}).`);
   for (const key of splits) {
     if (!splitSeen.has(key)) problems.push(`split '${key}': no folder of the draft has that path.`);
-    else if (!splitSubfolders.get(key)?.size) problems.push(`split '${key}': the folder has no subfolders with source files.`);
+    else if (!splitOpened.has(key)) problems.push(`split '${key}': the folder has no subfolders with source files.`);
   }
   // Pinned relationship titles only label an arrow that imports already support; they never create one.
   const idOf = new Map(packages.flatMap(item => item.components.map(entry => [entry.key, entry.id] as const)));
@@ -266,6 +323,12 @@ const thinning = (nodes: number, shown: (minimum: number) => number) => {
 
 /** More boxes than this in one overview view is more than a person reads at once; the weakest beyond it move to a view that lists everything. */
 export const viewCap = 16;
+/** A folder holding more than half of its package's (or opened folder's) read files opens when it also holds at least this many of them… */
+export const openFloor = 100;
+/** …or at least this share of them. */
+export const openShare = 0.9;
+/** An opened folder's own view draws this many of its children as cards (its collections among them); the rest are in its "everything" view. */
+export const folderCap = 9;
 /** A readable view holds at most this many boxes in all: its own members plus the neighbours that connect to them. */
 export const crowdedAbove = 20;
 
@@ -341,8 +404,40 @@ export function witness(members: readonly string[], edges: readonly { from: stri
   return { edges: all.slice(0, limit).sort((a, b) => byText(a.from, b.from) || byText(a.to, b.to)), complete: all.length <= limit };
 }
 
+/**
+ * Where everything sits: the chain of what holds an element, from its package down (no package in a flat draft), and what a view scoped to some holder draws
+ * for any element: the holder's child that contains it, or, outside the holder, the element where the two chains part (a sibling, a collection, a package).
+ */
+const placesOf = (draft: Draft) => {
+  const chains = new Map<string, readonly string[]>();
+  for (const item of draft.packages) {
+    const top = draft.flat ? [] : [item.id];
+    const parents = new Map(item.folders.map(folder => [folder.id, folder.parent] as const));
+    const above = (folder: string | undefined): string[] => folder ? [...above(parents.get(folder)), folder] : [];
+    if (!draft.flat) chains.set(item.id, top);
+    for (const folder of item.folders) chains.set(folder.id, [...top, ...above(folder.id)]);
+    for (const group of item.groups) chains.set(group.id, [...top, ...above(group.folder), group.id]);
+    for (const entry of item.components) chains.set(entry.id, [...top, ...above(entry.folder), ...(entry.group ? [entry.group] : []), entry.id]);
+  }
+  const drawnIn = (scope: readonly string[]) => (id: string) => {
+    const chain = chains.get(id) ?? [id];
+    let at = 0;
+    while (at < scope.length && chain[at] === scope[at]) at++;
+    return chain[at];
+  };
+  return { chain: (id: string) => chains.get(id) ?? [id], drawnIn };
+};
+
+/** What a package (no `folder`) or an opened folder holds directly: its components and folders, which compete for room, and its collections. */
+const childrenOf = (item: DraftPackage, folder?: string) => ({
+  members: [...item.components.filter(entry => !entry.group && entry.folder === folder).map(entry => entry.id), ...item.folders.filter(inner => inner.parent === folder).map(inner => inner.id)].sort(byText),
+  groups: item.groups.filter(group => group.folder === folder).map(group => group.id),
+  folders: item.folders.filter(inner => inner.parent === folder).map(inner => inner.id),
+});
+
 export function analyse(draft: Draft): Analysis {
   const packageOf = new Map(draft.packages.flatMap(item => item.components.map(entry => [entry.id, item.id] as const)));
+  const { chain, drawnIn } = placesOf(draft);
   const weight = new Map<string, number>();
   const add = (id: string, n: number) => weight.set(id, (weight.get(id) ?? 0) + n);
   const tooling = new Set(draft.packages.flatMap(item => item.components.filter(entry => isTooling(entry.key)).map(entry => entry.id)));
@@ -352,7 +447,11 @@ export function analyse(draft: Draft): Analysis {
     add(edge.from, edge.imports); add(edge.to, edge.imports);
     const a = packageOf.get(edge.from), b = packageOf.get(edge.to);
     if (!draft.flat && a && b && a !== b) { add(a, edge.imports); add(b, edge.imports); }
+    // An opened folder counts what crosses its edge, as a package does.
+    const into = new Set(chain(edge.to)), outOf = new Set(chain(edge.from));
+    for (const folder of draft.packages.flatMap(item => item.folders)) if (outOf.has(folder.id) !== into.has(folder.id)) add(folder.id, edge.imports);
   }
+  const filesIn = (item: DraftPackage, id: string) => item.components.filter(entry => entry.id === id || entry.id.startsWith(`${id}.`)).reduce((sum, entry) => sum + entry.files.length, 0);
   const ranked = (ids: readonly string[], files: (id: string) => number) => [...ids].sort((a, b) =>
     Number(tooling.has(a)) - Number(tooling.has(b)) || (weight.get(b) ?? 0) - (weight.get(a) ?? 0) || files(b) - files(a) || byText(a, b));
   const minor = new Set<string>();
@@ -364,12 +463,20 @@ export function analyse(draft: Draft): Analysis {
   const neighboursOf = (inside: ReadonlySet<string>, drawn: (id: string) => string | undefined) => new Set(draft.relationships
     .filter(edge => inside.has(edge.from) !== inside.has(edge.to)).map(edge => drawn(inside.has(edge.from) ? edge.to : edge.from)).filter(Boolean)).size;
   for (const item of draft.packages) {
-    const top = item.components.filter(entry => !entry.group);
+    const { members: top, groups } = childrenOf(item);
     const own = new Set(item.components.map(entry => entry.id));
     // The box drawn around the package is one more node.
-    const room = Math.max(5, crowdedAbove - 1 - item.groups.length - neighboursOf(own, id => packageOf.get(id)));
+    const room = Math.max(5, crowdedAbove - 1 - groups.length - neighboursOf(own, id => packageOf.get(id)));
     if (top.length <= room) continue;
-    for (const id of ranked(top.map(entry => entry.id), id => item.components.find(entry => entry.id === id)!.files.length).slice(room)) minor.add(id);
+    for (const id of ranked(top, id => filesIn(item, id)).slice(room)) minor.add(id);
+  }
+  // An opened folder draws its strongest children as cards, its collections among them, and leaves the rest to its "everything" view.
+  for (const item of draft.packages) for (const folder of item.folders) {
+    const { members, groups } = childrenOf(item, folder.id);
+    const inside = new Set(item.components.filter(entry => entry.id.startsWith(`${folder.id}.`)).map(entry => entry.id));
+    const room = Math.min(folderCap - groups.length, Math.max(5, crowdedAbove - 1 - groups.length - neighboursOf(inside, drawnIn(chain(folder.id)))));
+    if (members.length <= room) continue;
+    for (const id of ranked(members, id => filesIn(item, id)).slice(room)) minor.add(id);
   }
   // A collection that holds more than a view can show lists its strongest members and leaves the rest to its "everything" view.
   for (const item of draft.packages) for (const group of item.groups) {
@@ -403,7 +510,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   const inCycle = new Set([...analysis.componentCycles.values()].flatMap(found => found.flat()));
   const inPackageCycle = new Set(analysis.packageCycles.flat());
   const entries: string[] = [];
-  const out: string[] = [generatedMarker, "", "specification {", ...(draft.flat ? [] : ["  element package"]), "  element collection", "  element component", ...tiers.map(tier => `  tag lt${tier}`), "  tag minor", "  tag cycle", "  tag pkgcycle", "}", "", "model {"];
+  const out: string[] = [generatedMarker, "", "specification {", ...(draft.flat ? [] : ["  element package"]), ...(draft.packages.some(item => item.folders.length) ? ["  element folder"] : []), "  element collection", "  element component", ...tiers.map(tier => `  tag lt${tier}`), "  tag minor", "  tag cycle", "  tag pkgcycle", "}", "", "model {"];
   // Files in a language the scan does not read are counted and named by language, and the description says their connections are not drawn.
   const languages = (files: readonly string[]) => {
     const counts = new Map<string, number>();
@@ -420,11 +527,15 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   const local = (id: string, parent: string) => parent ? id.slice(parent.length + 1) : id;
   const tagsOf = (id: string, kind: "package" | "component") => [...(minor.has(id) ? ["#minor"] : []), ...(kind === "package" ? (inPackageCycle.has(id) ? ["#pkgcycle"] : []) : (inCycle.has(id) ? ["#cycle"] : []))];
   const tagLine = (id: string, kind: "package" | "component", indent: string) => { const tags = tagsOf(id, kind); return tags.length ? [`${indent}${tags.join(" ")}`] : []; };
-  const block = (item: DraftPackage, indent: string, parent: string) => {
+  // What a package or an opened folder holds directly: its components, the folders it opened, then its collections.
+  const block = (item: DraftPackage, indent: string, parent: string, folder?: DraftFolder) => {
     const result: string[] = [];
-    for (const entry of item.components.filter(candidate => !candidate.group)) result.push(`${indent}${local(entry.id, parent)} = component ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}  `), `${indent}  description ${quote(said(entry.note, facts(entry.files)))}`, `${indent}}`);
+    for (const entry of item.components.filter(candidate => !candidate.group && candidate.folder === folder?.id)) result.push(`${indent}${local(entry.id, parent)} = component ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}  `), `${indent}  description ${quote(said(entry.note, facts(entry.files)))}`, `${indent}}`);
+    for (const inner of item.folders.filter(candidate => candidate.parent === folder?.id)) {
+      result.push(`${indent}${local(inner.id, parent)} = folder ${quote(inner.title)} {`, ...tagLine(inner.id, "component", `${indent}  `), `${indent}  description ${quote(said(inner.note, facts(item.components.filter(entry => entry.id.startsWith(`${inner.id}.`)).flatMap(entry => entry.files))))}`, ...block(item, `${indent}  `, inner.id, inner), `${indent}}`);
+    }
     // A collection of small folders says how many folders; one of loose files would only say its file count twice.
-    for (const group of item.groups) {
+    for (const group of item.groups.filter(candidate => candidate.folder === folder?.id)) {
       const members = item.components.filter(candidate => candidate.group === group.id);
       result.push(`${indent}${local(group.id, parent)} = collection ${quote(group.title)} {`, `${indent}  description ${quote(said(group.note, `${group.kind === "small" ? `${plural(members.length, "folder")}, ` : ""}${facts(members.flatMap(entry => entry.files))}`))}`);
       for (const entry of members) result.push(`${indent}  ${local(entry.id, group.id)} = component ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}    `), `${indent}    description ${quote(said(entry.note, facts(entry.files)))}`, `${indent}  }`);
@@ -445,7 +556,6 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   out.push("}", "", "views {");
 
   const packageOf = new Map(draft.packages.flatMap(item => item.components.map(entry => [entry.id, item.id] as const)));
-  const groupOf = new Map(draft.packages.flatMap(item => item.components.flatMap(entry => entry.group ? [[entry.id, entry.group] as const] : [])));
   const connected = new Set(draft.relationships.flatMap(edge => [edge.from, edge.to]));
   // LikeC4 wants a view's properties before its predicates.
   const describe = (...sentences: (string | undefined)[]) => { const text = sentences.filter(Boolean).join(" "); return text ? [`    description ${quote(text)}`] : []; };
@@ -466,10 +576,9 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     return thinning(nodes.size, minimum => new Set(relevant.filter(edge => edge.imports >= minimum)
       .flatMap(edge => { const from = drawn(edge.from), to = drawn(edge.to); return from && to && from !== to ? [`${from}\0${to}`] : []; })).size);
   };
-  const groupView = (item: DraftPackage, group: DraftGroup, drawnOutside: (id: string) => string | undefined) => {
+  const groupView = (item: DraftPackage, group: DraftGroup, drawnOutside: (id: string) => string | undefined, title = draft.flat ? group.title : `${item.title} / ${group.title}`) => {
     const inGroup = new Set(item.components.filter(entry => entry.group === group.id).map(entry => entry.id));
     const shown = [...inGroup].filter(id => !minor.has(id)).sort(byText);
-    const title = draft.flat ? group.title : `${item.title} / ${group.title}`;
     const minimum = thinned(id => inGroup.has(id), id => minor.has(id) ? undefined : inGroup.has(id) ? id : drawnOutside(id), shown);
     const result = ["", `  view ${componentsView(group.id)} of ${group.id} {`, `    title ${quote(title)}`, ...describe(hidden(inGroup.size - shown.length, allView(group.id)), thinNote(minimum)), "    include *", ...links(shown, new Set(), group.id),
       ...(shown.length < inGroup.size ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }"];
@@ -505,21 +614,51 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   }));
   const proofNote = (proof: readonly { complete: boolean }[]) => proof.some(item => !item.complete) ? "Each member is shown with the shortest way back to itself; only the strongest lines are drawn, the rest are in the model." : "Each member is shown with the shortest way back to itself.";
   const hidden = (count: number, all: string) => count ? `${plural(count, "smaller one")} ${count === 1 ? "is" : "are"} not shown here; ${all} lists everything.` : undefined;
+  const places = placesOf(draft);
+  const foldered = new Set(draft.packages.flatMap(item => item.components.filter(entry => entry.folder).map(entry => entry.id)));
+  // A component inside an opened folder is drawn on the folder (or the child of it that holds it); it is hidden only when that box is.
+  const gone = (drawn: (id: string) => string | undefined) => (id: string) => foldered.has(id) ? minor.has(drawn(id) ?? "") : minor.has(id);
+  const readIn = (files: readonly string[]) => files.filter(path => !unread.has(path)).length;
+  const filesUnder = (item: DraftPackage, id?: string) => item.components.filter(entry => !id || entry.id.startsWith(`${id}.`)).flatMap(entry => entry.files);
+  /** An opened folder's own view, drawn as a package's is, with its strongest children as cards and the rest in its "everything" view. */
+  const folderViews = (item: DraftPackage, folder: DraftFolder) => {
+    const scope = places.chain(folder.id), drawn = places.drawnIn(scope);
+    const inside = (id: string) => places.chain(id).includes(folder.id) && id !== folder.id;
+    const { members, groups, folders } = childrenOf(item, folder.id);
+    const shown = members.filter(id => !minor.has(id));
+    const thin = shown.length < members.length;
+    const drawnShown = (id: string) => { const node = drawn(id); return node && thin && minor.has(node) ? undefined : node; };
+    const minimum = thinned(inside, drawnShown, [...shown, ...groups]);
+    const holder = folder.parent ? item.folders.find(other => other.id === folder.parent)! : undefined;
+    const why = folder.opened
+      ? `Opened by the draft: it holds ${readIn(filesUnder(item, folder.id)).toLocaleString("en-US")} of the ${readIn(filesUnder(item, holder?.id)).toLocaleString("en-US")} files the scan reads in ${holder ? holder.title : draft.flat ? "the workspace" : item.title}.`
+      : "Opened by a split in the overlay.";
+    const result = ["", `  view ${componentsView(folder.id)} of ${folder.id} {`, `    title ${quote(folder.title)}`, ...describe(why, hidden(members.length - shown.length, allView(folder.id)), thinNote(minimum)), "    include *",
+      ...links(shown, new Set(folders), folder.id), ...links(groups, new Set(groups), folder.id), ...(thin ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }"];
+    if (thin) {
+      entries.push(allView(folder.id));
+      const all = thinned(inside, drawn, [...members, ...groups]);
+      result.push("", `  view ${allView(folder.id)} of ${folder.id} {`, `    title ${quote(`${folder.title} / everything`)}`, ...describe(why, thinNote(all)), "    include *", ...links(members, new Set(folders), folder.id), ...links(groups, new Set(groups), folder.id), ...hide(all), "    autoLayout LeftRight", "  }");
+    }
+    for (const group of item.groups.filter(candidate => candidate.folder === folder.id)) result.push(...groupView(item, group, places.drawnIn(places.chain(group.id)), `${folder.title} / ${group.title}`));
+    return result;
+  };
 
   if (draft.flat) {
     const item = draft.packages[0]!;
-    const drawn = (id: string) => groupOf.get(id) ?? id;
-    const top = item.components.filter(entry => !entry.group).map(entry => entry.id);
-    const shown = top.filter(id => !minor.has(id)), groups = item.groups.map(group => group.id);
-    const drawnShown = (id: string) => minor.has(id) ? undefined : drawn(id);
+    const drawn = places.drawnIn([]);
+    const { members: top, groups, folders } = childrenOf(item);
+    const shown = top.filter(id => !minor.has(id)), hiddenHere = gone(drawn);
+    const drawnShown = (id: string) => hiddenHere(id) ? undefined : drawn(id);
     const minimum = thinned(() => true, drawnShown, [...shown, ...groups]);
-    out.push("  view index {", "    title 'Components'", ...describe(hidden(top.length - shown.length, "all_components"), thinNote(minimum)), "    include *", ...links(shown, new Set()), ...links(groups, new Set(groups)), ...(top.length > shown.length ? ["    exclude * where tag is #minor"] : []), ...notBehavior, ...hide(minimum), "    autoLayout LeftRight", "  }");
+    out.push("  view index {", "    title 'Components'", ...describe(hidden(top.length - shown.length, "all_components"), thinNote(minimum)), "    include *", ...links(shown, new Set(folders)), ...links(groups, new Set(groups)), ...(top.length > shown.length ? ["    exclude * where tag is #minor"] : []), ...notBehavior, ...hide(minimum), "    autoLayout LeftRight", "  }");
     if (top.length > shown.length) {
       entries.push("all_components");
       const all = thinned(() => true, drawn, [...top, ...groups]);
-      out.push("", "  view all_components {", "    title 'All components'", ...describe(thinNote(all)), "    include *", ...links(top, new Set()), ...links(groups, new Set(groups)), ...notBehavior, ...hide(all), "    autoLayout LeftRight", "  }");
+      out.push("", "  view all_components {", "    title 'All components'", ...describe(thinNote(all)), "    include *", ...links(top, new Set(folders)), ...links(groups, new Set(groups)), ...notBehavior, ...hide(all), "    autoLayout LeftRight", "  }");
     }
-    for (const group of item.groups) out.push(...groupView(item, group, drawn));
+    for (const group of item.groups.filter(candidate => !candidate.folder)) out.push(...groupView(item, group, drawn));
+    for (const folder of item.folders) out.push(...folderViews(item, folder));
     if (analysis.componentCycles.size) {
       entries.push("cycles");
       const found = [...analysis.componentCycles.values()].flat();
@@ -550,19 +689,20 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     }
     for (const item of draft.packages) {
       const own = new Set(item.components.map(entry => entry.id));
-      const drawn = (id: string) => own.has(id) ? groupOf.get(id) ?? id : packageOf.get(id);
-      const top = item.components.filter(entry => !entry.group).map(entry => entry.id), groups = item.groups.map(group => group.id);
-      const shown = top.filter(id => !minor.has(id));
-      const drawnShown = (id: string) => minor.has(id) || minor.has(packageOf.get(id) ?? "") ? undefined : drawn(id);
+      const drawn = places.drawnIn([item.id]);
+      const { members: top, groups, folders } = childrenOf(item);
+      const shown = top.filter(id => !minor.has(id)), hiddenHere = gone(drawn);
+      const drawnShown = (id: string) => hiddenHere(id) || minor.has(packageOf.get(id) ?? "") ? undefined : drawn(id);
       const minimum = thinned(id => own.has(id), drawnShown, [...shown, ...groups]);
-      out.push("", `  view ${componentsView(item.id)} of ${item.id} {`, `    title ${quote(item.title)}`, ...describe(hidden(top.length - shown.length, allView(item.id)), thinNote(minimum)), "    include *", ...links(shown, new Set(), item.id), ...links(groups, new Set(groups), item.id),
+      out.push("", `  view ${componentsView(item.id)} of ${item.id} {`, `    title ${quote(item.title)}`, ...describe(hidden(top.length - shown.length, allView(item.id)), thinNote(minimum)), "    include *", ...links(shown, new Set(folders), item.id), ...links(groups, new Set(groups), item.id),
         ...(top.length > shown.length || draft.packages.some(other => minor.has(other.id)) ? ["    exclude * where tag is #minor"] : []), ...hide(minimum), "    autoLayout LeftRight", "  }");
       if (top.length > shown.length) {
         entries.push(allView(item.id));
         const all = thinned(id => own.has(id), drawn, [...top, ...groups]);
-        out.push("", `  view ${allView(item.id)} of ${item.id} {`, `    title ${quote(`${item.title} / everything`)}`, ...describe(thinNote(all)), "    include *", ...links(top, new Set(), item.id), ...links(groups, new Set(groups), item.id), ...hide(all), "    autoLayout LeftRight", "  }");
+        out.push("", `  view ${allView(item.id)} of ${item.id} {`, `    title ${quote(`${item.title} / everything`)}`, ...describe(thinNote(all)), "    include *", ...links(top, new Set(folders), item.id), ...links(groups, new Set(groups), item.id), ...hide(all), "    autoLayout LeftRight", "  }");
       }
-      for (const group of item.groups) out.push(...groupView(item, group, drawn));
+      for (const group of item.groups.filter(candidate => !candidate.folder)) out.push(...groupView(item, group, drawn));
+      for (const folder of item.folders) out.push(...folderViews(item, folder));
       if (analysis.componentCycles.has(item.id)) {
         entries.push(cyclesView(item.id));
         const proof = analysis.componentCycles.get(item.id)!.map(loop => witness(loop, draft.relationships));
@@ -621,7 +761,7 @@ export function applyOverlay(draft: Draft, overlay: Overlay): { draft: Draft; un
     used.add(item.key);
     return { ...item, ...(entry.title ? { title: entry.title } : {}), ...(entry.note ? { note: entry.note } : {}) };
   };
-  const packages = draft.packages.map(item => ({ ...over(item), components: item.components.map(over), groups: item.groups.map(over) }));
+  const packages = draft.packages.map(item => ({ ...over(item), components: item.components.map(over), groups: item.groups.map(over), folders: item.folders.map(over) }));
   return { draft: { ...draft, packages }, unknown: Object.keys(overlay.elements).filter(key => !used.has(key)).sort() };
 }
 
@@ -671,6 +811,16 @@ export const unreadLines = Effect.fn("Draft.unreadLines")(function* (root: strin
   return counted.flat();
 });
 
+/** True when a LikeC4 file's `specification` block declares `tag behavior`, as the behavior skill's state diagrams do. */
+export const declaresBehavior = (text: string) => {
+  for (const match of text.matchAll(/(?:^|\s)specification\s*\{/g)) {
+    let depth = 1, at = match.index + match[0].length;
+    for (; at < text.length && depth > 0; at++) depth += text[at] === "{" ? 1 : text[at] === "}" ? -1 : 0;
+    if (/(?:^|[\s{])tag\s+behavior\b/.test(text.slice(match.index + match[0].length, at - 1))) return true;
+  }
+  return false;
+};
+
 export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace: string, options: { out?: string; force?: boolean } = {}) {
   const root = resolve(workspace);
   // Written into `.pathlight/` unless told where; the ignored state (the overlay keys) stays under the workspace's own `.cache`.
@@ -689,7 +839,7 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   // Boxes of unread code alone would be a picture with no arrows at all: the draft needs some code the scan reads.
   const unreadSet = new Set(unread);
   if (!draft.packages.some(item => item.components.some(entry => entry.files.some(path => !unreadSet.has(path))))) {
-    return yield* Effect.fail(failure("Draft.empty", "No TypeScript or JavaScript source was found to draw."));
+    return yield* Effect.fail(failure("Draft.empty", `No source in a language the scan reads (${scannedLanguages}) was found to draw.`));
   }
 
   // A model you wrote is never rewritten: only a previous draft (marked as generated) is replaced.
@@ -702,20 +852,26 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
     return yield* Effect.fail(failure("Draft.exists", `${target} already has a LikeC4 model or file mapping that was not generated by pathlight draft. It is never rewritten. Use --out DIR to write the draft elsewhere.`));
   }
   const label = basename(options.out ? target : root);
-  const name = slug(label);
+  // A config that is already there names the project, so a map copied to a folder of another name still matches it.
+  const config = existing.includes(configFile) ? yield* io("Draft.config", () => readFile(join(target, configFile), "utf8")).pipe(Effect.flatMap(json), Effect.option) : undefined;
+  const configName = config?._tag === "Some" && config.value && typeof config.value === "object" ? (config.value as Record<string, unknown>).name : undefined;
+  const name = typeof configName === "string" && configName ? configName : slug(label);
   const lines = new Map([...scan.files.map(file => [file.path, file.lines] as const), ...yield* unreadLines(root, unread)]);
-  const rendered = renderDraft(draft, lines, existing.some(name => /\.behavior\.(c4|likec4)$/.test(name)), unreadSet);
+  // Only a state diagram declares `tag behavior`; a journey from `flow add` does not, and naming a tag no file declares stops the model compiling.
+  const behaviorTexts = yield* Effect.forEach(existing.filter(name => /\.behavior\.(c4|likec4)$/.test(name)), name => io("Draft.behavior", () => readFile(join(target, name), "utf8")).pipe(Effect.catch(() => Effect.succeed(""))));
+  const rendered = renderDraft(draft, lines, behaviorTexts.some(declaresBehavior), unreadSet);
   const mappings = draft.packages.flatMap(item => item.components.flatMap(entry => entry.globs.map(glob => ({ glob, element: entry.id }))));
   yield* io("Draft.write", async () => {
     await mkdir(target, { recursive: true });
     await writeFile(join(target, modelFile), rendered.text);
     await writeFile(join(target, mappingFile), `${JSON.stringify({ version: 1, project: name, mappings, ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}) }, null, 2)}\n`);
     await mkdir(join(state, ".cache", "pathlight"), { recursive: true });
-    await writeFile(join(state, keysPath), `${JSON.stringify({ version: 1, keys: Object.fromEntries(draft.packages.flatMap(item => [...(draft.flat ? [] : [[item.id, item.key] as const]), ...item.groups.map(group => [group.id, group.key] as const), ...item.components.map(entry => [entry.id, entry.key] as const)])) })}\n`);
+    await writeFile(join(state, keysPath), `${JSON.stringify({ version: 1, keys: Object.fromEntries(draft.packages.flatMap(item => [...(draft.flat ? [] : [[item.id, item.key] as const]), ...item.folders.map(folder => [folder.id, folder.key] as const), ...item.groups.map(group => [group.id, group.key] as const), ...item.components.map(entry => [entry.id, entry.key] as const)])) })}\n`);
     if (!existing.includes(configFile)) await writeFile(join(target, configFile), `${JSON.stringify({ $schema: "https://likec4.dev/schemas/config.json", name, title: label }, null, 2)}\n`);
   });
   const components = draft.packages.reduce((sum, item) => sum + item.components.length, 0), collections = draft.packages.reduce((sum, item) => sum + item.groups.length, 0);
-  return { target, project: name, packages: draft.flat ? 0 : draft.packages.length, components, collections, elements: components + collections + (draft.flat ? 0 : draft.packages.length),
+  const folders = draft.packages.reduce((sum, item) => sum + item.folders.length, 0);
+  return { target, project: name, packages: draft.flat ? 0 : draft.packages.length, components, collections, folders, elements: components + collections + folders + (draft.flat ? 0 : draft.packages.length),
     relationships: draft.relationships.length, mappings: mappings.length, ignored: draft.ignored, unread: unreadSummary(draft, unreadSet), overlay: overlay ? Object.keys(overlay.elements).length - unknown.length : 0, unknown,
     problems: draft.problems, pins: overlay && committed?._tag === "Some" ? changedPins(committed.value, overlay) : [] };
 });

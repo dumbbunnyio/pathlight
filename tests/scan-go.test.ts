@@ -3,6 +3,7 @@ import { cp, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
+import { declarationsFor } from "../src/languages";
 import { go } from "../src/languages/go";
 import { scanWorkspace } from "../src/scan";
 
@@ -77,4 +78,6 @@ test("a Go declaration is its signature: a function, a method, a struct or inter
   expect(go.declaration(source, "Box")).toBe("type Box[K comparable] interface");
   expect(go.declaration(source, "ID")).toBe("type ID = string");
   expect(go.declaration(source, "missing")).toBeUndefined();
+  const frontEnd = await Effect.runPromise(declarationsFor("store/store.go"));
+  expect(["New", "Add", "Store", "ID", "missing"].map(name => frontEnd.declarationLine(source, name))).toEqual([4, 9, 11, 17, undefined]);
 });
