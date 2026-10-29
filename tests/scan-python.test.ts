@@ -3,6 +3,7 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
+import { declarationsFor } from "../src/languages";
 import { python } from "../src/languages/python";
 import { scanWorkspace } from "../src/scan";
 import { run } from "./effects";
@@ -78,6 +79,9 @@ test("a Python declaration is its signature, decorators left out, so a journey's
   expect(python.declaration(source, "fetch")).toBe("async def fetch( url: str, ) -> bytes");
   expect(python.declaration(source, "Store")).toBe("class Store(Base)");
   expect(python.declaration(source, "missing")).toBeUndefined();
+  // `e` on a step opens the file where the function is declared, read through the seam the viewer uses: the `def` line, not the decorator's.
+  const frontEnd = await Effect.runPromise(declarationsFor("app/routes.py"));
+  expect([frontEnd.declarationLine(source, "fetch"), frontEnd.declarationLine(source, "Store"), frontEnd.declarationLine(source, "missing")]).toEqual([2, 7, undefined]);
 
   const directory = await mkdtemp(join(tmpdir(), "pathlight-python-flow-"));
   try {

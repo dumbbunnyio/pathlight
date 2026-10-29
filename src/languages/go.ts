@@ -63,26 +63,33 @@ function exports(source: string, limit = 80): ExportRef[] {
   return found;
 }
 
-/** A function, method or type as it is declared, its body cut off: `func (r *T) Name(a int) error`, `type Entry struct`. */
-function declaration(source: string, name: string): string | undefined {
-  const clip = (text: string) => { const flat = text.replace(/\s+/g, " ").trim(); return flat.length > 240 ? `${flat.slice(0, 239)}…` : flat; };
+/** The top-level function, method or type spec that declares a name. */
+const declared = (source: string, name: string) => {
   for (const node of parser.parse(source).namedChildren) {
     if (!node) continue;
-    if ((node.type === "function_declaration" || node.type === "method_declaration") && node.childForFieldName("name")?.text === name) {
-      const body = node.childForFieldName("body");
-      return clip(source.slice(node.startIndex, body ? body.startIndex : node.endIndex));
-    }
+    if ((node.type === "function_declaration" || node.type === "method_declaration") && node.childForFieldName("name")?.text === name) return node;
     if (node.type === "type_declaration") for (const spec of node.namedChildren) {
-      if ((spec?.type === "type_spec" || spec?.type === "type_alias") && spec.childForFieldName("name")?.text === name) {
-        // A struct or interface stops at its keyword; anything else is short enough to keep whole.
-        const type = spec.childForFieldName("type");
-        const keyword = type?.type === "struct_type" ? "struct" : type?.type === "interface_type" ? "interface" : undefined;
-        return clip(`type ${keyword ? `${source.slice(spec.startIndex, type!.startIndex)}${keyword}` : spec.text}`);
-      }
+      if ((spec?.type === "type_spec" || spec?.type === "type_alias") && spec.childForFieldName("name")?.text === name) return spec;
     }
   }
   return undefined;
+};
+
+/** A function, method or type as it is declared, its body cut off: `func (r *T) Name(a int) error`, `type Entry struct`. */
+function declaration(source: string, name: string): string | undefined {
+  const clip = (text: string) => { const flat = text.replace(/\s+/g, " ").trim(); return flat.length > 240 ? `${flat.slice(0, 239)}…` : flat; };
+  const node = declared(source, name);
+  if (!node) return undefined;
+  if (node.type === "function_declaration" || node.type === "method_declaration") {
+    const body = node.childForFieldName("body");
+    return clip(source.slice(node.startIndex, body ? body.startIndex : node.endIndex));
+  }
+  // A struct or interface stops at its keyword; anything else is short enough to keep whole.
+  const type = node.childForFieldName("type");
+  const keyword = type?.type === "struct_type" ? "struct" : type?.type === "interface_type" ? "interface" : undefined;
+  return clip(`type ${keyword ? `${source.slice(node.startIndex, type!.startIndex)}${keyword}` : node.text}`);
 }
+const declarationLine = (source: string, name: string) => { const node = declared(source, name); return node ? node.startPosition.row + 1 : undefined; };
 
 /**
  * Modules: the nearest `go.mod` above a file names its module, a nested `go.mod` is its own module, `go.work` lists modules that are each a root, and a
@@ -161,4 +168,4 @@ const resolver = Effect.fn("Scan.go")(function* (workspace: Workspace) {
   };
 });
 
-export const go: FrontEnd = { languages: { ".go": "go" }, load: parser.load, imports, exports, declaration, resolver, skips: vendored };
+export const go: FrontEnd = { languages: { ".go": "go" }, load: parser.load, imports, exports, declaration, declarationLine, resolver, skips: vendored };

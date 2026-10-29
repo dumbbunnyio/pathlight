@@ -43,6 +43,8 @@ export interface FrontEnd {
   readonly exports: (source: string, limit?: number) => ExportRef[];
   /** The declaration of a name as it is written (its signature, not its body), for a journey's `@ file#name`. */
   readonly declaration: (source: string, name: string) => string | undefined;
+  /** The 1-based line that declaration starts on as the file reads now (a decorator's line is not it), for opening the file where a journey's step is. */
+  readonly declarationLine: (source: string, name: string) => number | undefined;
   /** Files with this front end's extension that are not the workspace's own source (Go's `vendor/`): neither read nor resolved to. */
   readonly skips?: (path: string) => boolean;
   /** Reads what resolution needs once per scan (configuration files, module roots), then resolves each import of a file. */

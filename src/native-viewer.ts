@@ -22,7 +22,7 @@ import { checkFlows } from "./flows";
 import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges } from "./flow-view";
 import { attempt, failure, io } from "./effects";
 import { writeReady } from "./ready";
-import { declarationLine } from "./scan-imports";
+import { declarationsFor } from "./languages";
 import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
 import { createCamera } from "./viewer/camera";
 import { boundsOf, compact, kindsVary } from "./viewer/compact";
@@ -943,7 +943,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const call = flowMode.active?.steps[flowMode.step]?.call;
         // In a flow, the step's function is what there is to read: open it where the file declares it now, not where it was when the flow was written.
         if (call) runTask(io("Native.readCall", () => readFile(join(view.workspace, call.file), "utf8")).pipe(
-          Effect.map(source => declarationLine(source, call.name)),
+          Effect.flatMap(source => declarationsFor(call.file).pipe(Effect.map(frontEnd => frontEnd.declarationLine(source, call.name)))),
           Effect.catch(() => Effect.succeed(undefined)),
           Effect.tap(line => Effect.sync(() => openFile(call.file, line, line ? `Returned from ${call.name}` : `${call.name} is no longer declared in ${call.file}; opened it at the top`)))));
         else beginFiles();

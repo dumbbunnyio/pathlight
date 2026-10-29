@@ -87,13 +87,15 @@ function exports(source: string, limit = 80): ExportRef[] {
 }
 
 /** A function or class as it is declared, decorators left out and the body cut off: `def name(args) -> T`. */
+const definition = (source: string, name: string) => topLevel(source).find(item => (item.type === "function_definition" || item.type === "class_definition") && item.childForFieldName("name")?.text === name);
 function declaration(source: string, name: string): string | undefined {
-  const node = topLevel(source).find(item => (item.type === "function_definition" || item.type === "class_definition") && item.childForFieldName("name")?.text === name);
+  const node = definition(source, name);
   const body = node?.childForFieldName("body");
   if (!node || !body) return undefined;
   const text = source.slice(node.startIndex, body.startIndex).replace(/\s+/g, " ").trim().replace(/\s*:$/, "");
   return text.length > 240 ? `${text.slice(0, 239)}…` : text;
 }
+const declarationLine = (source: string, name: string) => { const node = definition(source, name); return node ? node.startPosition.row + 1 : undefined; };
 
 /**
  * Roots, where an absolute module name starts: the directory of each `pyproject.toml`, `setup.py` or `setup.cfg`, its `src/` when there is one, a
@@ -168,4 +170,4 @@ const resolver = Effect.fn("Scan.python")(function* (workspace: Workspace) {
   };
 });
 
-export const python: FrontEnd = { languages: { ".py": "python" }, load: parser.load, imports, exports, declaration, resolver };
+export const python: FrontEnd = { languages: { ".py": "python" }, load: parser.load, imports, exports, declaration, declarationLine, resolver };

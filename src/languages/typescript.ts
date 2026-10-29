@@ -2,7 +2,7 @@ import { basename, posix } from "node:path";
 import { Effect } from "effect";
 import { exports as packageExports, imports as packageImports } from "resolve.exports";
 import { json } from "../effects";
-import { declarationOf, exportsOf, importsOf, type ImportRef } from "../scan-imports";
+import { declarationLine, declarationOf, exportsOf, importsOf, type ImportRef } from "../scan-imports";
 import type { FrontEnd, Resolution, Workspace } from "./index";
 
 /**
@@ -196,5 +196,6 @@ export const typescript: FrontEnd = {
   imports: source => importsOf(source),
   exports: (source, limit) => exportsOf(source, limit),
   declaration: declarationOf,
+  declarationLine,
   resolver,
 };

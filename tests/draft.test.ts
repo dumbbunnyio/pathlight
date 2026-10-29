@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
@@ -7,7 +7,7 @@ import { checkWorkspace } from "../src/check";
 import { listViews } from "../src/catalog";
 import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, viewCap, witness } from "../src/draft";
 import { readdir } from "node:fs/promises";
-import { mappingIn, overlayIn } from "./effects";
+import { mappingIn, overlayIn, run } from "./effects";
 
 const write = async (root: string, files: Record<string, string>) => {
   for (const [path, text] of Object.entries(files)) {
@@ -567,4 +567,51 @@ test("a folder beside src/ is keyed by its own path, not as a folder of src/, so
     expect(again.unknown).toEqual([]);
     expect(await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8")).toContain("Speed tests");
   } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+const twoFolders = {
+  "package.json": JSON.stringify({ name: "app" }),
+  "src/web/x.ts": `import { y } from "../data/y";\nexport const x = y;\n`, "src/web/w.ts": `export const w = 1;\n`, "src/web/v.ts": `export const v = 1;\n`,
+  "src/data/y.ts": `export const y = 1;\n`, "src/data/z.ts": `export const z = 1;\n`, "src/data/u.ts": `export const u = 1;\n`,
+};
+
+test("a re-draft beside a journey gives a model LikeC4 accepts, and beside a state diagram still keeps the diagram out of the overview", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-journey-"));
+  try {
+    await write(directory, twoFolders);
+    await Effect.runPromise(draftWorkspace(directory));
+    // `flow add` finds the project's folder through git.
+    await run("git", ["-C", directory, "init", "-q"]);
+    await run(process.execPath, [join(import.meta.dir, "../src/cli.ts"), "flow", "add", "web-to-data", "--workspace", directory, "--title", "Web asks data", "--reads", "src/web/x.ts",
+      "--step", "web -> data: asks", "--step", "data -> web: answers"]);
+    expect((await readdir(join(directory, ".pathlight"))).filter(name => name.endsWith(".behavior.c4"))).toEqual(["web-to-data.behavior.c4"]);
+    // A journey declares no `tag behavior`, so the overview must not name it.
+    await Effect.runPromise(draftWorkspace(directory));
+    expect(await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8")).not.toContain("#behavior");
+    const check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
+
+    await writeFile(join(directory, ".pathlight", "steps.behavior.c4"), "specification {\n  element flow\n  element state\n  tag behavior\n}\nmodel {\n  steps = flow 'Steps' {\n    #behavior\n    start = state 'Start'\n  }\n}\nviews {\n  view steps of steps {\n    include *\n  }\n}\n");
+    await Effect.runPromise(draftWorkspace(directory));
+    expect(await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8")).toContain("    exclude * where tag is #behavior");
+    expect((await Effect.runPromise(checkWorkspace(directory))).summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0 });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("a drafted map copied to a folder of another name re-drafts under the project its config names", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "pathlight-draft-copy-"));
+  try {
+    const first = join(parent, "first"), second = join(parent, "second");
+    await write(first, twoFolders);
+    await Effect.runPromise(draftWorkspace(first));
+    await cp(first, second, { recursive: true });
+    const made = await Effect.runPromise(draftWorkspace(second));
+    expect(made.project).toBe("first");
+    expect(JSON.parse(await readFile(mappingIn(second), "utf8")).project).toBe("first");
+    expect((await Effect.runPromise(checkWorkspace(second))).summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
 }, 60_000);
