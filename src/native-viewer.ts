@@ -386,6 +386,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       Effect.ensuring(Effect.sync(() => { if (summary.visible) summary.content.content = summaryContent(); if (!editorActive) update(); }))));
   };
   const tickerContent = () => ticker(binding ? config : undefined, events, elementTitle, Date.now());
+  // Whether the bound session's turn is open (its pointer's `ended` is null): only then is the newest work offered as `working in … w go and follow`.
+  let turnOpen = false;
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
     let step = 32;
@@ -575,7 +577,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (goto.visible) gotoPicker.render();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
     const mode = replay ? "replay" : fileMode ? "files" : dialog.focus !== "none" ? "talk" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "flow" : "diagram";
-    const work = binding || following ? newestWork() : undefined;
+    const work = (binding || following) && turnOpen ? newestWork() : undefined;
     if (message !== lastToast) {
       lastToast = message;
       if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^(Asked|Drawn:) /.test(shown) ? 3500 : 2000); }
@@ -585,7 +587,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       section: !fileMode ? state.focusSection : undefined, flow: flowMode.active && !fileMode ? { title: flowMode.active.title, step: flowMode.step, steps: flowMode.active.steps.length } : undefined,
       files: fileMode ? { cursor: state.fileCursor, count: paths.length } : undefined }) });
     statusLeft.content = footing.left; statusRight.content = footing.right;
-    // One activity line, top right: an offer when the work is in another view, else the latest call. It is dropped when it would not fit.
+    // One activity line, top right: an offer while the turn is open and the work is in another view, else the latest call. It is dropped when it would not fit.
     crumbHint.content = crumbActivity(work && "view" in work ? workOffer(work.title) : tickerContent(), renderer.width - 2 - crumbPlain.length - 3);
     dirty = true; renderer.requestRender();
   };
@@ -1205,7 +1207,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (following) binding = (yield* latestBinding(view.workspace)) ?? binding;
     allEvents = binding ? yield* readActivity(view.workspace, binding) : [];
     events = visibleEvents(allEvents);
-    const signature = `${binding?.session}/${events.map(event => `${event.call}${event.phase}`).join()}`;
+    turnOpen = binding ? (yield* readSession(view.workspace, binding))?.ended === null : false;
+    const signature = `${binding?.session}/${turnOpen}/${events.map(event => `${event.call}${event.phase}`).join()}`;
     const changed = signature !== lastSignature;
     lastSignature = signature;
     indexEvents(); noteCalls(); followActivity();
