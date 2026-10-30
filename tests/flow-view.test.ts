@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { badgeText, badgesOf, flowsInView, flowsThrough, gapHops, pathEdges, stepsAt, type FlowMap } from "../src/flow-view";
 import { RGBA } from "@opentui/core";
 import { stepsCard } from "../src/viewer/cards";
+import { palette } from "../src/ui";
 import { createFlowMode } from "../src/viewer/flow-mode";
 
 const journey: FlowMap = { id: "order", title: "Placing an order", type: "journey", view: "order", sync: { status: "current", sha: "abc1234" }, findings: [], steps: [
@@ -39,32 +40,47 @@ test("a component is in a flow only by its own steps, never because something in
   expect(flowsInView([journey, states], new Set(["elsewhere"]))).toEqual([]);
 });
 
-test("the start card and the first number agree with the step reader: step 1 names the card it leaves and the card it reaches", () => {
-  // ▶ is on the card step 1 leaves, 1 on the card it reaches; a card that is the start and a later step reads ▶·3.
+test("the start card and the first number agree with the step reader: ▶ on the box step 1 leaves, 1 on the box it reaches", () => {
   const badges = badgesOf(journey, nodes);
   expect(badges.get("n-customer")).toEqual([0]);
   expect(badges.get("n-store")).toEqual([1, 3]);
-  const titles: Record<string, string> = { customer: "Customer", store: "Storefront", api: "Checkout API" };
-  const text = stepsCard(journey, 1, new Map(), id => titles[id] ?? id, 60, 0, RGBA.fromHex("#000000")).chunks.map(chunk => chunk.text).join("");
-  expect(text).toContain("Customer → Storefront");
-  expect(text).not.toContain("Storefront → Checkout API");
 });
 
-test("the Steps card names a step's source whenever it is not where the previous step landed, as when every step leaves one box", () => {
-  // Mealie's code generation: dev → schema, dev → lib, dev → root, dev → lang, dev → composables.
+const textOf = (card: { chunks: { text: string }[] }) => card.chunks.map(chunk => chunk.text).join("");
+
+test("the Steps card shows every journey hop under its sentence, from → to behind a bar in the journey colour, wrapped and never clipped", () => {
+  // Mealie's code generation: every step leaves the generators, and each row says so.
   const fan: FlowMap = { ...journey, id: "codegen", title: "Code generation", steps: ["schema", "lib", "root", "lang", "composables"].map((to, index) =>
     ({ n: index + 1, title: `writes ${to}`, elements: ["dev", to], from: "dev", to, backed: true })) };
-  const titles: Record<string, string> = { dev: "Code generators", schema: "Data shapes", lib: "API client", root: "Backend entry", lang: "Locales", composables: "Composables" };
-  const text = stepsCard(fan, 0, new Map(), id => titles[id] ?? id, 80, 0, RGBA.fromHex("#000000")).chunks.map(chunk => chunk.text).join("");
-  for (const to of ["Data shapes", "API client", "Backend entry", "Locales", "Composables"]) expect(text).toContain(`Code generators → ${to}`);
-  // A chain that continues from where it landed names the target alone, and a step that jumps elsewhere names its source again.
-  const mixed: FlowMap = { ...journey, steps: [...journey.steps, { n: 4, title: "pays", elements: ["customer", "api"], from: "customer", to: "api", backed: true }] };
-  const lines = stepsCard(mixed, 0, new Map(), id => titles[id] ?? ({ customer: "Customer", store: "Storefront", api: "Checkout API" } as Record<string, string>)[id] ?? id, 80, 0, RGBA.fromHex("#000000"))
-    .chunks.map(chunk => chunk.text).join("");
-  expect(lines).toContain("Customer → Storefront");
-  expect(lines).not.toContain("Storefront → Checkout API");
-  expect(lines).not.toContain("Checkout API → Storefront");
-  expect(lines).toContain("Customer → Checkout API");
+  const titles: Record<string, string> = { dev: "Code generation tools", schema: "Data shapes for API and schema checks", lib: "API client", root: "Backend entry", lang: "Locales", composables: "Composables",
+    customer: "Customer", store: "Storefront", api: "Checkout API" };
+  const card = stepsCard(fan, 0, new Map(), id => titles[id] ?? id, 40, 0, RGBA.fromHex("#000000"));
+  const lines = textOf(card).split("\n");
+  // Each hop starts on the line after its sentence, with the bar.
+  for (const [index, to] of ["schema", "lib", "root", "lang", "composables"].entries()) {
+    const at = lines.findIndex(line => line.includes(`writes ${to}`));
+    expect(lines[at + 1]).toMatch(/^ {5}▎ Code generation tools → /);
+    expect(card.starts[index]).toBe(at);
+  }
+  // A long hop wraps inside the bar: every word is there and every line keeps the bar.
+  const first = lines.findIndex(line => line.includes("writes schema"));
+  const block = lines.slice(first + 1).filter((_, index, all) => all.slice(0, index + 1).every(line => line.startsWith("     ▎ ")));
+  expect(block.length).toBeGreaterThan(1);
+  expect(block.map(line => line.slice(7).trim()).join(" ")).toBe("Code generation tools → Data shapes for API and schema checks");
+  expect(lines.filter(line => line.includes("▎")).join("")).not.toContain("…");
+  // The bar is drawn in the journey colour, the titles in the muted tone.
+  const bar = card.chunks.find(chunk => chunk.text === "▎ ") as { fg?: RGBA } | undefined;
+  expect(bar?.fg).toEqual(RGBA.fromHex(palette.purple));
+  // A chain names its source on every step too, not only where it jumps.
+  const chain = textOf(stepsCard(journey, 0, new Map(), id => titles[id] ?? id, 60, 0, RGBA.fromHex("#000000")));
+  for (const hop of ["Customer → Storefront", "Storefront → Checkout API", "Checkout API → Storefront"]) expect(chain).toContain(`▎ ${hop}`);
+});
+
+test("a state diagram's steps are unchanged: the components share the sentence's row, with no bar", () => {
+  const text = textOf(stepsCard(states, 0, new Map(), id => id, 60, 0, RGBA.fromHex("#000000")));
+  expect(text).not.toContain("▎");
+  expect(text).toMatch(/1 page +store/);
+  expect(text).toMatch(/2 saved +api \+1/);
 });
 
 test("a hop between nested components lands on the nearest card the view draws; a hop inside one card is its badge only", () => {

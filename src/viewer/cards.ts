@@ -42,7 +42,8 @@ export function flowsCard(items: ReturnType<typeof flowsThrough>, cursor: number
 }
 
 /**
- * Steps: the flow being read, one row per step in the order it is told, with the component each lands on. `●` says the agent touched that component's
+ * Steps: the flow being read, one row per step in the order it is told; a journey's step has its hop under it (`from → to`: the box whose code acts,
+ * then the box it reaches), a state's the components it shows. `●` says the agent touched that component's
  * files (a fact from the journal, not that the step happened); the current step shows its latest call, whether the model backs it, and the function it names.
  */
 export function stepsCard(flow: FlowMap, current: number, byElement: ReadonlyMap<string, ActivityEvent[]>, elementTitle: (id: string) => string, width: number, now: number, background: RGBA): Card {
@@ -56,11 +57,10 @@ export function stepsCard(flow: FlowMap, current: number, byElement: ReadonlyMap
     starts.push(line);
     const here = index === current;
     const at = journey ? (step.to ? [step.to] : []) : step.elements;
-    // A journey's step names the card it leaves when that is not where the previous step landed (always on step 1, so the `▶` on that card and the
-    // `1` on the next agree with the reader); otherwise the target alone.
-    const leaves = journey && step.from && step.to && (index === 0 || flow.steps[index - 1]?.to !== step.from);
-    const comp = leaves ? `${elementTitle(step.from!)} → ${elementTitle(step.to!)}`
-      : at.length ? `${elementTitle(at[0]!)}${at.length > 1 ? ` +${at.length - 1}` : ""}` : "";
+    // A journey's hop is its own block under the sentence: the box whose code acts, then the box it reaches, behind a bar in the journey's colour.
+    // A state diagram's step names the components it shows on the sentence's row.
+    const hop = journey && (step.from || step.to) ? [step.from, step.to].filter((element): element is string => Boolean(element)).map(elementTitle).join(" → ") : "";
+    const comp = journey ? "" : at.length ? `${elementTitle(at[0]!)}${at.length > 1 ? ` +${at.length - 1}` : ""}` : "";
     const touched = at.some(element => (byElement.get(element)?.length ?? 0) > 0);
     anyTouched ||= touched;
     const tone = step.mark === "bug" ? palette.failure : step.mark === "fixed" ? palette.green : here ? palette.text : palette.body;
@@ -75,6 +75,9 @@ export function stepsCard(flow: FlowMap, current: number, byElement: ReadonlyMap
       words.forEach((text, row) => { chunks.push(...lit([...(row ? [indent(5)] : head), fg(tone)(clip(text, room).padEnd(room)), row ? fg(palette.muted)("  ") : dot, nl], here, background)); line++; });
       if (comp) { chunks.push(...lit([indent(5), fg(palette.muted)(clip(comp, room).padEnd(room + 2)), nl], here, background)); line++; }
     }
+    // Wrapped inside the bar, never clipped: the titles are what the reader follows.
+    const barRoom = Math.max(4, room - 2);
+    if (hop) for (const text of wrapWords(hop, barRoom).flatMap(part => part.match(new RegExp(`.{1,${barRoom}}`, "g")) ?? [])) { chunks.push(...lit([indent(5), fg(palette.purple)("▎ "), fg(palette.muted)(text.padEnd(barRoom)), indent(2), nl], here, background)); line++; }
     if (!here) return;
     const latest = at.flatMap(element => byElement.get(element) ?? []).sort((a, b) => b.time - a.time)[0];
     if (latest) {
