@@ -9,8 +9,8 @@ export interface Rect { x: number; y: number; width: number; height: number }
 export interface CompactOptions {
   /** A cell's width over its height (0.5 in most terminals). */
   aspect: number;
-  /** Whether leaf cards spend a row on their kind (viewer/card-view.ts draws it only when kinds vary in the view). */
-  kindRow: boolean;
+  /** Whether leaf cards spend a row on their word (`36 inside`, the activity counts; viewer/card-view.ts), decided once per view. */
+  wordRow: boolean;
 }
 
 /** Columns between neighbouring cards (so a connector's trunk has a column of its own and a clear cell each side) and rows between them. */
@@ -42,7 +42,7 @@ type Axis = "x" | "y";
 /**
  * Compact fit: LikeC4's arrangement with Pathlight's spacing and card sizes. Every leaf card of a view gets one readable size in cells (the widest
  * title on one or two lines, from 20 to 32 columns, whatever width LikeC4 drew; 4 rows, 5 when a title takes two lines, one fewer
- * without a kind or status row) and the space between cards shrinks to a small gap. What is kept, on each axis: a card that ended before another began still does (with at least the gap between them, more
+ * without a word or status row) and the space between cards shrinks to a small gap. What is kept, on each axis: a card that ended before another began still does (with at least the gap between them, more
  * when group frames stand between them), cards that overlapped still overlap, cards that shared a left or top edge (a dagre rank) still share it, and
  * a group is the box around its children with its frame and a clear cell. The result is in the same units, deterministic and idempotent.
  */
@@ -64,7 +64,7 @@ export function compact(nodes: readonly CompactNode[], options: CompactOptions):
   // One size in cells for every card of the view: the widest title decides the width, the most lines at that width the height. A short title
   // leaves its last row blank, under it.
   const width = Math.max(0, ...leaves.map(leaf => cardSize(leaf.title, narrowest).width));
-  const height = 2 + (options.kindRow || leaves.some(leaf => leaf.status) ? 1 : 0) + Math.max(1, ...leaves.map(leaf => linesAt(leaf.title, width)));
+  const height = 2 + (options.wordRow || leaves.some(leaf => leaf.status) ? 1 : 0) + Math.max(1, ...leaves.map(leaf => linesAt(leaf.title, width)));
   const size = new Map(leaves.map(leaf => [leaf.id, { x: width, y: height }]));
   const place = (axis: Axis) => {
     const extent = axis === "x" ? "width" : "height";
@@ -119,7 +119,10 @@ export function compact(nodes: readonly CompactNode[], options: CompactOptions):
   return nodes.map(node => ({ ...node, ...(groupRect(node) ?? { x: node.x, y: node.y, width: node.width, height: node.height }) }));
 }
 
-/** Whether a view's leaf cards are of more than one kind: only then does a card spend a row saying which (every box reading `component` says nothing). */
+/**
+ * Whether a view's leaf cards are of more than one kind. The kind is no longer written, but such a view keeps the first row it had (blank on a leaf):
+ * without it a three-row card at the zoom a wide view fits at rounds to two rows and meets its group's frame.
+ */
 export const kindsVary = (nodes: readonly { children: readonly unknown[]; kind?: unknown }[]) => new Set(nodes.filter(node => !node.children.length).map(node => String(node.kind ?? ""))).size > 1;
 
 /** The box around every node. */

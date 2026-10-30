@@ -29,7 +29,7 @@ import { declarationsFor } from "./languages";
 import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
 import { createCamera } from "./viewer/camera";
 import { boundsOf, compact, kindsVary } from "./viewer/compact";
-import { cardLook } from "./viewer/card-view";
+import { cardLook, insideWords } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
@@ -59,22 +59,24 @@ let { config, files, fileError, diagrams } = world;
 type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
 const watching = Boolean(binding || following);
 const shaped = new WeakMap<Layout, Layout>();
-// Whether a view's cards spend their first row on the kind, a planned element's status or the activity counts: decided once per view, so it is on every card or none.
-const kindRows = new WeakMap<Layout, { kinds: boolean; row: boolean }>();
+// Whether a view's cards spend their first row on a word (`36 inside`), a planned element's status or the activity counts: decided once per view, so it is
+// on every card or none; and the words themselves, by node.
+const wordRows = new WeakMap<Layout, { words: ReadonlyMap<string, string>; row: boolean }>();
 const shape = (raw: Layout): Layout => {
   const known = shaped.get(raw);
   if (known) return known;
-  // A planned element with no files yet keeps its `[planned]` row; the kind row is drawn only when kinds vary among the view's cards. Watching a session,
-  // every card keeps that row, so the activity counts that appear there never move the layout.
+  // A planned element with no files yet keeps its `[planned]` row; the word row is drawn when a card in the view has a word, or its kinds vary (the row
+  // it always had, see kindsVary). Watching a session, every card keeps that row, so the activity counts that appear there never move the layout.
   const planned = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`)) && ![...files].some(([element, paths]) => (element === ref || element.startsWith(`${ref}.`)) && paths.length);
   const input = raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
     x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined, status: planned(String(node.modelRef)) }));
-  const kinds = kindsVary(raw.nodes);
-  const rects = compact(input, { aspect: 0.5, kindRow: kinds || watching });
+  const words = insideWords(raw, new Set([...diagrams.values()].flatMap(other => other.nodes.map(node => String(node.modelRef)))));
+  const row = words.size > 0 || kindsVary(raw.nodes) || watching;
+  const rects = compact(input, { aspect: 0.5, wordRow: row });
   const nodes = raw.nodes.map((node, index) => ({ ...node, x: rects[index]!.x, y: rects[index]!.y, width: rects[index]!.width, height: rects[index]!.height }));
   const next = { ...raw, nodes, bounds: boundsOf(nodes) } as Layout;
   shaped.set(raw, next);
-  kindRows.set(next, { kinds, row: kinds || watching || input.some(node => !node.children.length && node.status) });
+  wordRows.set(next, { words, row: row || input.some(node => !node.children.length && node.status) });
   return next;
 };
 const getDiagram = (id: string) => {
@@ -467,7 +469,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       return [entry, { left, top, right, bottom }] as const;
     }));
     // The first row is on every card or none: when the zoom gives cards fewer rows than the layout did, it goes from all of them, before a title line.
-    const rows = kindRows.get(diagram) ?? { kinds: false, row: false };
+    const rows = wordRows.get(diagram) ?? { words: new Map<string, string>(), row: false };
     const header = rows.row && [...placed].every(([entry, drawn]) => entry.node.children.length > 0 || drawn.bottom - drawn.top >= Math.round(entry.node.height / cell.y));
     for (const entry of nodeObjects) {
       const group = entry.node.children.length > 0, id = String(entry.node.id), ref = String(entry.node.modelRef);
@@ -476,7 +478,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const numbers = badges.get(id);
       const { left, top, right, bottom } = placed.get(entry)!;
       const width = right - left, height = bottom - top;
-      const look = cardLook({ title: entry.node.title, kind: entry.node.kind && rows.kinds ? String(entry.node.kind) : "", header, group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
+      const look = cardLook({ title: entry.node.title, word: rows.words.get(String(entry.node.id)) ?? "", header, group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
         selected: isSelected, previewed: previewed === id, flashing: (flashes.get(ref) ?? 0) > now,
         neighbour: diagram.edges.some(edge => (edge.target === state.selected?.id && edge.source === entry.node.id) || (edge.source === state.selected?.id && edge.target === entry.node.id)),
         unbuilt: waiting(ref), planned: Boolean(plan) && inPlan(ref), offPlan: !!plan && related.length > 0 && !inPlan(ref), numbers, flow: Boolean(flowMode.active), width, height });
