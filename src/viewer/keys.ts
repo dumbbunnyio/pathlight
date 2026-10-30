@@ -30,7 +30,7 @@ export type Action =
   | { type: "talkSend" } | { type: "talkScroll"; by: -1 | 1 } | { type: "talkBack" } | { type: "talkWiden" }
   | { type: "themeCancel" } | { type: "themeKeep" } | { type: "themeMove"; to: "up" | "down" | "pageup" | "pagedown" | "home" | "end" }
   | { type: "gotoClose" } | { type: "gotoGo" } | { type: "gotoMove"; by: -1 | 1 } | { type: "gotoPage"; by: -1 | 1 } | { type: "gotoHome" } | { type: "gotoEnd" }
-  | { type: "gotoClear" } | { type: "gotoErase" } | { type: "gotoType"; text: string }
+  | { type: "gotoClear" } | { type: "gotoErase" } | { type: "gotoType"; text: string } | { type: "gotoKind"; by: -1 | 1 }
   | { type: "summaryClose" } | { type: "reviewMove"; by: -1 | 1 } | { type: "decide"; verdict: "accepted" | "rejected" } | { type: "reviewRead" }
   | { type: "helpClose" } | { type: "helpSwap" }
   | { type: "replayExit" } | { type: "replayStep"; by: -1 | 1 } | { type: "replayHome" } | { type: "replayEnd" } | { type: "replayTurn"; by: -1 | 1 }
@@ -84,6 +84,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   if (mode.layer === "goto") {
     if (key.name === "escape") return { type: "gotoClose" };
     if (key.name === "return") return { type: "gotoGo" };
+    if (key.name === "tab") return { type: "gotoKind", by: key.shift ? -1 : 1 };
     if (key.name === "up" || (key.ctrl && key.name === "p")) return { type: "gotoMove", by: -1 };
     if (key.name === "down" || (key.ctrl && key.name === "n")) return { type: "gotoMove", by: 1 };
     if (key.name === "pageup") return { type: "gotoPage", by: -1 };
@@ -196,7 +197,7 @@ export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" 
       ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
     { name: "Direct it", tier: 2, rows: [["c", "what it did this session, and the review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
-      ["/", "search views, boxes, files", ["search"]], ["g", "go to any view", ["views"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
+      ["/", "search everything, tab a kind", ["search"]], ["g", "go to any view", ["views"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
       ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
     { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a flow", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
       ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],
@@ -227,6 +228,7 @@ export const hints = {
   review: [["j k", "move"], ["e", "read it"], ["y", "accept"], ["n", "reject"], ["esc", "close"]] as Hint[],
   close: [["esc", "close"]] as Hint[],
   goto: [["type", "search"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]] as Hint[],
+  search: [["type", "search"], ["tab", "kind"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]] as Hint[],
   themes: [["↑↓", "preview"], ["enter", "keep"], ["esc", "cancel"]] as Hint[],
   askSave: (next: boolean): Hint[] => [["enter", next ? "next" : "save"], ["esc", "cancel"]],
 };

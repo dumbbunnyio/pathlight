@@ -59,3 +59,14 @@ test("the location ladder never outweighs a step between match classes", () => {
   expect(textScore("abc", "abc")).toBe(classScore.exact);
   expect(scoreOf("abc", { kind: "file", name: "abc", aliases: [], here: false })!).toBeGreaterThan(scoreOf("abc", { kind: "box", name: "xabcx", aliases: [], here: true })!);
 });
+
+test("the search's title names the chosen kind in the accent and the others dimmed beside it, in tab's order", async () => {
+  const { searchTitle, pickKinds } = await import("../src/viewer/pickers");
+  const { palette } = await import("../src/ui");
+  const { RGBA } = await import("@opentui/core");
+  expect(pickKinds.map(([name]) => name)).toEqual(["all", "views", "boxes", "journeys", "files"]);
+  const chunks = searchTitle(3).chunks;
+  expect(chunks.map(chunk => chunk.text).join("")).toBe(" Search · all views boxes journeys files ");
+  const lit = chunks.filter(chunk => (chunk.fg as InstanceType<typeof RGBA> | undefined)?.equals?.(RGBA.fromHex(palette.accent))).map(chunk => chunk.text);
+  expect(lit).toEqual(["journeys"]);
+});

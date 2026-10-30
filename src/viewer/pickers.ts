@@ -1,5 +1,6 @@
 import { bg, fg, StyledText, type TextChunk } from "@opentui/core";
-import { type Candidate, search as rankSearch } from "../search";
+import { type Candidate, type Kind, search as rankSearch } from "../search";
+import { type FlowMap, flowsInView } from "../flow-view";
 import type { Palette } from "../ui";
 import { borderHints, palette } from "../ui";
 import { type Action, hints } from "./keys";
@@ -7,14 +8,18 @@ import { nl } from "./text";
 import type { WhereView } from "./where";
 import type { createWidgets } from "./widgets";
 
-/** One row of the picker: a view, a box or a mapped file, and where it is. */
-export type Pick = Candidate & { view?: string; element?: string; path?: string; detail: string };
+/** One row of the picker: a view, a box, a journey or a mapped file, and where it is. */
+export type Pick = Candidate & { view?: string; element?: string; path?: string; flow?: FlowMap; detail: string };
+
+/** What `tab` narrows `/` to, in order: everything, then one kind at a time. */
+export const pickKinds = [["all", undefined], ["views", "view"], ["boxes", "box"], ["journeys", "journey"], ["files", "file"]] as const satisfies readonly (readonly [string, Kind | undefined])[];
 
 /**
- * What `/` searches (every view, box and mapped file in the project) or `g` (only the views). It does not infer links between views.
+ * What `/` searches (every view, box, journey and mapped file in the project) or `g` (only the views). It does not infer links between views.
  * Files the mapping puts outside the picture (tests, generated code) are not offered, and neither is a file that is a box of its own.
  */
-export const pickCandidates = (options: { views: ReadonlyMap<string, WhereView>; current: WhereView; mode: "all" | "views"; files: ReadonlyMap<string, readonly string[]>; ignore: readonly string[] }): Pick[] => {
+export const pickCandidates = (options: { views: ReadonlyMap<string, WhereView>; current: WhereView; mode: "all" | "views"; files: ReadonlyMap<string, readonly string[]>; ignore: readonly string[];
+  flows?: readonly FlowMap[] }): Pick[] => {
   const current = String(options.current.id);
   const views: Pick[] = [...options.views].filter(([, entry]) => entry.nodes.length).map(([id, entry]) =>
     ({ kind: "view", name: String(entry.title ?? id), aliases: [id], here: id === current, view: id, detail: `${entry.nodes.length} nodes` }));
@@ -28,7 +33,9 @@ export const pickCandidates = (options: { views: ReadonlyMap<string, WhereView>;
   const mapped: Pick[] = [...options.files].filter(([element]) => titles.has(element)).flatMap(([element, paths]) => paths
     .filter(path => path.slice(path.lastIndexOf("/") + 1) !== titles.get(element) && !outside.some(glob => glob.match(path)))
     .map(path => ({ kind: "file" as const, name: path.slice(path.lastIndexOf("/") + 1), aliases: [path], here: present.has(element), element, path, detail: titles.get(element)! })));
-  return [...views.filter(item => !item.here), ...boxes, ...mapped];
+  const journeys: Pick[] = (options.flows ?? []).filter(flow => flow.type === "journey").map(flow =>
+    ({ kind: "journey", name: flow.title, aliases: [flow.id], here: flowsInView([flow], present).length > 0, flow, detail: `${flow.steps.length} step${flow.steps.length === 1 ? "" : "s"}` }));
+  return [...views.filter(item => !item.here), ...boxes, ...journeys, ...mapped];
 };
 
 /** The picker's inside: as wide as before the frame was made thin, so its rows read the same. */
@@ -37,18 +44,18 @@ const gotoColumns = (screenWidth: number) => Math.min(74, screenWidth - 10);
 /** The picker's list, `rows` of it from `top`, with the query line on top. `viewOf` names the view a box elsewhere opens in. */
 export const gotoContent = (entries: readonly Pick[], options: { query: string; index: number; top: number; rows: number; screenWidth: number; viewOf: (element: string) => string }) => {
   const { index, top, rows } = options;
-  const inner = gotoColumns(options.screenWidth), contextWidth = Math.min(26, Math.floor(inner / 3)), nameWidth = Math.max(10, inner - 1 - 5 - 1 - contextWidth - 1);
+  const inner = gotoColumns(options.screenWidth), contextWidth = Math.min(26, Math.floor(inner / 3)), nameWidth = Math.max(10, inner - 1 - 8 - 1 - contextWidth - 1);
   const fit = (text: string, width: number) => text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text.padEnd(width);
   const chunks: TextChunk[] = [fg(palette.incoming)(" › "), fg(palette.text)(options.query), fg(palette.incoming)("▏"), nl];
   if (!entries.length) chunks.push(fg(palette.muted)(" Nothing matches"), nl);
   entries.slice(top, top + rows).forEach((entry, offset) => {
     const cursor = top + offset === index, shade = bg(cursor ? palette.pick : palette.panel);
     // What the row says on the right: where it is. A row in the view you are in carries a dot; one elsewhere says which view it opens.
-    const where = entry.kind === "view" ? (entry.here ? "● here" : entry.detail)
+    const where = entry.kind === "view" || entry.kind === "journey" ? (entry.here ? `● ${entry.kind === "journey" ? entry.detail : "here"}` : entry.detail)
       : entry.here ? `● ${entry.kind === "file" ? entry.detail : "here"}` : entry.kind === "file" ? entry.detail : `in ${options.viewOf(entry.element!)}`;
     const dir = entry.kind === "file" ? ` ${entry.path!.slice(0, entry.path!.lastIndexOf("/") + 1)}` : "";
     const name = fit(entry.name + (dir.trim() ? dir : ""), nameWidth);
-    chunks.push(shade(fg(palette.muted)(` ${entry.kind.padEnd(5)}`)), shade(fg(palette.text)(name.slice(0, Math.min(entry.name.length, nameWidth)))),
+    chunks.push(shade(fg(palette.muted)(` ${entry.kind.padEnd(8)}`)), shade(fg(palette.text)(name.slice(0, Math.min(entry.name.length, nameWidth)))),
       shade(fg(palette.muted)(name.slice(Math.min(entry.name.length, nameWidth)))), shade(fg(entry.here ? palette.incoming : palette.muted)(` ${fit(where, contextWidth)} `)), nl);
   });
   return { content: new StyledText(chunks), meta: new StyledText([fg(palette.muted)(` ${entries.length ? `${top + 1}–${Math.min(entries.length, top + rows)} of ${entries.length}` : "0"} `)]) };
@@ -68,17 +75,22 @@ export const themeContent = (names: readonly string[], options: { index: number;
   return { content: new StyledText(chunks), meta: new StyledText([fg(palette.muted)(` ${options.index + 1}/${names.length} · ${options.mode} `)]) };
 };
 
+/** The search's title: the kind `tab` has chosen, then the others dimmed beside it, so the next `tab` is in sight. */
+export const searchTitle = (chosen: number) => new StyledText([fg(palette.muted)(" "), fg(palette.text)("Search"), fg(palette.muted)(" · "),
+  ...pickKinds.flatMap(([name], index) => [...(index ? [fg(palette.border)(" ")] : []), fg(index === chosen ? palette.accent : palette.border)(name)]), fg(palette.muted)(" ")]);
+
 /**
  * The picker as a dialog: `/` (`all`) or `g` (`views`) opens it, typing narrows the list (search.ts ranks it) and the list scrolls inside its frame,
- * which is the list plus the query line, the border and a blank row above and below, kept inside the terminal and fairly compact.
+ * which is the list plus the query line, the border and a blank row above and below, kept inside the terminal and fairly compact. In `/`, `tab` and
+ * `shift-tab` narrow it to one kind (views, boxes, journeys, files) and back to all.
  */
 export function createGotoPicker(options: {
   screen: { readonly width: number; readonly height: number }; widget: ReturnType<typeof createWidgets>["goto"]; candidates: (mode: "all" | "views") => Pick[];
   viewOf: (element: string) => string; go: (pick: Pick) => void; update: () => void;
 }) {
   const { screen, widget } = options;
-  let index = 0, top = 0, query = "", items: Pick[] = [];
-  const entries = () => rankSearch(query, items);
+  let index = 0, top = 0, query = "", items: Pick[] = [], mode: "all" | "views" = "all", kind = 0;
+  const entries = () => { const only = pickKinds[kind]![1]; return rankSearch(query, only ? items.filter(item => item.kind === only) : items); };
   const rowsFor = (count: number) => Math.max(1, Math.min(count, 18, screen.height - 2 - 5));
   const render = () => {
     const list = entries();
@@ -89,14 +101,14 @@ export function createGotoPicker(options: {
     top = Math.max(0, Math.min(top, Math.max(0, list.length - rows)));
     const made = gotoContent(list, { query, index, top, rows, screenWidth: screen.width, viewOf: options.viewOf });
     widget.content.content = made.content; widget.meta.content = made.meta;
-    widget.foot.content = new StyledText(borderHints(hints.goto));
+    widget.foot.content = new StyledText(borderHints(mode === "all" ? hints.search : hints.goto));
     widget.place(gotoColumns(screen.width), rows + 1 + (list.length ? 0 : 1));
   };
   return {
     render,
-    begin(mode: "all" | "views") {
-      query = ""; top = 0; items = options.candidates(mode);
-      widget.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(mode === "views" ? "Go to view" : "Search"), fg(palette.muted)(" ")]);
+    begin(chosen: "all" | "views") {
+      mode = chosen; kind = 0; query = ""; top = 0; items = options.candidates(mode);
+      widget.title.content = mode === "views" ? new StyledText([fg(palette.muted)(" "), fg(palette.text)("Go to view"), fg(palette.muted)(" ")]) : searchTitle(kind);
       index = mode === "views" ? Math.max(0, entries().findIndex(item => item.here)) : 0;
       widget.open(gotoColumns(screen.width), 4); render(); options.update();
     },
@@ -114,6 +126,7 @@ export function createGotoPicker(options: {
         case "gotoClear": query = ""; index = 0; break;
         case "gotoErase": query = query.slice(0, -1); index = 0; break;
         case "gotoType": query += action.text; index = 0; break;
+        case "gotoKind": if (mode !== "all") return; kind = (kind + action.by + pickKinds.length) % pickKinds.length; index = 0; top = 0; widget.title.content = searchTitle(kind); break;
         default: return;
       }
       render();

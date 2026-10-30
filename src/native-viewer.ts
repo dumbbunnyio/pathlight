@@ -712,8 +712,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // The picker: `/` searches every view, box and mapped file in the project, `g` only the views (see viewer/pickers.ts).
   const viewHaving = (element: string) => viewIn(diagrams, diagram, element);
-  const gotoPicker = createGotoPicker({ screen: renderer, widget: goto, candidates: mode => pickCandidates({ views: diagrams, current: diagram, mode, files, ignore: config?.ignore ?? [] }),
-    viewOf: element => String(viewHaving(element)?.[1].title ?? ""), go: pick => { if (pick.kind === "view") goToView(pick.view!); else landOn(pick.element!, pick.path); }, update: () => update() });
+  const gotoPicker = createGotoPicker({ screen: renderer, widget: goto, candidates: mode => pickCandidates({ views: diagrams, current: diagram, mode, files, ignore: config?.ignore ?? [], flows: flowMode.flows }),
+    viewOf: element => String(viewHaving(element)?.[1].title ?? ""), go: pick => { if (pick.kind === "view") goToView(pick.view!); else if (pick.flow) { goto.close(); startFlow(pick.flow, 1); update(); } else landOn(pick.element!, pick.path); }, update: () => update() });
   // Reading a flow at a step: here when this view draws the step's box, else in the view that does, with `Went to …` and a Back entry. The step
   // reader is on the node face, so the talk turns to it. `pointed`: the agent's pointer asked for it, so the arrival is marked as its pointing.
   // Which view: one already reading this flow stays when it draws the step; otherwise the view that draws the most distinct boxes for its steps.
@@ -924,7 +924,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "themeCancel": themePicker.cancel(); return;
       case "themeKeep": themePicker.keep(); return;
       case "themeMove": themePicker.move(action.to); return;
-      case "gotoClose": case "gotoGo": case "gotoMove": case "gotoPage": case "gotoHome": case "gotoEnd": case "gotoClear": case "gotoErase": case "gotoType": gotoPicker.key(action); return;
+      case "gotoClose": case "gotoGo": case "gotoMove": case "gotoPage": case "gotoHome": case "gotoEnd": case "gotoClear": case "gotoErase": case "gotoType": case "gotoKind": gotoPicker.key(action); return;
       case "summaryClose": summary.close(); update(); return;
       case "reviewMove": reviewCursor = Math.max(0, reviewCursor + action.by); summary.content.content = summaryContent(); update(); return;
       case "decide": decideOn(action.verdict); return;

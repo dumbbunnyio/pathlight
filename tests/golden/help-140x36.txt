@@ -17,7 +17,7 @@
  ·  │ tab             through the inspector,     a        follow the work                   n          name and note it yourself       │    
     │                 in a flow: next step       w        jump to the agent's work          p          replay the session              │    
   ╭─│ enter           into a box                 e        files (in a flow: its code)       s          subagent calls                  │    
-  │ │ b, backspace    back where you were,       /        search views, boxes, files        T          choose a theme                  │    
+  │ │ b, backspace    back where you were,       /        search everything, tab a kind     T          choose a theme                  │    
  ·╰─│                 else up                    g        go to any view                    1–4        focus a card, esc or tab        │    
     │ t               ask how it works, or       i        inspector, or the talk and back              leaves                          │    
   ╭─│                 tell it what to change     z        widen the talk                    j k        move in the card                │    

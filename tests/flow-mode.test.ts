@@ -310,3 +310,34 @@ test.skipIf(!existsSync(join(mealie, ".pathlight")))("on the Mealie copy, Code g
   expect(away.at(-1)).toContain("Selected: mealie.mealie.root");
   expect(away.join("\n")).not.toContain("is not in this view");
 }, 120_000);
+
+// Search lists journeys beside views, boxes and files; tab narrows it to one kind, named in the title with the others dimmed beside it, and choosing a
+// journey reads it as F would.
+test("search finds journeys, tab narrows it by kind, and choosing a journey reads it", async () => {
+  const directory = await workspace(false);
+  try {
+    const see = async (keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", "index", "--workspace", directory, "--project", "parcel",
+      "--cols", "150", "--rows", "36", "--select", "customer", "--keys", keys])).split("\n");
+    const all = (await see("/")).join("\n");
+    expect(all).toMatch(/Search · all views boxes journeys files/);
+    expect(all).toMatch(/journey +Placing an order/);
+    expect(all).toMatch(/box +Customer/);
+    expect(all).toContain("tab kind");
+    // Three tabs: journeys only.
+    const journeys = (await see("/,Tab,Tab,Tab")).join("\n");
+    expect(journeys).toMatch(/journey +Placing an order +● 5 steps/);
+    expect(journeys).not.toMatch(/ box +Customer/);
+    expect(journeys).not.toMatch(/ view +/);
+    // Back with shift-tab to boxes, and on round to all.
+    const boxes = (await see("/,Tab,Tab,Tab,BTab")).join("\n");
+    expect(boxes).toMatch(/ box +Customer/);
+    expect(boxes).not.toMatch(/journey +Placing an order/);
+    const round = (await see("/,Tab,Tab,Tab,Tab,Tab")).join("\n");
+    expect(round).toMatch(/ box +Customer/);
+    expect(round).toMatch(/journey +Placing an order/);
+    // Choosing it reads it, in the view where its steps are apart.
+    const chosen = await see("/,Tab,Tab,Tab,Enter");
+    expect(chosen[1]!.trim().split(" ")[0]).toBe("parcel/services");
+    expect(chosen.at(-1)).toMatch(/^ flow /);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 120_000);
