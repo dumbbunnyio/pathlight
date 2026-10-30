@@ -1,6 +1,6 @@
 ---
-name: pathlight-onboarding
-description: Use when the user wants to understand this codebase or its pathlight map ("walk me through this codebase", "walk me through the map", "explain this codebase", "onboard me", "where do I start", /pathlight-onboarding). Not for explaining a single file just read. Gives the first-day briefing from pathlight brief --first-day, then walks the recorded journeys step by step, moving the pathlight viewer to each step with pathlight point. Reads, never edits.
+name: onboarding
+description: Use when the user wants to understand this codebase or its pathlight map ("walk me through this codebase", "walk me through the map", "explain this codebase", "onboard me", "where do I start", /pathlight:onboarding). Not for explaining a single file just read. Gives the first-day briefing from pathlight brief --first-day, then walks the recorded journeys step by step, moving the pathlight viewer to each step with pathlight point. Reads, never edits.
 ---
 
 # pathlight onboarding
@@ -19,7 +19,7 @@ A person new to this code wants to know what it is, how it is built and where it
 
 ## Before the walk
 
-1. `pathlight list --workspace .`. No views means no map: follow the `pathlight` skill's **First run** (it asks before writing anything), then come back.
+1. `pathlight list --workspace .`. No views means no map: follow the map skill's **First run** (`/pathlight:map`) (it asks before writing anything), then come back.
 2. `pathlight brief --first-day --workspace .`. If most boxes say `not named yet`, the walk would be folder names: say so and offer to have the `pathlight-namer` agent name them first ("Name every box of the pathlight map in this workspace"). A map a person wrote by hand has no drafted boxes; walk its overview view instead, from its own `.c4` files.
 
 ## 1. The briefing

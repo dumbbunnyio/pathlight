@@ -42,8 +42,8 @@ export function askMessage(target: { title: string; id: string; files: readonly 
   ].filter(Boolean).join("; ");
   const id = clean(target.id);
   return `About the "${clean(target.title)}" component (${id}): ${clean(question).slice(0, 600)}${context ? ` [${context}]` : ""} `
-    + (draw ? `Load the pathlight skill and follow its "Requests from the viewer" section: answer here, and have the path recorded as a pathlight journey (pathlight flow add) so it appears on the map and F walks it. ` : "")
-    + `If this asks you to change the code, before editing any file run pathlight plan ${id} with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight skill says how); run pathlight plan with no ids when done.`;
+    + (draw ? `Load the pathlight map skill and follow its "Requests from the viewer" section: answer here, and have the path recorded as a pathlight journey (pathlight flow add) so it appears on the map and F walks it. ` : "")
+    + `If this asks you to change the code, before editing any file run pathlight plan ${id} with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight map skill says how); run pathlight plan with no ids when done.`;
 }
 
 /**
@@ -87,6 +87,6 @@ export function flowMessage(target: { title: string; id: string; files: readonly
     target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   return `Trace how this works in the "${clean(target.title)}" component (${clean(target.id)}) and record it as a pathlight journey: ${clean(request).slice(0, 600)}${context ? ` [${context}]` : ""} `
-    + `Follow the pathlight-behavior skill: read the code from this component outward, confirm each hop in a file, then run pathlight flow add with the files you read and one --step per hop between components in the model (a hop you confirmed over HTTP, a websocket or a spawned process is written FROM -> TO over http: EVENT). `
+    + `Follow the pathlight behavior skill: read the code from this component outward, confirm each hop in a file, then run pathlight flow add with the files you read and one --step per hop between components in the model (a hop you confirmed over HTTP, a websocket or a spawned process is written FROM -> TO over http: EVENT). `
     + `Leave out any hop you cannot point to in the code and tell me what you could not find. Do not change product code.`;
 }

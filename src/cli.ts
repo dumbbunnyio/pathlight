@@ -61,7 +61,7 @@ point asks an open viewer to select one element (an id from the model, or a box'
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
 setup is the first run: it checks the machine and the workspace, says what it would write, and with --yes draws a first model from the code when there is none. It never rewrites a model you wrote and leaves hooks and recording to init.
-init wires Claude Code hooks, the pathlight skill and the OpenCode plugin into a workspace. init --global registers the OpenCode plugin for every project instead (in OpenCode's own opencode.json); it records only in projects with a mapping.
+init wires Claude Code hooks, the pathlight skills and the OpenCode plugin into a workspace. init --global registers the OpenCode plugin for every project instead (in OpenCode's own opencode.json); it records only in projects with a mapping.
 show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
 see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. --agent puts a pane running cat in that private server as the agent's pane, so t, m and d can be drawn and sent; nothing leaves it. For agents and tests.
 open follows the most recent session and shows VIEW if given, else the view named index, else the first view.

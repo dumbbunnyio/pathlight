@@ -16,7 +16,7 @@ export const conversationCap = 200;
 
 // A request the viewer typed (src/ask.ts): the question follows its opening, and the context block and the rules after it are folded away.
 const request = /^(?:About the ".*?" component \([^()]*\): |Improve the pathlight map for the ".*?" component \([^()]*\): |Trace how this works in the ".*?" component \([^()]*\) and record it as a pathlight journey: )/;
-const requestTail = [" [files: ", " [connects: ", " [recent: ", " [overlay key: ", " Load the pathlight skill", " If this asks you to change the code", " Read the files and answer me here", " Read the files, answer me here", " Follow the pathlight-behavior skill"];
+const requestTail = [" [files: ", " [connects: ", " [recent: ", " [overlay key: ", " Load the pathlight skill", " Load the pathlight map skill", " If this asks you to change the code", " Read the files and answer me here", " Read the files, answer me here", " Follow the pathlight-behavior skill", " Follow the pathlight behavior skill"];
 
 /** A prompt the viewer sent shows as the question that was typed; any other prompt shows as it is. */
 export const foldRequest = (text: string) => {

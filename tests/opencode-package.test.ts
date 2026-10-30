@@ -27,7 +27,7 @@ test.skipIf(!Bun.which("opencode"))("the packed OpenCode plugin loads on its own
     expect(code).not.toContain('"bun", [cli');
 
     const observed = await observeOpenCode(unpacked, ["ANTHROPIC_API_KEY=placeholder"]);
-    expect(observed.skills).toEqual(expect.arrayContaining(["pathlight", "pathlight-behavior", "pathlight-onboarding"]));
+    expect(observed.skills).toEqual(expect.arrayContaining(["pathlight-map", "pathlight-behavior", "pathlight-onboarding"]));
     expect(observed.agent).toMatchObject({ mode: "subagent", model: { providerID: "anthropic" } });
     expect(observed.agent!.system).toContain("pathlight flow add");
   } finally { await rm(work, { recursive: true, force: true }); }

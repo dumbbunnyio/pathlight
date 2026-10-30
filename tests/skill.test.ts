@@ -4,9 +4,9 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { run } from "./effects";
 
-const path = "plugins/claude/skills/pathlight/SKILL.md";
+const path = "plugins/claude/skills/map/SKILL.md";
 
-test.each(["pathlight", "pathlight-behavior", "pathlight-onboarding"])("the %s skill has valid frontmatter for both Claude Code and OpenCode", async name => {
+test.each(["map", "behavior", "onboarding"])("the %s skill has valid frontmatter for both Claude Code and OpenCode", async name => {
   const text = await readFile(`plugins/claude/skills/${name}/SKILL.md`, "utf8");
   const [, frontmatter, body] = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/) ?? [];
   expect(frontmatter).toBeDefined();
@@ -19,25 +19,25 @@ test.each(["pathlight", "pathlight-behavior", "pathlight-onboarding"])("the %s s
   expect(body!.length).toBeGreaterThan(500);
 });
 
-test.each(["pathlight", "pathlight-behavior", "pathlight-onboarding"])("every pathlight command and flag the %s skill names exists in the real CLI help", async name => {
+test.each(["map", "behavior", "onboarding"])("every pathlight command and flag the %s skill names exists in the real CLI help", async name => {
   const text = await readFile(`plugins/claude/skills/${name}/SKILL.md`, "utf8");
   const help = await run(process.execPath, [resolve("src/cli.ts"), "--help"]);
   const commands = new Set(help.split("\n").flatMap(line => line.match(/^pathlight ([a-z]+)/)?.[1] ?? []));
   expect([...commands].sort()).toEqual(["brief", "check", "diff", "doctor", "draft", "flow", "flows", "init", "list", "name", "open", "plan", "point", "record", "scan", "see", "setup", "show", "view"]);
   const named = [...text.matchAll(/`pathlight ([a-z]+)[ `]/g)].map(match => match[1]!);
-  expect(named.length).toBeGreaterThan(name === "pathlight" ? 4 : 0);
+  expect(named.length).toBeGreaterThan(name === "map" ? 4 : 0);
   for (const command of named) expect(commands.has(command)).toBe(true);
   // Only on lines that run pathlight: the behavior skill also shows git flags (`git rev-parse --short HEAD`).
-  const flags = new Set(text.split("\n").filter(line => name === "pathlight" || /`pathlight /.test(line)).flatMap(line => [...line.matchAll(/--[a-z][a-z-]+/g)].map(match => match[0])));
+  const flags = new Set(text.split("\n").filter(line => name === "map" || /`pathlight /.test(line)).flatMap(line => [...line.matchAll(/--[a-z][a-z-]+/g)].map(match => match[0])));
   // --help is accepted everywhere but is not in the usage text itself.
   expect((await run(process.execPath, [resolve("src/cli.ts"), "list", "--help"])).startsWith("pathlight list")).toBe(true);
   for (const flag of flags) if (flag !== "--help") expect([flag, help.includes(flag)]).toEqual([flag, true]);
-  expect(flags.size).toBeGreaterThan(name === "pathlight" ? 5 : 0);
+  expect(flags.size).toBeGreaterThan(name === "map" ? 5 : 0);
 });
 
 // The example in the behavior skill is what an agent copies, so it must compile and draw as a view.
 test("the behavior skill's example model compiles and is listed as a view", async () => {
-  const text = await readFile("plugins/claude/skills/pathlight-behavior/SKILL.md", "utf8");
+  const text = await readFile("plugins/claude/skills/behavior/SKILL.md", "utf8");
   const example = text.match(/```likec4\n([\s\S]*?)```/)?.[1];
   expect(example).toBeDefined();
   const directory = await mkdtemp(join(tmpdir(), "pathlight-behavior-"));
@@ -49,7 +49,7 @@ test("the behavior skill's example model compiles and is listed as a view", asyn
 });
 
 // The syntax section is what an agent copies when it writes a model by hand, so its example must compile and list both views.
-test("the pathlight skill's LikeC4 example compiles and lists its views", async () => {
+test("the map skill's LikeC4 example compiles and lists its views", async () => {
   const text = await readFile(path, "utf8");
   const example = text.match(/## LikeC4 in brief[\s\S]*?```likec4\n([\s\S]*?)```/)?.[1];
   expect(example).toBeDefined();
@@ -81,5 +81,5 @@ test("a draft rerun leaves a behavior file beside it alone", async () => {
 
 // `pathlight init` compiles the skills in by name, so a skill added to the folder must be added there too.
 test("init embeds every skill in the plugin's skills folder", async () => {
-  expect((await readdir("plugins/claude/skills")).sort()).toEqual(["pathlight", "pathlight-behavior", "pathlight-onboarding"]);
+  expect((await readdir("plugins/claude/skills")).sort()).toEqual(["behavior", "map", "onboarding"]);
 });

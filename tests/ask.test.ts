@@ -16,8 +16,8 @@ test("an ask message leads with the question, adds the component's context, and 
 test("t asks or tells, and both close their loop: a drawn question is recorded as a journey, an instruction declares its plan before the first edit", () => {
   const target = { title: "Orders", id: "parcel.orders", files: ["src/orders.ts"], links: [] };
   const asked = askMessage(target, "how does an order reach shipping?", true);
-  expect(asked).toContain('Load the pathlight skill and follow its "Requests from the viewer" section: answer here, and have the path recorded as a pathlight journey (pathlight flow add) so it appears on the map and F walks it.');
-  expect(asked).toContain("If this asks you to change the code, before editing any file run pathlight plan parcel.orders with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight skill says how); run pathlight plan with no ids when done.");
+  expect(asked).toContain('Load the pathlight map skill and follow its "Requests from the viewer" section: answer here, and have the path recorded as a pathlight journey (pathlight flow add) so it appears on the map and F walks it.');
+  expect(asked).toContain("If this asks you to change the code, before editing any file run pathlight plan parcel.orders with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight map skill says how); run pathlight plan with no ids when done.");
   expect(askMessage(target, "why is it slow?")).not.toContain("pathlight journey");
   expect(askMessage(target, "add a refunds endpoint")).toContain("run pathlight plan parcel.orders");
   // Who records the journey is the skill's word to the conversation, never in a text a tracer is handed.
@@ -212,7 +212,7 @@ test("d opens the talk on the trace tab: the request names the skill, the comman
     expect(typed).toContain('Trace how this works in the "Agent adapters" component (plugin) and record it as a pathlight journey: how an adapter records a call');
     expect(typed).toContain("pathlight flow add");
     expect(typed).not.toContain("tracer");
-    expect(typed).toContain("pathlight-behavior skill");
+    expect(typed).toContain("pathlight behavior skill");
     await at.until(at.pane, text => text.includes("Asked the agent to trace a flow"), "toast");
   } finally { await at.close(); }
 }, 60_000);

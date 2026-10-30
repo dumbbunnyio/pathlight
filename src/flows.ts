@@ -10,7 +10,7 @@ import { declarationsFor, type FrontEnd } from "./languages";
 import { run } from "./process";
 
 /**
- * Whether the state diagrams an agent wrote (`*.behavior.c4`, see the pathlight-behavior skill) still agree with the code they were read from.
+ * Whether the state diagrams an agent wrote (`*.behavior.c4`, see the pathlight behavior skill) still agree with the code they were read from.
  * A flow is the agent's reading, so nothing here says it is right; it says what can be shown wrong or old: a state naming a file that is gone,
  * files changed since the commit the flow was synced at, arrows with no event on them, a decision with one answer, a state nothing reaches.
  * A state that names no file cannot be checked at all, and is counted so the gap is visible.

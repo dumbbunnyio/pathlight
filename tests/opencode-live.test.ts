@@ -33,7 +33,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
       { name: "edit", args: { path: "src/launcher.ts", oldString: "export {}", newString: "export const edited = 1" } },
       { name: "shell", args: { command: "cat src/activity.ts" } },
     ],
-    "pathlight skill": [{ name: "shell", args: { command: "pathlight show live --workspace . --follow" } }],
+    "pathlight map skill": [{ name: "shell", args: { command: "pathlight show live --workspace . --follow" } }],
     "show me the architecture": [{ name: "shell", args: { command: "pathlight show live --workspace . --follow" } }],
   };
   const server = Bun.serve({
@@ -151,7 +151,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
 
     // /pathlight: the agent is told the real pane and socket, and following the skill reopens the viewer rather than adding a second one.
     await type("/pathlight live");
-    const prompt = await until(async () => requests.map(request => JSON.stringify(request.messages.filter(message => message.role === "user").at(-1))).find(text => text.includes("pathlight skill") && !text.includes("About the")), "the /pathlight prompt");
+    const prompt = await until(async () => requests.map(request => JSON.stringify(request.messages.filter(message => message.role === "user").at(-1))).find(text => text.includes("pathlight map skill") && !text.includes("About the")), "the /pathlight prompt");
     expect(prompt).toContain(`pane is ${pane}`);
     expect(prompt).toContain(socket);
     await delay(3000);

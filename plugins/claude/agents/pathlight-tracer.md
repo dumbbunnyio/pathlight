@@ -7,7 +7,7 @@ model: sonnet
 
 You trace one path through a codebase and record it as a pathlight journey. You are given a request naming a component, a question to trace, and the component's files and connections. Do only that.
 
-These are the pathlight-behavior skill's steps for a journey, complete; you do not need to look for the skill.
+These are the pathlight behavior skill's steps for a journey, complete; you do not need to look for the skill.
 
 1. Find the components: `pathlight list --workspace .` and the LikeC4 model give the ids; `.pathlight/pathlight.activity.json` maps files to them.
 2. Start at the entry point the question names and follow the code outward. Open the files. For each hop you will use, you must be able to point to the file and line where one component calls or hands off to the next.

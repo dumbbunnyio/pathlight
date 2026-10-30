@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { Config, Effect } from "effect";
 import { listViews } from "./catalog";
 import { readActivityConfig } from "./activity";
@@ -45,7 +45,8 @@ export const doctor = Effect.fn("Doctor.run")(function* (workspace: string) {
   } else add({ name: "Claude Code", status: "info", detail: "not installed here" });
   if (claude._tag === "Some") add(hasPathlightPermission(root) ? { name: "permission", status: "ok", detail: `.claude/settings.json allows ${pathlightPermission}` }
     : { name: "permission", status: "info", detail: `Claude Code will ask before each pathlight command the agent runs (name, flow add, plan)`, fix: `Run \`pathlight init\`, or add "${pathlightPermission}" to permissions.allow in .claude/settings.json.` });
-  if (claudePluginInstalled() && projectSkillCopies(root).length) add({ name: "old skills", status: "fail", detail: "this project has its own copy of the pathlight skills in .claude/skills, which hides the plugin's newer ones", fix: "Run `pathlight init` to remove them, or delete .claude/skills/pathlight and .claude/skills/pathlight-behavior." });
+  const copies = claudePluginInstalled() ? projectSkillCopies(root) : [];
+  if (copies.length) add({ name: "old skills", status: "fail", detail: "this project has its own copy of the pathlight skills in .claude/skills, which hides the plugin's newer ones", fix: `Run \`pathlight init\` to remove them, or delete ${copies.map(path => relative(root, dirname(path))).join(" and ")}.` });
   const editor = yield* Config.String("VISUAL").pipe(Config.withDefault(""), Effect.flatMap(visual => visual ? Effect.succeed(visual) : Config.String("EDITOR").pipe(Config.withDefault(""))));
   add(editor ? { name: "editor", status: "ok", detail: `${editor} opens files from the viewer` }
     : { name: "editor", status: "info", detail: "neither VISUAL nor EDITOR is set, so opening a file from the viewer will fail", fix: "Set VISUAL or EDITOR, for example `export EDITOR=nvim`." });

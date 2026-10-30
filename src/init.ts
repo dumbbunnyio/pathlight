@@ -8,13 +8,21 @@ import { acquireModel } from "./catalog";
 import { mappingPath } from "./layout";
 import { hasCode, io, json, failure } from "./effects";
 
-import pathlightSkill from "../plugins/claude/skills/pathlight/SKILL.md" with { type: "text" };
-import behaviorSkill from "../plugins/claude/skills/pathlight-behavior/SKILL.md" with { type: "text" };
-import onboardingSkill from "../plugins/claude/skills/pathlight-onboarding/SKILL.md" with { type: "text" };
+import mapSkill from "../plugins/claude/skills/map/SKILL.md" with { type: "text" };
+import behaviorSkill from "../plugins/claude/skills/behavior/SKILL.md" with { type: "text" };
+import onboardingSkill from "../plugins/claude/skills/onboarding/SKILL.md" with { type: "text" };
 
 const pluginRoot = fileURLToPath(new URL("../plugins", import.meta.url));
-/** The skills are compiled in, so `init` works from the single binary as well as from a checkout. */
-const skillFiles: Record<string, string> = { pathlight: pathlightSkill, "pathlight-behavior": behaviorSkill, "pathlight-onboarding": onboardingSkill };
+/**
+ * The skills are compiled in, so `init` works from the single binary as well as from a checkout. In the Claude plugin a skill's folder is its name under
+ * the plugin's (`/pathlight:map`); a project's skills folder has no such namespace, so a copy there is `pathlight-map`, never a bare `map` that could be
+ * a person's own.
+ */
+const pluginSkills: Record<string, string> = { map: mapSkill, behavior: behaviorSkill, onboarding: onboardingSkill };
+export const skillCopyName = (name: string) => `pathlight-${name}`;
+const skillFiles: Record<string, string> = Object.fromEntries(Object.entries(pluginSkills).map(([name, text]) => [skillCopyName(name), text.replace(/^name: .*$/m, `name: ${skillCopyName(name)}`)]));
+/** The names copies had before the skills were renamed (2026-10-30): `init` and the doctor treat them as its own copies too. */
+const formerCopies = ["pathlight"];
 /** Hook scripts and the OpenCode plugin are files in a checkout; a compiled binary has none, and the plugins supply them instead. */
 const hasCheckout = (path: string) => existsSync(join(pluginRoot, path));
 
@@ -28,7 +36,7 @@ export const claudePluginInstalled = () => {
 };
 
 /** The skill copies in a project's `.claude/skills` that Pathlight wrote (matched by the name in their front matter, so a person's own skill of another name is never touched). */
-export const projectSkillCopies = (workspace: string) => Object.keys(skillFiles).map(name => join(workspace, ".claude", "skills", name, "SKILL.md")).filter(path => {
+export const projectSkillCopies = (workspace: string, root = ".claude", names = [...Object.keys(skillFiles), ...formerCopies]) => names.map(name => join(workspace, root, "skills", name, "SKILL.md")).filter(path => {
   try { return new RegExp(`^name: ${basename(dirname(path))}\\s*$`, "m").test(readFileSync(path, "utf8").slice(0, 400)); } catch { return false; }
 });
 
@@ -154,7 +162,11 @@ export const initWorkspace = Effect.fn("Init.workspace")(function* (path: string
     for (const path of removed) yield* io("Init.remove", () => rm(dirname(path), { recursive: true }));
     notes.push(removed.length ? `Skills: removed the copies in .claude/skills (${removed.length}); the installed plugin supplies them and a copy would hide its updates.`
       : "Skills: the installed plugin supplies them to Claude Code, so none were written to .claude/skills.");
-  } else for (const name of skills) yield* writeText(join(workspace, skillRoot, "skills", name, "SKILL.md"), skillFiles[name]!);
+  } else {
+    // A copy under a name the skills no longer have would sit beside the new one.
+    for (const path of projectSkillCopies(workspace, skillRoot, formerCopies)) yield* io("Init.remove", () => rm(dirname(path), { recursive: true }));
+    for (const name of skills) yield* writeText(join(workspace, skillRoot, "skills", name, "SKILL.md"), skillFiles[name]!);
+  }
   if (!plugin) notes.push(options.claudeHooks ? `Skills: ${skills.join(", ")} written to .claude/skills (Claude Code; OpenCode documents reading it too).`
     : `Skills: ${skills.join(", ")} written to .agents/skills for OpenCode (the Claude plugin supplies them to Claude Code).`);
 
@@ -229,6 +241,6 @@ export const initGlobal = Effect.fn("Init.global")(function* () {
   return [
     yield* registerOpenCode(path, path),
     "Claude Code: install the plugin once for every project: claude plugin marketplace add dumbbunnyio/pathlight && claude plugin install pathlight@pathlight",
-    "Then in a project: /pathlight in your agent, or pathlight setup --yes.",
+    "Then in a project: /pathlight:map in Claude Code or /pathlight in OpenCode, or pathlight setup --yes.",
   ];
 });
