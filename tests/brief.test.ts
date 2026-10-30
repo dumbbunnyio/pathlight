@@ -275,17 +275,17 @@ test("brief --first-day prints its six parts from the facts and the names, each 
     expect(day).toContain("- Sessions — Starts a session against the database. [src/session]");
     expect(day).toContain("- Database — Holds the connection. (inferred) [src/database]");
     expect(day).toMatch(/F {2}Starting a session {2}\(journey start-session, 2 steps/);
-    expect(day).toContain("1 box named from the code, 1 inferred from file names, 2 not named.");
-    expect(day).toMatch(/Named \d{4}-\d{2}-\d{2}; 2 of 2 named boxes have the same files as then\./);
-    const read = day.slice(day.indexOf("## Read these first")).split("\n").slice(1, day.slice(day.indexOf("## Read these first")).split("\n").indexOf(""));
-    expect(read).toEqual([
-      "src/session.ts [src/session] — the largest file of Sessions (2 lines)", "src/database/query.ts [src/database] — the largest file of Database (2 lines)",
-      "src/index.ts [.#loose] — the largest file of loose files (2 lines)", "benchmarks/bench.ts [benchmarks] — the largest file of benchmarks (2 lines)"]);
+    // How sure is one line; the commit and the boxes whose files are unchanged are in --json only.
+    const sure = day.slice(day.indexOf("## How sure")).trim().split("\n");
+    expect(sure).toHaveLength(2);
+    expect(sure[1]).toMatch(/^1 box named from the code, 1 inferred from file names, 2 not named, named \d{4}-\d{2}-\d{2}\.$/);
+    // Every box here is a few lines: none is big enough to be worth a line of its own in Read these first.
+    expect(day).toContain("## Read these first\nno source file to suggest");
     // The same as data.
     const data = JSON.parse(await cli("brief", "--first-day", "--json", "--workspace", directory));
     expect(data.journeys).toEqual([{ id: "start-session", title: "Starting a session", kind: "journey", steps: 2, findings: expect.any(Number) }]);
     expect(data.numbers.files).toBe(scan.coverage.files);
-    expect(data.sure).toMatchObject({ named: 1, inferred: 1, unnamed: 2 });
+    expect(data.sure).toMatchObject({ named: 1, inferred: 1, unnamed: 2, recorded: { at: expect.any(Number) }, unchanged: { same: 2, of: 2 } });
     await expect(cli("brief", "--first-day", "src/session", "--workspace", directory)).rejects.toThrow(/takes no keys/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 90_000);
@@ -302,7 +302,7 @@ test("a declared start is read first, and a map with a box for the whole app say
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
-test("the briefing lists the declared starts and the five largest files nothing imports, never a migration, and reads one declared start per box", async () => {
+test("the briefing lists the declared starts and the three largest files nothing imports, never a migration, and reads one declared start per box", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-starts-"));
   try {
     await write(directory);
@@ -319,12 +319,12 @@ test("the briefing lists the declared starts and the five largest files nothing 
     const starts = section("## Where it starts");
     const file = (line: string) => line.split(" ")[0];
     expect(starts.filter(line => !line.endsWith("no other file imports it")).map(file)).toEqual(["src/index.ts", "src/session/stop.ts", "src/session/run.ts"]);
-    expect(starts.filter(line => line.endsWith("no other file imports it"))).toHaveLength(5);
+    expect(starts.filter(line => line.endsWith("no other file imports it"))).toHaveLength(3);
     expect(starts.join("\n")).not.toMatch(/migrations\/|alembic\/versions\//);
     // pathlight brief's own list keeps its twelve, without the migrations either.
     const brief = await cli("brief", "--workspace", directory);
     const listed = brief.slice(brief.indexOf("# Where the code can be started")).split("\n\n")[0]!.split("\n").slice(1);
-    expect(listed.filter(line => line.endsWith("no other file imports it")).length).toBeGreaterThan(5);
+    expect(listed.filter(line => line.endsWith("no other file imports it")).length).toBeGreaterThan(3);
     expect(listed.join("\n")).not.toMatch(/migrations\/|alembic\/versions\//);
     // Three declared starts in one box (src): Read these first takes the first.
     expect(starts[0]).toBe("src/index.ts [src] — script “serve”");
@@ -333,15 +333,28 @@ test("the briefing lists the declared starts and the five largest files nothing 
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
-test("the briefing's Named date is the local day, not the UTC one", () => {
+test("the briefing's named date is the local day, not the UTC one", () => {
   const day: FirstDay = { project: "demo", drafted: true, what: { source: "none" }, built: [], numbers: { boxes: 0, files: 0, imports: 0, languages: [], unread: [] },
     starts: [], journeys: [], read: [], sure: { named: 1, inferred: 0, unnamed: 0, byPerson: 0, recorded: { at: Date.UTC(2026, 9, 30, 4, 0) } } };
   const zone = process.env.TZ;
   try {
     // 04:00 UTC on the 30th is 21:00 on the 29th in Los Angeles and 13:00 on the 30th in Tokyo.
     process.env.TZ = "America/Los_Angeles";
-    expect(formatFirstDay(day)).toContain("Named 2026-10-29");
+    expect(formatFirstDay(day)).toContain("named 2026-10-29.");
     process.env.TZ = "Asia/Tokyo";
-    expect(formatFirstDay(day)).toContain("Named 2026-10-30");
+    expect(formatFirstDay(day)).toContain("named 2026-10-30.");
   } finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; }
 });
+
+test("Read these first gives a box's largest file a line only when the box has 200 lines the scan reads, five lines in all", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-read-"));
+  try {
+    await write(directory);
+    // session gets a 250-line file; database stays a few lines.
+    await writeFile(join(directory, "src/session/big.ts"), "export const x = 1;\n".repeat(250));
+    await Effect.runPromise(draftWorkspace(directory));
+    const day = await cli("brief", "--first-day", "--workspace", directory);
+    const lines = day.slice(day.indexOf("## Read these first")).split("\n");
+    expect(lines.slice(1, lines.indexOf(""))).toEqual(["src/session/big.ts [src/session] — the largest file of session (250 lines)"]);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

@@ -382,7 +382,9 @@ const plainNote = (note: string) => note.replace(/\s*\([^()]*\binferred\b[^()]*\
 const languageNames: Record<string, string> = { typescript: "TypeScript", javascript: "JavaScript", python: "Python", go: "Go" };
 const declaredStart = (entry: EntryPoint) => entry.why !== "no other file imports it";
 /** The briefing's Where it starts: every declared start, then the largest few files nothing imports (`pathlight brief` itself lists twelve). */
-const unimportedShown = 5;
+const unimportedShown = 3;
+/** Read these first lists a box's largest file only for a box with this many lines the scan reads: a tiny box gets no line. */
+const readFloor = 200;
 
 export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: string) {
   const root = yield* io("Brief.workspace", () => realpath(workspace));
@@ -407,13 +409,16 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
   const journeys = flows.found ? [...flows.found.journeys.map(item => ({ id: item.id, title: item.title, kind: "journey" as const, steps: item.steps.length, findings: item.findings.length })),
     ...flows.found.flows.map(item => ({ id: item.view ?? item.id, title: item.title, kind: "state diagram" as const, steps: item.steps.length, findings: item.findings.length }))] : [];
-  // Read these first: the files the project declares as starts, one per box, then the largest file of each top-level box not yet covered, five at most.
+  // Read these first: the files the project declares as starts, one per box, then the largest file of each top-level box not yet covered that has at
+  // least `readFloor` lines read, five at most.
   const read: FirstDay["read"] = [];
   for (const entry of starts.filter(declaredStart)) if (read.length < 5 && !read.some(item => item.file === entry.file || (entry.box !== undefined && item.box === entry.box))) read.push({ file: entry.file, ...(entry.box ? { box: entry.box } : {}), why: entry.why });
   const holds = (box: BriefBox, file: string) => box.files.some(item => item.path === file);
+  const sources = new Set(scan.files.map(file => file.path));
+  const linesRead = (box: BriefBox) => box.files.reduce((sum, file) => sum + (sources.has(file.path) ? file.lines : 0), 0);
   for (const item of built) {
     const box = byKey.get(item.key)!;
-    if (read.length >= 5 || read.some(chosen => holds(box, chosen.file)) || !box.files[0]) continue;
+    if (read.length >= 5 || read.some(chosen => holds(box, chosen.file)) || !box.files[0] || linesRead(box) < readFloor) continue;
     read.push({ file: box.files[0].path, box: box.key, why: `the largest file of ${item.title} (${box.files[0].lines.toLocaleString("en")} lines)` });
   }
   const named = all.filter(box => box.name?.title || box.name?.note);
@@ -461,8 +466,7 @@ export function formatFirstDay(day: FirstDay) {
   for (const item of day.read) lines.push(`${item.file}${item.box ? ` [${item.box}]` : ""} — ${item.why}`);
   lines.push("", "## How sure");
   const { sure } = day;
-  lines.push(`${sure.named} box${sure.named === 1 ? "" : "es"} named from the code${sure.byPerson ? ` (${sure.byPerson} by a person)` : ""}, ${sure.inferred} inferred from file names, ${sure.unnamed} not named.`);
-  if (sure.recorded) lines.push(`Named ${localDate(sure.recorded.at)}${sure.recorded.commit ? `, when the newest commit was ${sure.recorded.commit}` : ""}${sure.unchanged ? `; ${sure.unchanged.same} of ${sure.unchanged.of} named boxes have the same files as then` : ""}.`);
-  else if (sure.named + sure.inferred) lines.push("Nothing records when the names were written.");
+  // One line: the counts and the day the names were written; the commit and how many boxes kept their files are in --json.
+  lines.push(`${sure.named} box${sure.named === 1 ? "" : "es"} named from the code${sure.byPerson ? ` (${sure.byPerson} by a person)` : ""}, ${sure.inferred} inferred from file names, ${sure.unnamed} not named${sure.recorded ? `, named ${localDate(sure.recorded.at)}` : ""}.`);
   return `${lines.join("\n")}\n`;
 }
