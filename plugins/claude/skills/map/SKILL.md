@@ -133,7 +133,7 @@ views {
 - **An element** is `id = kind 'Title' { ... }` with optional `technology`, `description` and nested elements. Its relationships go inside the parent (`api -> store 'label'`) or anywhere with full dotted ids (`app.api -> billing`).
 - **Ids** are letters, digits, `_` and `-`, not starting with a digit. A dot is the path separator (`app.api`), never part of an id. Avoid reserved words as ids (`storage`, `notation`, `model`, `view`, `style`, `group`).
 - **A view** is `view name { ... }`, or `view name of element { ... }` to open one element up. `include *` is the element's children (or the top level in a view with no `of`); `include a.*` is the children of `a`; `include a, b` lists elements; `exclude` removes. `*` only works alone or after a dot: there is no pattern such as `signup_*`.
-- **Linking views:** `include app with { navigateTo app }` makes the box open view `app` (`o` in the viewer). Every view except the overview should be linked from it.
+- **Linking views:** `include app with { navigateTo app }` makes the box open view `app` (Enter in the viewer). Every view except the overview should be linked from it.
 - **Quotes:** single or double; put a long text on its own lines inside `'''` triple quotes only if you need line breaks.
 - **Several files** in one folder with one `likec4.config.json` (`{"name": "demo"}`) form one model; across files an element is referenced by its full dotted id.
 

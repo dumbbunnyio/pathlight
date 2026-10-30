@@ -139,7 +139,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     // The skill is advertised, and the agent has the tool to load it.
     const asked = requests.filter(request => request.tools?.some(tool => tool.function?.name === "skill"));
     expect(asked.length).toBeGreaterThan(0);
-    expect(JSON.stringify(asked[0]!.messages)).toContain("<id>pathlight</id>");
+    expect(JSON.stringify(asked[0]!.messages)).toContain("<id>pathlight-map</id>");
 
     // Ask-about-node: typed into this conversation and submitted, so the model receives it.
     await tmux("send-keys", "-t", viewer, "t");
