@@ -16,15 +16,15 @@
     │                 neighbour                           the review                        m          ask it to improve the map       │    
  ·  │ tab             through the inspector,     a        follow the work                   n          name and note it yourself       │    
     │                 in a flow: next step       w        jump to the agent's work          p          replay the session              │    
-  ╭─│ enter, o        into a group, open a       e        files (in a flow: its code)       s          subagent calls                  │    
-  │ │                 link                       /        search views, boxes, files        T          choose a theme                  │    
- ·╰─│ b, backspace    back where you were,       g        go to any view                    1–4        focus a card, esc or tab        │    
-    │                 else up                    i        inspector, or the talk and back              leaves                          │    
-  ╭─│ t               ask how it works, or       z        widen the talk                    j k        move in the card                │    
-  │ │                 tell it what to change     f        fit everything                    space      fold the card                   │    
- ·╰─│ F               step through a flow        0  + -   actual size, zoom                 PgUp PgDn  scroll the inspector            │    
-    │ [ ]             steps, esc leaves          r        centre the selection              v          swap hjkl and arrows            │    
-    │ ?               this help                  ← ↑ ↓ →  pan                               q          quit                            │    
+  ╭─│ enter           into a box                 e        files (in a flow: its code)       s          subagent calls                  │    
+  │ │ b, backspace    back where you were,       /        search views, boxes, files        T          choose a theme                  │    
+ ·╰─│                 else up                    g        go to any view                    1–4        focus a card, esc or tab        │    
+    │ t               ask how it works, or       i        inspector, or the talk and back              leaves                          │    
+  ╭─│                 tell it what to change     z        widen the talk                    j k        move in the card                │    
+  │ │ F               step through a flow        f        fit everything                    space      fold the card                   │    
+ ·╰─│ [ ]             steps, esc leaves          0  + -   actual size, zoom                 PgUp PgDn  scroll the inspector            │    
+    │ ?               this help                  r        centre the selection              v          swap hjkl and arrows            │    
+    │                                            ← ↑ ↓ →  pan                               q          quit                            │    
  ·  └─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────────────────────────────────────┘    
                                                                                                  │                                          
                                                                                                  │                                          

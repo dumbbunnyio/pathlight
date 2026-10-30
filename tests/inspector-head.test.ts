@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { countsLine, headContent, opensLine, pinnedLines, sectionHeader, splitDescription } from "../src/viewer/inspector-view";
+import { countsLine, headContent, hiddenLine, pinnedLines, sectionHeader, splitDescription } from "../src/viewer/inspector-view";
 import { type KeyMode, keyAction } from "../src/viewer/keys";
 import { numberedCards } from "../src/viewer/widgets";
 import { palette } from "../src/ui";
@@ -70,8 +70,8 @@ test("each card's header shows the key that focuses it, and the keys and the num
   }
 });
 
-test("a box that opens a view the draft thinned says how many smaller boxes that view leaves out, beside what o opens", () => {
-  expect(opensLine("Inside internal", "7 smaller ones are not shown here; internal_all lists everything.")).toBe("7 smaller ones are not shown · o opens Inside internal");
-  expect(opensLine("Inside internal", "1 smaller one is not shown here; internal_all lists everything.")).toBe("1 smaller one is not shown · o opens Inside internal");
-  expect(opensLine("Services", "")).toBe("o opens Services");
+test("a box that opens a view the draft thinned says how many smaller boxes that view leaves out, and names no key", () => {
+  expect(hiddenLine("7 smaller ones are not shown here; internal_all lists everything.")).toBe("7 smaller boxes are not drawn in its view");
+  expect(hiddenLine("1 smaller one is not shown here; internal_all lists everything.")).toBe("1 smaller box is not drawn in its view");
+  expect(hiddenLine("")).toBe("");
 });

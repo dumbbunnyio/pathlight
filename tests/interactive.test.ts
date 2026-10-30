@@ -310,7 +310,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     };
     await capture("System context");
     const pid = await tmux("display-message", "-p", "-t", pane, "#{pane_pid}");
-    await tmux("send-keys", "-t", pane, "o");
+    await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("No linked view")).toContain("System context");
     await tmux("send-keys", "-t", pane, "b");
     expect(await capture("No previous view")).toContain("System context");
@@ -337,7 +337,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "Right", "Down");
     await delay(700);
     const before = await tmux("capture-pane", "-p", "-t", pane);
-    await tmux("send-keys", "-t", pane, "o");
+    await tmux("send-keys", "-t", pane, "Enter");
     await capture("back 2");
     await delay(100);
     await tmux("send-keys", "-t", pane, "b");
@@ -348,7 +348,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     expect(returned).toContain("Selected: parcel.commerce");
     expect(returned).toContain("zoom 125%");
     expect(diagramCells(returned)).toBe(diagramCells(before));
-    await tmux("send-keys", "-t", pane, "o");
+    await tmux("send-keys", "-t", pane, "Enter");
     await capture("back 2");
     await delay(100);
     // Checkout opens on its entry too; to the commerce group by search, then Enter goes into it, to its first child.

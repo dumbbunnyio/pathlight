@@ -44,8 +44,9 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("Selected: parcel.commerce")).toContain("parcel/services");
     expect(await capture("parcel/services")).not.toContain("back ");
+    // Enter on a box that opens a view opens it, even a group with children here; backspace comes back.
     await tmux("send-keys", "-t", pane, "Enter");
-    await capture("Selected: parcel.commerce.api");
+    await capture("parcel/checkout");
     await tmux("send-keys", "-t", pane, "BSpace");
     await settled();
     await tmux("send-keys", "-t", pane, "+", "Right");
@@ -53,7 +54,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     expect(beforeLink).toContain("Selected: parcel.commerce");
     const pid = await tmux("display-message", "-p", "-t", pane, "#{pane_pid}");
 
-    await tmux("send-keys", "-t", pane, "o");
+    await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("parcel/checkout")).toContain("back 1");
     await settled();
     await tmux("send-keys", "-t", pane, "b");
@@ -68,7 +69,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await settled();
     await tmux("send-keys", "-t", pane, "Escape");
     expect(await settled()).toBe(beforeLink);
-    await tmux("send-keys", "-t", pane, "o");
+    await tmux("send-keys", "-t", pane, "Enter");
     await capture("parcel/checkout");
     await find("parcel.commerce.api");
     await capture("› parcel.commerce.api");
@@ -113,8 +114,10 @@ test("backspace steps back like b, and goes up only when there is nowhere to go 
   expect(where(up)).toEqual(["parcel/services", "parcel.commerce"]);
   expect(up.at(-1)).toContain("Went to Parcel / Service architecture");
   // Into the linked view and straight back: backspace takes the visit, as b would.
-  expect(where(await see("BSpace,BSpace,BSpace,o,BSpace"))).toEqual(["parcel/services", "parcel.commerce"]);
-  expect(where(await see("BSpace,BSpace,BSpace,o,b"))).toEqual(["parcel/services", "parcel.commerce"]);
+  expect(where(await see("BSpace,BSpace,BSpace,Enter,BSpace"))).toEqual(["parcel/services", "parcel.commerce"]);
+  expect(where(await see("BSpace,BSpace,BSpace,Enter,b"))).toEqual(["parcel/services", "parcel.commerce"]);
+  // o is no key: Enter is the one way into a box.
+  expect(where(await see("BSpace,BSpace,BSpace,o"))).toEqual(["parcel/services", "parcel.commerce"]);
   // b alone, with no visit behind it, stays.
   const stays = await see("b");
   expect(where(stays)).toEqual(["parcel/checkout", "parcel.commerce.api"]);

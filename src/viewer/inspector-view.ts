@@ -55,12 +55,13 @@ export const headContent = (options: { title: string | undefined; kind: string; 
 };
 
 /**
- * The muted line under a box that opens a view: what `o` opens, after how many smaller boxes that view leaves out when the draft's description of it
- * says so (`7 smaller ones are not shown here; …`), since a view's own description is never shown.
+ * The muted line under a box that opens a view: how many smaller boxes that view leaves out, when the draft's description of it says so (`7 smaller
+ * ones are not shown here; …`), since a view's own description is never shown. Nothing when it leaves none out; Enter is how a box is opened, so the
+ * line does not name a key.
  */
-export const opensLine = (title: string, viewDescription: string) => {
+export const hiddenLine = (viewDescription: string) => {
   const hidden = /\b(\d[\d,]*) smaller ones? (?:is|are) not shown\b/.exec(viewDescription)?.[1];
-  return `${hidden ? `${hidden} smaller ${hidden === "1" ? "one is" : "ones are"} not shown · ` : ""}o opens ${title}`;
+  return hidden ? `${hidden} smaller ${hidden === "1" ? "box is" : "boxes are"} not drawn in its view` : "";
 };
 
 /** Each card's share of the inspector, as `layoutSections` applies it. */

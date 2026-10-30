@@ -38,7 +38,7 @@ export type Action =
   | { type: "focus"; section: SectionKey }
   | { type: "sectionLeave" } | { type: "sectionTab"; by: -1 | 1 } | { type: "sectionFold" } | { type: "sectionMove"; by: -1 | 1 } | { type: "sectionEnter" }
   | { type: "cycleFlow" } | { type: "flowStep"; by: -1 | 1 } | { type: "exitFlow" }
-  | { type: "search" } | { type: "back" } | { type: "open"; enter: boolean } | { type: "parent" } | { type: "views" } | { type: "themes" }
+  | { type: "search" } | { type: "back" } | { type: "open" } | { type: "parent" } | { type: "views" } | { type: "themes" }
   | { type: "ask" } | { type: "map" } | { type: "trace" } | { type: "name" } | { type: "session" } | { type: "replay" } | { type: "work" } | { type: "swap" }
   | { type: "listMove"; by: -1 | 1 } | { type: "traverse"; direction: Direction }
   | { type: "endFiles" } | { type: "fileMove"; by: -1 | 1; page: boolean } | { type: "refreshFiles" } | { type: "fileOpen" }
@@ -147,7 +147,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   if (!files) {
     if (key.sequence === "/") return { type: "search" };
     if (key.name === "b") return { type: "back" };
-    if (key.name === "o" || key.name === "return") return { type: "open", enter: key.name === "return" };
+    if (key.name === "return") return { type: "open" };
     if (key.name === "backspace") return { type: "parent" };
     if (key.name === "g" && !key.ctrl && !key.shift) return { type: "views" };
     if (key.name === "t" && !key.ctrl && key.sequence === "T") return { type: "themes" };
@@ -192,7 +192,7 @@ export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" 
   const arrows = "← ↑ ↓ →";
   return [
     { name: "Understand it", tier: 1, rows: [[`click, ${vim ? "h j k l" : arrows}`, "select a box, a neighbour", ["traverse", "listMove"]],
-      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter, o", "into a group, open a link", ["open"]], ["b, backspace", "back where you were, else up", ["back", "parent"]], ["t", "ask how it works, or tell it what to change", ["ask"]],
+      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter", "into a box", ["open"]], ["b, backspace", "back where you were, else up", ["back", "parent"]], ["t", "ask how it works, or tell it what to change", ["ask"]],
       ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
     { name: "Direct it", tier: 2, rows: [["c", "what it did this session, and the review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
