@@ -409,10 +409,10 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
   const journeys = flows.found ? [...flows.found.journeys.map(item => ({ id: item.id, title: item.title, kind: "journey" as const, steps: item.steps.length, findings: item.findings.length })),
     ...flows.found.flows.map(item => ({ id: item.view ?? item.id, title: item.title, kind: "state diagram" as const, steps: item.steps.length, findings: item.findings.length }))] : [];
-  // Read these first: the files the project declares as starts, one per box, then the largest file of each top-level box not yet covered that has at
+  // Read these first: the files the project declares as starts, one per box and none under a scripts/ folder (a start, not a reading), then the largest file of each top-level box not yet covered that has at
   // least `readFloor` lines read, five at most.
   const read: FirstDay["read"] = [];
-  for (const entry of starts.filter(declaredStart)) if (read.length < 5 && !read.some(item => item.file === entry.file || (entry.box !== undefined && item.box === entry.box))) read.push({ file: entry.file, ...(entry.box ? { box: entry.box } : {}), why: entry.why });
+  for (const entry of starts.filter(declaredStart)) if (read.length < 5 && !/(^|\/)scripts\//.test(entry.file) && !read.some(item => item.file === entry.file || (entry.box !== undefined && item.box === entry.box))) read.push({ file: entry.file, ...(entry.box ? { box: entry.box } : {}), why: entry.why });
   const holds = (box: BriefBox, file: string) => box.files.some(item => item.path === file);
   const sources = new Set(scan.files.map(file => file.path));
   const linesRead = (box: BriefBox) => box.files.reduce((sum, file) => sum + (sources.has(file.path) ? file.lines : 0), 0);

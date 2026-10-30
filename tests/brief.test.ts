@@ -358,3 +358,20 @@ test("Read these first gives a box's largest file a line only when the box has 2
     expect(lines.slice(1, lines.indexOf(""))).toEqual(["src/session/big.ts [src/session] — the largest file of session (250 lines)"]);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("a declared start under a scripts/ folder is where the code starts, not a file to read first", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-scripts-"));
+  try {
+    await write(directory);
+    await mkdir(join(directory, "src/scripts"), { recursive: true });
+    await writeFile(join(directory, "src/scripts/release.ts"), "export const release = 1;\n");
+    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "demo", scripts: { release: "bun src/scripts/release.ts", serve: "bun src/index.ts" } }));
+    await Effect.runPromise(draftWorkspace(directory));
+    const day = await cli("brief", "--first-day", "--workspace", directory);
+    const section = (heading: string) => { const lines = day.slice(day.indexOf(heading)).split("\n"); return lines.slice(1, lines.indexOf("")); };
+    expect(section("## Where it starts").map(line => line.split(" ")[0])).toEqual(expect.arrayContaining(["src/scripts/release.ts", "src/index.ts"]));
+    const read = section("## Read these first");
+    expect(read.join("\n")).not.toContain("src/scripts/release.ts");
+    expect(read[0]).toStartWith("src/index.ts ");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

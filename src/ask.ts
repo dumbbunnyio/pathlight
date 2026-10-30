@@ -72,8 +72,7 @@ export function mapMessage(target: { title: string; id: string; key: string; fil
     target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   return `Improve the pathlight map for the "${clean(target.title)}" component (${clean(target.id)}): ${clean(request).slice(0, 600)} [${context}] `
-    + `Read the files, answer me here, then set its name and note in .pathlight/pathlight.overlay.json with "by":"agent" and run pathlight draft. Never change an entry marked "by":"human". `
-    + `If it should be merged or split, tell me and wait for my yes before editing.`;
+    + `Read the files and answer me here. If it should be renamed, merged or split, or you advise against what I asked, say so with your reasons and wait for my yes; rename or redraw nothing until then. Never change an entry marked "by":"human".`;
 }
 
 /**
