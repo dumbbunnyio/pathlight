@@ -34,7 +34,7 @@ Show the output of `pathlight brief --first-day --workspace .` **as printed**: n
 A newcomer learns a codebase by following one thing through. Take the first journey the briefing lists, and at most one more if they want it.
 
 - `pathlight flows --json --workspace .` gives each journey's steps: the two components of each hop (`from`, `to`), the step's text, and the function it calls when the tracer recorded one (`call`).
-- For each step: `pathlight point <to-component> --workspace .`, then one short message: which box the work is now in (title and key), what it does there (the step's own text, the box's note from `pathlight brief KEY --workspace .`), and the one file the step names, read narrowly, cited as `path:line`.
+- For each step: `pathlight point <to-component> --workspace .`, then one short message: which box the work is now in (title and key), what it does there (the step's own text, the box's note from `pathlight brief KEY --workspace .`, which takes the step's `to` id as it is, so there is no key to look up), and the one file the step names, read narrowly, cited as `path:line`.
 - A step marked `≠` (no arrow on the map for this hop) is the story and the map disagreeing; say so plainly rather than explaining it away.
 
 **No journey recorded.** Say so. Ask whether the tracer should draw the first journey from the entry point the briefing lists first; on yes, hand it to the `pathlight-tracer` agent with the request the viewer's `d` key sends: `Trace how this works in the "<title>" component (<id>) and record it as a pathlight journey: <what happens from that entry point>`. The tracer decides the journey, never this skill. Until it is recorded, walk the boxes (next section).

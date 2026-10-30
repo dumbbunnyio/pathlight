@@ -93,6 +93,21 @@ test("pathlight brief prints a box and pathlight name takes a JSON array on stan
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 90_000);
 
+test("pathlight brief takes an element id as a journey's step or the pointer names it, resolved to its box's key", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-id-"));
+  try {
+    await write(directory);
+    await Effect.runPromise(draftWorkspace(directory));
+    const keys = JSON.parse(await readFile(join(directory, ".cache", "pathlight", "keys.json"), "utf8")).keys as Record<string, string>;
+    const id = Object.entries(keys).find(([, key]) => key === "src/database")![0];
+    expect(id).not.toBe("src/database");
+    const byId = await cli("brief", id, "--workspace", directory);
+    expect(byId).toContain("## src/database  (component");
+    expect(byId).toBe(await cli("brief", "src/database", "--workspace", directory));
+    await expect(cli("brief", `${id}_nope`, "--workspace", directory)).rejects.toThrow("No box has the key or element id");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
 test("the brief opens with what the project says about itself, only when it covers the whole map", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-context-"));
   try {

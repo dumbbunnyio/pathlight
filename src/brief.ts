@@ -245,13 +245,18 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
   return [...boxes.values()];
 });
 
-/** The boxes under the given keys (and those boxes themselves), or all of them. Children come before the boxes that hold them, so a parent can be named from what is inside it. */
-export function select(boxes: readonly BriefBox[], under: readonly string[]) {
+/**
+ * The boxes under the given keys (and those boxes themselves), or all of them. Children come before the boxes that hold them, so a parent can be named
+ * from what is inside it. An element id from the model (as a journey's step or the pointer names it) stands for its box through `keys` (id to key, the
+ * draft's `keys.json`), as `pathlight point` takes a key for its element.
+ */
+export function select(boxes: readonly BriefBox[], under: readonly string[], keys: ReadonlyMap<string, string> = new Map()) {
   const byKey = new Map(boxes.map(box => [box.key, box] as const));
-  const missing = under.filter(key => !byKey.has(key));
+  const keyOf = (name: string) => byKey.has(name) ? name : keys.get(name);
+  const missing = under.filter(name => !byKey.has(keyOf(name) ?? ""));
   const wanted = new Set<string>();
   const take = (box: BriefBox) => { wanted.add(box.key); for (const key of box.inside) take(byKey.get(key)!); };
-  for (const key of under) if (byKey.has(key)) take(byKey.get(key)!);
+  for (const name of under) { const box = byKey.get(keyOf(name) ?? ""); if (box) take(box); }
   const chosen = under.length ? boxes.filter(box => wanted.has(box.key)) : [...boxes];
   return { missing, boxes: chosen.sort((a, b) => b.depth - a.depth || (a.key < b.key ? -1 : 1)) };
 }
