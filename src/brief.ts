@@ -358,8 +358,8 @@ export function formatNamed(result: Named) {
 
 /**
  * `pathlight brief --first-day`: what a person new to the code reads first, derived each time from the scan, the names on the map and the recorded
- * journeys, and stored nowhere. Six parts, each present and honest when empty: what it is, how it is built, where it starts, the journeys to follow,
- * the files to read first (a fact rule: the declared starts, one per box, then the largest file of each remaining top-level box), and how sure the names are.
+ * journeys, and stored nowhere. Five parts, each present and honest when empty: what it is, how it is built, where it starts (the starts the project
+ * declares, never a guess from what nothing imports), the journeys to follow, and how sure the names are.
  */
 export interface FirstDay {
   project: string;
@@ -372,7 +372,6 @@ export interface FirstDay {
   starts: EntryPoint[];
   journeys: { id: string; title: string; kind: "journey" | "state diagram"; steps: number; findings: number }[];
   journeysError?: string;
-  read: { file: string; box?: string; why: string }[];
   sure: { named: number; inferred: number; unnamed: number; byPerson: number; recorded?: { at: number; commit?: string }; unchanged?: { same: number; of: number } };
 }
 
@@ -380,11 +379,8 @@ const inferredMark = /\binferred\b/i;
 /** A note's own "(inferred from …)" is shown as one `(inferred)` mark, so every line says it the same way. */
 const plainNote = (note: string) => note.replace(/\s*\([^()]*\binferred\b[^()]*\)\.?\s*$/i, "").trim();
 const languageNames: Record<string, string> = { typescript: "TypeScript", javascript: "JavaScript", python: "Python", go: "Go" };
+/** The briefing's Where it starts is the declared starts only: a file nothing imports is a lead for an agent (`pathlight brief` lists them), not a fact for a person. */
 const declaredStart = (entry: EntryPoint) => entry.why !== "no other file imports it";
-/** The briefing's Where it starts: every declared start, then the largest few files nothing imports (`pathlight brief` itself lists twelve). */
-const unimportedShown = 3;
-/** Read these first lists a box's largest file only for a box with this many lines the scan reads: a tiny box gets no line. */
-const readFloor = 200;
 
 export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: string) {
   const root = yield* io("Brief.workspace", () => realpath(workspace));
@@ -392,7 +388,7 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const scan = yield* scanWorkspace(root);
   const context = yield* contextOf(root);
   const found = yield* entryPointsOf(root, all);
-  const starts = [...found.filter(declaredStart), ...found.filter(entry => !declaredStart(entry)).slice(0, unimportedShown)];
+  const starts = found.filter(declaredStart);
   const byKey = new Map(all.map(box => [box.key, box] as const));
   const top = byKey.get(".") ?? (all.filter(box => box.depth === 0 && box.kind === "package").length === 1 ? all.find(box => box.depth === 0 && box.kind === "package") : undefined);
   // The README's first paragraph of prose, its links and emphasis read as plain words, cut after two sentences.
@@ -409,18 +405,6 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
   const journeys = flows.found ? [...flows.found.journeys.map(item => ({ id: item.id, title: item.title, kind: "journey" as const, steps: item.steps.length, findings: item.findings.length })),
     ...flows.found.flows.map(item => ({ id: item.view ?? item.id, title: item.title, kind: "state diagram" as const, steps: item.steps.length, findings: item.findings.length }))] : [];
-  // Read these first: the files the project declares as starts, one per box and none under a scripts/ folder (a start, not a reading), then the largest file of each top-level box not yet covered that has at
-  // least `readFloor` lines read, five at most.
-  const read: FirstDay["read"] = [];
-  for (const entry of starts.filter(declaredStart)) if (read.length < 5 && !/(^|\/)scripts\//.test(entry.file) && !read.some(item => item.file === entry.file || (entry.box !== undefined && item.box === entry.box))) read.push({ file: entry.file, ...(entry.box ? { box: entry.box } : {}), why: entry.why });
-  const holds = (box: BriefBox, file: string) => box.files.some(item => item.path === file);
-  const sources = new Set(scan.files.map(file => file.path));
-  const linesRead = (box: BriefBox) => box.files.reduce((sum, file) => sum + (sources.has(file.path) ? file.lines : 0), 0);
-  for (const item of built) {
-    const box = byKey.get(item.key)!;
-    if (read.length >= 5 || read.some(chosen => holds(box, chosen.file)) || !box.files[0] || linesRead(box) < readFloor) continue;
-    read.push({ file: box.files[0].path, box: box.key, why: `the largest file of ${item.title} (${box.files[0].lines.toLocaleString("en")} lines)` });
-  }
   const named = all.filter(box => box.name?.title || box.name?.note);
   const recordedAt = yield* io("Brief.namedTime", async () => (await Bun.file(join(root, namedPath)).stat()).mtimeMs).pipe(Effect.catch(() => Effect.succeed(undefined)));
   const commit = recordedAt === undefined ? undefined : yield* run("git", ["-C", root, "log", "-1", "--format=%h", `--before=@${Math.ceil(recordedAt / 1000)}`]).pipe(Effect.map(text => text.trim() || undefined), Effect.catch(() => Effect.succeed(undefined)));
@@ -431,7 +415,7 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
     what, built,
     numbers: { boxes: all.length, files: scan.coverage.files, imports: scan.coverage.imports, languages: [...new Set(scan.files.map(file => languageNames[file.language] ?? file.language))].sort(),
       unread: scan.coverage.unscanned.map(entry => ({ language: languageOf(`x${entry.extension}`), files: entry.files })) },
-    starts, journeys, ...(flows.error ? { journeysError: flows.error } : {}), read,
+    starts, journeys, ...(flows.error ? { journeysError: flows.error } : {}),
     sure: { named: named.filter(box => !inferredMark.test(box.name?.note ?? "")).length, inferred: named.filter(box => inferredMark.test(box.name?.note ?? "")).length, unnamed: all.length - named.length,
       byPerson: named.filter(box => box.name?.by === "human").length,
       ...(recordedAt !== undefined ? { recorded: { at: recordedAt, ...(commit ? { commit } : {}) } } : {}),
@@ -455,15 +439,12 @@ export function formatFirstDay(day: FirstDay) {
   const { numbers } = day;
   lines.push(`${numbers.boxes.toLocaleString("en")} box${numbers.boxes === 1 ? "" : "es"} · ${count(numbers.files, "file")} read · ${count(numbers.imports, "import")} · read: ${numbers.languages.join(", ") || "none"}${numbers.unread.length ? ` · not read: ${numbers.unread.map(entry => `${entry.files.toLocaleString("en")} ${entry.language}`).join(", ")}` : ""}`);
   lines.push("", "## Where it starts");
-  if (!day.starts.length) lines.push(day.numbers.files ? "nothing declared, and every source file is imported by another" : "no source file the scan reads");
+  if (!day.starts.length) lines.push("no declared start (no script, main or package main)");
   for (const entry of day.starts) lines.push(`${entry.file}${entry.box ? ` [${entry.box}]` : ""} — ${entry.why}`);
   lines.push("", "## Journeys to follow");
   if (day.journeysError) lines.push(`could not be read: ${day.journeysError}`);
   else if (!day.journeys.length) lines.push("none recorded yet");
   for (const journey of day.journeys) lines.push(`F  ${journey.title}  (${journey.kind} ${journey.id}, ${count(journey.steps, journey.kind === "journey" ? "step" : "state")}${journey.findings ? `, ${journey.findings} to check with pathlight flows` : ""})`);
-  lines.push("", "## Read these first");
-  if (!day.read.length) lines.push("no source file to suggest");
-  for (const item of day.read) lines.push(`${item.file}${item.box ? ` [${item.box}]` : ""} — ${item.why}`);
   lines.push("", "## How sure");
   const { sure } = day;
   // One line: the counts and the day the names were written; the commit and how many boxes kept their files are in --json.

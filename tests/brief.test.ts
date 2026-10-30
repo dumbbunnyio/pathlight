@@ -248,7 +248,7 @@ const snapshot = async (root: string) => {
   return Promise.all(entries.filter(entry => entry.isFile()).map(async entry => { const path = join(entry.parentPath, entry.name); return `${path} ${(await stat(path)).mtimeMs}`; })).then(list => list.sort());
 };
 
-test("brief --first-day prints its six parts from the facts and the names, each honest when empty, and writes nothing", async () => {
+test("brief --first-day prints its five parts from the facts and the names, each honest when empty, and writes nothing", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-"));
   try {
     await write(directory);
@@ -257,9 +257,10 @@ test("brief --first-day prints its six parts from the facts and the names, each 
     const before = await snapshot(directory);
     const bare = await cli("brief", "--first-day", "--workspace", directory);
     expect(await snapshot(directory)).toEqual(before);
-    expect(bare.match(/^## .*$/gm)).toEqual(["## What it is", "## How it is built", "## Where it starts", "## Journeys to follow", "## Read these first", "## How sure"]);
+    expect(bare.match(/^## .*$/gm)).toEqual(["## What it is", "## How it is built", "## Where it starts", "## Journeys to follow", "## How sure"]);
     expect(bare).toContain("## What it is\nnot named yet: no box holds the whole app");
     expect(bare).toContain("- session — not named yet [src/session]");
+    expect(bare).toContain("## Where it starts\nno declared start (no script, main or package main)");
     expect(bare).toContain("## Journeys to follow\nnone recorded yet");
     expect(bare).toContain("0 boxes named from the code, 0 inferred from file names, 4 not named.");
     // The numbers are the scan's own.
@@ -279,18 +280,17 @@ test("brief --first-day prints its six parts from the facts and the names, each 
     const sure = day.slice(day.indexOf("## How sure")).trim().split("\n");
     expect(sure).toHaveLength(2);
     expect(sure[1]).toMatch(/^1 box named from the code, 1 inferred from file names, 2 not named, named \d{4}-\d{2}-\d{2}\.$/);
-    // Every box here is a few lines: none is big enough to be worth a line of its own in Read these first.
-    expect(day).toContain("## Read these first\nno source file to suggest");
     // The same as data.
     const data = JSON.parse(await cli("brief", "--first-day", "--json", "--workspace", directory));
     expect(data.journeys).toEqual([{ id: "start-session", title: "Starting a session", kind: "journey", steps: 2, findings: expect.any(Number) }]);
     expect(data.numbers.files).toBe(scan.coverage.files);
+    expect(data).not.toHaveProperty("read");
     expect(data.sure).toMatchObject({ named: 1, inferred: 1, unnamed: 2, recorded: { at: expect.any(Number) }, unchanged: { same: 2, of: 2 } });
     await expect(cli("brief", "--first-day", "src/session", "--workspace", directory)).rejects.toThrow(/takes no keys/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 90_000);
 
-test("a declared start is read first, and a map with a box for the whole app says what it is from that box", async () => {
+test("a declared start is where it starts, and a map with a box for the whole app says what it is from that box", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-app-"));
   try {
     await write(directory);
@@ -298,11 +298,11 @@ test("a declared start is read first, and a map with a box for the whole app say
     await Effect.runPromise(draftWorkspace(directory));
     const day = await cli("brief", "--first-day", "--workspace", directory);
     expect(day).toContain("## What it is\nNo box holds the whole app; in the project's own words (package.json): A demo of sessions.");
-    expect(day).toContain("## Read these first\nsrc/index.ts [.#loose] — bin “demo”");
+    expect(day).toContain("## Where it starts\nsrc/index.ts [.#loose] — bin “demo”\n\n");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
-test("the briefing lists the declared starts and the three largest files nothing imports, never a migration, and reads one declared start per box", async () => {
+test("the briefing lists the declared starts only, never a file just because nothing imports it, and never a migration", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-starts-"));
   try {
     await write(directory);
@@ -318,24 +318,21 @@ test("the briefing lists the declared starts and the three largest files nothing
     const section = (heading: string) => { const lines = day.slice(day.indexOf(heading)).split("\n"); return lines.slice(1, lines.indexOf("")); };
     const starts = section("## Where it starts");
     const file = (line: string) => line.split(" ")[0];
-    expect(starts.filter(line => !line.endsWith("no other file imports it")).map(file)).toEqual(["src/index.ts", "src/session/stop.ts", "src/session/run.ts"]);
-    expect(starts.filter(line => line.endsWith("no other file imports it"))).toHaveLength(3);
+    expect(starts.map(file)).toEqual(["src/index.ts", "src/session/stop.ts", "src/session/run.ts"]);
     expect(starts.join("\n")).not.toMatch(/migrations\/|alembic\/versions\//);
     // pathlight brief's own list keeps its twelve, without the migrations either.
     const brief = await cli("brief", "--workspace", directory);
     const listed = brief.slice(brief.indexOf("# Where the code can be started")).split("\n\n")[0]!.split("\n").slice(1);
     expect(listed.filter(line => line.endsWith("no other file imports it")).length).toBeGreaterThan(3);
     expect(listed.join("\n")).not.toMatch(/migrations\/|alembic\/versions\//);
-    // Three declared starts in one box (src): Read these first takes the first.
     expect(starts[0]).toBe("src/index.ts [src] — script “serve”");
-    const read = section("## Read these first");
-    expect(read.filter(line => line.includes("— script")).map(file)).toEqual(["src/index.ts"]);
+    expect(day).not.toContain("Read these first");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
 test("the briefing's named date is the local day, not the UTC one", () => {
   const day: FirstDay = { project: "demo", drafted: true, what: { source: "none" }, built: [], numbers: { boxes: 0, files: 0, imports: 0, languages: [], unread: [] },
-    starts: [], journeys: [], read: [], sure: { named: 1, inferred: 0, unnamed: 0, byPerson: 0, recorded: { at: Date.UTC(2026, 9, 30, 4, 0) } } };
+    starts: [], journeys: [], sure: { named: 1, inferred: 0, unnamed: 0, byPerson: 0, recorded: { at: Date.UTC(2026, 9, 30, 4, 0) } } };
   const zone = process.env.TZ;
   try {
     // 04:00 UTC on the 30th is 21:00 on the 29th in Los Angeles and 13:00 on the 30th in Tokyo.
@@ -345,33 +342,3 @@ test("the briefing's named date is the local day, not the UTC one", () => {
     expect(formatFirstDay(day)).toContain("named 2026-10-30.");
   } finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; }
 });
-
-test("Read these first gives a box's largest file a line only when the box has 200 lines the scan reads, five lines in all", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-read-"));
-  try {
-    await write(directory);
-    // session gets a 250-line file; database stays a few lines.
-    await writeFile(join(directory, "src/session/big.ts"), "export const x = 1;\n".repeat(250));
-    await Effect.runPromise(draftWorkspace(directory));
-    const day = await cli("brief", "--first-day", "--workspace", directory);
-    const lines = day.slice(day.indexOf("## Read these first")).split("\n");
-    expect(lines.slice(1, lines.indexOf(""))).toEqual(["src/session/big.ts [src/session] — the largest file of session (250 lines)"]);
-  } finally { await rm(directory, { recursive: true, force: true }); }
-}, 60_000);
-
-test("a declared start under a scripts/ folder is where the code starts, not a file to read first", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-scripts-"));
-  try {
-    await write(directory);
-    await mkdir(join(directory, "src/scripts"), { recursive: true });
-    await writeFile(join(directory, "src/scripts/release.ts"), "export const release = 1;\n");
-    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "demo", scripts: { release: "bun src/scripts/release.ts", serve: "bun src/index.ts" } }));
-    await Effect.runPromise(draftWorkspace(directory));
-    const day = await cli("brief", "--first-day", "--workspace", directory);
-    const section = (heading: string) => { const lines = day.slice(day.indexOf(heading)).split("\n"); return lines.slice(1, lines.indexOf("")); };
-    expect(section("## Where it starts").map(line => line.split(" ")[0])).toEqual(expect.arrayContaining(["src/scripts/release.ts", "src/index.ts"]));
-    const read = section("## Read these first");
-    expect(read.join("\n")).not.toContain("src/scripts/release.ts");
-    expect(read[0]).toStartWith("src/index.ts ");
-  } finally { await rm(directory, { recursive: true, force: true }); }
-}, 60_000);
