@@ -15,6 +15,7 @@ A person new to this code wants to know what it is, how it is built, where it st
 - **Say what was read and what was inferred.** A note marked `(inferred)` was worked out from file names; say so when you rely on it. Never describe behaviour you did not see in code or in a recorded step.
 - **Change nothing.** Names come only through the `pathlight-namer` agent and journeys only through the `pathlight-tracer` agent; do not edit the model, the overlay, the mapping or the code.
 - The person can stop at any step. Keep each message short: one box or one step, then wait.
+- **A long message scrambles the terminal and is not read.** A walk step is at most eight lines: the box as `<title> [<key>]`, what happens here in two or three sentences, one file as `path:line`, and one line on what you did not read; everything else only if asked.
 
 ## Before the walk
 
@@ -23,29 +24,33 @@ A person new to this code wants to know what it is, how it is built, where it st
 
 ## 1. The briefing
 
-Show the output of `pathlight brief --first-day --workspace .` **as printed**: paste the command's output whole, in a code block; add nothing above it and cut nothing from it. It already says what it is, how it is built, where it starts, the journeys, what to read first and how sure the names are. Who owns which part (git history) is not covered; say so if asked.
+Show the output of `pathlight brief --first-day --workspace .` **as printed**: paste the command's output whole, in a code block; add nothing above it and cut nothing from it. When the briefing was already shown in this conversation (the first run ends with it), say "the briefing above" and do not print it again. It already says what it is, how it is built, where it starts, the journeys, what to read first and how sure the names are. Who owns which part (git history) is not covered; say so if asked.
 
 ## 2. Ask once before moving the diagram
 
-"I can move the diagram to each box as we go (it selects the box once and marks it `← agent`; your next key takes over). Shall I?" Only after a yes, use `pathlight point`. If it answers that no viewer is open, offer `/pathlight:open` (or `pathlight show VIEW --workspace .`) and carry on in chat meanwhile. Say once that they can press `F` in the viewer instead and step through a journey themselves.
+"I can move the diagram to each box as we go (it selects the box once and marks it `← agent`; your next key takes over). Shall I?" This is the only question before the walk: take the first journey the briefing lists, never ask "which journey?". Only after a yes, use `pathlight point`. When it answers that no viewer is open, reopen it with `pathlight show VIEW --workspace .` (inside tmux it finds the pane), say so in one line, then point again. Say once that they can press `F` in the viewer instead and step through a journey themselves.
 
 ## 3. Walk a journey, step by step
 
 A newcomer learns a codebase by following one thing through. Take the first journey the briefing lists, and at most one more if they want it.
 
 - `pathlight flows --json --workspace .` gives each journey's steps: the two components of each hop (`from`, `to`), the step's text, and the function it calls when the tracer recorded one (`call`).
-- For each step: `pathlight point <to-component> --workspace .`, then one short message: which box the work is now in (title and key), what it does there (the step's own text, the box's note from `pathlight brief KEY --workspace .`, which takes the step's `to` id as it is, so there is no key to look up), and the one file the step names, read narrowly, cited as `path:line`.
+- For each step: `pathlight point <to-component> --workspace .`, then one message of at most eight lines: which box the work is now in (`<title> [<key>]`), what it does there in two or three sentences (the step's own text, the box's note from `pathlight brief KEY --workspace .`, which takes the step's `to` id as it is, so there is no key to look up), and the one file the step names, read narrowly, cited as `path:line`; then one line on what you did not read.
 - A step marked `≠` (no arrow on the map for this hop) is the story and the map disagreeing; say so plainly rather than explaining it away.
 
 **No journey recorded.** Say so. Ask whether the tracer should draw the first journey from the entry point the briefing lists first; on yes, hand it to the `pathlight-tracer` agent with the request the viewer's `d` key sends: `Trace how this works in the "<title>" component (<id>) and record it as a pathlight journey: <what happens from that entry point>`. The tracer decides the journey, never this skill. Until it is recorded, walk the boxes (next section).
 
 ## 4. The boxes no journey touched
 
-In the order the briefing's **How it is built** lists them, skipping any box a journey already showed: `pathlight point KEY --workspace .` (a box's key from the briefing works), then one message each from `pathlight brief KEY --workspace .`: what it is for (its note, marked inferred if it is), the one key file (its largest, or its entry point), and what it talks to (its `imports from` and `imported by`). Do not list every box inside a big one; name the two or three that matter and say how many more there are.
+In the order the briefing's **How it is built** lists them, skipping any box a journey already showed: `pathlight point KEY --workspace .` (a box's key from the briefing works), then one message per box, three lines each, from `pathlight brief KEY --workspace .`: what it is for (its note, marked inferred if it is), the one key file (its largest, or its entry point), and what it talks to (its `imports from` and `imported by`). Move the diagram to the box before its message, and never cover two boxes in one message; inside a big one name the two or three that matter and say how many more there are.
 
 ## 5. Where to go next
 
 End with the briefing's **Read these first** and three questions worth asking with `t` in the viewer, each about a real box or step you showed ("how does Backend API and services check a login?"). Then `pathlight point --workspace .` with no element, to clear the mark.
+
+## A point request
+
+"Point the viewer at …" is one `pathlight point` command and one line of reply ("Pointed at `<title> [<key>]`."): no reading, no file list, no offer. When no viewer is open, reopen it as in step 2, say so in the same line, and point.
 
 ## A worked example (`examples/parcel`)
 
