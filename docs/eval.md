@@ -429,4 +429,29 @@ The `mealie` note that fails reads "The FastAPI backend: HTTP routes call servic
 
 The two misses are honest: Outline's `start` script runs the built `build/server/index.js`, which the scan cannot map back to `server/index.ts` (it is imported by nothing but is not listed among the twelve largest unimported files either), and Nuxt has no entry file, only its configuration, which the rule leaves out with every `*.config.*`. Test files (`_test.go`, `test_*.py`, `*_test.py`, `conftest.py`) are no longer starts, and a Go file counts as imported when its package is (Go files of one package use each other without an import), which took Miniflux's list from twelve test files to `main.go` and the UI's scripts.
 
-**Names did not move.** The Phase 1 overlays score as before (Outline 12 of 12, Mealie 8 of 10, Miniflux 3 of 4) and the Phase 4a namer overlays as before (Mealie 9 of 10, Miniflux 4 of 4); this phase changes what the namer replies, not what it names. A fresh namer run per clone with the new reply, and one onboarding walk per clone, were not done in the build: under `--permission-mode dontAsk` with `Bash(pathlight *)` allowed, the namer's `pathlight name --from - <<'JSON'` heredoc is refused (the scratch copies stayed unnamed; logs under `.cache/eval/phase-4e/*/blocked-run/`), and a wider permission for a headless agent run was not taken without David. Both are left for the review.
+**Names did not move.** The Phase 1 overlays score as before (Outline 12 of 12, Mealie 8 of 10, Miniflux 3 of 4) and the Phase 4a namer overlays as before (Mealie 9 of 10, Miniflux 4 of 4); this phase changes what the namer replies, not what it names. A fresh namer run per clone and one onboarding walk per clone were not done in the build: under `--permission-mode dontAsk` with `Bash(pathlight *)` allowed, the namer's `pathlight name --from - <<'JSON'` heredoc was refused. The review (2026-10-29, `docs/internal/review-2026-10-29-phase-4e.md`) found the cause by bisection and did both. The cause is narrow: Claude Code refuses, under that rule, a heredoc whose body holds a JSON object with a quoted key (`[{"key":"a"}]`; `[]` and `[{}]` pass), headless and as a prompt interactively; a one-line herestring (`--from - <<< '[…]'`) and the per-box form pass. So the namer saves with a herestring.
+
+**The namer, re-run** (Sonnet, the herestring told in the prompt; logs, overlays and scores under `.cache/eval/phase-4e/*/namer-review/`): Outline 15 of 15 boxes named in one batch, 12 of 12 marks, $0.20; Mealie 36 of 36 in two batches, 8 of 10 (`vuetify.options.js` as before, and `mealie`, whose new note has no recipe/meal/shopping word), $0.27; Miniflux 30 of 30 in two, 4 of 4, $0.19. Every reply was the first-day briefing as printed, then journeys, then what it could not tell. The namer opened **no source file** in any run (its only reads were the brief's persisted output) yet wrote 4, 16 and 14 notes without an "inferred" mark, so the briefing's "named from the code" count repeats what the note says, not what was read: a measure to print beside the names score from now on (the `Read` calls in the run's stream), and a rule for the namer.
+
+**Files the namer read**, printed beside the names score for every namer run from now on, because the briefing's **How sure** ("N boxes named from the code") rests on it: the `Read` calls in the run's `stream-json` whose path is in the workspace (the brief's own persisted output does not count), with `jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name=="Read") | .input.file_path' namer-stream.jsonl`. Since step 0b the namer must mark `(inferred from file names)` on every note for a box whose files it did not open.
+
+| namer run (review, 2026-10-29) | names score | `Read` of a workspace file | other reads | notes without "inferred" |
+| --- | --- | --- | --- | --- |
+| Outline | 12 of 12 | 0 | one `head` of `build.js` and a script, in the shell | 4 |
+| Mealie | 8 of 10 | 0 (one `Read` of the brief's persisted output) | none | 16 |
+| Miniflux | 4 of 4 | 0 (one `Read` of the brief's persisted output) | none | 14 |
+
+**The walks** (Sonnet with the plugin, one headless turn per message, a viewer open in a private tmux server so `pathlight point` writes; transcripts and screens under `.cache/eval/phase-4e/*/walk-review/`; copies of the Phase 1-named clones with their journeys):
+
+| | Outline (6 journeys) | Mealie (3) | Miniflux (none: the tracer asked, `start-server` recorded, 6 steps) | parcel (hand-written) |
+| --- | --- | --- | --- | --- |
+| asked before pointing | yes | yes | yes | yes |
+| journeys walked, steps | 2 (3 + 2) | 3 (4 + 2 + 2) | 1, steps 1–3 (the driver cut it) | none to walk |
+| boxes after | 4 | 1 | 0 (cut) | 4, two with `--view` |
+| points that moved the viewer | 5 of 6 (a `for` loop was refused) | 4, then the clear | 3 | 4, then the clear |
+| files read | 3 | 3 | 9 | 2 |
+| "inferred" / "not read" sentences | 10 | 5 | 3 | 1 |
+| behaviour described without reading | none found | none | none | none |
+| messages, cost | 7, $1.67 | 5, $1.14 | 4, $0.88 | 5, $0.69 |
+
+The mark `← agent` was on screen after every point, with a `Went to …` and a Back entry when the box was in another view; the walk needed no viewer change. What it tripped over: `pathlight brief` takes a box key and the journeys name elements by id (four misses), and two of four agents trimmed the briefing instead of pasting it, dropping the fifteen `Where it starts` lines; both are carried to step 0b.
