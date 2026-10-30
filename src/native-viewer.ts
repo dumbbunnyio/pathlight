@@ -42,7 +42,7 @@ import { createAskDialog } from "./viewer/ask-dialog";
 import type { TalkState } from "./viewer/talk-view";
 import { reviewSection } from "./viewer/review-view";
 import { choose, createState, firstNode, forgetGone, remember, type Visit } from "./viewer/state";
-import { createFlowMode, stepElement } from "./viewer/flow-mode";
+import { createFlowMode, flowView, stepElement } from "./viewer/flow-mode";
 import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
@@ -227,7 +227,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // A step selects its card and leaves the camera where it is, moving only when the card is off screen (entering flow mode keeps a fitted view).
     select: node => { selectNode(node, false); camera.ensureVisible(node); },
     title: id => elementTitle(id), say: text => { message = text; }, update: () => update(),
-    entering: () => { if (state.focusSection === "connections") state.focusSection = undefined; }, leaving: () => { pointFlow = false; if (state.focusSection === "steps") state.focusSection = undefined; } });
+    entering: () => { if (state.focusSection === "connections") state.focusSection = undefined; }, leaving: () => { pointFlow = false; if (state.focusSection === "steps") state.focusSection = undefined; },
+    start: (flow, step) => startFlow(flow, step), away: (flow, index, element) => readElsewhere(flow, index, element) });
   let flowPath = new Set<string>();
   let flowItems: ReturnType<typeof flowsThrough> = [];
   const inPlan = (ref: string) => (plan?.elements ?? []).some(id => ref === id || ref.startsWith(`${id}.`) || id.startsWith(`${ref}.`));
@@ -715,10 +716,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     viewOf: element => String(viewHaving(element)?.[1].title ?? ""), go: pick => { if (pick.kind === "view") goToView(pick.view!); else landOn(pick.element!, pick.path); }, update: () => update() });
   // Reading a flow at a step: here when this view draws the step's box, else in the view that does, with `Went to …` and a Back entry. The step
   // reader is on the node face, so the talk turns to it. `pointed`: the agent's pointer asked for it, so the arrival is marked as its pointing.
+  // Which view: one already reading this flow stays when it draws the step; otherwise the view that draws the most distinct boxes for its steps.
   const startFlow = (flow: FlowMap, step: number, pointed = false) => {
     if (dialog.showing) { dialog.flip(); inspectorPreference = "open"; }
-    const element = stepElement(flow, step - 1);
-    const elsewhere = element && !nodeOrAncestor(diagram, element) ? viewHaving(element) : undefined;
+    const element = stepElement(flow, step - 1), reading = flowMode.active?.type === flow.type && flowMode.active.id === flow.id;
+    const best = reading && element && nodeOrAncestor(diagram, element) ? String(diagram.id) : flowView(flow, diagrams, String(diagram.id), String(state.selected?.modelRef ?? ""));
+    const elsewhere = best && best !== String(diagram.id) ? [best, diagrams.get(best)!] as const : undefined;
     if (!elsewhere) {
       followSelecting = pointed;
       try { flowMode.enter(flow, step); } finally { followSelecting = false; }
@@ -728,6 +731,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     remember(state, visit());
     camera.animating = false;
     state.pendingVisit = { diagram: getDiagram(elsewhere[0]), flow: { type: flow.type, id: flow.id, step, pointed }, notice: `Went to ${String(elsewhere[1].title ?? elsewhere[0])}` };
+  };
+  // A step whose box this view does not draw: the view that draws that box, the step selected there, with a Back entry.
+  const readElsewhere = (flow: FlowMap, index: number, element: string) => {
+    const elsewhere = viewHaving(element);
+    if (!elsewhere) { message = `${elementTitle(element)} is in no view`; update(); return; }
+    remember(state, visit());
+    camera.animating = false;
+    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), flow: { type: flow.type, id: flow.id, step: index + 1 }, notice: `Went to ${String(elsewhere[1].title ?? elsewhere[0])}` };
   };
   // A pointer with a journey and a step: that journey is read at that step until `esc` or the next pointer.
   const pointAtStep = (point: Point) => {

@@ -3,7 +3,7 @@ import { badgeText, badgesOf, flowsInView, flowsThrough, gapHops, pathEdges, ste
 import { RGBA } from "@opentui/core";
 import { stepsCard } from "../src/viewer/cards";
 import { palette } from "../src/ui";
-import { createFlowMode } from "../src/viewer/flow-mode";
+import { createFlowMode, flowView } from "../src/viewer/flow-mode";
 
 const journey: FlowMap = { id: "order", title: "Placing an order", type: "journey", view: "order", sync: { status: "current", sha: "abc1234" }, findings: [], steps: [
   { n: 1, title: "opens checkout", elements: ["customer", "store"], from: "customer", to: "store", backed: true },
@@ -121,4 +121,38 @@ test("after a drawing is asked for, the first new journey is what F opens, whate
   expect(selected).toEqual(["db"]);
   mode.exit(); mode.cycle();
   expect(mode.active?.id).toBe("order");
+});
+
+test("a flow is read in the view that draws both ends of every hop and the most distinct boxes for its steps, ties to the selection, then the deepest", () => {
+  // Mealie's code generation: every hop leaves dev. Packages piles the steps on two boxes; the Backend server view draws four but not dev; the app's
+  // view draws dev and three boxes, so the journey is read there.
+  const fan: FlowMap = { ...journey, id: "codegen", steps: ["app.backend.schema", "web.lib", "app.backend.root", "app.backend.lang", "web.lib"].map((to, index) =>
+    ({ n: index + 1, title: `writes ${to}`, elements: ["app.dev", to], from: "app.dev", to, backed: true })) };
+  const view = (refs: string[], viewOf?: string, type?: string) => ({ nodes: refs.map(ref => ({ id: `n-${ref}`, modelRef: ref })), ...(viewOf ? { viewOf } : {}), ...(type ? { _type: type } : {}) });
+  const views = new Map([
+    ["index", view(["app", "web"])],
+    ["app_components", view(["app", "app.dev", "app.backend", "web"], "app")],
+    ["backend_components", view(["web", "app.backend", "app.backend.schema", "app.backend.lang", "app.backend.root"], "app.backend")],
+    ["codegen", view(["app.dev", "app.backend.schema", "web.lib", "app.backend.root", "app.backend.lang"], undefined, "dynamic")],
+  ]);
+  expect(flowView(fan, views, "index", "app")).toBe("app_components");
+  // Equal views: the one that holds the selection, else the deeper one, else the one already shown.
+  const twins = new Map([["a", view(["customer", "store", "api"])], ["b", view(["customer", "store", "api", "db"], "shop")]]);
+  expect(flowView(journey, twins, "a", "db")).toBe("b");
+  expect(flowView(journey, new Map([["a", view(["customer", "store", "api"])], ["b", view(["customer", "store", "api"])]]), "b", "")).toBe("b");
+  expect(flowView(journey, new Map([["a", view(["customer", "store", "api"])], ["b", view(["customer", "store", "api"], "shop")]]), "a", "")).toBe("b");
+  // No view draws any of it.
+  expect(flowView(journey, new Map([["a", view(["elsewhere"])]]), "a", "")).toBeUndefined();
+});
+
+test("a step whose box this view does not draw is handed to the viewer to go to a view that does, never refused", () => {
+  const said: string[] = [], away: [string, number, string][] = [];
+  const mode = createFlowMode<string>({ view: () => ({ id: "v", nodes }), selected: () => "customer", nodeFor: element => element === "api" ? undefined : element, select: () => {},
+    title: element => element, say: message => { if (message) said.push(message); }, update: () => {}, entering: () => {}, leaving: () => {},
+    away: (flow, index, element) => { away.push([flow.id, index, element]); } });
+  mode.load([journey]);
+  mode.enter(journey, 1);
+  mode.goTo(1);
+  expect(away).toEqual([["order", 1, "api"]]);
+  expect(said.join(" ")).not.toContain("is not in this view");
 });

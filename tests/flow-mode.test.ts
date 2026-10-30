@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -276,3 +277,36 @@ test("F opens the journey a t just drew, whatever the selection, and its arrival
     await rm(directory, { recursive: true, force: true });
   }
 }, 90_000);
+
+// Entering a flow goes to the view where its steps are distinct, with a Back entry; a step whose box the view does not draw goes to one that does.
+test("F reads a journey in the view that draws its steps apart, and b comes back", async () => {
+  const directory = await workspace(false);
+  try {
+    const see = async (view: string, select: string, keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", view, "--workspace", directory, "--project", "parcel",
+      "--cols", "150", "--rows", "36", "--select", select, "--keys", keys])).split("\n");
+    const where = (screen: string[]) => screen[1]!.trim().split(" ")[0];
+    // The overview draws Parcel as one box: every step but the first lands on it. Services draws them apart.
+    const entered = await see("index", "customer", "F");
+    expect(where(entered)).toBe("parcel/services");
+    expect(entered[1]).toContain("back 1");
+    expect(entered.at(-1)).toMatch(/^ flow +Selected: parcel\.storefront +● Went to Parcel \/ Service architecture/);
+    expect(entered.join("\n")).toMatch(/Steps ─+ 1\/5/);
+    expect(where(await see("index", "customer", "F,Escape,b"))).toBe("parcel/index");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+// The review's Mealie copy (not in the repository): Code generation, from Packages, is read in the app's components view, and a step whose box the
+// view does not draw goes to the view that does.
+const mealie = "/tmp/opencode/step0b-mealie";
+test.skipIf(!existsSync(join(mealie, ".pathlight")))("on the Mealie copy, Code generation from Packages opens in mealie_components, and a step elsewhere goes there", async () => {
+  const see = async (view: string, keys: string, select?: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", view, "--workspace", mealie,
+    "--cols", "160", "--rows", "40", ...(select ? ["--select", select] : []), "--keys", keys])).split("\n");
+  const packages = await see("index", "F");
+  expect(packages[1]!.trim().split(" ")[0]).toBe("live_mealie/mealie_components");
+  expect(packages.join("\n")).toContain("Code generation tools → Data shapes");
+  // From Backend translations' neighbourhood, Code generation read there at step 4; step 3 lands on the backend's entry point, which it does not draw.
+  const away = await see("mealie_mealie_lang_near", "2,Enter,[", "mealie.mealie.lang");
+  expect(away[1]).toContain("back 1");
+  expect(away.at(-1)).toContain("Selected: mealie.mealie.root");
+  expect(away.join("\n")).not.toContain("is not in this view");
+}, 120_000);
