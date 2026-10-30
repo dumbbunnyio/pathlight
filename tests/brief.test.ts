@@ -3,7 +3,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
-import { briefOf, formatBrief, nameBoxes, select } from "../src/brief";
+import { briefOf, formatBrief, formatFirstDay, nameBoxes, select, type FirstDay } from "../src/brief";
 import { draftWorkspace } from "../src/draft";
 import { overlayIn, run } from "./effects";
 
@@ -332,3 +332,16 @@ test("the briefing lists the declared starts and the five largest files nothing 
     expect(read.filter(line => line.includes("— script")).map(file)).toEqual(["src/index.ts"]);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("the briefing's Named date is the local day, not the UTC one", () => {
+  const day: FirstDay = { project: "demo", drafted: true, what: { source: "none" }, built: [], numbers: { boxes: 0, files: 0, imports: 0, languages: [], unread: [] },
+    starts: [], journeys: [], read: [], sure: { named: 1, inferred: 0, unnamed: 0, byPerson: 0, recorded: { at: Date.UTC(2026, 9, 30, 4, 0) } } };
+  const zone = process.env.TZ;
+  try {
+    // 04:00 UTC on the 30th is 21:00 on the 29th in Los Angeles and 13:00 on the 30th in Tokyo.
+    process.env.TZ = "America/Los_Angeles";
+    expect(formatFirstDay(day)).toContain("Named 2026-10-29");
+    process.env.TZ = "Asia/Tokyo";
+    expect(formatFirstDay(day)).toContain("Named 2026-10-30");
+  } finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; }
+});

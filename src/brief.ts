@@ -434,6 +434,9 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   } satisfies FirstDay;
 });
 
+/** The day in the reader's own time zone: a briefing printed at nine in the evening says that day, not tomorrow's UTC date. */
+const localDate = (at: number) => { const day = new Date(at); return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`; };
+
 export function formatFirstDay(day: FirstDay) {
   const lines = [`# First day in ${day.project}`, "Derived from the scan, the names on the map and the recorded journeys; nothing here is stored. Names marked (inferred) were worked out from file names, not read in the code.", ""];
   const mark = (inferred: boolean) => inferred ? " (inferred)" : "";
@@ -459,7 +462,7 @@ export function formatFirstDay(day: FirstDay) {
   lines.push("", "## How sure");
   const { sure } = day;
   lines.push(`${sure.named} box${sure.named === 1 ? "" : "es"} named from the code${sure.byPerson ? ` (${sure.byPerson} by a person)` : ""}, ${sure.inferred} inferred from file names, ${sure.unnamed} not named.`);
-  if (sure.recorded) lines.push(`Named ${new Date(sure.recorded.at).toISOString().slice(0, 10)}${sure.recorded.commit ? `, when the newest commit was ${sure.recorded.commit}` : ""}${sure.unchanged ? `; ${sure.unchanged.same} of ${sure.unchanged.of} named boxes have the same files as then` : ""}.`);
+  if (sure.recorded) lines.push(`Named ${localDate(sure.recorded.at)}${sure.recorded.commit ? `, when the newest commit was ${sure.recorded.commit}` : ""}${sure.unchanged ? `; ${sure.unchanged.same} of ${sure.unchanged.of} named boxes have the same files as then` : ""}.`);
   else if (sure.named + sure.inferred) lines.push("Nothing records when the names were written.");
   return `${lines.join("\n")}\n`;
 }
