@@ -18,7 +18,8 @@ export function createState<Node, Diagram, Reload>(selected: Node | undefined) {
     selected,
     history: [] as Visit[],
     pendingReload: undefined as Reload | undefined,
-    pendingVisit: undefined as { diagram: Diagram; restore?: Visit; select?: string; file?: string; notice?: string } | undefined,
+    /** `flow`: the flow to read on arrival, at that step (1-based); `pointed` says the agent's pointer asked for it, so the arrival is marked as its. */
+    pendingVisit: undefined as { diagram: Diagram; restore?: Visit; select?: string; file?: string; notice?: string; flow?: { type: string; id: string; step: number; pointed?: boolean } } | undefined,
     /** Which section (if any) owns the movement keys. Undefined means the diagram does. */
     focusSection: undefined as SectionKey | undefined,
     cursor: { connections: 0, files: 0, activity: 0, steps: 0, flows: 0 } as Record<SectionKey, number>,

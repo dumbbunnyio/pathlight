@@ -9,7 +9,7 @@ import { type Diff, diffWorkspace, recordDiff } from "./diff";
 import { draftWorkspace } from "./draft";
 import { type Decisions, decide, pending, reviewItems, reviewMessage, type Verdict } from "./review";
 import type { Plan } from "./plan";
-import { readPoint } from "./point";
+import { readPoint, type Point } from "./point";
 import type { Stale } from "./stale";
 import { nodeFiles } from "./node-files";
 import { firstChange, openEditor } from "./editor";
@@ -20,7 +20,7 @@ import { borderHints, palette, setPalette } from "./ui";
 import { type Mode, loadThemes, paletteOf, savedTheme, themeFromEnvironment } from "./theme";
 import { cellAt, rasterize, routeEdges, type Route } from "./routes";
 import { checkFlows } from "./flows";
-import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges } from "./flow-view";
+import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges, type FlowMap } from "./flow-view";
 import { attempt, failure, io } from "./effects";
 import { writeReady } from "./ready";
 import { createConversationReader, type Message } from "./conversation";
@@ -203,6 +203,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // The agent's pointer (`pathlight point`): the element it last asked the viewer to show, marked beside the view's name while it is the selection
   // and until the next key. `pointSeen` is the newest pointer acted on; one older than the viewer is never acted on.
   let pointMark: string | undefined, pointSeen = Date.now();
+  // Flow mode the pointer turned on (`pathlight point … --journey ID --step N`): the next pointer leaves it, as `esc` does. A pointer naming a journey
+  // the viewer has not read yet waits for the next reading of the flows.
+  let pointFlow = false, pointWaiting: Point | undefined;
   const pointed = () => pointMark !== undefined && String(state.selected?.modelRef ?? "") === pointMark;
   const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id)),
     ...(pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : [])]);
@@ -224,7 +227,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // A step selects its card and leaves the camera where it is, moving only when the card is off screen (entering flow mode keeps a fitted view).
     select: node => { selectNode(node, false); camera.ensureVisible(node); },
     title: id => elementTitle(id), say: text => { message = text; }, update: () => update(),
-    entering: () => { if (state.focusSection === "connections") state.focusSection = undefined; }, leaving: () => { if (state.focusSection === "steps") state.focusSection = undefined; } });
+    entering: () => { if (state.focusSection === "connections") state.focusSection = undefined; }, leaving: () => { pointFlow = false; if (state.focusSection === "steps") state.focusSection = undefined; } });
   let flowPath = new Set<string>();
   let flowItems: ReturnType<typeof flowsThrough> = [];
   const inPlan = (ref: string) => (plan?.elements ?? []).some(id => ref === id || ref.startsWith(`${id}.`) || id.startsWith(`${ref}.`));
@@ -658,6 +661,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (closing) return;
     runTask(checkFlows(view.workspace).pipe(Effect.map(flowMaps), Effect.tap(list => Effect.sync(() => {
       flowMode.load(list);
+      const waiting = pointWaiting;
+      if (waiting) { pointWaiting = undefined; if (!state.pendingVisit && !editorActive) pointAtStep(waiting); }
       if (!editorActive && !closing) update();
     })), Effect.catch(() => Effect.void)));
   };
@@ -708,6 +713,30 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const viewHaving = (element: string) => viewIn(diagrams, diagram, element);
   const gotoPicker = createGotoPicker({ screen: renderer, widget: goto, candidates: mode => pickCandidates({ views: diagrams, current: diagram, mode, files, ignore: config?.ignore ?? [] }),
     viewOf: element => String(viewHaving(element)?.[1].title ?? ""), go: pick => { if (pick.kind === "view") goToView(pick.view!); else landOn(pick.element!, pick.path); }, update: () => update() });
+  // Reading a flow at a step: here when this view draws the step's box, else in the view that does, with `Went to …` and a Back entry. The step
+  // reader is on the node face, so the talk turns to it. `pointed`: the agent's pointer asked for it, so the arrival is marked as its pointing.
+  const startFlow = (flow: FlowMap, step: number, pointed = false) => {
+    if (dialog.showing) { dialog.flip(); inspectorPreference = "open"; }
+    const element = stepElement(flow, step - 1);
+    const elsewhere = element && !nodeOrAncestor(diagram, element) ? viewHaving(element) : undefined;
+    if (!elsewhere) {
+      followSelecting = pointed;
+      try { flowMode.enter(flow, step); } finally { followSelecting = false; }
+      if (pointed) pointMark = String(state.selected?.modelRef ?? "");
+      return;
+    }
+    remember(state, visit());
+    camera.animating = false;
+    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), flow: { type: flow.type, id: flow.id, step, pointed }, notice: `Went to ${String(elsewhere[1].title ?? elsewhere[0])}` };
+  };
+  // A pointer with a journey and a step: that journey is read at that step until `esc` or the next pointer.
+  const pointAtStep = (point: Point) => {
+    const flow = flowMode.flows.find(item => item.type === "journey" && item.id === point.journey);
+    if (!flow) { message = `The agent pointed at journey ${point.journey}, which the viewer has not read`; update(); return; }
+    startFlow(flow, point.step ?? 1, true);
+    pointFlow = true;
+    update();
+  };
   const themePicker = createThemePicker({ renderer, picker, recolour: () => [renderer.root, inspector], themes, names: themeNames, order: themeOrder, name: themeName, mode: themeMode,
     wanted: wantedTheme, fixedMode: Boolean(environment.mode), say: text => { message = text; }, redraw: () => { dirty = true; update(); }, update: () => update(), run: effect => runTask(effect), closing: () => closing });
   const goToView = (id: string) => {
@@ -1108,6 +1137,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       else { camera.autoFit = true; fit(); camera.settle(); }
       if (next.select) state.selected = nodeForElement(next.select) ?? state.selected;
       if (next.file) showFile(next.file);
+      const reading = next.flow, flow = reading && flowMode.flows.find(item => item.type === reading.type && item.id === reading.id);
+      if (reading && flow) {
+        followSelecting = Boolean(reading.pointed);
+        try { flowMode.enter(flow, reading.step); } finally { followSelecting = false; }
+        if (reading.pointed) pointMark = String(state.selected?.modelRef ?? "");
+        message = next.notice ?? "";
+      }
       update();
     }
     layout();
@@ -1192,6 +1228,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (point.at <= pointSeen || state.pendingVisit || state.pendingReload || editorActive) return;
     pointSeen = point.at;
     if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || dialog.focus !== "none") return;
+    if (point.journey) {
+      // A journey written a moment ago may not have been read yet: read the flows, then act on it.
+      if (flowMode.flows.some(item => item.type === "journey" && item.id === point.journey)) pointAtStep(point); else { pointWaiting = point; loadFlows(); }
+      return;
+    }
+    // A pointer without a journey leaves the journey the last pointer turned on.
+    if (pointFlow && flowMode.active) flowMode.exit();
     const here = point.view === undefined || point.view === String(diagram.id) ? nodeForElement(point.element) : undefined;
     if (here) {
       pointMark = point.element; followSelecting = true;

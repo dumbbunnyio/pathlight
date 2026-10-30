@@ -5,16 +5,20 @@ import { readActivityConfig } from "./activity";
 import { acquireModel, invalidModel } from "./catalog";
 import { readKeys } from "./edit";
 import { failure, io, json } from "./effects";
+import { checkFlows } from "./flows";
 
 /**
- * Where an agent walking a person through the map asks the viewer to look: one element (and, if it says so, the view to show it in), ids and a time
- * only. The viewer selects it once, marks it as the agent's pointing until the person presses a key, and never follows it again: a new pointer is a
- * new request, and nothing here makes the viewer track the agent.
+ * Where an agent walking a person through the map asks the viewer to look: one element (and, if it says so, the view to show it in, or the journey
+ * and the step it is talking about), ids, a number and a time only. The viewer selects it once, marks it as the agent's pointing until the person
+ * presses a key, and never follows it again: a new pointer is a new request, and nothing here makes the viewer track the agent. With a journey the
+ * viewer reads that journey at that step (flow mode) until `esc` or the next pointer.
  */
 export const Point = Schema.Struct({
   version: Schema.Literal(1), at: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
   element: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256), Schema.isPattern(/^[\w.-]+$/)),
   view: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256), Schema.isPattern(/^[\w.-]+$/))),
+  journey: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256), Schema.isPattern(/^[\w.-]+$/))),
+  step: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1))),
 });
 export interface Point extends Schema.Schema.Type<typeof Point> {}
 
@@ -40,10 +44,10 @@ export const viewerOpen = (root: string) => io("Point.viewers", async () => {
  * Points the viewer at an element (it must exist in the model; a view, if given, must draw it), or clears the pointer with none. On a drafted map a
  * box's key from `pathlight brief` (`src/session`, `.#loose`) names its element too, so the identifiers in the briefing can be pointed at as printed.
  */
-export const setPoint = Effect.fn("Point.set")(function* (workspace: string, named: string | undefined, view?: string) {
+export const setPoint = Effect.fn("Point.set")(function* (workspace: string, named: string | undefined, view?: string, journey?: { id: string; step: number }) {
   const root = yield* io("Point.root", () => realpath(workspace));
   if (!named) {
-    if (view) return yield* Effect.fail(failure("Point.view", "--view needs an element to point at."));
+    if (view || journey) return yield* Effect.fail(failure("Point.view", `${view ? "--view" : "--journey"} needs an element to point at.`));
     yield* io("Point.clear", () => rm(pointPath(root), { force: true }));
     return { cleared: true as const };
   }
@@ -62,8 +66,13 @@ export const setPoint = Effect.fn("Point.set")(function* (workspace: string, nam
     if (!found) return yield* Effect.fail(failure("Point.view", `Unknown view: ${view}. pathlight list names the views.`));
     if (![...found.elements()].some(item => String(item.element.id) === element)) return yield* Effect.fail(failure("Point.view", `The view ${view} does not draw ${element}. Leave out --view and the viewer finds one that does.`));
   }
+  if (journey) {
+    const found = (yield* checkFlows(root)).journeys.find(item => item.id === journey.id);
+    if (!found) return yield* Effect.fail(failure("Point.journey", `Unknown journey: ${journey.id}. pathlight flows lists them.`));
+    if (journey.step > found.steps.length) return yield* Effect.fail(failure("Point.journey", `The journey ${journey.id} has ${found.steps.length} steps; --step ${journey.step} is not one of them.`));
+  }
   if (!(yield* viewerOpen(root))) return { written: false as const };
-  const point = yield* Schema.decodeUnknownEffect(Point)({ version: 1, at: Date.now(), element, ...(view ? { view } : {}) });
+  const point = yield* Schema.decodeUnknownEffect(Point)({ version: 1, at: Date.now(), element, ...(view ? { view } : {}), ...(journey ? { journey: journey.id, step: journey.step } : {}) });
   yield* io("Point.write", async () => {
     await mkdir(join(root, ".cache", "pathlight"), { recursive: true });
     const temporary = `${pointPath(root)}.${process.pid}`;

@@ -83,3 +83,71 @@ test("on a drafted map a box's key from the brief names its element, and an unkn
     await expect(cli("point", "src/nowhere")).rejects.toThrow(/Unknown element: src\/nowhere/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+// A pointer can carry the journey step the agent is talking about: the viewer reads that journey at that step (flow mode, the step reader open, the
+// `← agent` mark as before) and stays in it until esc or the next pointer; a pointer without a journey leaves it.
+test("a pointer with a journey and a step turns flow mode on at that step, and esc or the next plain pointer leaves it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-point-step-"));
+  const work = join(directory, "work"), socket = join(directory, "tmux.sock");
+  const tmux = (...args: string[]) => run("tmux", ["-S", socket, "-f", "/dev/null", ...args]);
+  const cli = (...args: string[]) => run(process.execPath, [resolve("src/cli.ts"), ...args, "--workspace", work]);
+  try {
+    await cp("examples/parcel", work, { recursive: true, filter: path => !path.includes(".cache") });
+    await writeFile(join(work, "views.c4"), `${await readFile(join(work, "views.c4"), "utf8")}
+views {
+  dynamic view placeorder {
+    title 'Placing an order'
+    customer -> parcel.storefront 'opens checkout'
+    parcel.storefront -> parcel.commerce.api 'submits the cart'
+    parcel.commerce.api -> parcel.commerce.inventory 'reserves stock'
+    parcel.commerce.api -> parcel.commerce.orders 'commits the order'
+  }
+}
+`);
+    await tmux("new-session", "-d", "-s", "step", "-x", "150", "-y", "40", process.execPath, resolve("src/cli.ts"), "view", "services", "--workspace", work, "--project", "parcel",
+      "--select", "customer", "--ready", join(directory, "ready.json"));
+    const capture = () => tmux("capture-pane", "-p", "-t", "step");
+    const until = async (check: (text: string) => boolean, what: string) => {
+      for (let attempt = 0; attempt < 100; attempt++) { const text = await capture(); if (check(text)) return text; await delay(100); }
+      throw new Error(`Never saw ${what}:\n${await capture()}`);
+    };
+    for (let attempt = 0; attempt < 100 && !(await readFile(join(directory, "ready.json"), "utf8").catch(() => "")); attempt++) await delay(100);
+    await until(text => text.includes("Selected: customer"), "the viewer");
+
+    // The command checks the journey and the step before writing anything.
+    await expect(cli("point", "parcel.commerce.api", "--journey", "nosuch", "--step", "1")).rejects.toThrow(/Unknown journey: nosuch/);
+    await expect(cli("point", "parcel.commerce.api", "--journey", "placeorder", "--step", "9")).rejects.toThrow(/has 4 steps/);
+    await expect(cli("point", "parcel.commerce.api", "--journey", "placeorder")).rejects.toThrow(/--journey and --step go together/);
+
+    expect(await cli("point", "parcel.commerce.api", "--journey", "placeorder", "--step", "2")).toBe("Pointed the viewer at parcel.commerce.api, step 2 of placeorder.");
+    expect(JSON.parse(await readFile(join(work, ".cache/pathlight/point.json"), "utf8"))).toMatchObject({ version: 1, element: "parcel.commerce.api", journey: "placeorder", step: 2 });
+    const second = await until(text => text.includes("◇ Placing an order · 2/4"), "flow mode at step 2");
+    expect(second).toMatch(/^ flow /m);
+    expect(second).toContain("Selected: parcel.commerce.api");
+    expect(second).toContain("← agent");
+    expect(second).toContain("Steps");
+
+    // The next step: the reader moves, flow mode stays.
+    await cli("point", "parcel.commerce.orders", "--journey", "placeorder", "--step", "4");
+    const fourth = await until(text => text.includes("◇ Placing an order · 4/4"), "flow mode at step 4");
+    expect(fourth).toContain("Selected: parcel.commerce.orders");
+    expect(fourth).toContain("← agent");
+
+    // A key clears the mark, not the journey; esc leaves the journey.
+    await tmux("send-keys", "-t", "step", "r");
+    expect(await until(text => !text.includes("← agent"), "the mark cleared")).toContain("◇ Placing an order · 4/4");
+    await tmux("send-keys", "-t", "step", "Escape");
+    await until(text => /^ diagram /m.test(text), "flow mode left");
+
+    // A plain pointer after a journey pointer leaves the journey.
+    await cli("point", "parcel.storefront", "--journey", "placeorder", "--step", "1");
+    await until(text => text.includes("◇ Placing an order · 1/4"), "flow mode again");
+    await cli("point", "parcel.commerce.inventory");
+    const plain = await until(text => text.includes("Selected: parcel.commerce.inventory"), "the plain pointer");
+    expect(plain).toMatch(/^ diagram /m);
+    expect(plain).toContain("← agent");
+  } finally {
+    await tmux("kill-server").catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 90_000);
