@@ -120,3 +120,19 @@ test("backspace steps back like b, and goes up only when there is nowhere to go 
   expect(where(stays)).toEqual(["parcel/checkout", "parcel.commerce.api"]);
   expect(stays.at(-1)).toContain("No previous view");
 }, 120_000);
+
+// Enter into a group is a step on the back stack: b and backspace first reselect the frame in the same view, and only then leave it.
+test("back after Enter into a group reselects the frame in the same view before leaving it", async () => {
+  const see = async (keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", "checkout", "--workspace", "examples/parcel", "--project", "parcel",
+    "--cols", "140", "--rows", "36", "--select", "parcel.commerce", "--keys", keys])).split("\n");
+  const where = (screen: string[]) => [screen.find(line => line.includes("parcel/"))!.trim().split(" ")[0], /Selected: (\S+)/.exec(screen.at(-1)!)?.[1]];
+  const inside = await see("Enter");
+  expect(where(inside)[0]).toBe("parcel/checkout");
+  expect(where(inside)[1]).toStartWith("parcel.commerce.");
+  expect(inside.find(line => line.includes("parcel/checkout"))).toContain("back 1");
+  expect(where(await see("Enter,b"))).toEqual(["parcel/checkout", "parcel.commerce"]);
+  expect(where(await see("Enter,BSpace"))).toEqual(["parcel/checkout", "parcel.commerce"]);
+  const twice = await see("Enter,b,b");
+  expect(where(twice)).toEqual(["parcel/checkout", "parcel.commerce"]);
+  expect(twice.at(-1)).toContain("No previous view");
+}, 120_000);

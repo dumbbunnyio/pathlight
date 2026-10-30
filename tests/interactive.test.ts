@@ -434,9 +434,14 @@ test.each([
     await delay(700);
     await tmux("send-keys", "-t", pane, "BSpace");
     await capture(commerceSelection);
-    await tmux("send-keys", "-t", pane, "0", "Enter");
+    // Enter into a group is a visit, so backspace restores the camera it saved: let the zoom settle before going in.
+    await tmux("send-keys", "-t", pane, "0");
+    await capture("zoom 100%");
+    await delay(700);
+    await tmux("send-keys", "-t", pane, "Enter");
     await delay(700);
     await tmux("send-keys", "-t", pane, "BSpace");
+    await capture(commerceSelection);
     await delay(700);
     await click("Checkout API", "parcel.commerce.api");
     await click("Commerce", "parcel.commerce");

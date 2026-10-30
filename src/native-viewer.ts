@@ -940,8 +940,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "exitFlow": flowMode.exit(); return;
       case "search": camera.animating = false; gotoPicker.begin("all"); return;
       case "back": if (!goBack()) { message = "No previous view"; update(); } return;
+      // Enter into a group is a visit too, so back first reselects the frame in this view and only then leaves it.
       case "open":
-        if (action.enter && state.selected?.children.length) selectNode(diagram.nodes.find(node => node.id === state.selected?.children[0]), true);
+        if (action.enter && state.selected?.children.length) { remember(state, visit()); selectNode(diagram.nodes.find(node => node.id === state.selected?.children[0]), true); }
         else openLink();
         return;
       // `b` and backspace are one stack: backspace steps back too, and only with nowhere to go back to goes up, to the box that holds the selection

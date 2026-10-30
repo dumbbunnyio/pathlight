@@ -14,7 +14,7 @@ Click a node. Its border becomes white, and the details panel lists its incoming
 Connections are made of horizontal and vertical lines with rounded bends. Quiet ones are dotted, and the selected node's are solid: cyan for incoming, amber for outgoing.
 The details use the same colors, node names, and full relationship labels. Scroll over the details to read wrapped labels without panning the diagram.
 Click a node or use `h`, `j`, `k` and `l`, which select the nearest node left, down, up or right of the selection (siblings are preferred; ancestors and descendants are reached with Backspace and Enter). The camera only moves if the new node would be off screen. Arrow keys pan the camera without changing the selection, and Shift+`hjkl` pans too. Press `v` to swap the roles: arrows select, `hjkl` pan.
-Select a group and press Enter to select its first child.
+Select a group and press Enter to select its first child; `b` or backspace then reselects the group before anything else.
 The inspector identifies linked views with `o opens`. Press `o` to open one. Enter also opens links on leaf nodes.
 Press `b` or Backspace to return to the previous view, selection, zoom, and scroll position: the two keys are one stack. With nowhere to go back to, Backspace goes up instead: to the group that holds the selection in this view, else to the view whose box opens this one (that box selected); `b` says `No previous view`.
 Press `f` to fit the diagram, `r` to center the selection, and `q` to quit.
