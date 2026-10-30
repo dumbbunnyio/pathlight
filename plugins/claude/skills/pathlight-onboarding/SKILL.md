@@ -23,7 +23,7 @@ A person new to this code wants to know what it is, how it is built, where it st
 
 ## 1. The briefing
 
-Show the output of `pathlight brief --first-day --workspace .` **as printed**: no summary of it, no reordering. It already says what it is, how it is built, where it starts, the journeys, what to read first and how sure the names are. Who owns which part (git history) is not covered; say so if asked.
+Show the output of `pathlight brief --first-day --workspace .` **as printed**: paste the command's output whole, in a code block; add nothing above it and cut nothing from it. It already says what it is, how it is built, where it starts, the journeys, what to read first and how sure the names are. Who owns which part (git history) is not covered; say so if asked.
 
 ## 2. Ask once before moving the diagram
 

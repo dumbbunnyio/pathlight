@@ -77,7 +77,8 @@ export const contextOf = Effect.fn("Brief.context")(function* (workspace: string
  * shown with the box that holds the file.
  */
 export interface EntryPoint { file: string; box?: string; why: string }
-const notEntry = /(^|\/)(tests?|__tests__|spec|fixtures?|mocks?|testdata)\/|\.(test|spec|d|config|stories)\.[cm]?[jt]sx?$|(^|\/)(vite|vitest|jest|tsup|rollup|webpack|eslint|oxlint)[.\w-]*\.[cm]?[jt]s$|_test\.go$|(^|\/)(test_[^/]*|[^/]*_test|conftest)\.py$/;
+/** Test files, tool configuration and migrations (a migration is run by a tool, as a test is) are never where the code starts. */
+const notEntry = /(^|\/)(tests?|__tests__|spec|fixtures?|mocks?|testdata)\/|\.(test|spec|d|config|stories)\.[cm]?[jt]sx?$|(^|\/)(vite|vitest|jest|tsup|rollup|webpack|eslint|oxlint)[.\w-]*\.[cm]?[jt]s$|_test\.go$|(^|\/)(test_[^/]*|[^/]*_test|conftest)\.py$|(^|\/)(migrations|alembic\/versions)\//;
 const notOurs = /(^|\/)(node_modules|\.venv|venv|site-packages|vendor)\//;
 const scriptSkipped = /^(test|check|lint|format|fmt|build|prepare|prepublish|postinstall|typecheck|types|clean)\b/;
 export const entryPointsOf = Effect.fn("Brief.entryPoints")(function* (workspace: string, boxes: readonly BriefBox[]) {
@@ -358,7 +359,7 @@ export function formatNamed(result: Named) {
 /**
  * `pathlight brief --first-day`: what a person new to the code reads first, derived each time from the scan, the names on the map and the recorded
  * journeys, and stored nowhere. Six parts, each present and honest when empty: what it is, how it is built, where it starts, the journeys to follow,
- * the files to read first (a fact rule: the declared starts, then the largest file of each remaining top-level box), and how sure the names are.
+ * the files to read first (a fact rule: the declared starts, one per box, then the largest file of each remaining top-level box), and how sure the names are.
  */
 export interface FirstDay {
   project: string;
@@ -380,13 +381,16 @@ const inferredMark = /\binferred\b/i;
 const plainNote = (note: string) => note.replace(/\s*\([^()]*\binferred\b[^()]*\)\.?\s*$/i, "").trim();
 const languageNames: Record<string, string> = { typescript: "TypeScript", javascript: "JavaScript", python: "Python", go: "Go" };
 const declaredStart = (entry: EntryPoint) => entry.why !== "no other file imports it";
+/** The briefing's Where it starts: every declared start, then the largest few files nothing imports (`pathlight brief` itself lists twelve). */
+const unimportedShown = 5;
 
 export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: string) {
   const root = yield* io("Brief.workspace", () => realpath(workspace));
   const all = yield* briefOf(root);
   const scan = yield* scanWorkspace(root);
   const context = yield* contextOf(root);
-  const starts = yield* entryPointsOf(root, all);
+  const found = yield* entryPointsOf(root, all);
+  const starts = [...found.filter(declaredStart), ...found.filter(entry => !declaredStart(entry)).slice(0, unimportedShown)];
   const byKey = new Map(all.map(box => [box.key, box] as const));
   const top = byKey.get(".") ?? (all.filter(box => box.depth === 0 && box.kind === "package").length === 1 ? all.find(box => box.depth === 0 && box.kind === "package") : undefined);
   // The README's first paragraph of prose, its links and emphasis read as plain words, cut after two sentences.
@@ -403,9 +407,9 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
   const journeys = flows.found ? [...flows.found.journeys.map(item => ({ id: item.id, title: item.title, kind: "journey" as const, steps: item.steps.length, findings: item.findings.length })),
     ...flows.found.flows.map(item => ({ id: item.view ?? item.id, title: item.title, kind: "state diagram" as const, steps: item.steps.length, findings: item.findings.length }))] : [];
-  // Read these first: the files the project declares as starts, then the largest file of each top-level box not yet covered, five at most.
+  // Read these first: the files the project declares as starts, one per box, then the largest file of each top-level box not yet covered, five at most.
   const read: FirstDay["read"] = [];
-  for (const entry of starts.filter(declaredStart)) if (read.length < 5 && !read.some(item => item.file === entry.file)) read.push({ file: entry.file, ...(entry.box ? { box: entry.box } : {}), why: entry.why });
+  for (const entry of starts.filter(declaredStart)) if (read.length < 5 && !read.some(item => item.file === entry.file || (entry.box !== undefined && item.box === entry.box))) read.push({ file: entry.file, ...(entry.box ? { box: entry.box } : {}), why: entry.why });
   const holds = (box: BriefBox, file: string) => box.files.some(item => item.path === file);
   for (const item of built) {
     const box = byKey.get(item.key)!;

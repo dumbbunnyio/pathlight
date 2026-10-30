@@ -301,3 +301,34 @@ test("a declared start is read first, and a map with a box for the whole app say
     expect(day).toContain("## Read these first\nsrc/index.ts [.#loose] — bin “demo”");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("the briefing lists the declared starts and the five largest files nothing imports, never a migration, and reads one declared start per box", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-starts-"));
+  try {
+    await write(directory);
+    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "demo", scripts: { serve: "bun src/index.ts", stop: "bun src/session/stop.ts", run: "bun src/session/run.ts" } }));
+    const extra: Record<string, string> = {
+      "migrations/0001_init.ts": "export const up = 1;\n".repeat(40), "src/database/migrations/0002_users.ts": "export const up = 2;\n".repeat(40),
+      "app/alembic/versions/0003_tables.py": "x = 1\n".repeat(40), "app/alembic/env.py": "y = 1\n",
+    };
+    for (let index = 1; index <= 8; index++) extra[`tools/tool${index}.ts`] = `export const t${index} = 1;\n`.repeat(index);
+    for (const [path, text] of Object.entries(extra)) { await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), text); }
+    await Effect.runPromise(draftWorkspace(directory));
+    const day = await cli("brief", "--first-day", "--workspace", directory);
+    const section = (heading: string) => { const lines = day.slice(day.indexOf(heading)).split("\n"); return lines.slice(1, lines.indexOf("")); };
+    const starts = section("## Where it starts");
+    const file = (line: string) => line.split(" ")[0];
+    expect(starts.filter(line => !line.endsWith("no other file imports it")).map(file)).toEqual(["src/index.ts", "src/session/stop.ts", "src/session/run.ts"]);
+    expect(starts.filter(line => line.endsWith("no other file imports it"))).toHaveLength(5);
+    expect(starts.join("\n")).not.toMatch(/migrations\/|alembic\/versions\//);
+    // pathlight brief's own list keeps its twelve, without the migrations either.
+    const brief = await cli("brief", "--workspace", directory);
+    const listed = brief.slice(brief.indexOf("# Where the code can be started")).split("\n\n")[0]!.split("\n").slice(1);
+    expect(listed.filter(line => line.endsWith("no other file imports it")).length).toBeGreaterThan(5);
+    expect(listed.join("\n")).not.toMatch(/migrations\/|alembic\/versions\//);
+    // Three declared starts in one box (src): Read these first takes the first.
+    expect(starts[0]).toBe("src/index.ts [src] — script “serve”");
+    const read = section("## Read these first");
+    expect(read.filter(line => line.includes("— script")).map(file)).toEqual(["src/index.ts"]);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
