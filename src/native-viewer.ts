@@ -822,7 +822,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   nodeListText.onMouseDown = event => {
     if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || state.pendingVisit) return;
     const node = diagram.nodes[event.y - nodeListText.y];
-    if (node) selectNode(node, false);
+    if (node) clickOn(node);
+  };
+  // A click that changes the selection is a visit, as Enter is: `b` returns to what was selected before it.
+  const clickOn = (node: Node) => {
+    if (node !== state.selected) remember(state, visit());
+    selectNode(node, false);
   };
   viewport.onMouseDown = event => {
     if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || state.pendingVisit) return;
@@ -834,7 +839,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // rounding can put a group's visible title just outside that plane.
     const entry = nodeObjects.filter(({ box }) => box.visible && event.x >= box.x && event.x < box.x + box.width
       && event.y >= box.y && event.y < box.y + box.height).sort((a, b) => b.node.level - a.node.level)[0];
-    if (entry) selectNode(entry.node, false);
+    if (entry) clickOn(entry.node);
   };
   // A paste into the picker is text for the query, not keys.
   renderer.keyInput.on("paste", event => {
