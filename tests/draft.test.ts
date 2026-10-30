@@ -732,3 +732,27 @@ test("a drafted map copied to a folder of another name re-drafts under the proje
     await rm(parent, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("a child named like the view's subject is included by its full id, so its link is not given to the subject as well", async () => {
+  // Mealie's `view mealie_components of mealie` wrote `include mealie with { navigateTo … }`, and LikeC4 gave the link to the package and its folder.
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-same-name-"));
+  try {
+    await write(directory, {
+      "package.json": JSON.stringify({ name: "root", workspaces: ["packages/*"] }),
+      "packages/app/package.json": JSON.stringify({ name: "app" }), "packages/web/package.json": JSON.stringify({ name: "web" }),
+      "packages/app/app/core.ts": "export const a = 1;\n", "packages/app/app/more.ts": `import { a } from "./core";\nexport const b = a;\n`,
+      "packages/app/cli/main.ts": `import { a } from "../app/core";\nexport const c = a;\n`, "packages/web/src/index.ts": "export const w = 1;\n",
+    });
+    await Effect.runPromise(draftWorkspace(directory));
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    const own = model.slice(model.indexOf("  view app_components "), model.indexOf("\n  }\n", model.indexOf("  view app_components ")));
+    expect(own).toContain("    include app.app with {\n      navigateTo app_app_near\n    }");
+    expect(own).toContain("    include cli with {");
+    const links = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const source = yield* acquireModel(directory);
+      const computed = yield* Effect.promise(() => source.computedModel([...source.projects()][0]!));
+      return Object.fromEntries([...computed.view("app_components" as never).nodes()].map(node => [String(node.id), node.$node.navigateTo ?? null]));
+    })));
+    expect(links as Record<string, unknown>).toEqual({ app: null, "app.app": "app_app_near", "app.cli": "app_cli_near" });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

@@ -565,9 +565,11 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   // child of the same name does not shadow).
   const withoutMinor = (scope: string) => ["    exclude * where tag is #minor", ...(minor.has(scope) ? [`    include ${scope}`] : [])];
   // Inside a view scoped to an element, names resolve against that element first, so its children are named locally ("app.loose.app" would
-  // find the child `app` and look for `loose` below it); an unscoped view names things in full.
+  // find the child `app` and look for `loose` below it); an unscoped view names things in full. A child whose local name starts with the scope's own
+  // name (`mealie` in `view of mealie`) names the subject as well, and LikeC4 gives the link to both: that child is named in full.
+  const localName = (id: string, scope: string) => { const name = id.slice(scope.length + 1); return name.split(".")[0] === scope.split(".").at(-1) ? id : name; };
   const links = (shown: readonly string[], group: ReadonlySet<string>, scope?: string) => shown.flatMap(id => group.has(id) || connected.has(id)
-    ? [`    include ${scope ? id.slice(scope.length + 1) : id} with {`, `      navigateTo ${group.has(id) ? componentsView(id) : nearView(id)}`, "    }"] : []);
+    ? [`    include ${scope ? localName(id, scope) : id} with {`, `      navigateTo ${group.has(id) ? componentsView(id) : nearView(id)}`, "    }"] : []);
 
   /**
    * A view shows what is inside its scope plus what that connects to; every other thing is drawn as `drawn(id)` (itself, the collection
