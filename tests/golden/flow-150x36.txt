@@ -13,11 +13,11 @@
                   │                                  │               ┊               ││                 │      Customer → Storefront                  
                   │                                  │╭───────────╮  ┊ ╭───────────╮ ││  ╭───────────╮  │    2 submits the cart       Checkout API    
                   │                                ╭┈││ Order ev… │─┈┼▶│ Email wo… │─││┈▶│ Email pr… │  │    3 reserves stock            Inventory    
-  ·         ·     │    ·          ·         ·      ┊ │╰───────────╯  ┊ ╰───────────╯ ││· ╰───────────╯  │ ›  4 commits the order            Orders    
-                  │                                ┊ ╰───────────────────────────────╯│                 │    5 tells shipping directly                
-                  │                                ┊                 ┊                │                 │      Shipping worker                        
-                  │                ╭─Commerce────────────────────────────────────────╮│                 │ 2 to check · pathlight flows                
-                  │                │ ╭───────────╮ ┊  ╭─ 4 ───────╮  ┊               ││                 │                                             
+  ·         ·     │    ·          ·         ·      ┊ │╰───────────╯  ┊ ╰───────────╯ ││· ╰───────────╯  │ ›  4 commits the order                      
+                  │                                ┊ ╰───────────────────────────────╯│                 │      Checkout API → Orders                  
+                  │                                ┊                 ┊                │                 │    5 tells shipping directly                
+                  │                ╭─Commerce────────────────────────────────────────╮│                 │      Shipping worker                        
+                  │                │ ╭───────────╮ ┊  ╭─ 4 ───────╮  ┊               ││                 │ 2 to check · pathlight flows                
   ·         ·     │    ·          ·│ │ Outbox r… │─┴┬▶│ Orders    │─┈╯      ·        ││·          ·     │                                             
                   │                │ ╰───────────╯  │ ╰───────────╯                  ││                 │                                             
                   │                │                │                                ││                 │                                             

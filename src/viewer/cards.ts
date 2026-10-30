@@ -56,8 +56,10 @@ export function stepsCard(flow: FlowMap, current: number, byElement: ReadonlyMap
     starts.push(line);
     const here = index === current;
     const at = journey ? (step.to ? [step.to] : []) : step.elements;
-    // A journey's first step names the card it leaves too, so the `▶` on that card and the `1` on the next agree with the reader.
-    const comp = journey && index === 0 && step.from && step.to ? `${elementTitle(step.from)} → ${elementTitle(step.to)}`
+    // A journey's step names the card it leaves when that is not where the previous step landed (always on step 1, so the `▶` on that card and the
+    // `1` on the next agree with the reader); otherwise the target alone.
+    const leaves = journey && step.from && step.to && (index === 0 || flow.steps[index - 1]?.to !== step.from);
+    const comp = leaves ? `${elementTitle(step.from!)} → ${elementTitle(step.to!)}`
       : at.length ? `${elementTitle(at[0]!)}${at.length > 1 ? ` +${at.length - 1}` : ""}` : "";
     const touched = at.some(element => (byElement.get(element)?.length ?? 0) > 0);
     anyTouched ||= touched;

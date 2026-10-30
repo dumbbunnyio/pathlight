@@ -50,6 +50,23 @@ test("the start card and the first number agree with the step reader: step 1 nam
   expect(text).not.toContain("Storefront → Checkout API");
 });
 
+test("the Steps card names a step's source whenever it is not where the previous step landed, as when every step leaves one box", () => {
+  // Mealie's code generation: dev → schema, dev → lib, dev → root, dev → lang, dev → composables.
+  const fan: FlowMap = { ...journey, id: "codegen", title: "Code generation", steps: ["schema", "lib", "root", "lang", "composables"].map((to, index) =>
+    ({ n: index + 1, title: `writes ${to}`, elements: ["dev", to], from: "dev", to, backed: true })) };
+  const titles: Record<string, string> = { dev: "Code generators", schema: "Data shapes", lib: "API client", root: "Backend entry", lang: "Locales", composables: "Composables" };
+  const text = stepsCard(fan, 0, new Map(), id => titles[id] ?? id, 80, 0, RGBA.fromHex("#000000")).chunks.map(chunk => chunk.text).join("");
+  for (const to of ["Data shapes", "API client", "Backend entry", "Locales", "Composables"]) expect(text).toContain(`Code generators → ${to}`);
+  // A chain that continues from where it landed names the target alone, and a step that jumps elsewhere names its source again.
+  const mixed: FlowMap = { ...journey, steps: [...journey.steps, { n: 4, title: "pays", elements: ["customer", "api"], from: "customer", to: "api", backed: true }] };
+  const lines = stepsCard(mixed, 0, new Map(), id => titles[id] ?? ({ customer: "Customer", store: "Storefront", api: "Checkout API" } as Record<string, string>)[id] ?? id, 80, 0, RGBA.fromHex("#000000"))
+    .chunks.map(chunk => chunk.text).join("");
+  expect(lines).toContain("Customer → Storefront");
+  expect(lines).not.toContain("Storefront → Checkout API");
+  expect(lines).not.toContain("Checkout API → Storefront");
+  expect(lines).toContain("Customer → Checkout API");
+});
+
 test("a hop between nested components lands on the nearest card the view draws; a hop inside one card is its badge only", () => {
   // The view draws two packages; the flow's hops are between components inside them.
   const nested: FlowMap = { ...journey, steps: [
