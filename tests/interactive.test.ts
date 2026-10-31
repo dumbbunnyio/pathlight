@@ -337,7 +337,8 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "Right", "Down");
     await delay(700);
     const before = await tmux("capture-pane", "-p", "-t", pane);
-    await tmux("send-keys", "-t", pane, "Enter");
+    // Enter would go into the group's children, drawn here; o opens the view it links to.
+    await tmux("send-keys", "-t", pane, "o");
     await capture("back 2");
     await delay(100);
     await tmux("send-keys", "-t", pane, "b");
@@ -348,7 +349,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     expect(returned).toContain("Selected: parcel.commerce");
     expect(returned).toContain("zoom 125%");
     expect(diagramCells(returned)).toBe(diagramCells(before));
-    await tmux("send-keys", "-t", pane, "Enter");
+    await tmux("send-keys", "-t", pane, "o");
     await capture("back 2");
     await delay(100);
     // Checkout opens on its entry too; to the commerce group by search, then Enter goes into it, to its first child.

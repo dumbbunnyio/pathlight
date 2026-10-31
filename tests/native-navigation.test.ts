@@ -44,9 +44,9 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("Selected: parcel.commerce")).toContain("parcel/services");
     expect(await capture("parcel/services")).not.toContain("back ");
-    // Enter on a box that opens a view opens it, even a group with children here; backspace comes back.
+    // Enter on a group whose children are drawn here goes into them, even when it also opens a view; backspace comes back.
     await tmux("send-keys", "-t", pane, "Enter");
-    await capture("parcel/checkout");
+    expect(await capture("Selected: parcel.commerce.api")).toContain("parcel/services");
     await tmux("send-keys", "-t", pane, "BSpace");
     await settled();
     await tmux("send-keys", "-t", pane, "+", "Right");
@@ -54,6 +54,8 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     expect(beforeLink).toContain("Selected: parcel.commerce");
     const pid = await tmux("display-message", "-p", "-t", pane, "#{pane_pid}");
 
+    await find("checkout");
+    await capture("› checkout");
     await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("parcel/checkout")).toContain("back 1");
     await settled();
@@ -69,7 +71,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await settled();
     await tmux("send-keys", "-t", pane, "Escape");
     expect(await settled()).toBe(beforeLink);
-    await tmux("send-keys", "-t", pane, "Enter");
+    await tmux("send-keys", "-t", pane, "o");
     await capture("parcel/checkout");
     await find("parcel.commerce.api");
     await capture("› parcel.commerce.api");
@@ -113,11 +115,13 @@ test("backspace steps back like b, and goes up only when there is nowhere to go 
   const up = await see("BSpace,BSpace,BSpace");
   expect(where(up)).toEqual(["parcel/services", "parcel.commerce"]);
   expect(up.at(-1)).toContain("Went to Parcel / Service architecture");
-  // Into the linked view and straight back: backspace takes the visit, as b would.
+  // Into the group and straight back: backspace takes the visit, as b would.
   expect(where(await see("BSpace,BSpace,BSpace,Enter,BSpace"))).toEqual(["parcel/services", "parcel.commerce"]);
   expect(where(await see("BSpace,BSpace,BSpace,Enter,b"))).toEqual(["parcel/services", "parcel.commerce"]);
-  // o is no key: Enter is the one way into a box.
-  expect(where(await see("BSpace,BSpace,BSpace,o"))).toEqual(["parcel/services", "parcel.commerce"]);
+  // o opens the view a box links to even when its children are drawn here.
+  const opened = await see("BSpace,BSpace,BSpace,o");
+  expect(where(opened)[0]).toBe("parcel/checkout");
+  expect(opened.find(line => line.includes("parcel/checkout"))).toContain("back 1");
   // b alone, with no visit behind it, stays.
   const stays = await see("b");
   expect(where(stays)).toEqual(["parcel/checkout", "parcel.commerce.api"]);

@@ -34,7 +34,7 @@ import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
-import { allotSections, firstQuestion, headContent, nodeListContent, hiddenLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
+import { allotSections, firstQuestion, headContent, nodeListContent, hiddenLine, opensLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
 import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
 import { createThemePicker } from "./viewer/theme-picker";
@@ -502,7 +502,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const paths = selectedPaths();
     const selected = state.selected;
     const target = selected?.navigateTo ? diagrams.get(String(selected.navigateTo)) : undefined;
-    const opens = selected?.navigateTo && String(selected.navigateTo) !== String(diagram.id) ? hiddenLine(describe(target?.description)) : "";
+    // A box whose children are drawn here and that opens a view: Enter goes into the children, so the line says what `o` opens.
+    const linked = selected?.navigateTo && String(selected.navigateTo) !== String(diagram.id);
+    const both = linked && selected.children.some(child => diagram.nodes.some(node => node.id === child));
+    const opens = [both ? opensLine(String(target?.title ?? selected.navigateTo)) : "", linked ? hiddenLine(describe(target?.description)) : ""].filter(Boolean).join("\n");
     const head = headContent({ title: selected?.title, kind: selected?.kind ? String(selected.kind) : "", technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
       tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
       by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length, app: selected ? undefined : appNote() });
@@ -987,13 +990,16 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "exitFlow": flowMode.exit(); return;
       case "search": camera.animating = false; gotoPicker.begin("all"); return;
       case "back": if (!goBack()) { message = "No previous view"; update(); } return;
-      // Enter goes into a box: the view it opens, else (the frame this view is about) its first child. Going into a frame is a visit too, so back first
-      // reselects the frame in this view and only then leaves it.
-      case "open":
-        if (state.selected?.navigateTo && String(state.selected.navigateTo) !== String(diagram.id)) openLink();
-        else if (state.selected?.children.length) { remember(state, visit()); selectNode(diagram.nodes.find(node => node.id === state.selected?.children[0]), true); }
+      // Enter goes into a box: into its children when this view draws them (a group, or the frame the view is about), else into the view it opens.
+      // Going into a group is a visit too, so back first reselects it in this view and only then leaves it. `o` opens the view a box links to even
+      // when its children are drawn here.
+      case "open": {
+        const child = diagram.nodes.find(node => node.id === state.selected?.children[0]);
+        if (child) { remember(state, visit()); selectNode(child, true); }
         else openLink();
         return;
+      }
+      case "openView": openLink(); return;
       // `b` and backspace are one stack: backspace steps back too, and only with nowhere to go back to goes up, to the box that holds the selection
       // in this view, else to the view whose box opens this one.
       case "parent": {

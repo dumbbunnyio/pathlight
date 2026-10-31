@@ -14,7 +14,7 @@ Click a node. Its border becomes white, and the details panel lists its incoming
 Connections are made of horizontal and vertical lines with rounded bends. Quiet ones are dotted, and the selected node's are solid: cyan for incoming, amber for outgoing.
 The details use the same colors, node names, and full relationship labels. Scroll over the details to read wrapped labels without panning the diagram.
 Click a node or use `h`, `j`, `k` and `l`, which select the nearest node left, down, up or right of the selection (siblings are preferred; ancestors and descendants are reached with Backspace and Enter). The camera only moves if the new node would be off screen. Arrow keys pan the camera without changing the selection, and Shift+`hjkl` pans too. Press `v` to swap the roles: arrows select, `hjkl` pan.
-Enter is the one key into a box: on a box that opens a view it opens that view; on the frame this view is about it selects the frame's first child, and `b` or backspace then reselects the frame before anything else. When the view a box opens leaves smaller boxes out, the inspector says so under the counts (`4 smaller boxes are not drawn in its view`).
+Enter goes into a box: into its children when this view draws them (a group, or the frame the view is about), else into the view it opens; `o` opens that view even when the children are drawn here, and the inspector says `o opens VIEW` only then. After Enter into a group, `b` or backspace reselects the group before anything else. When the view a box opens leaves smaller boxes out, the inspector says so under the counts (`4 smaller boxes are not drawn in its view`).
 Press `b` or Backspace to return to the previous view, selection, zoom, and scroll position: the two keys are one stack, and a click that changes the selection is on it too, as Enter is. With nowhere to go back to, Backspace goes up instead: to the group that holds the selection in this view, else to the view whose box opens this one (that box selected); `b` says `No previous view`.
 Press `f` to fit the diagram, `r` to center the selection, and `q` to quit.
 Press `+` or `=` to zoom in, `-` to zoom out, and `0` to return to 100%.
@@ -51,7 +51,7 @@ Press `/` to search everything: every view, every box (in any view, nested or no
 Type to narrow it. Matching ignores case. Several words must all match, the letters of a word may be spread out (`ctx` finds `context`), and a swapped or doubled letter (`hepler`) still finds `helper`. A box matches on its name and its id, a view on its title and its id, and a file on its name and its path.
 Results are ranked by how well the text matches and by where the result is, added together. Match quality counts most: an exact name or id comes first wherever it is, then a prefix or a word start, then a substring, then spread-out letters. Where it is breaks ties and nudges close calls, in this order: a box in the view you are in, a file in it, a box elsewhere, a journey, a view, a file elsewhere. A row for something in your view carries a dot (`● here`); a row elsewhere says which view it opens. Files the mapping ignores (tests, generated code) are not offered. The ranking constants and their tests are in `src/search.ts` and `tests/search.test.ts`.
 Up, Down, `Ctrl+N`/`Ctrl+P`, PgUp, PgDn, Home and End move; Enter goes; Escape (or a click outside) closes without changing anything. A box in the view you are in is selected where it is. Otherwise Enter opens the view of its parent, else its own view, else a view it is linked from, else the smallest view that has it, selects the box, and Back returns. A file opens its box with that file marked in the Files section. A view just opens.
-The list scrolls inside its frame (the border shows `79–95 of 95`). Typing, pasted text (256 characters at most) and resizing all work while it is open, `q` and `b` are text rather than commands, and diagram clicks do not change the selection. Ctrl+C still quits.
+The list scrolls inside its frame (the border shows `79–95 of 95`). Typing, pasted text (256 characters at most) and resizing all work while it is open, `q`, `b` and `o` are text rather than commands, and diagram clicks do not change the selection. Ctrl+C still quits.
 
 ## Open a node's files
 
@@ -91,7 +91,7 @@ Select the Parcel group, then the Commerce or Fulfillment group inside it. Click
 Use `view checkout` for a narrower diagram with two levels of groups.
 
 To try navigation, start with `view index`. Select Parcel and press Enter to open services.
-Select Commerce and press Enter to open checkout. Press `b` to return to Commerce in services.
+Select Commerce and press `o` to open checkout (Enter selects its first child). Press `b` to return to Commerce in services.
 The viewer follows explicit LikeC4 `navigateTo` links. It does not guess a destination from shared elements.
 History retains the latest 32 visits. Opening a missing or empty view leaves the current diagram intact.
 Changing views replaces only the diagram widgets. The viewer process, activity binding, and activity polling stay running.
