@@ -162,5 +162,5 @@ test("a box that opens a view says how many boxes are inside it, a leaf says not
     { id: "n4", modelRef: "frame", navigateTo: "index", children: ["n5"] },
   ] };
   const boxes = new Set(["shop", "shop.api", "shop.api.routes", "shop.db", "customer", "lonely", "frame", "frame.x"]);
-  expect(insideWords(view, boxes)).toEqual(new Map([["n1", "3 inside"]]));
+  expect(insideWords(view, boxes)).toEqual(new Map([["n1", "[3]"]]));
 });

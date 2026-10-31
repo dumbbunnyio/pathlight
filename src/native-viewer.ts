@@ -59,7 +59,7 @@ let { config, files, fileError, diagrams } = world;
 type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
 const watching = Boolean(binding || following);
 const shaped = new WeakMap<Layout, Layout>();
-// Whether a view's cards spend their first row on a word (`36 inside`), a planned element's status or the activity counts: decided once per view, so it is
+// Whether a view's cards spend their first row on a word (`[36]`), a planned element's status or the activity counts: decided once per view, so it is
 // on every card or none; and the words themselves, by node.
 const wordRows = new WeakMap<Layout, { words: ReadonlyMap<string, string>; row: boolean }>();
 const shape = (raw: Layout): Layout => {

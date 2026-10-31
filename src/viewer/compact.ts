@@ -9,7 +9,7 @@ export interface Rect { x: number; y: number; width: number; height: number }
 export interface CompactOptions {
   /** A cell's width over its height (0.5 in most terminals). */
   aspect: number;
-  /** Whether leaf cards spend a row on their word (`36 inside`, the activity counts; viewer/card-view.ts), decided once per view. */
+  /** Whether leaf cards spend a row on their word (`[36]`, the activity counts; viewer/card-view.ts), decided once per view. */
   wordRow: boolean;
 }
 

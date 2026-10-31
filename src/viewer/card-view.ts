@@ -16,14 +16,14 @@ export const insideWords = (view: { id: unknown; nodes: readonly { id: unknown; 
   for (const node of view.nodes) {
     if (node.children.length || !node.navigateTo || String(node.navigateTo) === String(view.id)) continue;
     const ref = String(node.modelRef), count = [...boxes].filter(box => box.startsWith(`${ref}.`)).length;
-    if (count) words.set(String(node.id), `${count.toLocaleString("en")} inside`);
+    if (count) words.set(String(node.id), `[${count.toLocaleString("en")}]`);
   }
   return words;
 };
 
 /** What a card is to the viewer at this moment. */
 export interface CardFacts {
-  /** `word`: what its first row says on the left (`36 inside`, see `insideWords`), or nothing. */
+  /** `word`: what its first row says on the left (`[36]`, see `insideWords`), or nothing. */
   title: string; word: string; group: boolean; tags: readonly string[];
   /** Whether leaf cards spend their first row on the word and status: the view decides, so it is on every card or none. */
   header: boolean;

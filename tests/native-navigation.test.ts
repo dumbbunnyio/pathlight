@@ -147,6 +147,6 @@ test("back after Enter into a group reselects the frame in the same view before 
 // The word on a card's first row: a box that opens a view says how many boxes are inside it; a leaf says nothing; no card names its kind.
 test("the overview's Parcel says how many boxes are inside it, and no card says person, system or component", async () => {
   const screen = await run(process.execPath, [resolve("src/cli.ts"), "see", "index", "--workspace", "examples/parcel", "--project", "parcel", "--cols", "140", "--rows", "36"]);
-  expect(screen).toMatch(/│ 11 inside +│[^\n]*\n[^\n]*│ Parcel +│/);
+  expect(screen).toMatch(/│ \[11\] +│[^\n]*\n[^\n]*│ Parcel +│/);
   expect(screen).not.toMatch(/│ (person|system|component|external)\b/);
 }, 60_000);
