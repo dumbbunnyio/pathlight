@@ -55,7 +55,7 @@ test("work outside the view shows a hint and w switches to the view that has it"
   }
 }, 60_000);
 
-test("once the turn has ended the work is not offered: the activity line shows the latest call, and w still goes to it", async () => {
+test("once the turn has ended the work is not offered and a finished call puts nothing in the header, and w still goes to it", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-work-ended-"));
   const socket = join("/tmp", `c4e-${process.pid}.sock`);
   const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
@@ -82,7 +82,9 @@ test("once the turn has ended the work is not offered: the activity line shows t
       throw new Error(`Missing ${text}:\n${output}`);
     };
     await until("Launch path");
-    const screen = await until("last ✓ read src/activity.ts");
+    // The session's calls are loaded (the inspector offers them); a call with an outcome puts nothing in the header.
+    const screen = await until("c session");
+    expect(screen.split("\n")[1]).not.toMatch(/now|last|read/);
     expect(screen).not.toContain("working in");
     expect(screen).not.toContain("go and follow");
     // A new turn lights it; its end puts it out again.

@@ -596,7 +596,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       section: !fileMode ? state.focusSection : undefined, flow: flowMode.active && !fileMode ? { title: flowMode.active.title, step: flowMode.step, steps: flowMode.active.steps.length } : undefined,
       files: fileMode ? { cursor: state.fileCursor, count: paths.length } : undefined }) });
     statusLeft.content = footing.left; statusRight.content = footing.right;
-    // One activity line, top right: an offer while the turn is open and the work is in another view, else the latest call. It is dropped when it would not fit.
+    // One activity line, top right: an offer while the turn is open and the work is in another view, else the call running now. It is dropped when it would not fit.
     crumbHint.content = crumbActivity(work && "view" in work ? workOffer(work.title) : tickerContent(), renderer.width - 2 - crumbPlain.length - 3);
     dirty = true; renderer.requestRender();
   };

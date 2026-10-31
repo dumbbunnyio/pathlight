@@ -1,5 +1,5 @@
  ◆ pathlight / Pathlight implementation                                                                             ● live claude:talk-gol  
- viewer/live · 6 nodes                                                                                              last ✓ read model.c4 1m 
+ viewer/live · 6 nodes                                                                                                                      
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  ·         ·       │ Talk · Agent adapters                                                                                             done 
                    │                                                                                                                        

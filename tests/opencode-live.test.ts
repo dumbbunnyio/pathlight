@@ -113,7 +113,8 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     }, `${count} finished calls`);
     const summary = (found: Awaited<ReturnType<typeof events>>) => found.map(event => [event.tool, event.phase, event.operation, [...event.paths]].join(" ")).sort();
     expect(summary(await events(2))).toEqual(["read completed read src/activity.ts", "read completed read src/launcher.ts"]);
-    await viewerShows(viewer, "src/launcher.ts");
+    // The header names no file once a call is over; the calls reach the viewer as a card tag or a Now row.
+    await viewerShows(viewer, /✓ done|launcher\.ts/);
 
     // The talk's source: the session pointer names OpenCode's own database, and the reader finds the typed prompt there (and the reply once written).
     // If the database is not where the plugin looks, this stops and says where it is rather than guessing.
