@@ -162,18 +162,18 @@ views {
   }
 }, 60_000);
 
-test("an element with many direct children is reported as wide, and grouping them clears it", async () => {
+test("a hand-written element with twenty cards inside it is reported as wide, and grouping them clears it", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-check-wide-"));
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    const flat = Array.from({ length: 10 }, (_, index) => `  part${index} = component 'Part ${index}'`).join("\n");
-    const grouped = ["a", "b"].map(name => `  ${name} = component '${name}' {\n${Array.from({ length: 5 }, (_, index) => `    p${index} = component 'P${index}'`).join("\n")}\n  }`).join("\n");
+    const flat = Array.from({ length: 20 }, (_, index) => `  part${index} = component 'Part ${index}'`).join("\n");
+    const grouped = ["a", "b"].map(name => `  ${name} = component '${name}' {\n${Array.from({ length: 10 }, (_, index) => `    p${index} = component 'P${index}'`).join("\n")}\n  }`).join("\n");
     const model = (body: string) => `specification { element component }\nmodel {\n  system = component 'System' {\n${body}\n  }\n}\nviews { view live { include system.* autoLayout LeftRight } }\n`;
     await write(directory, { "model.c4": model(flat), ".pathlight/pathlight.activity.json": mapping([]) });
     let check = await Effect.runPromise(checkWorkspace(directory));
-    expect(check.wide).toEqual([{ parent: "system", children: 10 }]);
+    expect(check.wide).toEqual([{ parent: "system", children: 20 }]);
     expect(check.summary.wideGroups).toBe(1);
-    expect(formatCheck(check)).toContain("▲ system has 10 elements side by side; 3 to 7 per level reads better.");
+    expect(formatCheck(check)).toContain("▲ system has 20 boxes side by side; a view over 20 is hard to read. Group related ones and give each group its own view.");
     await write(directory, { "model.c4": model(grouped) });
     check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.wide).toEqual([]);
@@ -182,27 +182,27 @@ test("an element with many direct children is reported as wide, and grouping the
   }
 }, 60_000);
 
-test("the side-by-side hint counts the cards an element's own view draws inside it: a view that thins to nine is not flagged, one that draws ten is, a listing does not count", async () => {
+test("the side-by-side hint counts the cards an element's own view draws inside it: a view that thins to nineteen is not flagged, one that draws twenty is, a listing does not count", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-check-drawn-"));
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });
-    const flat = Array.from({ length: 10 }, (_, index) => `  part${index} = component 'Part ${index}'`).join("\n");
+    const flat = Array.from({ length: 20 }, (_, index) => `  part${index} = component 'Part ${index}'`).join("\n");
     const model = (views: string) => `specification { element component }\nmodel {\n  system = component 'System' {\n${flat}\n  }\n}\nviews {\n  view live { include system.* autoLayout LeftRight }\n${views}\n}\n`;
     const hint = async (views: string, entries?: string[]) => {
       await write(directory, { "model.c4": model(views), ".pathlight/pathlight.activity.json": JSON.stringify({ ...JSON.parse(mapping([])), ...entries ? { entries } : {} }) });
       return (await Effect.runPromise(checkWorkspace(directory))).wide;
     };
-    expect(await hint("  view own of system { include * }")).toEqual([{ parent: "system", children: 10 }]);
-    expect(await hint("  view own of system { include *\n exclude system.part9 }")).toEqual([]);
+    expect(await hint("  view own of system { include * }")).toEqual([{ parent: "system", children: 20 }]);
+    expect(await hint("  view own of system { include *\n exclude system.part19 }")).toEqual([]);
     // A complete listing is big on purpose; with only a listing of its own, the element is met as its model children.
-    expect(await hint("  view own of system { include *\n exclude system.part9 }\n  view every of system { include * }", ["every"])).toEqual([]);
-    expect(await hint("  view every of system { include * }", ["every"])).toEqual([{ parent: "system", children: 10 }]);
+    expect(await hint("  view own of system { include *\n exclude system.part19 }\n  view every of system { include * }", ["every"])).toEqual([]);
+    expect(await hint("  view every of system { include * }", ["every"])).toEqual([{ parent: "system", children: 20 }]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
 
-test("a drafted folder of twenty-four children whose view draws nineteen is counted by the cards it draws, not by its children", async () => {
+test("a drafted folder of twenty-four children whose view draws nineteen is counted by the cards it draws and gets no hint", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-check-folder-"));
   try {
     const files: Record<string, string> = { "package.json": JSON.stringify({ name: "app" }) };
@@ -211,8 +211,8 @@ test("a drafted folder of twenty-four children whose view draws nineteen is coun
     const made = await Effect.runPromise(draftWorkspace(directory));
     expect(made).toMatchObject({ folders: 1, components: 24 });
     const check = await Effect.runPromise(checkWorkspace(directory));
-    expect(check.wide.map(item => item.children)).toEqual([19]);
-    expect(formatCheck(check)).toContain("has 19 elements side by side");
+    expect(check.wide).toEqual([]);
+    expect(formatCheck(check)).not.toContain("side by side");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

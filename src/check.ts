@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 import { type ActivityConfig, readActivityConfig } from "./activity";
 import { acquireModel, invalidModel } from "./catalog";
+import { crowdedAbove } from "./draft";
 import { failure, io } from "./effects";
 import { scannedLanguages } from "./languages";
 import { listFiles, scanWorkspace, type Scan } from "./scan";
@@ -175,7 +176,8 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
     const cards = view.$view.nodes.filter(node => node.parent !== null && String(node.parent) === String(of)).length;
     drawnInside.set(String(of), Math.max(drawnInside.get(String(of)) ?? 0, cards));
   }
-  const wide = [...children].map(([parent, count]) => ({ parent, children: drawnInside.get(parent) ?? count })).filter(item => item.children > 9)
+  // The draft draws at most `crowdedAbove - 1` cards inside one box, so only a view over that is too many to read.
+  const wide = [...children].map(([parent, count]) => ({ parent, children: drawnInside.get(parent) ?? count })).filter(item => item.children > crowdedAbove - 1)
     .sort((a, b) => b.children - a.children || order(a.parent, b.parent));
 
   // Which views a person can reach by following navigateTo.
@@ -246,7 +248,7 @@ export function formatCheck(check: Check) {
   lines.push("", "Mapping spread (hints, not verdicts)");
   const top = check.size.slice(0, 5).map(item => `${item.element} ${item.files}`).join(", ");
   lines.push(`  files per element, largest first: ${top || "none"}`);
-  for (const item of check.wide) lines.push(`  ▲ ${item.parent || "the top level"} has ${item.children} elements side by side; 3 to 7 per level reads better. Group related ones and give each group its own view.`);
+  for (const item of check.wide) lines.push(`  ▲ ${item.parent || "the top level"} has ${item.children} boxes side by side; a view over ${crowdedAbove} is hard to read. Group related ones and give each group its own view.`);
   for (const item of check.size.filter(entry => entry.large)) lines.push(`  ▲ ${item.element} holds ${item.files} of the mapped files; inside it: ${item.folders.slice(0, 6).map(entry => `${entry.folder} ${entry.files}`).join(", ")}`);
   return `${lines.join("\n")}\n`;
 }
