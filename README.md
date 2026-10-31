@@ -150,7 +150,7 @@ It draws several kinds of view, each kept to about what a terminal can show at o
 
 - **Packages** (`index`): the strongest packages and how they depend on each other. `all_packages` lists every package.
 - **Inside a package** (`<package>_components`): its components, with the other packages they connect to. Folders with fewer than three files, and a package's loose top-level files, sit in two collections (`small folders`, `loose files`) that open into their own views, so a small module is never merged into whatever imports it most. A package with more components than fit shows the strongest and says how many it left out; `<package>_all_components` shows everything.
-- **Inside an opened folder** (`<folder>_components`): its nine strongest children as cards, its collections among them, with the rest in `<folder>_all_components`; its description says why it was opened.
+- **Inside an opened folder** (`<folder>_components`): every child as a card, its collections among them, while the view holds at most 20 boxes in all (the cards, the frames and the neighbours drawn); above that it keeps the strongest, lists the rest in `<folder>_all_components`, and never leaves out a box that holds a declared start (a script, a `main`). Its description says why it was opened.
 - **A component's neighbourhood** (`<component>_near`): what it uses and what uses it, which is the blast radius of editing it. Select a component and press enter to open it. A hub with too many neighbours lists its strongest and says how many were left out.
 - **Import cycles** (`cycles`, `<package>_cycles`): packages or components that import each other in a loop, with the size of the loop.
 

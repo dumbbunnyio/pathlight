@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { checkWorkspace } from "../src/check";
 import { acquireModel, listViews } from "../src/catalog";
-import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, folderCap, loops, openFloor, openShare, viewCap, witness } from "../src/draft";
+import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, openFloor, openShare, viewCap, witness } from "../src/draft";
 import { readdir } from "node:fs/promises";
 import { mappingIn, overlayIn, run } from "./effects";
 
@@ -556,33 +556,54 @@ test("a folder holding nine in ten of a small package's read files opens, and fi
   expect(model).toContain("  core = folder 'core' {");
 }, 60_000);
 
-test("an opened folder has its own view: its children as cards with links to their views, the nine strongest drawn and the other five in its everything view", async () => {
-  expect(folderCap).toBe(9);
-  // Fourteen folders under src/core, the only top folder: core holds every read file, so it opens. Every file of c2…c14 but c2's last imports c1, so
-  // c1 is the strongest, c2 the weakest, and the rest tie and go by name (c10…c14 before c3).
+test("an opened folder has its own view: every child as a card with a link to its view while the view stays readable, and no everything view", async () => {
+  // Fourteen folders under src/core, the only top folder: core holds every read file, so it opens. Fourteen cards and the frame are fewer than
+  // crowdedAbove, so every one is drawn.
   const files: Record<string, string> = {};
   for (let n = 1; n <= 14; n++) for (let f = 0; f < 3; f++) files[`src/core/c${n}/f${f}.ts`] = n > 1 && f < n ? `import { f0 } from "../c1/f0";\nexport const f${f} = f0;\n` : `export const f${f} = ${f};\n`;
   const { made, model } = await drafted(files);
   expect(made).toMatchObject({ folders: 1, components: 14 });
   const view = (id: string) => model.slice(model.indexOf(`  view ${id} `), model.indexOf("\n  }\n", model.indexOf(`  view ${id} `)));
   const own = view("core_components");
-  expect(own).toContain("view core_components of core {\n    title 'core'\n    description 'Opened by the draft: it holds 42 of the 42 files the scan reads in the workspace. 5 smaller ones are not shown here; core_all_components lists everything.'");
+  expect(own).toContain("view core_components of core {\n    title 'core'\n    description 'Opened by the draft: it holds 42 of the 42 files the scan reads in the workspace.'");
   // Each card opens its neighbourhood.
   for (const match of own.matchAll(/include (\w+) with \{\n\s+navigateTo (\w+)/g)) expect(match[2]).toBe(`core_${match[1]}_near`);
-  expect([...own.matchAll(/include (\w+) with/g)].map(match => match[1])).toEqual(["c1", "c10", "c11", "c12", "c13", "c14", "c3", "c4", "c5"]);
-  expect(own).toContain("exclude * where tag is #minor");
-  expect([...model.matchAll(/c(\d+) = component 'c\d+' \{\n\s+#minor/g)].map(match => Number(match[1])).sort((a, b) => a - b)).toEqual([2, 6, 7, 8, 9]);
-  expect([...view("core_all_components").matchAll(/include (\w+) with/g)]).toHaveLength(14);
+  expect([...own.matchAll(/include (\w+) with/g)]).toHaveLength(14);
+  expect(own).not.toContain("#minor");
+  expect(model).not.toContain("#minor\n");
+  expect(model).not.toContain("core_all_components");
   // The index draws the folder and opens its view.
   expect(view("index")).toContain("include core with {\n      navigateTo core_components\n    }");
 }, 60_000);
 
+test("an opened folder too big for one readable view keeps its strongest children and never leaves out the box that holds a declared start", async () => {
+  // Twenty-two folders under src/core: the frame and nineteen cards are crowdedAbove, so three go to the everything view. c2 is the weakest (nothing
+  // imports it), but package.json's main is in it, so it is drawn and the weakest of the others goes in its place.
+  const files: Record<string, string> = {};
+  for (let n = 1; n <= 22; n++) for (let f = 0; f < 3; f++) files[`src/core/c${n}/f${f}.ts`] = n > 2 && f < n ? `import { f0 } from "../c1/f0";\nexport const f${f} = f0;\n` : `export const f${f} = ${f};\n`;
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-start-"));
+  try {
+    await write(directory, { "package.json": JSON.stringify({ name: "app", main: "src/core/c2/f0.ts" }), ...files });
+    expect(await Effect.runPromise(draftWorkspace(directory))).toMatchObject({ folders: 1, components: 22 });
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    const own = model.slice(model.indexOf("  view core_components "), model.indexOf("\n  }\n", model.indexOf("  view core_components ")));
+    expect(own).toContain("3 smaller ones are not shown here; core_all_components lists everything.");
+    const minor = [...model.matchAll(/c(\d+) = component 'c\d+' \{\n\s+#minor/g)].map(match => Number(match[1]));
+    expect(minor).toHaveLength(3);
+    expect(minor).not.toContain(2);
+    expect(model).toContain("view core_all_components");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("a view of a #minor element keeps its frame: the exclusion of minor elements is followed by the element itself, so its cards sit inside it", async () => {
-  // Twenty-two top folders of 31 files, and zz, split by the overlay into ten subfolders of three: zz is the weakest of 23 and so #minor, and its own
-  // view (ten children, nine drawn) excludes #minor, which took zz out of it and left nine loose cards.
+  // Twenty-two top folders that import each other in a ring, and zz, split by the overlay into twenty subfolders of three that nothing imports: zz is
+  // the weakest of 23 and so #minor, and its own view (twenty children, nineteen drawn) excludes #minor, which took zz out of it and left the cards loose.
   const files: Record<string, string> = { "package.json": JSON.stringify({ name: "app" }) };
-  for (let n = 0; n < 22; n++) Object.assign(files, many(`src/t${String(n).padStart(2, "0")}`, 31));
-  for (let n = 0; n < 10; n++) Object.assign(files, many(`src/zz/s${n}`, 3));
+  const top = (n: number) => `src/t${String(n % 22).padStart(2, "0")}`;
+  for (let n = 0; n < 22; n++) Object.assign(files, many(top(n), 3), { [`${top(n)}/ring.ts`]: `import { f0 } from "../${top(n + 1).slice(4)}/f0";\nexport const ring = f0;\n` });
+  for (let n = 0; n < 20; n++) Object.assign(files, many(`src/zz/s${String(n).padStart(2, "0")}`, 3));
   const directory = await withOverlay(files, { version: 1, elements: {}, splits: [{ key: "src/zz", by: "agent" }] });
   try {
     expect((await Effect.runPromise(draftWorkspace(directory))).problems).toEqual([]);
@@ -596,7 +617,7 @@ test("a view of a #minor element keeps its frame: the exclusion of minor element
       return [...model.view("zz_components" as never).nodes()].map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent.id) : null }));
     })));
     expect(nodes.find(node => node.id === "zz")).toEqual({ id: "zz", parent: null });
-    expect(nodes.filter(node => node.parent === "zz")).toHaveLength(9);
+    expect(nodes.filter(node => node.parent === "zz")).toHaveLength(19);
     // A view of an element that is not minor is unchanged: the index excludes minor elements and includes nothing back.
     expect(model.slice(model.indexOf("  view index "), model.indexOf("\n  }\n", model.indexOf("  view index ")))).not.toMatch(/exclude \* where tag is #minor\n\s+include/);
   } finally { await rm(directory, { recursive: true, force: true }); }

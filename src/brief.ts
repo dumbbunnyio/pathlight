@@ -7,9 +7,9 @@ import { readOverlay } from "./edit";
 import { failure, io } from "./effects";
 import { homeOf, modelFile, overlayFile } from "./layout";
 import { checkFlows } from "./flows";
-import { declarationsFor } from "./languages";
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace } from "./scan";
+import { declaredStartsOf, notEntry, notOurs } from "./starts";
 
 /**
  * `pathlight brief`: what an agent needs to name the boxes of a draft, gathered from the code and nothing else. For each box (a package, a collection
@@ -77,64 +77,15 @@ export const contextOf = Effect.fn("Brief.context")(function* (workspace: string
  * shown with the box that holds the file.
  */
 export interface EntryPoint { file: string; box?: string; why: string }
-/** Test files, tool configuration and migrations (a migration is run by a tool, as a test is) are never where the code starts. */
-const notEntry = /(^|\/)(tests?|__tests__|spec|fixtures?|mocks?|testdata)\/|\.(test|spec|d|config|stories)\.[cm]?[jt]sx?$|(^|\/)(vite|vitest|jest|tsup|rollup|webpack|eslint|oxlint)[.\w-]*\.[cm]?[jt]s$|_test\.go$|(^|\/)(test_[^/]*|[^/]*_test|conftest)\.py$|(^|\/)(migrations|alembic\/versions)\//;
-const notOurs = /(^|\/)(node_modules|\.venv|venv|site-packages|vendor)\//;
-const scriptSkipped = /^(test|check|lint|format|fmt|build|prepare|prepublish|postinstall|typecheck|types|clean)\b/;
 export const entryPointsOf = Effect.fn("Brief.entryPoints")(function* (workspace: string, boxes: readonly BriefBox[]) {
   const root = yield* io("Brief.workspace", () => realpath(workspace));
   const scan = yield* scanWorkspace(root);
   const { paths } = yield* listFiles(root);
-  const sources = new Set(scan.files.map(file => file.path));
   const boxOf = new Map<string, string>();
   for (const box of [...boxes].sort((a, b) => b.depth - a.depth)) for (const file of box.files) if (!boxOf.has(file.path)) boxOf.set(file.path, box.key);
   const found = new Map<string, EntryPoint>();
-  const add = (file: string, why: string) => { if (sources.has(file) && !found.has(file)) found.set(file, { file, ...(boxOf.has(file) ? { box: boxOf.get(file)! } : {}), why }); };
-  for (const manifest of paths.filter(path => posix.basename(path) === "package.json" && !path.includes("node_modules/"))) {
-    const directory = posix.dirname(manifest) === "." ? "" : posix.dirname(manifest);
-    const parsed = yield* io("Brief.manifest", () => readFile(join(root, manifest), "utf8")).pipe(Effect.map((text): unknown => { try { return JSON.parse(text); } catch { return undefined; } }), Effect.catch(() => Effect.succeed(undefined as unknown)));
-    if (typeof parsed !== "object" || !parsed) continue;
-    const record = parsed as Record<string, unknown>;
-    const resolveIn = (reference: string) => posix.normalize(posix.join(directory, reference.replace(/^\.\//, "")));
-    const scripts = typeof record.scripts === "object" && record.scripts ? Object.entries(record.scripts as Record<string, unknown>) : [];
-    for (const [name, command] of scripts) {
-      if (typeof command !== "string" || scriptSkipped.test(name)) continue;
-      for (const word of command.split(/\s+/)) if (/\.[cm]?[jt]sx?$/.test(word) && !word.startsWith("-")) add(resolveIn(word), `script “${name}”${directory ? ` in ${directory}` : ""}`);
-    }
-    const bins = typeof record.bin === "string" ? [["bin", record.bin]] : typeof record.bin === "object" && record.bin ? Object.entries(record.bin as Record<string, unknown>) : [];
-    for (const [name, target] of bins) if (typeof target === "string") add(resolveIn(target), `bin “${name}”`);
-    for (const key of ["main", "module"]) if (typeof record[key] === "string") add(resolveIn(record[key] as string), `package ${key}`);
-  }
-  // A Python script entry is `module.path:function`: the module's file, beside the pyproject or under its `src/`.
-  for (const manifest of paths.filter(path => posix.basename(path) === "pyproject.toml" && !notOurs.test(path))) {
-    const directory = posix.dirname(manifest) === "." ? "" : posix.dirname(manifest);
-    const parsed = yield* io("Brief.pyproject", () => readFile(join(root, manifest), "utf8")).pipe(Effect.map((text): unknown => { try { return Bun.TOML.parse(text); } catch { return undefined; } }), Effect.catch(() => Effect.succeed(undefined as unknown)));
-    const project = typeof parsed === "object" && parsed ? (parsed as Record<string, unknown>).project : undefined;
-    if (typeof project !== "object" || !project) continue;
-    for (const table of ["scripts", "gui-scripts"]) {
-      const scripts = (project as Record<string, unknown>)[table];
-      if (typeof scripts !== "object" || !scripts) continue;
-      for (const [name, target] of Object.entries(scripts as Record<string, unknown>)) {
-        const module = typeof target === "string" ? target.split(":")[0]!.trim().replaceAll(".", "/") : "";
-        if (!module) continue;
-        const file = ["", "src/"].flatMap(base => [`${base}${module}.py`, `${base}${module}/__init__.py`]).map(path => posix.join(directory, path)).find(path => sources.has(path));
-        if (file) add(file, `script “${name}” in ${posix.join(directory, "pyproject.toml")}`);
-      }
-    }
-  }
-  // Programs the code declares: a Go `package main` holding `func main`, a Python `__main__.py` or `main.py`.
-  for (const file of scan.files) {
-    if (notEntry.test(file.path) || notOurs.test(file.path)) continue;
-    const name = posix.basename(file.path);
-    if (name === "__main__.py") add(file.path, "Python __main__ module");
-    else if (name === "main.py") add(file.path, "Python main.py");
-    else if (file.path.endsWith(".go")) {
-      const source = yield* io("Brief.go", () => readFile(join(root, file.path), "utf8")).pipe(Effect.catch(() => Effect.succeed("")));
-      if (!/^package\s+main\b/m.test(source)) continue;
-      const reader = yield* declarationsFor(file.path);
-      if (reader.declaration(source, "main")?.startsWith("func main(")) add(file.path, "Go package main with func main");
-    }
-  }
+  const add = (file: string, why: string) => { if (!found.has(file)) found.set(file, { file, ...(boxOf.has(file) ? { box: boxOf.get(file)! } : {}), why }); };
+  for (const start of yield* declaredStartsOf(root, scan, paths)) add(start.file, start.why);
   const imported = new Set(scan.imports.map(edge => edge.to));
   // A Go package is imported as a whole and its files use each other without an import: a Go file is reached when any file of its folder is.
   const goPackages = new Set(scan.imports.filter(edge => edge.to.endsWith(".go")).map(edge => posix.dirname(edge.to)));

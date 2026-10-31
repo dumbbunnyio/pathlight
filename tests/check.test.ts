@@ -202,17 +202,17 @@ test("the side-by-side hint counts the cards an element's own view draws inside 
   }
 }, 60_000);
 
-test("a drafted folder of fourteen children whose view draws nine gets no side-by-side hint", async () => {
+test("a drafted folder of twenty-four children whose view draws nineteen is counted by the cards it draws, not by its children", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-check-folder-"));
   try {
     const files: Record<string, string> = { "package.json": JSON.stringify({ name: "app" }) };
-    for (let n = 1; n <= 14; n++) for (let f = 0; f < 3; f++) files[`src/core/c${n}/f${f}.ts`] = n > 1 ? `import { f0 } from "../c1/f0";\nexport const f${f} = f0;\n` : `export const f${f} = ${f};\n`;
+    for (let n = 1; n <= 24; n++) for (let f = 0; f < 3; f++) files[`src/core/c${n}/f${f}.ts`] = n > 1 ? `import { f0 } from "../c1/f0";\nexport const f${f} = f0;\n` : `export const f${f} = ${f};\n`;
     await write(directory, files);
     const made = await Effect.runPromise(draftWorkspace(directory));
-    expect(made).toMatchObject({ folders: 1, components: 14 });
+    expect(made).toMatchObject({ folders: 1, components: 24 });
     const check = await Effect.runPromise(checkWorkspace(directory));
-    expect(check.wide).toEqual([]);
-    expect(formatCheck(check)).not.toContain("side by side");
+    expect(check.wide.map(item => item.children)).toEqual([19]);
+    expect(formatCheck(check)).toContain("has 19 elements side by side");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
