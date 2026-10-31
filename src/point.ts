@@ -43,6 +43,7 @@ export const viewerOpen = (root: string) => io("Point.viewers", async () => {
 /**
  * Points the viewer at an element (it must exist in the model; a view, if given, must draw it), or clears the pointer with none. On a drafted map a
  * box's key from `pathlight brief` (`src/session`, `.#loose`) names its element too, so the identifiers in the briefing can be pointed at as printed.
+ * A name that is one box's id and another's key is refused with both.
  */
 export const setPoint = Effect.fn("Point.set")(function* (workspace: string, named: string | undefined, view?: string, journey?: { id: string; step: number }) {
   const root = yield* io("Point.root", () => realpath(workspace));
@@ -58,8 +59,16 @@ export const setPoint = Effect.fn("Point.set")(function* (workspace: string, nam
   const project = config._tag === "Some" ? config.value.project : [...source.projects()][0];
   if (!project) return yield* Effect.fail(failure("Point.model", "No LikeC4 project in this workspace."));
   const model = yield* io("LikeC4.compute", () => source.computedModel(project));
-  const ids = new Set([...model.elements()].map(item => String(item.id)));
-  const element = ids.has(named) ? named : [...(yield* readKeys(root))].find(([id, key]) => key === named && ids.has(id))?.[0];
+  const titles = new Map([...model.elements()].map(item => [String(item.id), item.title] as const));
+  const keys = yield* readKeys(root);
+  // Ids are unique, but a key is a path and can equal another box's id (Mealie's root package is `mealie`, its backend's key is `mealie`): such a
+  // name is refused with both, so the agent says the id it means rather than the viewer picking one.
+  const keyed = [...keys].find(([id, key]) => key === named && titles.has(id))?.[0];
+  if (titles.has(named) && keyed && keyed !== named) {
+    const key = keys.get(named);
+    return yield* Effect.fail(failure("Point.element", `\`${named}\` is the id of ${titles.get(named)}${key ? ` (key \`${key}\`)` : ""} and the key of ${titles.get(keyed)} (id \`${keyed}\`). Say the id.`));
+  }
+  const element = titles.has(named) ? named : keyed;
   if (!element) return yield* Effect.fail(failure("Point.element", `Unknown element: ${named}. Use an id from the model (pathlight check) or a box's key from pathlight brief.`));
   if (view) {
     const found = [...model.views()].find(item => item.id === view);

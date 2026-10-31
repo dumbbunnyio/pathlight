@@ -84,6 +84,21 @@ test("on a drafted map a box's key from the brief names its element, and an unkn
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
+// A key is a path and can equal another box's id (Mealie's root package `mealie` and its backend, key `mealie`): that name is refused with both,
+// and the id points.
+test("a name that is one box's id and another box's key is refused naming both, and the id resolves", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-point-clash-"));
+  const cli = (...args: string[]) => run(process.execPath, [resolve("src/cli.ts"), ...args, "--workspace", directory]);
+  try {
+    await mkdir(join(directory, ".cache", "pathlight"), { recursive: true });
+    await writeFile(join(directory, "model.c4"), "specification { element component }\nmodel {\n  app = component 'App package' {\n    app = component 'Backend server'\n  }\n}\nviews { view index { include app, app.* } }\n");
+    await writeFile(join(directory, ".cache", "pathlight", "keys.json"), JSON.stringify({ version: 1, keys: { app: ".", "app.app": "app" } }));
+    await expect(cli("point", "app")).rejects.toThrow("`app` is the id of App package (key `.`) and the key of Backend server (id `app.app`). Say the id.");
+    expect(await cli("point", "app.app")).toStartWith("No viewer is open on this workspace");
+    expect(await cli("point", ".")).toStartWith("No viewer is open on this workspace");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
 // A pointer can carry the journey step the agent is talking about: the viewer reads that journey at that step (flow mode, the step reader open, the
 // `← agent` mark as before) and stays in it until esc or the next pointer; a pointer without a journey leaves it.
 test("a pointer with a journey and a step turns flow mode on at that step, and esc or the next plain pointer leaves it", async () => {

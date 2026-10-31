@@ -28,7 +28,7 @@ Show the output of `pathlight brief --first-day --workspace .` **as printed**: p
 
 ## 2. Ask once before moving the diagram
 
-"I can move the diagram to each box as we go (it selects the box once and marks it `← agent`; your next key takes over). Shall I?" This is the only question before the walk: take the first journey the briefing lists, never ask "which journey?". Only after a yes, use `pathlight point`. When it answers that no viewer is open, reopen it with `pathlight open --workspace .` (it follows the latest session and finds the pane beside you in tmux), or `pathlight show VIEW --workspace . --follow`, never `show` without `--follow`: an unbound viewer cannot send `m`, `t` or `d` to this conversation. Say so in one line, then point again. Say once that they can press `F` in the viewer instead and step through a journey themselves.
+"I can move the diagram to each box as we go (it selects the box once and marks it `← agent`; your next key takes over). Shall I?" This is the only question before the walk: take the first journey the briefing lists, never ask "which journey?". Only after a yes, use `pathlight point`. When it answers that no viewer is open, reopen it with `pathlight open --workspace .` (it follows the latest session and finds the pane beside you in tmux), or `pathlight show VIEW --workspace . --follow`, never `show` without `--follow`: an unbound viewer cannot send `m`, `t` or `d` to this conversation. Say so in one line, then point again. When `point` answers that a name is two boxes (one's id and another's key), point again with the id it names for the box you meant. Say once that they can press `F` in the viewer instead and step through a journey themselves.
 
 ## 3. Walk a journey, step by step
 
@@ -53,7 +53,7 @@ Then `pathlight point --workspace .` with no element, to clear the mark.
 
 ## A point request
 
-"Point the viewer at …" is one `pathlight point` command and one line of reply ("Pointed at `<title> [<key>]`."): no reading, no file list, no offer. When no viewer is open, reopen it with `pathlight open --workspace .` or `pathlight show VIEW --workspace . --follow` (never without `--follow`), say so in the same line, and point.
+"Point the viewer at …" is one `pathlight point` command and one line of reply ("Pointed at `<title> [<key>]`."): no reading, no file list, no offer. When no viewer is open, reopen it with `pathlight open --workspace .` or `pathlight show VIEW --workspace . --follow` (never without `--follow`), say so in the same line, and point. When `point` answers that the name is two boxes (one's id and another's key), repeat it with the id it names for the box you meant; the reply is still one line.
 
 ## A worked example (`examples/parcel`)
 
