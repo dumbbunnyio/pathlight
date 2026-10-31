@@ -63,7 +63,7 @@ It never rewrites a model the user wrote (use `--out DIR`), and what it writes i
 
 ## Draft a model for a codebase that has none
 
-Aim for a diagram a person can read in one glance. Build it in levels: a few groups (3 to 7) that say what the code is for, and inside each group its parts. A flat row of 14 boxes is not a readable diagram. A small codebase gives a small diagram; do not pad it. Give every group its own view that opens it up, and link the overview to each: in the overview write `include camenae.web with { navigateTo web }` so the group opens its view (press `o` in the viewer).
+Aim for a diagram a person can read in one glance. Build it in levels: a few groups (3 to 7) that say what the code is for, and inside each group its parts. A flat row of 14 boxes is not a readable diagram. A small codebase gives a small diagram; do not pad it. Give every group its own view that opens it up, and link the overview to each: in the overview write `include camenae.web with { navigateTo web }` so the group opens its view (Enter in the viewer).
 
 1. **Scan.** `pathlight scan --workspace . --out scan.json`. Read `coverage` first: `unscanned` lists languages the scan does not read (their dependencies are missing, so read those parts of the code yourself), and `unresolved` lists imports it could not follow.
 2. **Find the boundaries.** Use the import edges to see which files belong together and which depend on which. Read a few entry points and the files at the centre of the graph; do not read everything. Filename families (`chat-*`, `auth-*`), package directories and `external` packages are all hints, not answers.
