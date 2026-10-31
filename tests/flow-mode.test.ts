@@ -244,9 +244,9 @@ test("F opens the journey a t just drew, whatever the selection, and its arrival
     };
     await until(text => text.includes("In flows") && text.includes("◇ Placing an order"), "the first flow through the selection");
     await delay(700);
-    // The offered first question is a how-question: draw it is on, and Enter sends it.
+    // The offered first question is a how-question: it records a journey, and Enter sends it.
     await tmux("send-keys", "-t", shown.pane, "t");
-    await until(text => text.includes("Talk ·") && text.includes("● draw it"), "the talk with draw it on");
+    await until(text => text.includes("Talk ·") && text.includes("· records a journey"), "the talk recording a journey");
     await tmux("send-keys", "-t", shown.pane, "Enter");
     await until(text => text.includes("have the path recorded as a pathlight journey"), "the question in the agent's pane", harness);
     // After the send the talk stays showing and the keys are back on the diagram; from here on, nothing may move.

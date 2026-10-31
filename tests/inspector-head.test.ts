@@ -61,7 +61,7 @@ test("each card's header shows the key that focuses it, and the keys and the num
   expect(numberedCards(["activity", "connections", "flows"])).toEqual(["activity", "connections", "flows", "files"]);
   expect(numberedCards(["connections"])).toEqual(["connections", "files"]);
   expect(numberedCards(["activity", "steps"])).toEqual(["activity", "steps", "files"]);
-  const mode = (cards: KeyMode["cards"], flow = false): KeyMode => ({ layer: "main", askContext: false, replay: false, fileMode: false, focusSection: undefined, flow, listMode: false, cards, vim: true });
+  const mode = (cards: KeyMode["cards"], flow = false): KeyMode => ({ layer: "main", replay: false, fileMode: false, focusSection: undefined, flow, listMode: false, cards, vim: true });
   const key = (digit: string, cards: KeyMode["cards"], flow = false) => keyAction({ name: digit, sequence: digit, ctrl: false, meta: false, shift: false }, mode(cards, flow));
   for (const shown of [["activity", "connections", "flows"], ["connections"], ["activity", "steps"], ["steps"]] as const) {
     const cards = numberedCards(shown);

@@ -1,4 +1,4 @@
-import { fg, type RGBA, StyledText, type createCliRenderer } from "@opentui/core";
+import { fg, StyledText, type createCliRenderer } from "@opentui/core";
 import { Effect } from "effect";
 import { askMessage, flowMessage, isHowQuestion, mapMessage, sendToPane } from "../ask";
 import type { Message } from "../conversation";
@@ -18,7 +18,7 @@ export interface TalkConversation { messages: readonly Message[]; empty: string;
 
 /**
  * The talk, the column's second face: `t` asks a question or tells the agent what to change, `m` asks it to improve the map, `d` to trace a flow.
- * The first request of a talk carries the selected box's context exactly as `src/ask.ts` builds it (the tabs and toggles show until then); every
+ * The first request of a talk carries the selected box's files and connections exactly as `src/ask.ts` builds it (the tabs show until then); every
  * later one is the typed text alone. Both are typed into the agent's own pane and submitted there, and the agent's replies are read back from the
  * host's conversation file by the viewer. After a send the keys go back to the diagram and the talk stays showing; a reply never moves anything.
  * `n` is the person's own name and note for a box, in a modal (two steps, no agent). Map editing needs the element's overlay key, which
@@ -26,24 +26,23 @@ export interface TalkConversation { messages: readonly Message[]; empty: string;
  */
 export function createAskDialog<Target extends AskTarget>(options: {
   renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "talk" | "naming" | "nameInput" | "namePrompt" | "nameRow" | "nameColumns">; workspace: string; parent: string | undefined;
-  selected: () => Target | undefined; context: (target: Target) => { files: string[]; links: string[]; activity: string[] }; relevant: (target: Target) => Effect.Effect<string[]>;
+  selected: () => Target | undefined; context: (target: Target) => { links: string[] }; relevant: (target: Target) => Effect.Effect<string[]>;
   live: () => { bound: boolean; label: string }; conversation: () => TalkConversation;
   say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void;
-  /** A request went to the agent; `drawing` when it asks for a journey to be recorded (`t` with `draw it`, or `d`). */
-  asked: (drawing: boolean) => void; background: RGBA;
+  /** A request went to the agent; `drawing` when it asks for a journey to be recorded (`t` with a how-question, or `d`). */
+  asked: (drawing: boolean) => void;
 }) {
   const { renderer, workspace } = options, { talk, naming, nameInput, namePrompt, nameRow, nameColumns } = options.widgets;
   const tell = (message: string) => { options.say(message); options.update(); };
-  // A talk exists from `t`, `m` or `d` until Esc closes it; `fresh` until its first request is sent (the tabs and toggles show until then).
+  // A talk exists from `t`, `m` or `d` until Esc closes it; `fresh` until its first request is sent (the tabs show until then).
   let current: { tab: TalkTab; fresh: boolean } | undefined;
-  let showing = false, wide = false, focus: "field" | "toggles" | "none" = "none", toggle = 0, replied = false;
-  // What to send with a question: files, connections, activity, and whether to draw the answer. `draw it` follows the question (on for a
-  // how-question) until the user flips it. `offered` is the first question, shown as the placeholder and sent by Enter alone.
-  const include = [true, true, false, false];
-  let drawFlipped: boolean | undefined, offered = "", keys = new Map<string, string>();
-  let tabSpans: { from: number; to: number }[] = [], includeSpans: { from: number; to: number }[] = [];
+  let showing = false, wide = false, focus: "field" | "none" = "none", replied = false;
+  // A question goes with the box's files and connections, never the activity, and is drawn as a journey when it is a how-question (`d` is the
+  // explicit way). `offered` is the first question, shown as the placeholder and sent by Enter alone.
+  let offered = "", keys = new Map<string, string>();
+  let tabSpans: { from: number; to: number }[] = [];
   const typedOrOffered = () => talk.input.plainText.trim() || (current?.fresh ? offered : "");
-  const drawing = () => drawFlipped ?? isHowQuestion(typedOrOffered());
+  const drawing = () => isHowQuestion(typedOrOffered());
   const keyOf = (target: Target | undefined) => target ? keys.get(String(target.modelRef ?? "")) ?? keys.get(String(target.id)) : undefined;
   const placeholders: Record<TalkTab, string> = { ask: "Ask how something works, or tell it what to change", map: "What should it work out, or what should it be called?",
     flow: "What should it trace? (for example: what happens when someone places an order)" };
@@ -61,10 +60,8 @@ export function createAskDialog<Target extends AskTarget>(options: {
     if (current.fresh) {
       const tabs = talkTabsLine({ tab: current.tab, mapReady });
       talk.tabs.content = tabs.content; tabSpans = tabs.spans;
-      if (current.tab === "ask") include[3] = drawing();
-      const context = target ? options.context(target) : { files: [], links: [], activity: [] };
-      const line = talkIncludeLine({ tab: current.tab, include, counts: [context.files.length, context.links.length, context.activity.length], focus: focus === "toggles" ? toggle : -1, mapReady, width, background: options.background });
-      talk.include.content = line.content; talk.include.height = line.rows; includeSpans = line.spans;
+      const line = talkIncludeLine({ tab: current.tab, subject: target?.title, drawing: drawing(), mapReady, width });
+      talk.include.content = line.content; talk.include.height = line.rows;
     }
     talk.rule.content = talk.top.content = new StyledText([fg(palette.rule)("─".repeat(Math.max(1, width)))]);
     talk.input.placeholder = current.fresh ? offered || placeholders[current.tab] : "reply…";
@@ -72,7 +69,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     // Three rows, growing to a third of the column, then scrolling.
     const rows = Math.max(3, Math.min(Math.max(3, Math.floor(height / 3)), talk.input.virtualLineCount));
     if (talk.input.height !== rows) { talk.input.height = rows; talk.row.height = rows; }
-    talk.hint.content = talkHint({ focused: focus === "field", toggles: focus === "toggles", fresh: current.fresh, wide, width });
+    talk.hint.content = talkHint({ focused: focus === "field", fresh: current.fresh, wide, width });
   };
   const focusOn = (next: typeof focus) => {
     focus = next;
@@ -83,17 +80,10 @@ export function createAskDialog<Target extends AskTarget>(options: {
     const column = event.x - talk.tabs.x, index = tabSpans.findIndex(span => column >= span.from && column < span.to);
     if (current?.fresh && index >= 0) { current.tab = talkTabs[index]!; options.update(); }
   };
-  talk.include.onMouseDown = event => {
-    // On two rows, the second holds only `draw it`.
-    const column = event.x - talk.include.x, row = event.y - talk.include.y;
-    const index = row > 0 ? includeSpans.length - 1 : includeSpans.findIndex((span, at) => at < (talk.include.height > 1 ? 3 : 4) && column >= span.from && column < span.to);
-    if (current?.fresh && current.tab === "ask" && index >= 0) { flip(index); toggle = index; focusOn("toggles"); }
-  };
   talk.row.onMouseDown = () => { if (showing) focusOn("field"); };
-  const flip = (index: number) => { if (index === 3) drawFlipped = !drawing(); else include[index] = !include[index]; };
   // A new talk: the tabs again, the field empty, the keys in it.
   const begin = (tab: TalkTab, offer = "") => {
-    current = { tab, fresh: true }; showing = true; replied = false; drawFlipped = undefined; offered = offer; toggle = 0;
+    current = { tab, fresh: true }; showing = true; replied = false; offered = offer;
     talk.input.setText(""); options.opening();
     options.run(readKeys(workspace).pipe(Effect.tap(found => Effect.sync(() => { keys = found; options.update(); })), Effect.catch(() => Effect.void)));
     options.say(""); focusOn("field");
@@ -125,10 +115,8 @@ export function createAskDialog<Target extends AskTarget>(options: {
     /** Whether the column shows the talk; whether a talk exists (`i` flips to it); whether it is widened. */
     get showing() { return showing; }, get exists() { return current !== undefined; }, get wide() { return wide; },
     get fresh() { return Boolean(current?.fresh); },
-    /** Where the talk's keys are: its field, the toggles, or nowhere (the diagram has them). */
+    /** Where the talk's keys are: its field, or nowhere (the diagram has them). */
     get focus() { return showing ? focus : "none" as const; },
-    /** The field's cursor is on its first row: Up from there reaches the toggles. */
-    get atTop() { return talk.input.visualCursor.visualRow === 0; },
     /** A reply arrived while the node face showed: the one word `replied` until the talk is shown again. */
     get replied() { return replied; },
     noteReply() { if (!showing) replied = true; },
@@ -141,11 +129,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     /** `m` and `d` always begin a new talk on their tab. */
     map() { if (!needsPane("Changing the map") && options.selected()) begin("map"); },
     trace() { if (!needsPane("Tracing a flow") && options.selected()) begin("flow"); },
-    tab(by: number) { if (current?.fresh) { current.tab = talkTabs[(talkTabs.indexOf(current.tab) + by + talkTabs.length) % talkTabs.length]!; if (focus === "toggles" && current.tab !== "ask") focus = "field"; options.update(); } },
-    toToggles() { if (current?.fresh && current.tab === "ask") focusOn("toggles"); },
-    toField() { focusOn("field"); },
-    choose(by: number) { toggle = (toggle + by) % include.length; options.update(); },
-    toggle() { flip(toggle); options.update(); },
+    tab(by: number) { if (current?.fresh) { current.tab = talkTabs[(talkTabs.indexOf(current.tab) + by + talkTabs.length) % talkTabs.length]!; options.update(); } },
     /** Esc in the field hands the keys to the diagram; the talk stays showing. */
     blur() { focusOn("none"); },
     /** Esc with the keys on the diagram: a widened talk narrows, else the talk closes and the node face returns. */
@@ -154,7 +138,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     flip() { showing = !showing; if (showing) replied = false; focusOn("none"); },
     widen() { if (showing) { wide = !wide; options.update(); } else tell("z widens the talk: t, m or d opens it"); },
     scroll(by: number) { talk.scroll.scrollBy(by * Math.max(1, talk.scroll.viewport.height - 1)); },
-    /** The question typed so far changed: `draw it` may follow it. */
+    /** The question typed so far changed: whether it records a journey may follow it. */
     typed() { options.update(); },
     /** Enter in the field: the first request with its context, or the typed text alone. An empty field sends nothing (the offered question counts). */
     send() {
@@ -186,10 +170,10 @@ export function createAskDialog<Target extends AskTarget>(options: {
         sent(target, files => flowMessage({ title: target.title, id: String(target.id), files, links: context.links }, text), `Asked the agent to trace a flow from ${target.title} · F shows it once it is written`);
         return;
       }
-      const [withFiles, withLinks, withActivity] = include, draw = drawing();
+      const draw = drawing();
       const live = options.live(), session = live.bound ? live.label : "the agent";
       current.fresh = false; talk.input.setText(""); focusOn("none"); options.asked(draw);
-      sent(target, files => askMessage({ title: target.title, id: String(target.id), files: withFiles ? files : [], links: withLinks ? context.links : [], activity: withActivity ? context.activity : [] }, text, draw),
+      sent(target, files => askMessage({ title: target.title, id: String(target.id), files, links: context.links }, text, draw),
         `Asked ${session} about ${target.title} · ${live.bound ? "the reply shows here" : "reply lands in the agent pane"}${draw ? " · F shows the path once it is recorded" : ""}`);
     },
     get naming() { return naming_ !== undefined; },

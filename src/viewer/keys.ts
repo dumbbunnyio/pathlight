@@ -8,10 +8,8 @@ export type Direction = "left" | "right" | "up" | "down";
 /** Where the keys go: the modal on top, if any, else the diagram with whatever mode it is in. */
 export interface KeyMode {
   layer: "visit" | "ask" | "talk" | "picker" | "goto" | "summary" | "help" | "main";
-  /** In the talk: whether the context toggles (not the field) have the keys. */
-  askContext: boolean;
-  /** The talk: whether the column shows it, whether its tabs are still up (nothing sent yet), and whether the field's cursor is on its first row. */
-  talk?: { showing: boolean; fresh: boolean; top: boolean };
+  /** The talk: whether the column shows it, and whether its tabs are still up (nothing sent yet). */
+  talk?: { showing: boolean; fresh: boolean };
   replay: boolean; fileMode: boolean; focusSection: SectionKey | undefined; flow: boolean; listMode: boolean;
   /** The cards `1`–`4` focus, in order (viewer/widgets.ts `numberedCards`). */
   cards: readonly SectionKey[];
@@ -26,7 +24,7 @@ export interface KeyMode {
 export type Action =
   | { type: "stop" } | { type: "swallow" } | { type: "idle" } | { type: "pass" }
   | { type: "askCancel" } | { type: "askSend" }
-  | { type: "talkLeave" } | { type: "talkTab"; by: -1 | 1 } | { type: "talkToggles" } | { type: "talkField" } | { type: "talkChoose"; by: 1 | 3 } | { type: "talkToggle" }
+  | { type: "talkLeave" } | { type: "talkTab"; by: -1 | 1 }
   | { type: "talkSend" } | { type: "talkScroll"; by: -1 | 1 } | { type: "talkBack" } | { type: "talkWiden" }
   | { type: "themeCancel" } | { type: "themeKeep" } | { type: "themeMove"; to: "up" | "down" | "pageup" | "pagedown" | "home" | "end" }
   | { type: "gotoClose" } | { type: "gotoGo" } | { type: "gotoMove"; by: -1 | 1 } | { type: "gotoPage"; by: -1 | 1 } | { type: "gotoHome" } | { type: "gotoEnd" }
@@ -57,18 +55,10 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "askSend" };
     return undefined;
   }
-  // The talk's field or its toggles have the keys: Esc steps back one level, Tab changes the kind of request until it is sent.
+  // The talk's field has the keys: Esc hands them to the diagram, Tab changes the kind of request until it is sent.
   if (mode.layer === "talk") {
-    if (key.name === "escape") return mode.askContext ? { type: "talkField" } : { type: "talkLeave" };
+    if (key.name === "escape") return { type: "talkLeave" };
     if (key.name === "tab") return mode.talk?.fresh ? { type: "talkTab", by: key.shift ? -1 : 1 } : { type: "swallow" };
-    if (mode.askContext) {
-      if (key.name === "left" || key.name === "h") return { type: "talkChoose", by: 3 };
-      if (key.name === "right" || key.name === "l") return { type: "talkChoose", by: 1 };
-      if (key.name === "space" || key.sequence === " ") return { type: "talkToggle" };
-      if (key.name === "down" || key.name === "j") return { type: "talkField" };
-      return { type: "swallow" };
-    }
-    if (key.name === "up" && mode.talk?.fresh && mode.talk.top) return { type: "talkToggles" };
     if (key.name === "pageup" || key.name === "pagedown") return { type: "talkScroll", by: key.name === "pageup" ? -1 : 1 };
     if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "talkSend" };
     return undefined;

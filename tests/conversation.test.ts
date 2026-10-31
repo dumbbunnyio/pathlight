@@ -33,9 +33,9 @@ test("the text blocks of one message are merged in apiBlockIndex order, whatever
 });
 
 test("a request the viewer typed shows as the question alone: the context block and the rules are folded away, byte for byte as ask.ts builds them", () => {
-  const target = { title: 'Orders "v2" (old)', id: "shop.orders", files: ["src/a.ts"], links: ["→ Couriers"], activity: ["read src/a.ts"] };
+  const target = { title: 'Orders "v2" (old)', id: "shop.orders", files: ["src/a.ts"], links: ["→ Couriers"] };
   expect(foldRequest(askMessage(target, "what happens when it is cancelled?", true))).toBe("what happens when it is cancelled?");
-  expect(foldRequest(askMessage({ ...target, files: [], links: [], activity: [] }, "why is it slow?"))).toBe("why is it slow?");
+  expect(foldRequest(askMessage({ ...target, files: [], links: [] }, "why is it slow?"))).toBe("why is it slow?");
   expect(foldRequest(mapMessage({ ...target, key: "src/orders" }, "call it Orders"))).toBe("call it Orders");
   expect(foldRequest(flowMessage(target, "how a refund moves"))).toBe("how a refund moves");
   expect(foldRequest(flowMessage({ ...target, files: [], links: [] }, "how a refund moves"))).toBe("how a refund moves");

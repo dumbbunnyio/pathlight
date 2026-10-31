@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { failure } from "./effects";
 import { run } from "./process";
 
-/** A question whose answer is a path through components: it is drawn as well as answered, unless the user turns `draw it` off. */
+/** A question whose answer is a path through components: it is drawn as well as answered, (`d` asks for one explicitly). */
 export const isHowQuestion = (question: string) =>
   /^\s*(how\b|where (does|do|is|are)\b|what happens\b|what calls\b|which (path|way)\b|trace\b|walk me through\b|follow\b)/i.test(question);
 
@@ -33,12 +33,11 @@ export function relevantFiles(options: { files: readonly string[]; neighbours: r
  * edit, so the map shows where the work is going before it lights up. Who records the journey is the skill's business, not this line's: a tracer
  * handed this text must not read a hand-off as addressed to it.
  */
-export function askMessage(target: { title: string; id: string; files: readonly string[]; links: readonly string[]; activity?: readonly string[] }, question: string, draw = false) {
+export function askMessage(target: { title: string; id: string; files: readonly string[]; links: readonly string[] }, question: string, draw = false) {
   const clean = (text: string) => text.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim();
   const context = [
     target.files.length ? `files: ${target.files.slice(0, 6).map(clean).join(", ")}` : "",
     target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
-    target.activity?.length ? `recent: ${target.activity.slice(0, 5).map(clean).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   const id = clean(target.id);
   return `About the "${clean(target.title)}" component (${id}): ${clean(question).slice(0, 600)}${context ? ` [${context}]` : ""} `

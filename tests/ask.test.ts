@@ -93,19 +93,22 @@ const beside = async (name: string, prepare?: (directory: string) => Promise<voi
 test("t opens the talk in the column: the first Enter sends ask.ts's message unchanged, later ones the typed text alone, and the keys go back to the diagram", async () => {
   const at = await beside("talk");
   try {
-    // On first open t offers the first question about the box the view opens on, with draw it on, so the first ask is one Enter.
+    // On first open t offers the first question about the box the view opens on, a how-question that records a journey, so the first ask is one Enter.
+    // Under the tabs is whom it is about, with no toggles.
     await at.keys("t");
-    const opened = await at.until(at.pane, text => text.includes("Talk · Agent adapters") && text.includes("how does Agent adapters work?") && text.includes("● draw it"), "the talk with the first question offered");
-    expect(opened).toContain("▎Ask");
+    const opened = await at.until(at.pane, text => text.includes("Talk · Agent adapters") && text.includes("how does Agent adapters work?") && text.includes("about Agent adapters · records a journey"), "the talk with the first question offered");
+    expect(opened).toContain("Ask   Improve the map   Trace a flow");
+    expect(opened).not.toContain("▎");
+    expect(opened).not.toMatch(/[●○] (files|connections|activity|draw it)/);
     expect(opened).not.toContain("Ask the agent");
     await at.keys("Enter");
     // Byte for byte what src/ask.ts builds: the files a request names are none here (the fixture maps no source), its connections are the view's.
-    const first = askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"], activity: [] }, "how does Agent adapters work?", true);
+    const first = askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "how does Agent adapters work?", true);
     await at.arrived(first);
     const sent = await at.until(at.pane, text => text.includes("✓ Asked the agent about Agent adapters"), "asked toast");
     // After a send the talk stays showing, its tabs gone, the keys on the diagram.
     expect(sent).toContain("Talk · Agent adapters");
-    expect(sent).not.toContain("▎Ask");
+    expect(sent).not.toContain("Improve the map");
     expect(sent).toContain("diagram");
     // t focuses the field again (same subject, no tabs); an empty field sends nothing.
     await at.keys("t");
@@ -126,20 +129,18 @@ test("t opens the talk in the column: the first Enter sends ask.ts's message unc
     expect(echoed).not.toContain("About the");
     // m after a send begins a new talk, with its tabs again, on the map tab (dim here: the fixture is no draft).
     await at.keys("Escape", "m");
-    await at.until(at.pane, text => text.includes("▎Improve the map") && text.includes("needs a map drawn by pathlight draft"), "a new talk on the map tab");
+    await at.until(at.pane, text => text.includes("Improve the map") && text.includes("needs a map drawn by pathlight draft"), "a new talk on the map tab");
     // Tab moves between the kinds of request and keeps the typed text.
     await at.type("what is it");
     await at.keys("Tab");
-    await at.until(at.pane, text => text.includes("▎Trace a flow") && text.includes("what is it"), "the trace tab, the text kept");
+    await at.until(at.pane, text => text.includes("it reads the code, then records a journey") && text.includes("what is it"), "the trace tab, the text kept");
     await at.keys("Tab");
-    await at.until(at.pane, text => text.includes("▎Ask") && text.includes("● connections 2"), "back to the question tab");
-    // Up from the field's first row reaches the toggles: connections off, so the request carries none.
+    // Back on Ask a question that is not a how-question records nothing, and the first request still carries the connections.
+    await at.until(at.pane, text => /about Agent adapters\s*\n/.test(text) && !text.includes("records a journey"), "back to the question tab");
     await at.keys("BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace", "BSpace");
     await at.type("why does this exist?");
-    await at.keys("Up", "Right", "Space");
-    await at.until(at.pane, text => text.includes("○ connections 2") && text.includes("← → choose"), "connections off");
-    await at.keys("Down", "Enter");
-    await at.arrived(askMessage({ title: "Agent adapters", id: "plugin", files: [], links: [], activity: [] }, "why does this exist?", false));
+    await at.keys("Up", "Enter");
+    await at.arrived(askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "why does this exist?", false));
   } finally { await at.close(); }
 }, 60_000);
 
@@ -153,7 +154,7 @@ test("Esc steps back: the field, then the talk, and the node face returns with t
     await at.keys("Escape", "i");
     await at.until(at.pane, text => !text.includes("Talk · Agent adapters") && text.includes("Connects"), "the node face");
     await at.keys("i");
-    await at.until(at.pane, text => text.includes("Talk · Agent adapters") && text.includes("▎Ask"), "the talk again, still fresh");
+    await at.until(at.pane, text => text.includes("Talk · Agent adapters") && text.includes("about Agent adapters"), "the talk again, still fresh");
     // Selecting another box flips nothing: the talk's header names it as the subject of the next request.
     await at.keys("l");
     await at.until(at.pane, text => text.includes("Talk · Activity metadata") || text.includes("Talk · tmux launcher"), "the new subject");
@@ -202,7 +203,7 @@ test("d opens the talk on the trace tab: the request names the skill, the comman
   const at = await beside("flow");
   try {
     await at.keys("d");
-    await at.until(at.pane, text => text.includes("▎Trace a flow") && text.includes("it reads the code, then records a journey"), "the trace tab");
+    await at.until(at.pane, text => text.includes("Trace a flow") && text.includes("it reads the code, then records a journey"), "the trace tab");
     await at.keys("Enter");
     await delay(300);
     expect(await at.tmux("capture-pane", "-p", "-t", at.harness)).not.toContain("pathlight journey");

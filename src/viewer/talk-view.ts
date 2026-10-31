@@ -1,4 +1,4 @@
-import { bg, bold, fg, type RGBA, StyledText, type TextChunk } from "@opentui/core";
+import { bg, bold, fg, StyledText, type TextChunk } from "@opentui/core";
 import type { Message } from "../conversation";
 import { palette } from "../ui";
 import { clip, nl, wrapWords } from "./text";
@@ -72,55 +72,41 @@ export const talkHeader = (options: { subject: string | undefined; state: TalkSt
   return new StyledText([fg(palette.text)("Talk"), fg(palette.muted)(left.slice(4)), fg(palette.muted)(" ".repeat(Math.max(1, options.width - left.length - right.length))), fg(tone)(right)]);
 };
 
-/** The tabs, shown until the talk's first request is sent: the one chosen marked, the map's dim when the box has no overlay key. */
+/** The tabs, shown until the talk's first request is sent: the one chosen in the text colour, the others muted, the map's dimmer when the box has no overlay key. */
 export const talkTabsLine = (options: { tab: TalkTab; mapReady: boolean }) => {
   const chunks: TextChunk[] = [];
   const spans: { from: number; to: number }[] = [];
   let column = 0;
   talkTabs.forEach((tab, index) => {
     if (index) { chunks.push(fg(palette.muted)("   ")); column += 3; }
-    const on = tab === options.tab, name = tabNames[tab];
-    chunks.push(fg(palette.accent)(on ? "▎" : " "), fg(on ? palette.text : tab === "map" && !options.mapReady ? palette.border : palette.muted)(name));
-    spans.push({ from: column, to: column + 1 + name.length });
-    column += 1 + name.length;
+    const name = tabNames[tab];
+    chunks.push(fg(tab === options.tab ? palette.text : tab === "map" && !options.mapReady ? palette.border : palette.muted)(name));
+    spans.push({ from: column, to: column + name.length });
+    column += name.length;
   });
   return { content: new StyledText(chunks), spans };
 };
 
 /**
- * Under the tabs: for a question, what goes with it (files, connections and activity, with their counts, and `draw it`), the one under the cursor
- * on the row background; for the map and the trace, one line on what the agent will do.
+ * Under the tabs: for a question, whom it is about, and ` · records a journey` while it will be drawn (a how-question), the one thing it writes;
+ * for the map and the trace, one line on what the agent will do.
  */
-export const talkIncludeLine = (options: { tab: TalkTab; include: readonly boolean[]; counts: readonly number[]; focus: number; mapReady: boolean; width: number; background: RGBA }) => {
+export const talkIncludeLine = (options: { tab: TalkTab; subject: string | undefined; drawing: boolean; mapReady: boolean; width: number }) => {
+  const width = Math.max(10, options.width);
   if (options.tab !== "ask") {
     const text = options.tab === "map" ? options.mapReady ? "it reads the files, then edits the overlay" : "needs a map drawn by pathlight draft"
       : "it reads the code, then records a journey you can trace with F";
-    const lines = wrapWords(text, Math.max(10, options.width));
-    return { content: new StyledText([fg(palette.muted)(lines.join("\n"))]), spans: [] as { from: number; to: number }[], rows: lines.length };
+    const lines = wrapWords(text, width);
+    return { content: new StyledText([fg(palette.muted)(lines.join("\n"))]), rows: lines.length };
   }
-  const names = ["files", "connections", "activity", "draw it"];
-  const counts = names.map((_, index) => index < 3 ? ` ${options.counts[index] ?? 0}` : "");
-  // The word `include` goes first when the four toggles need its room; in a narrower column `draw it` starts a second row.
-  const toggles = names.reduce((sum, name, index) => sum + 2 + name.length + counts[index]!.length, 0) + 2 * (names.length - 1);
-  const label = 8 + toggles <= options.width ? "include " : "", breaks = toggles > options.width;
-  const chunks: TextChunk[] = [fg(palette.muted)(label)];
-  const spans: { from: number; to: number }[] = [];
-  let column = label.length;
-  names.forEach((name, index) => {
-    const on = options.include[index], count = counts[index]!;
-    const paint = (chunk: TextChunk) => options.focus === index ? { ...chunk, bg: options.background } : chunk;
-    if (index === 3 && breaks) { chunks.push(nl); column = 0; } else if (index) { chunks.push(fg(palette.muted)("  ")); column += 2; }
-    chunks.push(paint(fg(on ? palette.accent : palette.border)(on ? "● " : "○ ")), paint(fg(on ? palette.body : palette.border)(name)), paint(fg(palette.border)(count)));
-    spans.push({ from: column, to: column + 2 + name.length + count.length });
-    column += 2 + name.length + count.length;
-  });
-  return { content: new StyledText(chunks), spans, rows: breaks ? 2 : 1 };
+  const tail = options.drawing ? " · records a journey" : "";
+  const about = clip(`about ${options.subject ?? "nothing selected"}`, Math.max(6, width - tail.length));
+  return { content: new StyledText([fg(palette.muted)(about), ...(tail ? [fg(palette.muted)(tail)] : [])]), rows: 1 };
 };
 
 /** The last line of the talk: the keys that matter where the keys are. */
-export const talkHint = (options: { focused: boolean; toggles: boolean; fresh: boolean; wide: boolean; width: number }) => {
-  const keys: [string, string][] = options.toggles ? [["← →", "choose"], ["space", "flip"], ["↓", "back"]]
-    : options.focused ? [["enter", "send"], ["alt+enter", "line"], ...(options.fresh ? [["tab", "kind"]] as [string, string][] : []), ["esc", "diagram"]]
+export const talkHint = (options: { focused: boolean; fresh: boolean; wide: boolean; width: number }) => {
+  const keys: [string, string][] = options.focused ? [["enter", "send"], ["alt+enter", "line"], ...(options.fresh ? [["tab", "kind"]] as [string, string][] : []), ["esc", "diagram"]]
     : [["t", "reply"], ["z", options.wide ? "narrower" : "wider"], ["i", "node"], ["esc", "close"]];
   const chunks: TextChunk[] = [];
   let used = 0;

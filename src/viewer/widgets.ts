@@ -80,11 +80,10 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   const inspectorAsk = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   inspector.add(inspectorActions); inspector.add(inspectorAsk);
   // The column's other face, the talk: whom it is about and what the agent is doing, the conversation (newest at the bottom, staying there unless
-  // scrolled up), then the composer: before the first request a rule and a blank row set it apart, the kinds of request and what goes with the
-  // first one; a rule, the field, and the keys. Shown in place of the node face.
+  // scrolled up), then the composer as one block: before the first request a rule, the kinds of request and the row under them; a rule, the
+  // field, and the keys. Shown in place of the node face.
   const line = () => new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none", visible: false });
   const talkHead = line(), talkTop = line(), talkTabs = line(), talkInclude = line(), talkRule = line(), talkHint = line();
-  talkTop.marginBottom = 1;
   const talkScroll = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, marginTop: 1, scrollX: false, scrollY: true, stickyScroll: true, stickyStart: "bottom", visible: false,
     verticalScrollbarOptions: { showArrows: false, trackOptions: { foregroundColor: palette.edgeDim, backgroundColor: palette.panel } } });
   const talkText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.body, wrapMode: "none" });

@@ -46,7 +46,7 @@ export const flowView = <View extends FlowViewCandidate>(flow: FlowMap, views: R
 /**
  * Flow mode: the flows read from the workspace, the one being read and its step. Stepping selects the step's component and brings it into view
  * like any other selection, and says so when it is in another view. `F` enters the flows this view shows (the ones through the selection first) and
- * cycles them, the last one leaving; Esc leaves. After a drawing was asked for (`t` with `draw it`, or `d`), the first journey that appears in the
+ * cycles them, the last one leaving; Esc leaves. After a drawing was asked for (`t` with a how-question, or `d`), the first journey that appears in the
  * workspace is what the next `F` opens, whatever the selection: the file appearing is the event, nothing is observed.
  */
 export function createFlowMode<Node>(options: {

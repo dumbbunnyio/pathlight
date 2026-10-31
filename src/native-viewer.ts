@@ -785,8 +785,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const title = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const links = [...diagram.edges.filter(edge => edge.source === target.id).map(edge => `→ ${title(edge.target)}`),
       ...diagram.edges.filter(edge => edge.target === target.id).map(edge => `← ${title(edge.source)}`)];
-    const activity = [...new Set((byElement.get(String(target.modelRef ?? "")) ?? []).flatMap(event => event.paths.map(path => `${event.operation} ${path}`)))];
-    return { files: files.get(String(target.modelRef ?? "")) ?? [], links, activity };
+    return { links };
   };
   // The scan's imports, read when a request first needs them and again after a reload: a request names the files on the component's edges.
   let imports: Scan["imports"] | undefined;
@@ -810,7 +809,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     empty: !binding ? "no session bound yet · the reply lands in the agent pane" : conversation.error ? "cannot read the conversation"
       : !pointer?.transcript ? "nothing recorded from this session's conversation yet · the reply lands in the agent pane" : "no messages yet" });
   const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
-    live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); }, background: hot });
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); } });
   nameInput.onContentChange = () => fitName();
   talk.input.onContentChange = () => dialog.typed();
   help.dismiss = () => help.close();
@@ -915,10 +914,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "askSend": dialog.nameNext(); return;
       case "talkLeave": dialog.blur(); return;
       case "talkTab": dialog.tab(action.by); return;
-      case "talkToggles": dialog.toToggles(); return;
-      case "talkField": dialog.toField(); return;
-      case "talkChoose": dialog.choose(action.by); return;
-      case "talkToggle": dialog.toggle(); return;
       case "talkSend": dialog.send(); return;
       case "talkScroll": dialog.scroll(action.by); return;
       case "talkBack": dialog.back(); return;
@@ -1101,7 +1096,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (editorActive) return;
     if (pointMark !== undefined) { pointMark = undefined; update(); }
     const layer = state.pendingVisit ? "visit" : dialog.naming ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : dialog.focus !== "none" ? "talk" : "main";
-    const action = keyAction(key, { layer, askContext: dialog.focus === "toggles", talk: { showing: dialog.showing, fresh: dialog.fresh, top: dialog.atTop }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
+    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
     if (!action) return;
     if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();
