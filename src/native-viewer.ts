@@ -684,7 +684,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     indexEvents(); noteCalls();
     const work = newestWork();
     if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } }
-    else if (work) { camera.animating = false; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element }; message = `Went to ${work.title}`; }
+    else if (work) { camera.animating = false; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element }; }
     update();
   };
   const beginReplay = () => {
@@ -719,7 +719,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const viewHaving = (element: string) => viewIn(diagrams, diagram, element);
   const gotoPicker = createGotoPicker({ screen: renderer, widget: goto, candidates: mode => pickCandidates({ views: diagrams, current: diagram, mode, files, ignore: config?.ignore ?? [], flows: flowMode.flows }),
     viewOf: element => String(viewHaving(element)?.[1].title ?? ""), go: pick => { if (pick.kind === "view") goToView(pick.view!); else if (pick.flow) { goto.close(); startFlow(pick.flow, 1); update(); } else landOn(pick.element!, pick.path); }, update: () => update() });
-  // Reading a flow at a step: here when this view draws the step's box, else in the view that does, with `Went to …` and a Back entry. The step
+  // Reading a flow at a step: here when this view draws the step's box, else in the view that does, with a Back entry (the header's title says where; no notice). The step
   // reader is on the node face, so the talk turns to it. `pointed`: the agent's pointer asked for it, so the arrival is marked as its pointing.
   // Which view: one already reading this flow stays when it draws the step; otherwise the view that draws the most distinct boxes for its steps.
   const startFlow = (flow: FlowMap, step: number, pointed = false) => {
@@ -735,7 +735,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     remember(state, visit());
     camera.animating = false;
-    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), flow: { type: flow.type, id: flow.id, step, pointed }, notice: `Went to ${String(elsewhere[1].title ?? elsewhere[0])}` };
+    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), flow: { type: flow.type, id: flow.id, step, pointed } };
   };
   // A step whose box this view does not draw: the view that draws that box, the step selected there, with a Back entry.
   const readElsewhere = (flow: FlowMap, index: number, element: string) => {
@@ -743,7 +743,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!elsewhere) { message = `${elementTitle(element)} is in no view`; update(); return; }
     remember(state, visit());
     camera.animating = false;
-    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), flow: { type: flow.type, id: flow.id, step: index + 1 }, notice: `Went to ${String(elsewhere[1].title ?? elsewhere[0])}` };
+    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), flow: { type: flow.type, id: flow.id, step: index + 1 } };
   };
   // A pointer with a journey and a step: that journey is read at that step until `esc` or the next pointer.
   const pointAtStep = (point: Point) => {
@@ -778,7 +778,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!best) { message = "That is not in any view"; update(); return; }
     remember(state, visit());
     camera.animating = false; state.pendingVisit = { diagram: getDiagram(best[0]), select: element, file: path };
-    message = `Went to ${String(best[1].title ?? best[0])}`;
   };
   // Ask about a node (`t`), or ask the agent to improve the map (`m`) or trace a flow (`d`), or name it yourself (`n`): see viewer/ask-dialog.ts.
   const askContext = (target: Node) => {
@@ -1001,7 +1000,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const above = [...diagrams].find(([id, other]) => id !== String(diagram.id) && other.nodes.some(node => String(node.navigateTo ?? "") === String(diagram.id)));
         if (!above) { message = "No previous view"; update(); return; }
         const opener = above[1].nodes.find(node => String(node.navigateTo ?? "") === String(diagram.id))!;
-        camera.animating = false; state.pendingVisit = { diagram: getDiagram(above[0]), select: String(opener.modelRef ?? opener.id), notice: `Went to ${String(above[1].title ?? above[0])}` };
+        camera.animating = false; state.pendingVisit = { diagram: getDiagram(above[0]), select: String(opener.modelRef ?? opener.id) };
         return;
       }
       case "views": gotoPicker.begin("views"); return;
@@ -1019,7 +1018,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); if (followCamera) message = "Following the work (a to stop)"; update(); }
         else if (work) {
           remember(state, visit());
-          camera.animating = false; startFollow(); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: `Went to ${work.title}${followCamera ? " · following (a to stop)" : ""}` }; update();
+          camera.animating = false; startFollow(); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: followCamera ? `Went to ${work.title} · following (a to stop)` : "" }; update();
         } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
         return;
       }
@@ -1256,7 +1255,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!elsewhere) { message = `The agent pointed at ${point.element}, which no view draws`; update(); return; }
     remember(state, visit());
     pointMark = point.element; camera.animating = false;
-    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), select: point.element, notice: `Went to ${String(elsewhere[1].title ?? elsewhere[0])}` };
+    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), select: point.element };
   }).pipe(Effect.catch(() => Effect.void), Effect.repeat(Schedule.spaced("500 millis")), Effect.forkScoped);
   if (binding || following) yield* Effect.gen(function* () {
     if (replay) {

@@ -114,7 +114,8 @@ test("backspace steps back like b, and goes up only when there is nowhere to go 
   expect(where(await see("BSpace,BSpace"))).toEqual(["parcel/checkout", "parcel"]);
   const up = await see("BSpace,BSpace,BSpace");
   expect(where(up)).toEqual(["parcel/services", "parcel.commerce"]);
-  expect(up.at(-1)).toContain("Went to Parcel / Service architecture");
+  // The header's title says where you are; a move you made yourself raises no notice.
+  expect(up.at(-1)).not.toContain("Went to");
   // Into the group and straight back: backspace takes the visit, as b would.
   expect(where(await see("BSpace,BSpace,BSpace,Enter,BSpace"))).toEqual(["parcel/services", "parcel.commerce"]);
   expect(where(await see("BSpace,BSpace,BSpace,Enter,b"))).toEqual(["parcel/services", "parcel.commerce"]);

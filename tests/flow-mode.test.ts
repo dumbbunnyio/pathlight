@@ -289,7 +289,8 @@ test("F reads a journey in the view that draws its steps apart, and b comes back
     const entered = await see("index", "customer", "F");
     expect(where(entered)).toBe("parcel/services");
     expect(entered[1]).toContain("back 1");
-    expect(entered.at(-1)).toMatch(/^ flow +Selected: parcel\.storefront +● Went to Parcel \/ Service architecture/);
+    expect(entered.at(-1)).toMatch(/^ flow +Selected: parcel\.storefront /);
+    expect(entered.at(-1)).not.toContain("Went to");
     expect(entered.join("\n")).toMatch(/Steps ─+ 1\/5/);
     expect(where(await see("index", "customer", "F,Escape,b"))).toBe("parcel/index");
   } finally { await rm(directory, { recursive: true, force: true }); }
