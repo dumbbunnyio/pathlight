@@ -453,11 +453,10 @@ test.each([
     expect(active).toContain("■");
     expect(active).toContain("Checkout API");
     await click("Checkout API", "parcel.commerce.api");
-    // Each click that changed the selection is a visit: backspace walks them back, newest first.
     await tmux("send-keys", "-t", pane, "BSpace");
     await capture(commerceSelection);
     await tmux("send-keys", "-t", pane, "BSpace");
-    await capture("Selected: parcel.commerce.api");
+    await capture(rootSelection);
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

@@ -144,45 +144,6 @@ test("back after Enter into a group reselects the frame in the same view before 
   expect(twice.at(-1)).toContain("No previous view");
 }, 120_000);
 
-// A click that changes the selection is a visit, as Enter is: b returns to what was selected before it, in the same view. A click on the selection adds nothing.
-test("a mouse click that changes the selection is on the back stack", async () => {
-  const directory = await mkdtemp("/tmp/opencode/click-visit-");
-  const tmux = (...args: string[]) => run("tmux", ["-S", join(directory, "tmux.sock"), ...args]);
-  try {
-    await cp("tests/fixtures/viewer", directory, { recursive: true });
-    const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "click-visit", "-x", "150", "-y", "44", "-P", "-F", "#{pane_id}",
-      process.execPath, resolve("src/cli.ts"), "view", "live", "--project", "viewer", "--workspace", directory, "--select", "plugin");
-    const until = async (predicate: (text: string) => boolean, label: string) => {
-      let output = "";
-      for (let attempt = 0; attempt < 120; attempt++) {
-        output = await tmux("capture-pane", "-p", "-t", pane);
-        if (predicate(output)) return output;
-        await delay(50);
-      }
-      throw new Error(`Missing ${label}:\n${output}`);
-    };
-    const click = (column: number, row: number) => tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${column + 1};${row + 1}M\x1b[<0;${column + 1};${row + 1}m`);
-    const at = (text: string, screen: string) => { const rows = screen.split("\n"), row = rows.findIndex(line => line.includes(text)); return { row, column: rows[row]!.indexOf(text) }; };
-    const header = (screen: string) => screen.split("\n").slice(0, 3).join("\n");
-    const start = await until(text => text.includes("Selected: plugin") && text.includes("LikeC4"), "the view");
-    expect(header(start)).not.toContain("back ");
-    const label = at("LikeC4", start);
-    await click(label.column + 2, label.row);
-    expect(header(await until(text => text.includes("Selected: catalog"), "the click"))).toContain("back 1");
-    // Clicking what is already selected is no visit.
-    await click(label.column + 2, label.row);
-    await delay(300);
-    expect(header(await until(text => text.includes("Selected: catalog"), "the same selection"))).toContain("back 1");
-    await tmux("send-keys", "-t", pane, "b");
-    const back = await until(text => text.includes("Selected: plugin"), "b after the click");
-    expect(header(back)).not.toContain("back ");
-    expect(back).toContain("live");
-  } finally {
-    await tmux("kill-server").catch(() => {});
-    await rm(directory, { recursive: true, force: true });
-  }
-}, 60_000);
-
 // The word on a card's first row: a box that opens a view says how many boxes are inside it; a leaf says nothing; no card names its kind.
 test("the overview's Parcel says how many boxes are inside it, and no card says person, system or component", async () => {
   const screen = await run(process.execPath, [resolve("src/cli.ts"), "see", "index", "--workspace", "examples/parcel", "--project", "parcel", "--cols", "140", "--rows", "36"]);

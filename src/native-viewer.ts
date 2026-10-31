@@ -869,11 +869,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const node = diagram.nodes[event.y - nodeListText.y];
     if (node) clickOn(node);
   };
-  // A click that changes the selection is a visit, as Enter is: `b` returns to what was selected before it.
-  const clickOn = (node: Node) => {
-    if (node !== state.selected) remember(state, visit());
-    selectNode(node, false);
-  };
+  // A click selects; it is not a visit, so `b` does not walk back through clicks.
+  const clickOn = (node: Node) => selectNode(node, false);
   viewport.onMouseDown = event => {
     if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || state.pendingVisit) return;
     // A click on the diagram hands the keys back to it; the talk stays showing.
