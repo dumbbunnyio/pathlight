@@ -47,7 +47,8 @@ After the last journey they want, one message:
 
 - one line naming the boxes no journey touched, titles only, in the briefing's order (`Not on any journey: Docs site scripts, Code generators, …`), with no message per box;
 - the journeys not walked, by title;
-- three questions worth asking with `t` in the viewer, each about a real box or step you showed ("how does Backend API and services check a login?").
+- three questions worth asking with `t` in the viewer, each about a real box or step you showed ("how does Backend API and services check a login?");
+- last, when a journey was walked, one line: "The viewer is still reading <journey title>; `esc` there leaves it, `F` opens the next."
 
 Then `pathlight point --workspace .` with no element, to clear the mark.
 
@@ -62,6 +63,6 @@ Parcel is a small fictional shop, a map a person wrote: no code, so no journey c
 1. `pathlight list --workspace examples/parcel` → views `index`, `services`, `checkout`. The briefing says `no drafted map`, so what it is and how it is built are read from `examples/parcel/model.c4` and `views.c4`.
 2. "Parcel is drawn in three views; the overview, *Parcel / System context*, shows the Customer, Parcel itself, and three outside systems: the Payment provider, the Shipping carrier and the Email provider. Shall I move the diagram as we go?" They say yes.
 3. "There is no recorded journey, and Parcel has no code to trace one from, so there is nothing to walk yet."
-4. The ending: "Not on any journey: Parcel, Storefront, Commerce, Fulfillment, Payment provider, Shipping carrier, Email provider. Worth asking with `t`: how does the Checkout API reach the Payment provider? What does the Outbox relay send, and to whom? Where is stock reserved?", then `pathlight point --workspace examples/parcel` to clear the mark.
+4. The ending: "Not on any journey: Parcel, Storefront, Commerce, Fulfillment, Payment provider, Shipping carrier, Email provider. Worth asking with `t`: how does the Checkout API reach the Payment provider? What does the Outbox relay send, and to whom? Where is stock reserved?" No journey was walked, so the viewer is reading none and there is no `esc` line. Then `pathlight point --workspace examples/parcel` to clear the mark.
 
 On a drafted map the same walk starts from the briefing, walks its journeys step by step, and ends the same way.
