@@ -8,8 +8,17 @@ import { nl } from "./text";
 import type { WhereView } from "./where";
 import type { createWidgets } from "./widgets";
 
-/** One row of the picker: a view, a box, a journey or a mapped file, and where it is. */
-export type Pick = Candidate & { view?: string; element?: string; path?: string; flow?: FlowMap; detail: string };
+/** One row of the picker: a view, a box, a journey or a mapped file, and where it is. `holder`: the part of a view's title before its own name. */
+export type Pick = Candidate & { view?: string; element?: string; path?: string; flow?: FlowMap; detail: string; holder?: string };
+
+/**
+ * A view's title as the picker reads it: the draft titles a view of something inside another `Holder / Own name`, and the own name is what tells
+ * twenty such views apart, so it is the row's name and the holder follows it, dimmed. A title with no ` / ` is all name.
+ */
+export const splitTitle = (title: string) => {
+  const at = title.lastIndexOf(" / ");
+  return at < 0 ? { name: title, holder: "" } : { name: title.slice(at + 3), holder: title.slice(0, at) };
+};
 
 /** What `tab` narrows `/` to, in order: everything, then one kind at a time. */
 export const pickKinds = [["all", undefined], ["views", "view"], ["boxes", "box"], ["journeys", "journey"], ["files", "file"]] as const satisfies readonly (readonly [string, Kind | undefined])[];
@@ -21,8 +30,11 @@ export const pickKinds = [["all", undefined], ["views", "view"], ["boxes", "box"
 export const pickCandidates = (options: { views: ReadonlyMap<string, WhereView>; current: WhereView; mode: "all" | "views"; files: ReadonlyMap<string, readonly string[]>; ignore: readonly string[];
   flows?: readonly FlowMap[] }): Pick[] => {
   const current = String(options.current.id);
-  const views: Pick[] = [...options.views].filter(([, entry]) => entry.nodes.length).map(([id, entry]) =>
-    ({ kind: "view", name: String(entry.title ?? id), aliases: [id], here: id === current, view: id, detail: `${entry.nodes.length} nodes` }));
+  // A view matches on its own name as its name, and on its whole title and its id as aliases.
+  const views: Pick[] = [...options.views].filter(([, entry]) => entry.nodes.length).map(([id, entry]) => {
+    const title = String(entry.title ?? id), { name, holder } = splitTitle(title);
+    return { kind: "view", name, ...(holder ? { holder } : {}), aliases: holder ? [title, id] : [id], here: id === current, view: id, detail: `${entry.nodes.length} nodes` };
+  });
   if (options.mode === "views") return views;
   const present = new Set(options.current.nodes.map(node => String(node.modelRef)));
   const titles = new Map<string, string>();
@@ -38,25 +50,32 @@ export const pickCandidates = (options: { views: ReadonlyMap<string, WhereView>;
   return [...views.filter(item => !item.here), ...boxes, ...journeys, ...mapped];
 };
 
-/** The picker's inside: as wide as before the frame was made thin, so its rows read the same. */
-const gotoColumns = (screenWidth: number) => Math.min(74, screenWidth - 10);
+/** The picker's inside: its frame is at most 100 columns, as the summary's and the other dialogs' are (the border and padding take four). */
+export const gotoColumns = (screenWidth: number) => Math.min(96, screenWidth - 10);
 
-/** The picker's list, `rows` of it from `top`, with the query line on top. `viewOf` names the view a box elsewhere opens in. */
+/** What a row says on the right: where it is. A row in the view you are in carries a dot; one elsewhere says which view it opens. */
+const whereOf = (entry: Pick, viewOf: (element: string) => string) => entry.kind === "view" || entry.kind === "journey" ? (entry.here ? `● ${entry.kind === "journey" ? entry.detail : "here"}` : entry.detail)
+  : entry.here ? `● ${entry.kind === "file" ? entry.detail : "here"}` : entry.kind === "file" ? entry.detail : `in ${viewOf(entry.element!)}`;
+
+/**
+ * The picker's list, `rows` of it from `top`, with the query line on top. `viewOf` names the view a box elsewhere opens in. The right-hand column is
+ * as wide as its longest row needs, up to 26; the rest is the name's. A file's folder and a view's holder follow the name, dimmed, and are cut first.
+ */
 export const gotoContent = (entries: readonly Pick[], options: { query: string; index: number; top: number; rows: number; screenWidth: number; viewOf: (element: string) => string }) => {
   const { index, top, rows } = options;
-  const inner = gotoColumns(options.screenWidth), contextWidth = Math.min(26, Math.floor(inner / 3)), nameWidth = Math.max(10, inner - 1 - 8 - 1 - contextWidth - 1);
+  const wheres = new Map<Pick, string>(), whereFor = (entry: Pick) => { let text = wheres.get(entry); if (text === undefined) wheres.set(entry, text = whereOf(entry, options.viewOf)); return text; };
+  const inner = gotoColumns(options.screenWidth);
+  const contextWidth = Math.min(26, Math.floor(inner / 3), Math.max(8, ...entries.map(entry => whereFor(entry).length)));
+  const nameWidth = Math.max(10, inner - 1 - 8 - 1 - contextWidth - 1);
   const fit = (text: string, width: number) => text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text.padEnd(width);
   const chunks: TextChunk[] = [fg(palette.incoming)(" › "), fg(palette.text)(options.query), fg(palette.incoming)("▏"), nl];
   if (!entries.length) chunks.push(fg(palette.muted)(" Nothing matches"), nl);
   entries.slice(top, top + rows).forEach((entry, offset) => {
     const cursor = top + offset === index, shade = bg(cursor ? palette.pick : palette.panel);
-    // What the row says on the right: where it is. A row in the view you are in carries a dot; one elsewhere says which view it opens.
-    const where = entry.kind === "view" || entry.kind === "journey" ? (entry.here ? `● ${entry.kind === "journey" ? entry.detail : "here"}` : entry.detail)
-      : entry.here ? `● ${entry.kind === "file" ? entry.detail : "here"}` : entry.kind === "file" ? entry.detail : `in ${options.viewOf(entry.element!)}`;
-    const dir = entry.kind === "file" ? ` ${entry.path!.slice(0, entry.path!.lastIndexOf("/") + 1)}` : "";
-    const name = fit(entry.name + (dir.trim() ? dir : ""), nameWidth);
+    const after = entry.kind === "file" ? entry.path!.slice(0, entry.path!.lastIndexOf("/") + 1) : entry.holder ?? "";
+    const name = fit(entry.name + (after ? ` ${after}` : ""), nameWidth);
     chunks.push(shade(fg(palette.muted)(` ${entry.kind.padEnd(8)}`)), shade(fg(palette.text)(name.slice(0, Math.min(entry.name.length, nameWidth)))),
-      shade(fg(palette.muted)(name.slice(Math.min(entry.name.length, nameWidth)))), shade(fg(entry.here ? palette.incoming : palette.muted)(` ${fit(where, contextWidth)} `)), nl);
+      shade(fg(palette.muted)(name.slice(Math.min(entry.name.length, nameWidth)))), shade(fg(entry.here ? palette.incoming : palette.muted)(` ${fit(whereFor(entry), contextWidth)} `)), nl);
   });
   return { content: new StyledText(chunks), meta: new StyledText([fg(palette.muted)(` ${entries.length ? `${top + 1}–${Math.min(entries.length, top + rows)} of ${entries.length}` : "0"} `)]) };
 };

@@ -249,7 +249,8 @@ test("the search picker isolates typing, ranks this view first, searches other v
     // Other views are searched too.
     await tmux("send-keys", "-t", pane, "-l", "checkout");
     await capture("› checkout");
-    expect(await capture(/view\s+Parcel \/ Checkout detail\s+\d+ nodes/)).not.toContain("Customer");
+    // A view row says its own name first, its holder after it.
+    expect(await capture(/view\s+Checkout detail Parcel\s+\d+ nodes/)).not.toContain("Customer");
     await tmux("send-keys", "-t", pane, "C-u");
     await tmux("send-keys", "-t", pane, "-l", "commerce");
     await capture("› commerce");

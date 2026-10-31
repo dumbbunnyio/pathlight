@@ -70,3 +70,25 @@ test("the search's title names the chosen kind in the accent and the others dimm
   const lit = chunks.filter(chunk => (chunk.fg as InstanceType<typeof RGBA> | undefined)?.equals?.(RGBA.fromHex(palette.accent))).map(chunk => chunk.text);
   expect(lit).toEqual(["journeys"]);
 });
+
+test("a view matches on its own name, the part after the title's last ` / `, before views that only have the words in their holder", async () => {
+  const { pickCandidates } = await import("../src/viewer/pickers");
+  const holder = "Mealie: self-hosted recipe manager";
+  const titles: Record<string, string> = { index: "Packages", mealie_components: holder, frontend_components: "Mealie web frontend",
+    lang_near: `${holder} / Backend translations`, i18n_near: "Mealie web frontend / Interface translations", db_near: `${holder} / Data access`,
+    core_near: `${holder} / Settings, security and core`, all: "Backend server / everything" };
+  for (let n = 0; n < 16; n++) titles[`near_${n}`] = `${holder} / Part ${n}`;
+  const views = new Map(Object.entries(titles).map(([id, title]) => [id, { id, title, nodes: [{ id: "x", children: [], title: "x" }] }] as const));
+  const candidates = pickCandidates({ views, current: { id: "elsewhere", nodes: [] }, mode: "views", files: new Map(), ignore: [] });
+  expect(candidates.find(item => item.view === "lang_near")).toMatchObject({ name: "Backend translations", holder, aliases: [`${holder} / Backend translations`, "lang_near"] });
+  expect(candidates.find(item => item.view === "index")).toMatchObject({ name: "Packages", aliases: ["index"] });
+  expect(candidates.find(item => item.view === "index")!.holder).toBeUndefined();
+  const mel = search("mel", candidates).map(item => item.view);
+  expect(mel.slice(0, 2).sort()).toEqual(["frontend_components", "mealie_components"]);
+  // Scattered letters in the holder alone are too weak once the alias penalty is taken; the holder's own word still lists them, after the two.
+  expect(mel).not.toContain("near_0");
+  const mealie = search("mealie", candidates).map(item => item.view);
+  expect(mealie.slice(0, 2).sort()).toEqual(["frontend_components", "mealie_components"]);
+  expect(mealie).toContain("near_15");
+  expect(search("transl", candidates).slice(0, 2).map(item => item.name).sort()).toEqual(["Backend translations", "Interface translations"]);
+});
