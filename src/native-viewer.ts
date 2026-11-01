@@ -1112,7 +1112,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (editorActive) return;
     if (pointMark !== undefined) { pointMark = undefined; update(); }
     const layer = state.pendingVisit ? "visit" : dialog.naming ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : dialog.focus !== "none" ? "talk" : "main";
-    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses, pane: Boolean(host) });
+    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses, pane: Boolean(host),
+      overlay: mounted === "overlay" && inspector.visible && !dialog.showing });
     if (!action) return;
     if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();

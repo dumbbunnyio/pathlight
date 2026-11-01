@@ -151,4 +151,9 @@ test("in pane mode q is Esc wherever no field is typing, a letter where one is, 
   expect(keyAction(key("f12", "\x1b[24~"), mode({ pane: true, layer: "goto" }))).toEqual({ type: "gotoClose" });
   expect(keyAction(key("f12", "\x1b[24~"), mode({ pane: true }))).toEqual({ type: "swallow" });
   expect(keyAction({ ...key("c"), ctrl: true }, mode({ pane: true }))).toEqual({ type: "swallow" });
+  // The inspector over the diagram is a mode: q closes it in the pane, Esc in the tmux viewer; with nothing over the diagram Esc stays idle.
+  expect(keyAction(key("q"), mode({ pane: true, overlay: true }))).toEqual({ type: "inspector" });
+  expect(keyAction(key("escape", "\x1b"), mode({ overlay: true }))).toEqual({ type: "inspector" });
+  expect(keyAction(key("escape", "\x1b"), mode({}))).toEqual({ type: "idle" });
+  expect(keyAction(key("q"), mode({ pane: true, overlay: true, flow: true }))).toEqual({ type: "exitFlow" });
 });

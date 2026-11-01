@@ -15,6 +15,8 @@ export interface KeyMode {
   cards: readonly SectionKey[];
   /** `h j k l` select when true (arrows pan); `v` swaps them. */
   vim: boolean;
+  /** The node face is shown over the diagram (under 120 columns): Esc closes it, as `i` does. */
+  overlay?: boolean;
   /**
    * Drawn by a host whose Escape is its own (`pathlight pane`): `q` is the viewer's Esc wherever no field is typing, and never quits (the pane's own
    * close does). Where a field is typing `q` is a letter, and `f12` stands for the host's Esc, which hands the keys back to the conversation: it leaves
@@ -152,6 +154,8 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.sequence === "[") return { type: "flowStep", by: -1 };
     if (key.name === "escape") return { type: "exitFlow" };
   }
+  // The inspector drawn over the diagram is a mode to leave: Esc (`q` in the pane) closes it.
+  if (!files && mode.overlay && key.name === "escape") return { type: "inspector" };
   if (!files) {
     if (key.sequence === "/") return { type: "search" };
     if (key.name === "b") return { type: "back" };
