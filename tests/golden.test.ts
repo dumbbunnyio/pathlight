@@ -18,6 +18,9 @@ const screens: { name: string; args: string[] }[] = [
   { name: "diagram-100x30", args: ["--cols", "100", "--rows", "30"] },
   { name: "overlay-100x30", args: ["--cols", "100", "--rows", "30", "--keys", "i"] },
   { name: "docked-140x36", args: ["--cols", "140", "--rows", "36"] },
+  // Under 120 columns with 40 rows or more (the pane beside Claude Code's transcript, a tall tmux split) the inspector sits under the diagram.
+  { name: "below-103x45", args: ["--cols", "103", "--rows", "45"] },
+  { name: "below-89x45", args: ["--cols", "89", "--rows", "45"] },
   { name: "docked-launcher-140x36", args: ["--cols", "140", "--rows", "36", "--select", "launcher"] },
   { name: "docked-wide-260x50", args: ["--cols", "260", "--rows", "50", "--select", "viewer"] },
   { name: "help-140x36", args: ["--cols", "140", "--rows", "36", "--keys", "?"] },
