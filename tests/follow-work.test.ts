@@ -69,3 +69,50 @@ test("follow selects the node being worked on, pauses when the user selects, and
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+// With follow on, work on a component this view does not draw but another does goes to that view (the one `w` would choose), with a notice and a
+// visit `b` returns from; nothing moves until follow is turned on.
+test("follow goes to the view that has the component being worked on, and b comes back", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-follow-view-"));
+  const socket = join("/tmp", `c4fv-${process.pid}.sock`);
+  const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
+  try {
+    await cp("examples/parcel", directory, { recursive: true, filter: path => !path.includes(".cache") });
+    await writeFile(join(directory, "api.ts"), "export {};\n");
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "parcel", mappings: [{ glob: "api.ts", element: "parcel.commerce.api" }] }));
+    const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "follow-view", "-x", "140", "-y", "40", "-P", "-F", "#{pane_id}",
+      process.execPath, resolve("src/cli.ts"), "view", "index", "--workspace", directory, "--project", "parcel", "--session", "work", "--source", "claude");
+    const until = async (test: (text: string) => boolean, what: string) => {
+      let output = "";
+      for (let attempt = 0; attempt < 100; attempt++) {
+        output = await tmux("capture-pane", "-p", "-t", pane);
+        if (test(output)) return output;
+        await delay(50);
+      }
+      throw new Error(`Missing ${what}:\n${output}`);
+    };
+    const read = async (call: string) => {
+      const input = { file_path: join(directory, "api.ts") };
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "started"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "completed"));
+    };
+    await until(text => text.includes("parcel/index"), "the overview");
+    await delay(700);
+    // Follow off: the work is offered, never gone to.
+    await read("before");
+    await delay(900);
+    expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("parcel/index");
+    await tmux("send-keys", "-t", pane, "a");
+    await until(text => text.includes("Following the work"), "follow on");
+    await read("during");
+    const there = await until(text => /parcel\/(services|checkout)/.test(text), "the view with the API");
+    expect(there).toMatch(/Selected: parcel\.commerce\.api/);
+    expect(there).toContain("back 1");
+    expect(there).toMatch(/Went to Parcel \/ (Service architecture|Checkout detail) · following/);
+    await tmux("send-keys", "-t", pane, "b");
+    await until(text => text.includes("parcel/index") && !text.includes("back 1"), "the overview again");
+  } finally {
+    await tmux("kill-server").catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);

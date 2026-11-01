@@ -127,13 +127,13 @@ test("a journey reports each step the model has no relationship for, a missing o
     ], ...patch,
   });
   const known = () => true;
-  expect(assessJourney(journey(), { changedElements: new Set(), known }).findings).toEqual(["Step 2, “tells shipping directly”, goes from orders to shipping with no relationship between them in the model."]);
+  expect(assessJourney(journey(), { changedElements: new Set(), known }).findings).toEqual(["Step 2, “tells shipping directly”, goes from orders to shipping, and the map has no arrow between them."]);
   // Two hops over one unrelated pair are one gap; a hop back the way an earlier one went is its answer and no gap.
   const http = assessJourney(journey({ steps: [
     { source: "page", target: "server", title: "loads", backed: false }, { source: "server", target: "page", title: "returns", backed: false },
     { source: "page", target: "server", title: "sends", backed: false },
   ] }), { changedElements: new Set(), known });
-  expect(http.findings).toEqual(["Steps 1 and 3 go from page to server with no relationship between them in the model."]);
+  expect(http.findings).toEqual(["Steps 1 and 3 go from page to server, and the map has no arrow between them."]);
   expect(http.steps.map(step => step.reply ?? false)).toEqual([false, true, false]);
   const clean = assessJourney(journey({ steps: [journey().steps[0]!] }), { changedElements: new Set(), known });
   expect(clean.findings).toEqual([]);
@@ -156,7 +156,7 @@ test("a hop the agent marked over http, a websocket or a process is no gap; the 
   const both = assessJourney(hop("over | websocket\nsend | src/x.ts | export function send(): void"), { changedElements: new Set(), known: () => true });
   expect(both.steps[0]).toMatchObject({ over: "websocket", call: { name: "send", file: "src/x.ts" } });
   expect(both.findings).toEqual([]);
-  expect(assessJourney(hop(), { changedElements: new Set(), known: () => true }).findings).toEqual(["Step 1, “requests the document”, goes from app to server with no relationship between them in the model."]);
+  expect(assessJourney(hop(), { changedElements: new Set(), known: () => true }).findings).toEqual(["Step 1, “requests the document”, goes from app to server, and the map has no arrow between them."]);
   expect(assessJourney(hop("over | pigeon"), { changedElements: new Set(), known: () => true }).findings).toHaveLength(1);
 });
 
@@ -178,7 +178,7 @@ views {
     const report = JSON.parse(await cli("flows", "--workspace", directory, "--json")) as { journeys: { id: string; steps: { backed: boolean }[]; findings: string[] }[]; summary: { journeys: number } };
     expect(report.summary.journeys).toBe(1);
     expect(report.journeys[0]!.steps.map(step => step.backed)).toEqual([true, true, false]);
-    expect(report.journeys[0]!.findings.some(text => text.includes("with no relationship between them in the model"))).toBe(true);
+    expect(report.journeys[0]!.findings.some(text => text.includes("and the map has no arrow between them"))).toBe(true);
     expect(await cli("flows", "--workspace", directory)).toContain("journey placeorder; 3 steps");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);

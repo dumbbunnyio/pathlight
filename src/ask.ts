@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { failure } from "./effects";
 import { run } from "./process";
 
-/** A question whose answer is a path through components: it is drawn as well as answered, unless the user turns `draw it` off. */
+/** A question whose answer is a path through components: it is drawn as well as answered, (`d` asks for one explicitly). */
 export const isHowQuestion = (question: string) =>
   /^\s*(how\b|where (does|do|is|are)\b|what happens\b|what calls\b|which (path|way)\b|trace\b|walk me through\b|follow\b)/i.test(question);
 
@@ -33,17 +33,16 @@ export function relevantFiles(options: { files: readonly string[]; neighbours: r
  * edit, so the map shows where the work is going before it lights up. Who records the journey is the skill's business, not this line's: a tracer
  * handed this text must not read a hand-off as addressed to it.
  */
-export function askMessage(target: { title: string; id: string; files: readonly string[]; links: readonly string[]; activity?: readonly string[] }, question: string, draw = false) {
+export function askMessage(target: { title: string; id: string; files: readonly string[]; links: readonly string[] }, question: string, draw = false) {
   const clean = (text: string) => text.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim();
   const context = [
     target.files.length ? `files: ${target.files.slice(0, 6).map(clean).join(", ")}` : "",
     target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
-    target.activity?.length ? `recent: ${target.activity.slice(0, 5).map(clean).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   const id = clean(target.id);
   return `About the "${clean(target.title)}" component (${id}): ${clean(question).slice(0, 600)}${context ? ` [${context}]` : ""} `
-    + (draw ? `Load the pathlight skill and follow its "Requests from the viewer" section: answer here, and have the path recorded as a pathlight journey (pathlight flow add) so it appears on the map and F walks it. ` : "")
-    + `If this asks you to change the code, before editing any file run pathlight plan ${id} with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight skill says how); run pathlight plan with no ids when done.`;
+    + (draw ? `Load the pathlight map skill and follow its "Requests from the viewer" section: answer here, and have the path recorded as a pathlight journey (pathlight flow add) so it appears on the map and F walks it. ` : "")
+    + `If this asks you to change the code, before editing any file run pathlight plan ${id} with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight map skill says how); run pathlight plan with no ids when done.`;
 }
 
 /**
@@ -72,8 +71,7 @@ export function mapMessage(target: { title: string; id: string; key: string; fil
     target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   return `Improve the pathlight map for the "${clean(target.title)}" component (${clean(target.id)}): ${clean(request).slice(0, 600)} [${context}] `
-    + `Read the files, answer me here, then set its name and note in .pathlight/pathlight.overlay.json with "by":"agent" and run pathlight draft. Never change an entry marked "by":"human". `
-    + `If it should be merged or split, tell me and wait for my yes before editing.`;
+    + `Read the files and answer me here. If it should be renamed, merged or split, or you advise against what I asked, say so with your reasons and wait for my yes; rename or redraw nothing until then. Never change an entry marked "by":"human".`;
 }
 
 /**
@@ -88,6 +86,6 @@ export function flowMessage(target: { title: string; id: string; files: readonly
     target.links.length ? `connects: ${target.links.slice(0, 6).map(clean).join(", ")}` : "",
   ].filter(Boolean).join("; ");
   return `Trace how this works in the "${clean(target.title)}" component (${clean(target.id)}) and record it as a pathlight journey: ${clean(request).slice(0, 600)}${context ? ` [${context}]` : ""} `
-    + `Follow the pathlight-behavior skill: read the code from this component outward, confirm each hop in a file, then run pathlight flow add with the files you read and one --step per hop between components in the model (a hop you confirmed over HTTP, a websocket or a spawned process is written FROM -> TO over http: EVENT). `
+    + `Follow the pathlight behavior skill: read the code from this component outward, confirm each hop in a file, then run pathlight flow add with the files you read and one --step per hop between components in the model (a hop you confirmed over HTTP, a websocket or a spawned process is written FROM -> TO over http: EVENT). `
     + `Leave out any hop you cannot point to in the code and tell me what you could not find. Do not change product code.`;
 }

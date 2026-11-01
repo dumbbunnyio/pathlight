@@ -1,0 +1,30 @@
+ ◆ pathlight / Pathlight implementation                                                             
+ viewer/live · 6 nodes                                                                              
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·
+                                                                                                    
+                                                                                                    
+  ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·
+                           ╭──────────────────╮                                                     
+   ┌─ Search · all views boxes journeys files ─────────────────────────────────────── 1–4 of 4 ─┐   
+   │  › c▏                                                                                      │   
+  ·│  box     LikeC4 catalog                                                          ● here    │  ·
+   │  box     tmux launcher                                                           ● here    │   
+  ╭│  box     Activity metadata                                                       ● here    │╮  
+  ││  view    Landscape view                                                          6 nodes   ││  
+  ╰└─ type search  tab kind  ↑↓ choose  enter go  esc close ────────────────────────────────────┘╯ ·
+                                                  ┊                        ┊                        
+  ╭──────────────────╮                            ┊  ╭──────────────────╮  ┊                        
+  │ LikeC4 catalog   │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┴┈▶│ PNG export       │─┈╯                        
+  ╰──────────────────╯  ·       ·      ·       ·     ╰──────────────────╯    ·      ·       ·      ·
+                                                                                                    
+                                                                                                    
+  ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·
+ diagram   Selected: plugin                                                     zoom 94%  │  ? help 

@@ -4,6 +4,9 @@ import { palette } from "../ui";
 import { nl, spinAt } from "./text";
 
 /** A call is running if it started and has not been heard from for at most 30 s; after that it is unconfirmed, not running. */
+/** A subagent's label as a person reads it: the name after a plugin's prefix, without the `pathlight-` every Pathlight agent starts with (`tracer`, `namer`, `Explore`). */
+export const agentLabel = (agent: string) => agent.slice(agent.lastIndexOf(":") + 1).replace(/^pathlight-/, "") || agent;
+
 export const isActive = (event: ActivityEvent) => event.phase === "started" && Date.now() - event.time <= 30_000;
 
 /** What a node's mapped activity is doing right now: a running tool, or how a call that just ended finished. */
@@ -56,7 +59,7 @@ export function nowCard(options: { error: string; bound: boolean; following: boo
     const glyphTone = row.state === "failed" ? palette.failure : row.state === "started" ? palette.accent : row.state === "completed" ? palette.green : palette.muted;
     const op = (row.operation === "command" ? "run" : row.operation).padEnd(5);
     const first = row.paths[0]?.split("/").at(-1) ?? row.target;
-    const extra = `${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}${row.agent ? ` ·${row.agent.slice(0, 12)}` : ""}`;
+    const extra = `${row.paths.length > 1 ? ` +${row.paths.length - 1}` : ""}${count > 1 ? ` ×${count}` : ""}${row.agent ? ` ·${agentLabel(row.agent).slice(0, 12)}` : ""}`;
     const age = formatAge(row.age);
     // Fixed grid: glyph (2) · op (5) · file + count · time, right aligned.
     const room = Math.max(4, width - 2 - 5 - age.length - 1);
@@ -115,17 +118,18 @@ export function sessionSummary(options: { session: string | undefined; config: A
   return { chunks, size: [Math.min(96, options.screenWidth - 10), chunks.filter(chunk => chunk.text.includes("\n")).length + 1] };
 }
 
-/** The header's one activity line: "now" while a tool runs, "last" once it has an outcome, then what it did, to which file, in which component. */
+/**
+ * The header's one activity line, only while a call runs: `now`, the verb, the subagent's label if any, and the boxes it is in. No path and no age
+ * (the files are in the Now card and `c`); once the call has an outcome the line is gone.
+ */
 export function ticker(config: ActivityConfig | undefined, events: ActivityEvent[], elementTitle: (id: string) => string, now: number): TextChunk[] | undefined {
   if (!config) return undefined;
   const [row] = activityRows(events, config, now, 1);
-  if (!row || row.age > 120_000) return undefined;
-  const running = row.state === "started";
+  if (!row || row.state !== "started" || row.age > 120_000) return undefined;
   const verb = row.operation === "command" ? "run" : row.operation;
-  const glyph = running ? (row.operation === "edit" ? "■" : row.operation === "read" ? "◦" : spinAt(now)) : row.state === "completed" ? "✓" : row.state === "failed" ? "✗" : "~";
-  const tone = row.state === "failed" ? palette.failure : running ? (row.operation === "edit" ? palette.accent : row.operation === "read" ? palette.incoming : palette.command) : row.state === "completed" ? palette.green : palette.muted;
-  const outcome = row.state === "failed" ? " failed" : row.state === "unconfirmed" ? ", no result" : "";
-  return [fg(palette.border)(running ? "now  " : "last "), fg(tone)(`${glyph} `), fg(running ? tone : palette.body)(verb), fg(palette.body)(` ${row.target}`), fg(row.state === "failed" ? palette.failure : palette.muted)(outcome), fg(palette.muted)(" "),
-    ...(row.agent ? [fg(palette.muted)(`[${row.agent.slice(0, 16)}] `)] : []),
-    ...(row.elements.length ? [fg(palette.border)("in "), fg(palette.body)(row.elements.map(elementTitle).join(", ")), fg(palette.muted)(" ")] : []), fg(palette.border)(running && row.age < 1000 ? "" : formatAge(row.age))];
+  const glyph = row.operation === "edit" ? "■" : row.operation === "read" ? "◦" : spinAt(now);
+  const tone = row.operation === "edit" ? palette.accent : row.operation === "read" ? palette.incoming : palette.command;
+  return [fg(palette.border)("now "), fg(tone)(`${glyph} `), fg(tone)(verb),
+    ...(row.agent ? [fg(palette.muted)(` [${agentLabel(row.agent).slice(0, 16)}]`)] : []),
+    ...(row.elements.length ? [fg(palette.border)(" in "), fg(palette.body)(row.elements.map(elementTitle).join(", "))] : [])];
 }

@@ -39,8 +39,8 @@ test("the compiled binary drafts, initialises, reports on itself and opens its o
     expect(await run(binary, ["check", "--workspace", project,])).toContain("Relationships");
     process.env.CLAUDE_CONFIG_DIR = join(directory, "claude-home"); // whatever plugin the developer has installed must not change the result
     const initialised = await run(binary, ["init", "--workspace", project]);
-    expect(initialised).toContain("Skills: pathlight, pathlight-behavior written");
-    expect(await readFile(join(project, ".claude/skills/pathlight/SKILL.md"), "utf8")).toContain("name: pathlight");
+    expect(initialised).toContain("Skills: pathlight-behavior, pathlight-map, pathlight-onboarding written");
+    expect(await readFile(join(project, ".claude/skills/pathlight-map/SKILL.md"), "utf8")).toContain("name: pathlight-map");
     expect(await readFile(join(project, ".claude/skills/pathlight-behavior/SKILL.md"), "utf8")).toContain("name: pathlight-behavior");
     expect(await run(binary, ["doctor", "--workspace", project])).toContain("single binary");
     const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "binary", "-x", "150", "-y", "40", "-P", "-F", "#{pane_id}", "sleep", "120");

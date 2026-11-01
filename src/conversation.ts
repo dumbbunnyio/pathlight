@@ -16,7 +16,7 @@ export const conversationCap = 200;
 
 // A request the viewer typed (src/ask.ts): the question follows its opening, and the context block and the rules after it are folded away.
 const request = /^(?:About the ".*?" component \([^()]*\): |Improve the pathlight map for the ".*?" component \([^()]*\): |Trace how this works in the ".*?" component \([^()]*\) and record it as a pathlight journey: )/;
-const requestTail = [" [files: ", " [connects: ", " [recent: ", " [overlay key: ", " Load the pathlight skill", " If this asks you to change the code", " Read the files, answer me here", " Follow the pathlight-behavior skill"];
+const requestTail = [" [files: ", " [connects: ", " [recent: ", " [overlay key: ", " Load the pathlight skill", " Load the pathlight map skill", " If this asks you to change the code", " Read the files and answer me here", " Read the files, answer me here", " Follow the pathlight-behavior skill", " Follow the pathlight behavior skill"];
 
 /** A prompt the viewer sent shows as the question that was typed; any other prompt shows as it is. */
 export const foldRequest = (text: string) => {
@@ -25,6 +25,10 @@ export const foldRequest = (text: string) => {
   const rest = text.slice(head[0].length), ends = requestTail.map(marker => rest.indexOf(marker)).filter(index => index >= 0);
   return ends.length ? rest.slice(0, Math.min(...ends)) : rest;
 };
+
+// Claude Code keeps a long typed prompt (a request the viewer typed, most often) wrapped as one pasted element, the same id on both tags.
+const pasted = /^\s*<pasted_content id="([^"<>]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">\s*$/;
+export const unwrapPasted = (text: string) => pasted.exec(text)?.[2] ?? text;
 
 // Prompts the person did not type: slash commands and their output, background-task notices, shell escapes. They arrive as user lines without `isMeta`.
 const notTyped = /^<(command-name|command-message|local-command-|task-notification|bash-)/;
@@ -45,8 +49,9 @@ export const createClaudeParser = () => {
     if (entry.type === "user") {
       const origin = isRecord(entry.origin) ? entry.origin.kind : undefined;
       if (origin !== undefined && origin !== "human") return;
-      const text = typeof content === "string" ? content : Array.isArray(content) && content.every(block => isRecord(block) && block.type !== "tool_result")
+      const raw = typeof content === "string" ? content : Array.isArray(content) && content.every(block => isRecord(block) && block.type !== "tool_result")
         ? content.flatMap(block => isRecord(block) && block.type === "text" && typeof block.text === "string" ? [block.text] : []).join("\n") : undefined;
+      const text = raw === undefined ? undefined : unwrapPasted(raw);
       if (!text?.trim() || notTyped.test(text.trimStart())) return;
       drafts.set(String(entry.uuid ?? `you-${drafts.size}`), { role: "you", at, blocks: new Map([[0, foldRequest(text)]]) });
       return;

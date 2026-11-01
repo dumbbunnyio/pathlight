@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { Effect } from "effect";
 import { latestBinding, readActivity, readReplay } from "../src/activity";
+import { createConversationReader } from "../src/conversation";
+import { readSession } from "../src/sessions";
 import { run, mappingIn } from "./effects";
 
 // The real OpenCode V2 runtime (isolated config, `--standalone`) against a fake OpenAI-compatible model that follows a script, checked against what the
@@ -31,7 +33,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
       { name: "edit", args: { path: "src/launcher.ts", oldString: "export {}", newString: "export const edited = 1" } },
       { name: "shell", args: { command: "cat src/activity.ts" } },
     ],
-    "pathlight skill": [{ name: "shell", args: { command: "pathlight show live --workspace . --follow" } }],
+    "pathlight map skill": [{ name: "shell", args: { command: "pathlight show live --workspace . --follow" } }],
     "show me the architecture": [{ name: "shell", args: { command: "pathlight show live --workspace . --follow" } }],
   };
   const server = Bun.serve({
@@ -69,7 +71,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     await mkdir(join(directory, "bin"));
     await writeFile(join(directory, "bin", "pathlight"), `#!/bin/sh\nexec ${process.execPath} ${resolve("src/cli.ts")} "$@"\n`);
     await chmod(join(directory, "bin", "pathlight"), 0o755);
-    const dirs = Object.fromEntries(["config", "data", "state", "cache"].map(name => [name, join(directory, name)]));
+    const dirs = { config: join(directory, "config"), data: join(directory, "data"), state: join(directory, "state"), cache: join(directory, "cache") };
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "oc", "-x", "170", "-y", "45", "-c", workspace, "-P", "-F", "#{pane_id}",
       "env", "FAKE_KEY=x", `PATH=${join(directory, "bin")}:${process.env.PATH}`, `XDG_CONFIG_HOME=${dirs.config}`, `XDG_DATA_HOME=${dirs.data}`, `XDG_STATE_HOME=${dirs.state}`, `XDG_CACHE_HOME=${dirs.cache}`,
       Bun.which("opencode")!, "--standalone", "--auto");
@@ -111,7 +113,17 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     }, `${count} finished calls`);
     const summary = (found: Awaited<ReturnType<typeof events>>) => found.map(event => [event.tool, event.phase, event.operation, [...event.paths]].join(" ")).sort();
     expect(summary(await events(2))).toEqual(["read completed read src/activity.ts", "read completed read src/launcher.ts"]);
-    await viewerShows(viewer, "src/launcher.ts");
+    // The header names no file once a call is over; the calls reach the viewer as a card tag or a Now row.
+    await viewerShows(viewer, /✓ done|launcher\.ts/);
+
+    // The talk's source: the session pointer names OpenCode's own database, and the reader finds the typed prompt there (and the reply once written).
+    // If the database is not where the plugin looks, this stops and says where it is rather than guessing.
+    const database = join(dirs.data, "opencode", "opencode.db");
+    const pointer = await until(() => Effect.runPromise(readSession(workspace, binding)), "the session pointer");
+    if (pointer.transcript !== database) throw new Error(`The pointer names ${pointer.transcript ?? "no database"}; OpenCode's database ${existsSync(database) ? `is at ${database}` : `is not at ${database}: ${(await readdir(dirs.data, { recursive: true })).filter(path => path.endsWith(".db")).join(", ") || "no .db file under XDG_DATA_HOME"}`}.`);
+    const reader = createConversationReader(pointer);
+    const talk = await until(async () => { const found = await Effect.runPromise(reader.poll()); return found.some(message => message.role === "agent" && message.text === "done") ? found : undefined; }, "the prompt and the reply in OpenCode's database");
+    expect(talk.filter(message => message.role === "you").map(message => message.text)).toEqual(["just talk to me", "read the files please"]);
 
     // The other tool kinds Claude records: a failure, an edit, and a shell command naming an existing file.
     await type("work through the list");
@@ -128,7 +140,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     // The skill is advertised, and the agent has the tool to load it.
     const asked = requests.filter(request => request.tools?.some(tool => tool.function?.name === "skill"));
     expect(asked.length).toBeGreaterThan(0);
-    expect(JSON.stringify(asked[0]!.messages)).toContain("<id>pathlight</id>");
+    expect(JSON.stringify(asked[0]!.messages)).toContain("<id>pathlight-map</id>");
 
     // Ask-about-node: typed into this conversation and submitted, so the model receives it.
     await tmux("send-keys", "-t", viewer, "t");
@@ -140,7 +152,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
 
     // /pathlight: the agent is told the real pane and socket, and following the skill reopens the viewer rather than adding a second one.
     await type("/pathlight live");
-    const prompt = await until(async () => requests.map(request => JSON.stringify(request.messages.filter(message => message.role === "user").at(-1))).find(text => text.includes("pathlight skill") && !text.includes("About the")), "the /pathlight prompt");
+    const prompt = await until(async () => requests.map(request => JSON.stringify(request.messages.filter(message => message.role === "user").at(-1))).find(text => text.includes("pathlight map skill") && !text.includes("About the")), "the /pathlight prompt");
     expect(prompt).toContain(`pane is ${pane}`);
     expect(prompt).toContain(socket);
     await delay(3000);

@@ -8,10 +8,8 @@ export type Direction = "left" | "right" | "up" | "down";
 /** Where the keys go: the modal on top, if any, else the diagram with whatever mode it is in. */
 export interface KeyMode {
   layer: "visit" | "ask" | "talk" | "picker" | "goto" | "summary" | "help" | "main";
-  /** In the talk: whether the context toggles (not the field) have the keys. */
-  askContext: boolean;
-  /** The talk: whether the column shows it, whether its tabs are still up (nothing sent yet), and whether the field's cursor is on its first row. */
-  talk?: { showing: boolean; fresh: boolean; top: boolean };
+  /** The talk: whether the column shows it, and whether its tabs are still up (nothing sent yet). */
+  talk?: { showing: boolean; fresh: boolean };
   replay: boolean; fileMode: boolean; focusSection: SectionKey | undefined; flow: boolean; listMode: boolean;
   /** The cards `1`–`4` focus, in order (viewer/widgets.ts `numberedCards`). */
   cards: readonly SectionKey[];
@@ -26,11 +24,11 @@ export interface KeyMode {
 export type Action =
   | { type: "stop" } | { type: "swallow" } | { type: "idle" } | { type: "pass" }
   | { type: "askCancel" } | { type: "askSend" }
-  | { type: "talkLeave" } | { type: "talkTab"; by: -1 | 1 } | { type: "talkToggles" } | { type: "talkField" } | { type: "talkChoose"; by: 1 | 3 } | { type: "talkToggle" }
+  | { type: "talkLeave" } | { type: "talkTab"; by: -1 | 1 }
   | { type: "talkSend" } | { type: "talkScroll"; by: -1 | 1 } | { type: "talkBack" } | { type: "talkWiden" }
   | { type: "themeCancel" } | { type: "themeKeep" } | { type: "themeMove"; to: "up" | "down" | "pageup" | "pagedown" | "home" | "end" }
   | { type: "gotoClose" } | { type: "gotoGo" } | { type: "gotoMove"; by: -1 | 1 } | { type: "gotoPage"; by: -1 | 1 } | { type: "gotoHome" } | { type: "gotoEnd" }
-  | { type: "gotoClear" } | { type: "gotoErase" } | { type: "gotoType"; text: string }
+  | { type: "gotoClear" } | { type: "gotoErase" } | { type: "gotoType"; text: string } | { type: "gotoKind"; by: -1 | 1 }
   | { type: "summaryClose" } | { type: "reviewMove"; by: -1 | 1 } | { type: "decide"; verdict: "accepted" | "rejected" } | { type: "reviewRead" }
   | { type: "helpClose" } | { type: "helpSwap" }
   | { type: "replayExit" } | { type: "replayStep"; by: -1 | 1 } | { type: "replayHome" } | { type: "replayEnd" } | { type: "replayTurn"; by: -1 | 1 }
@@ -38,7 +36,7 @@ export type Action =
   | { type: "focus"; section: SectionKey }
   | { type: "sectionLeave" } | { type: "sectionTab"; by: -1 | 1 } | { type: "sectionFold" } | { type: "sectionMove"; by: -1 | 1 } | { type: "sectionEnter" }
   | { type: "cycleFlow" } | { type: "flowStep"; by: -1 | 1 } | { type: "exitFlow" }
-  | { type: "search" } | { type: "back" } | { type: "open"; enter: boolean } | { type: "parent" } | { type: "views" } | { type: "themes" }
+  | { type: "search" } | { type: "back" } | { type: "open" } | { type: "openView" } | { type: "parent" } | { type: "views" } | { type: "themes" }
   | { type: "ask" } | { type: "map" } | { type: "trace" } | { type: "name" } | { type: "session" } | { type: "replay" } | { type: "work" } | { type: "swap" }
   | { type: "listMove"; by: -1 | 1 } | { type: "traverse"; direction: Direction }
   | { type: "endFiles" } | { type: "fileMove"; by: -1 | 1; page: boolean } | { type: "refreshFiles" } | { type: "fileOpen" }
@@ -57,18 +55,10 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "askSend" };
     return undefined;
   }
-  // The talk's field or its toggles have the keys: Esc steps back one level, Tab changes the kind of request until it is sent.
+  // The talk's field has the keys: Esc hands them to the diagram, Tab changes the kind of request until it is sent.
   if (mode.layer === "talk") {
-    if (key.name === "escape") return mode.askContext ? { type: "talkField" } : { type: "talkLeave" };
+    if (key.name === "escape") return { type: "talkLeave" };
     if (key.name === "tab") return mode.talk?.fresh ? { type: "talkTab", by: key.shift ? -1 : 1 } : { type: "swallow" };
-    if (mode.askContext) {
-      if (key.name === "left" || key.name === "h") return { type: "talkChoose", by: 3 };
-      if (key.name === "right" || key.name === "l") return { type: "talkChoose", by: 1 };
-      if (key.name === "space" || key.sequence === " ") return { type: "talkToggle" };
-      if (key.name === "down" || key.name === "j") return { type: "talkField" };
-      return { type: "swallow" };
-    }
-    if (key.name === "up" && mode.talk?.fresh && mode.talk.top) return { type: "talkToggles" };
     if (key.name === "pageup" || key.name === "pagedown") return { type: "talkScroll", by: key.name === "pageup" ? -1 : 1 };
     if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "talkSend" };
     return undefined;
@@ -84,6 +74,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   if (mode.layer === "goto") {
     if (key.name === "escape") return { type: "gotoClose" };
     if (key.name === "return") return { type: "gotoGo" };
+    if (key.name === "tab") return { type: "gotoKind", by: key.shift ? -1 : 1 };
     if (key.name === "up" || (key.ctrl && key.name === "p")) return { type: "gotoMove", by: -1 };
     if (key.name === "down" || (key.ctrl && key.name === "n")) return { type: "gotoMove", by: 1 };
     if (key.name === "pageup") return { type: "gotoPage", by: -1 };
@@ -147,7 +138,8 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   if (!files) {
     if (key.sequence === "/") return { type: "search" };
     if (key.name === "b") return { type: "back" };
-    if (key.name === "o" || key.name === "return") return { type: "open", enter: key.name === "return" };
+    if (key.name === "return") return { type: "open" };
+    if (key.name === "o" && !key.ctrl && !key.shift) return { type: "openView" };
     if (key.name === "backspace") return { type: "parent" };
     if (key.name === "g" && !key.ctrl && !key.shift) return { type: "views" };
     if (key.name === "t" && !key.ctrl && key.sequence === "T") return { type: "themes" };
@@ -186,17 +178,17 @@ export type Tier = 1 | 2 | 3;
 
 /**
  * The keyboard help in three tiers, named for how far along the user is with this codebase: everyone starts by understanding it, then directs the
- * agent, then shapes the map. `t` is in the first two (asking and telling are one key). `vim` says which family selects (the other pans).
+ * agent, then shapes the map. `t` is listed once, in the first (asking and telling are one key). `vim` says which family selects (the other pans).
  */
 export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" | "Shape the map"; tier: Tier; rows: HelpRow[] }[] => {
   const arrows = "← ↑ ↓ →";
   return [
     { name: "Understand it", tier: 1, rows: [[`click, ${vim ? "h j k l" : arrows}`, "select a box, a neighbour", ["traverse", "listMove"]],
-      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter, o", "into a group, open a link", ["open"]], ["backspace", "up to the parent", ["parent"]], ["t", "ask how something works", ["ask"]],
+      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter", "into a box", ["open"]], ["o", "the view a box opens", ["openView"]], ["b, backspace", "back where you were, else up", ["back", "parent"]], ["t", "ask how it works, or tell it what to change", ["ask"]],
       ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
-    { name: "Direct it", tier: 2, rows: [["t", "tell it what to change", ["ask"]], ["c", "session and review", ["session"]],
+    { name: "Direct it", tier: 2, rows: [["c", "what it did this session, and the review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
-      ["/", "search views, boxes, files", ["search"]], ["g", "go to any view", ["views"]], ["b", "back", ["back"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
+      ["/", "search everything, tab a kind", ["search"]], ["g", "go to any view", ["views"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
       ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
     { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a flow", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
       ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],
@@ -205,7 +197,7 @@ export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" 
   ];
 };
 
-/** The tier a key's action belongs to, for the accent in `?`; `t` counts as the first (it asks before it tells). Undefined for a mode's own keys. */
+/** The tier a key's action belongs to, for the accent in `?`. Undefined for a mode's own keys. */
 export const tierOf = (action: Action): Tier | undefined => {
   const tiers = helpGroups(true).flatMap(group => group.rows.flatMap(row => row[2].map(does => [does, group.tier] as const)));
   return tiers.find(([does]) => does === action.type)?.[1];
@@ -227,6 +219,7 @@ export const hints = {
   review: [["j k", "move"], ["e", "read it"], ["y", "accept"], ["n", "reject"], ["esc", "close"]] as Hint[],
   close: [["esc", "close"]] as Hint[],
   goto: [["type", "search"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]] as Hint[],
+  search: [["type", "search"], ["tab", "kind"], ["↑↓", "choose"], ["enter", "go"], ["esc", "close"]] as Hint[],
   themes: [["↑↓", "preview"], ["enter", "keep"], ["esc", "cancel"]] as Hint[],
   askSave: (next: boolean): Hint[] => [["enter", next ? "next" : "save"], ["esc", "cancel"]],
 };

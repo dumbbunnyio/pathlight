@@ -10,7 +10,7 @@ import { declarationsFor, type FrontEnd } from "./languages";
 import { run } from "./process";
 
 /**
- * Whether the state diagrams an agent wrote (`*.behavior.c4`, see the pathlight-behavior skill) still agree with the code they were read from.
+ * Whether the state diagrams an agent wrote (`*.behavior.c4`, see the pathlight behavior skill) still agree with the code they were read from.
  * A flow is the agent's reading, so nothing here says it is right; it says what can be shown wrong or old: a state naming a file that is gone,
  * files changed since the commit the flow was synced at, arrows with no event on them, a decision with one answer, a state nothing reaches.
  * A state that names no file cannot be checked at all, and is counted so the gap is visible.
@@ -154,9 +154,9 @@ export function assessJourney(journey: JourneyInput, git: { changedElements: Rea
   const gaps = new Map<string, FlowStep[]>();
   for (const step of steps) if (step.backed === false && !step.reply && !step.over) gaps.set(`${step.from} ${step.to}`, [...(gaps.get(`${step.from} ${step.to}`) ?? []), step]);
   for (const group of gaps.values()) {
-    const first = group[0]!, ends = `goes from ${last(first.from!)} to ${last(first.to!)} with no relationship between them in the model.`;
+    const first = group[0]!, ends = `goes from ${last(first.from!)} to ${last(first.to!)}, and the map has no arrow between them.`;
     if (group.length === 1) findings.push(`Step ${first.n}, “${first.title}”, ${ends}`);
-    else findings.push(`Steps ${group.slice(0, -1).map(step => step.n).join(", ")} and ${group.at(-1)!.n} go from ${last(first.from!)} to ${last(first.to!)} with no relationship between them in the model.`);
+    else findings.push(`Steps ${group.slice(0, -1).map(step => step.n).join(", ")} and ${group.at(-1)!.n} go from ${last(first.from!)} to ${last(first.to!)}, and the map has no arrow between them.`);
   }
   const sync: Sync = !sha ? { status: "none" } : !git.known(sha) ? { status: "unknown", sha } : { status: "current", sha };
   if (sync.status === "none") findings.push("The view has no “Synced at <commit>” note, so nobody can tell how old this reading is.");

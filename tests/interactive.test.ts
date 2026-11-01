@@ -249,7 +249,8 @@ test("the search picker isolates typing, ranks this view first, searches other v
     // Other views are searched too.
     await tmux("send-keys", "-t", pane, "-l", "checkout");
     await capture("› checkout");
-    expect(await capture(/view\s+Parcel \/ Checkout detail\s+\d+ nodes/)).not.toContain("Customer");
+    // A view row says its own name first, its holder after it.
+    expect(await capture(/view\s+Checkout detail Parcel\s+\d+ nodes/)).not.toContain("Customer");
     await tmux("send-keys", "-t", pane, "C-u");
     await tmux("send-keys", "-t", pane, "-l", "commerce");
     await capture("› commerce");
@@ -310,7 +311,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     };
     await capture("System context");
     const pid = await tmux("display-message", "-p", "-t", pane, "#{pane_pid}");
-    await tmux("send-keys", "-t", pane, "o");
+    await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("No linked view")).toContain("System context");
     await tmux("send-keys", "-t", pane, "b");
     expect(await capture("No previous view")).toContain("System context");
@@ -325,8 +326,11 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "Enter");
     await capture("back 1");
     await delay(100);
-    // Services opens on its entry, the checkout API; Backspace goes up to the commerce group.
-    await tmux("send-keys", "-t", pane, "BSpace");
+    // Services opens on its entry, the checkout API; the commerce group is found by search (Backspace here would go back, since a visit is behind it).
+    await tmux("send-keys", "-t", pane, "/");
+    await tmux("send-keys", "-t", pane, "-l", "commerce");
+    await capture("› commerce");
+    await tmux("send-keys", "-t", pane, "Enter");
     await capture(/Selected: parcel\.commerce\s/);
     await tmux("send-keys", "-t", pane, "0", "+");
     await capture("zoom 125%");
@@ -334,6 +338,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "Right", "Down");
     await delay(700);
     const before = await tmux("capture-pane", "-p", "-t", pane);
+    // Enter would go into the group's children, drawn here; o opens the view it links to.
     await tmux("send-keys", "-t", pane, "o");
     await capture("back 2");
     await delay(100);
@@ -348,8 +353,13 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "o");
     await capture("back 2");
     await delay(100);
-    // Checkout opens on its entry too; up to the commerce group, then Enter goes into it, to its first child.
-    await tmux("send-keys", "-t", pane, "BSpace", "Enter");
+    // Checkout opens on its entry too; to the commerce group by search, then Enter goes into it, to its first child.
+    await tmux("send-keys", "-t", pane, "/");
+    await tmux("send-keys", "-t", pane, "-l", "commerce");
+    await capture("› commerce");
+    await tmux("send-keys", "-t", pane, "Enter");
+    await capture(/Selected: parcel\.commerce\s/);
+    await tmux("send-keys", "-t", pane, "Enter");
     await capture("Selected: parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "0", "r");
     await delay(700);
@@ -426,9 +436,14 @@ test.each([
     await delay(700);
     await tmux("send-keys", "-t", pane, "BSpace");
     await capture(commerceSelection);
-    await tmux("send-keys", "-t", pane, "0", "Enter");
+    // Enter into a group is a visit, so backspace restores the camera it saved: let the zoom settle before going in.
+    await tmux("send-keys", "-t", pane, "0");
+    await capture("zoom 100%");
+    await delay(700);
+    await tmux("send-keys", "-t", pane, "Enter");
     await delay(700);
     await tmux("send-keys", "-t", pane, "BSpace");
+    await capture(commerceSelection);
     await delay(700);
     await click("Checkout API", "parcel.commerce.api");
     await click("Commerce", "parcel.commerce");

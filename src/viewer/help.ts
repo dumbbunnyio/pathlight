@@ -3,21 +3,24 @@ import { palette } from "../ui";
 import { helpGroups, type Tier } from "./keys";
 import { nl, wrapWords } from "./text";
 
+/** The help frame's widest: wider than a dialog's, so every label sits on one line at 140 columns. */
+export const helpCap = 132;
+
 /** What each connector colour means, in the colours themselves; the diff's pair only when a diff is loaded. */
 const legendItems = (diff: boolean): [glyph: string, color: string, label: string][] => [
   ["──", palette.outgoing, "out of the selected box"], ["──", palette.incoming, "into it"], ["┈┈", palette.edgeDim, "other relationships"],
   ["──", palette.purple, "the agent's reading (a flow)"], ...(diff ? [["──", palette.green, "added since the base"], ["┈┈", palette.failure, "lost"]] as [string, string, string][] : [])];
 
 /**
- * The keyboard help: the connector colours on one line (wrapped when narrow), then three tiers of keys (understand it, direct it, shape the map),
+ * The keyboard help: the connector colours in rows of three aligned columns (one per row when narrow) with a rule under them, then three tiers of keys (understand it, direct it, shape the map),
  * side by side from 100 columns and stacked below. The tier the user is in (the highest one they have pressed a key of this session) is in the
  * accent colour; the rest are dim. The rows are viewer/keys.ts's table.
  */
 export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: number; version: string; diff?: boolean }) {
   const groups = helpGroups(options.vim).map(group => ({ ...group, active: group.tier === options.tier }));
   const wide = options.screenWidth >= 100;
-  // The frame is at most 100 columns: the content is its inside.
-  const inner = Math.min(96, options.screenWidth - 8), gap = 3;
+  // The frame is at most `helpCap` columns wide (100 below 100 columns), four of them its border and padding: the content is its inside.
+  const inner = Math.min((wide ? helpCap : 100) - 4, options.screenWidth - 8), gap = 3;
   const column = wide ? Math.floor((inner - gap * (groups.length - 1)) / groups.length) : inner;
   // One group as lines of chunks, each exactly `column` cells wide, its keys as wide as its longest; a label too long for its column wraps under itself.
   const lines = (group: typeof groups[number]): TextChunk[][] => {
@@ -28,17 +31,16 @@ export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: nu
         [fg(palette.text)((index ? "" : key).padEnd(keyWidth)), fg(palette.body)(text.padEnd(column - keyWidth))]))];
   };
   const blank = () => [fg(palette.body)(" ".repeat(column))];
-  // The legend fills the tiers' width, items kept whole, two spaces apart.
+  // The legend: three items to a row, each in the column of the tier above which it stands (one to a row when the tiers stack), then a rule.
   const full = wide ? column * groups.length + gap * (groups.length - 1) : inner;
-  const legend: { chunks: TextChunk[]; used: number }[] = [];
-  for (const [glyph, color, label] of legendItems(options.diff ?? false)) {
-    const size = glyph.length + 1 + label.length, line = legend.at(-1);
-    const item = [fg(color)(glyph), fg(palette.body)(` ${label}`)];
-    if (line && line.used + 2 + size <= full) { line.chunks.push(fg(palette.body)("  "), ...item); line.used += 2 + size; }
-    else legend.push({ chunks: item, used: size });
-  }
-  const chunks: TextChunk[] = legend.flatMap(line => [...line.chunks, fg(palette.body)(" ".repeat(Math.max(0, full - line.used))), nl]);
-  chunks.push(fg(palette.body)(" ".repeat(full)), nl);
+  const items = legendItems(options.diff ?? false), across = wide ? groups.length : 1;
+  const legend: TextChunk[][] = [];
+  for (let at = 0; at < items.length; at += across) legend.push(items.slice(at, at + across).flatMap(([glyph, color, label], index) => {
+    const room = wide ? column : full, text = ` ${label}`.slice(0, room - glyph.length);
+    return [...index ? [fg(palette.body)(" ".repeat(gap))] : [], fg(color)(glyph), fg(palette.body)(text.padEnd(room - glyph.length))];
+  }));
+  const chunks: TextChunk[] = legend.flatMap(line => { const used = line.reduce((sum, chunk) => sum + chunk.text.length, 0); return [...line, fg(palette.body)(" ".repeat(Math.max(0, full - used))), nl]; });
+  chunks.push(fg(palette.rule)("─".repeat(full)), nl, fg(palette.body)(" ".repeat(full)), nl);
   let height: number;
   if (wide) {
     const columns = groups.map(lines);
@@ -50,6 +52,6 @@ export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: nu
     for (const line of all) chunks.push(...line, nl);
   }
   chunks.pop();
-  height += legend.length + 1;
+  height += legend.length + 2;
   return { content: new StyledText(chunks), height, width: inner, meta: new StyledText([fg(palette.muted)(` pathlight ${options.version} `)]) };
 }

@@ -58,3 +58,46 @@ test("editing the model reloads the diagram in place, keeps selection and zoom, 
     await rm(directory, { recursive: true, force: true });
   }
 }, 90_000);
+
+test("b after a reload that removed the view it would return to says there is nothing to go back to, and no key prints a stack trace", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-reload-back-"));
+  const socket = join("/tmp", `c4rb-${process.pid}.sock`);
+  const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    const model = join(directory, "model.c4");
+    const original = await readFile(model, "utf8");
+    const extra = "  view extra {\n    title 'Extra view'\n    include launcher, viewer\n  }\n";
+    await writeFile(model, original.replace("views {\n", `views {\n${extra}`));
+    const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "reload-back", "-x", "140", "-y", "36", "-P", "-F", "#{pane_id}",
+      process.execPath, resolve("src/cli.ts"), "view", "extra", "--project", "viewer", "--workspace", directory);
+    const screen = () => tmux("capture-pane", "-p", "-t", pane);
+    const until = async (predicate: (text: string) => boolean, label: string) => {
+      let output = "";
+      for (let attempt = 0; attempt < 160; attempt++) {
+        output = await screen();
+        if (predicate(output)) return output;
+        await delay(50);
+      }
+      throw new Error(`Missing ${label}:\n${output}`);
+    };
+    await until(text => text.includes("viewer/extra"), "the extra view");
+    await delay(500);
+    // Go to the other view, so the extra view is in the history, then take it out of the model.
+    await tmux("send-keys", "-t", pane, "g");
+    await delay(300);
+    await tmux("send-keys", "-t", pane, "-l", "Pathlight implementation");
+    await delay(300);
+    await tmux("send-keys", "-t", pane, "Enter");
+    await until(text => text.includes("viewer/live") && text.includes("back 1"), "the live view, one visit back");
+    await writeFile(model, original);
+    await until(text => text.includes("viewer/live") && !text.includes("back 1"), "the reload, with the gone view out of the history");
+    await tmux("send-keys", "-t", pane, "b");
+    const after = await until(text => text.includes("No previous view"), "the notice");
+    expect(after).not.toMatch(/at .*\.ts:\d+|Unknown linked view/);
+    expect(after).toContain("viewer/live");
+  } finally {
+    await tmux("kill-server").catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);

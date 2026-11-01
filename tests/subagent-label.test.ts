@@ -26,25 +26,26 @@ test("subagent calls carry their label in the activity list and s hides them", a
       }
       throw new Error(`${absent ? "Still has" : "Missing"} ${text}:\n${output}`);
     };
-    const call = async (id: string, file: string, agent?: string) => {
-      const input = { file_path: join(directory, file) };
-      const binding = { source: "claude", session: "sub" } as const;
-      await writeActivity(directory, await toolActivity(directory, binding, id, "Read", input, "started", directory, agent));
-      await writeActivity(directory, await toolActivity(directory, binding, id, "Read", input, "completed", directory, agent));
-    };
+    const input = (file: string) => ({ file_path: join(directory, file) });
+    const binding = { source: "claude", session: "sub" } as const;
+    const start = async (id: string, file: string, agent?: string) => writeActivity(directory, await toolActivity(directory, binding, id, "Read", input(file), "started", directory, agent));
+    const finish = async (id: string, file: string, agent?: string) => writeActivity(directory, await toolActivity(directory, binding, id, "Read", input(file), "completed", directory, agent));
+    const call = async (id: string, file: string, agent?: string) => { await start(id, file, agent); await finish(id, file, agent); };
     await until("Launch path");
     await call("own", "src/launcher.ts");
     // Distinct timestamps: two calls in the same millisecond have no newest.
     await delay(20);
-    await call("sub", "src/activity.ts", "Explore");
-    // The selected component's own rows carry the label; the header's line names the newest call and who made it.
-    const shown = await until("·Explore");
+    // While the subagent's call runs, the header's line names who makes it; the selected component's own rows carry the label.
+    await start("sub", "src/activity.ts", "Explore");
+    expect((await until("[Explore]")).split("\n")[1]).toContain("now ◦ read [Explore] in Activity metadata");
+    await finish("sub", "src/activity.ts", "Explore");
+    const shown = await until("[Explore]", true);
+    expect(shown).toContain("·Explore");
     expect(shown).toContain("activity.ts");
-    expect(shown).toContain("[Explore]");
     await tmux("send-keys", "-t", pane, "s");
     await until("·Explore", true);
-    // Hidden, the newest call that remains is the conversation's own.
-    expect(await until("launcher.ts")).not.toContain("[Explore]");
+    // Hidden, nothing of the subagent's call is left on screen.
+    expect(await until("·Explore", true)).not.toContain("[Explore]");
     await tmux("send-keys", "-t", pane, "s");
     await until("·Explore");
   } finally {

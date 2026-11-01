@@ -25,9 +25,9 @@
   ╰──────────────╯                          ╰──────────────╯                       │                                                        
                                                                                    │                                                        
   ·           ·           ·            ·           ·           ·            ·      │                                                        
-                                                                                   │                                                        
-                                                                                   │ ▎Ask    Improve the map    Trace a flow                
-                                                                                   │ ● files 0  ● connections 2  ○ activity 0  ● draw it    
+                                                                                   │ ────────────────────────────────────────────────────── 
+                                                                                   │ Ask   Improve the map   Trace a flow                   
+                                                                                   │ about Agent adapters · records a journey               
                                                                                    │ ────────────────────────────────────────────────────── 
                                                                                    │  › how does Agent adapters work?                       
   ·           ·           ·            ·           ·           ·            ·      │                                                        

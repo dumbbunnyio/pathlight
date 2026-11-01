@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { clock, renderText, talkContent, talkHeader, talkIncludeLine } from "../src/viewer/talk-view";
+import { clock, renderText, talkContent, talkHeader, talkIncludeLine, talkTabsLine } from "../src/viewer/talk-view";
+import { palette } from "../src/ui";
 
 const text = (lines: { text: string }[][]) => lines.map(line => line.map(chunk => chunk.text).join(""));
 const plain = (content: { chunks: { text: string }[] }) => content.chunks.map(chunk => chunk.text).join("");
@@ -19,12 +20,15 @@ test("the host's text is rendered lightly: paragraphs wrap on words, list items 
   expect(text(renderText("see https://example.com/a/very/long/path/that/goes/on", 20)).every(line => line.length <= 20)).toBe(true);
 });
 
-test("the conversation is each message under its role and time, a blank row apart, the newest last; with none, why, wrapped", () => {
+test("the conversation is each message under its role and time, a blank row apart, the newest last, your words one column in under an accent you; with none, why, wrapped", () => {
   const at = new Date(2026, 9, 29, 12, 4).getTime();
   const long = Array.from({ length: 60 }, (_, index) => `word${index}`).join(" ");
   const made = talkContent([{ id: "1", role: "you", at, text: "where?" }, { id: "2", role: "agent", at, text: long }], { width: 40, empty: "" });
   const rows = plain(made.content).split("\n");
-  expect(rows.slice(0, 4)).toEqual([`you · ${clock(at)}`, "where?", "", `agent · ${clock(at)}`]);
+  expect(rows.slice(0, 4)).toEqual([`you · ${clock(at)}`, " where?", "", `agent · ${clock(at)}`]);
+  const label = (role: string) => made.content.chunks.find(chunk => chunk.text === role)!.fg!;
+  expect(label("you").equals(RGBA.fromHex(palette.accent))).toBe(true);
+  expect(label("agent").equals(RGBA.fromHex(palette.muted))).toBe(true);
   expect(clock(at)).toBe("12:04");
   expect(rows.at(-1)).toContain("word59");
   expect(made.lines).toBe(rows.length);
@@ -43,12 +47,22 @@ test("the header names the subject, and at the right what the agent is doing, el
   for (const state of [undefined, "working", "waiting", "done"] as const) expect(head(state, "claude:3f2a9c")).toHaveLength(56);
 });
 
-test("what goes with a question fits its column: the word include goes first, then draw it takes a second row", () => {
-  const line = (width: number) => talkIncludeLine({ tab: "ask", include: [true, true, false, true], counts: [6, 3, 2], focus: -1, mapReady: true, width, background: RGBA.fromHex("#000000") });
-  expect(plain(line(70).content)).toBe("include ● files 6  ● connections 3  ○ activity 2  ● draw it");
-  expect(plain(line(54).content)).toBe("● files 6  ● connections 3  ○ activity 2  ● draw it");
-  expect(plain(line(44).content)).toBe("● files 6  ● connections 3  ○ activity 2\n● draw it");
-  expect(line(44).rows).toBe(2);
-  const map = talkIncludeLine({ tab: "map", include: [], counts: [], focus: -1, mapReady: false, width: 50, background: RGBA.fromHex("#000000") });
+test("under the Ask tab the row says whom the question is about, and that it records a journey while it will be drawn; no toggles", () => {
+  const line = (drawing: boolean, width = 50) => talkIncludeLine({ tab: "ask", subject: "Backend server", drawing, mapReady: true, width });
+  expect(plain(line(false).content)).toBe("about Backend server");
+  expect(plain(line(true).content)).toBe("about Backend server · records a journey");
+  expect(line(true).rows).toBe(1);
+  expect(plain(line(true, 30).content)).toEndWith(" · records a journey");
+  expect(plain(line(true, 30).content).length).toBeLessThanOrEqual(30);
+  const map = talkIncludeLine({ tab: "map", subject: "Backend server", drawing: false, mapReady: false, width: 50 });
   expect(plain(map.content)).toBe("needs a map drawn by pathlight draft");
+});
+
+test("the chosen tab is its word in the text colour, the others muted, with no bar, and each tab's span is its word", () => {
+  const tabs = talkTabsLine({ tab: "map", mapReady: true });
+  expect(plain(tabs.content)).toBe("Ask   Improve the map   Trace a flow");
+  const tone = (word: string) => tabs.content.chunks.find(chunk => chunk.text === word)!.fg!;
+  expect(tone("Improve the map").equals(RGBA.fromHex(palette.text))).toBe(true);
+  expect(tone("Ask").equals(RGBA.fromHex(palette.muted))).toBe(true);
+  expect(tabs.spans).toEqual([{ from: 0, to: 3 }, { from: 6, to: 21 }, { from: 24, to: 36 }]);
 });

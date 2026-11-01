@@ -119,14 +119,17 @@ test("a live viewer observes Claude hook metadata without restart and reloads re
     expect(code).toBe(0);
   };
   await record("live-session", "PreToolUse", "src/orders.ts");
-  expect(await capture(pane, "◦ read src/orders.ts")).toContain("now");
+  // While the call runs the header's line says what it does and where, never the file.
+  expect((await capture(pane, "now ◦ read in Orders")).split("\n")[1]).not.toContain("orders.ts");
   await record("other-session", "PostToolUse", "PRIVATE-OTHER-SESSION.ts");
   await record("live-session", "PostToolUse", "src/orders.ts");
-  const completed = await capture(pane, "✓ read src/orders.ts");
+  // Once it has an outcome its row in the node list says so and the header's line is gone.
+  const completed = await capture(pane, "[done]");
   expect(completed).not.toContain("PRIVATE-OTHER-SESSION");
+  expect(completed.split("\n")[1]).not.toContain("now");
   expect(await tmux("display-message", "-p", "-t", pane, "#{pane_pid}")).toBe(pid);
   expect(await show("services", "live-session", liveParent)).toBe(pane);
-  expect(await capture(pane, "✓ read src/orders.ts")).toContain("last");
+  expect((await capture(pane, "[done]")).split("\n")[1]).not.toContain("now");
   await tmux("send-keys", "-t", pane, "q");
 }, 120_000);
 

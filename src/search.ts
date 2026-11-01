@@ -1,12 +1,12 @@
 import { fuzzyScore } from "./fuzzy";
 
 /**
- * Search across everything the viewer can show: views, boxes (components) and the files mapped to them. A result is scored in two parts that
+ * Search across everything the viewer can show: views, boxes (components), journeys and the files mapped to the boxes. A result is scored in two parts that
  * are added together: how well the text matches (exact beats prefix beats substring beats fuzzy) and where the result is (a box in the view
- * you are in beats a file in it, a box elsewhere, a view, and a file elsewhere). The match classes are spaced further apart than the whole
+ * you are in beats a file in it, a box elsewhere, a journey, a view, and a file elsewhere). The match classes are spaced further apart than the whole
  * location ladder, so an exact match always comes first wherever it is, and location only orders results of similar quality.
  */
-export type Kind = "view" | "box" | "file";
+export type Kind = "view" | "box" | "journey" | "file";
 
 export interface Candidate {
   readonly kind: Kind;
@@ -20,10 +20,11 @@ export interface Candidate {
 
 export const classScore = { exact: 1000, prefix: 300, substring: 200, fuzzyMax: 100, typo: 80, aliasPenalty: 50 } as const;
 /** Added to the match score. The total is below the gap between the classes, so location never outweighs an exact match. */
-export const locationBonus = { boxHere: 160, fileHere: 120, boxElsewhere: 80, view: 40, fileElsewhere: 0 } as const;
+export const locationBonus = { boxHere: 160, fileHere: 120, boxElsewhere: 80, journey: 60, view: 40, fileElsewhere: 0 } as const;
 
 export const bonusOf = (candidate: Pick<Candidate, "kind" | "here">) =>
   candidate.kind === "view" ? locationBonus.view
+    : candidate.kind === "journey" ? locationBonus.journey
     : candidate.kind === "box" ? candidate.here ? locationBonus.boxHere : locationBonus.boxElsewhere
       : candidate.here ? locationBonus.fileHere : locationBonus.fileElsewhere;
 

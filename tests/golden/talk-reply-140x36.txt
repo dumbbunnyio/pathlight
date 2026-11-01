@@ -1,10 +1,10 @@
  ◆ pathlight / Pathlight implementation                                                                             ● live claude:talk-gol  
- viewer/live · 6 nodes                                                                                              last ✓ read model.c4 1m 
+ viewer/live · 6 nodes                                                                                                                      
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                                                                                    │ Talk · Agent adapters                             done 
                                                                                    │                                                        
                                                                                    │ you · 12:04                                            
-  ·           ·           ·            ·           ·           ·            ·      │ Where are the order totals computed?                   
+  ·           ·           ·            ·           ·           ·            ·      │  Where are the order totals computed?                  
                                                                                    │                                                        
                                                                                    │ agent · 12:04                                          
                                                                                    │ Totals are computed in one place.                      
@@ -20,7 +20,7 @@
   ╰──────────────╯     ╰──────────────╯·  ┊        ·          ┊· ╰──────────────╯  │   export const total = sumLines(lines) * (1 + tax)     
                                           ┊                   ┊                    │                                                        
                                           ┊                   ┊                    │ you · 12:06                                            
-  ╭──────────────╮                        ┊ ╭──────────────╮  ┊                    │ what happens when an order is cancelled?               
+  ╭──────────────╮                        ┊ ╭──────────────╮  ┊                    │  what happens when an order is cancelled?              
   │ LikeC4 cata… │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┴▶│ PNG export   │─┈╯                    │                                                        
   ╰──────────────╯                          ╰──────────────╯                       │ agent · 12:06                                          
   ·           ·           ·            ·           ·           ·            ·      │ Cancelling releases the courier first, then closes     

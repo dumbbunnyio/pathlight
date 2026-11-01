@@ -25,6 +25,12 @@ const screens: { name: string; args: string[] }[] = [
   { name: "talk-140x36", args: ["--cols", "140", "--rows", "36", "--agent", "--keys", "t"] },
   { name: "talk-overlay-100x30", args: ["--cols", "100", "--rows", "30", "--agent", "--keys", "t"] },
   { name: "talk-70x24", args: ["--cols", "70", "--rows", "24", "--agent", "--keys", "t"] },
+  // The search picker with `c` typed, at every width it is drawn at, and narrowed to the views with `tab`.
+  { name: "search-140x36", args: ["--cols", "140", "--rows", "36", "--keys", "/,c"] },
+  { name: "search-100x30", args: ["--cols", "100", "--rows", "30", "--keys", "/,c"] },
+  { name: "search-70x24", args: ["--cols", "70", "--rows", "24", "--keys", "/,c"] },
+  { name: "search-views-140x36", args: ["--cols", "140", "--rows", "36", "--keys", "/,tab,c"] },
+  { name: "search-views-70x24", args: ["--cols", "70", "--rows", "24", "--keys", "/,tab,c"] },
 ];
 
 // `run` trims its output, which would move the first row; `see` is read here through a file for the same reason.

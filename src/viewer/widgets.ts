@@ -80,9 +80,10 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   const inspectorAsk = new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
   inspector.add(inspectorActions); inspector.add(inspectorAsk);
   // The column's other face, the talk: whom it is about and what the agent is doing, the conversation (newest at the bottom, staying there unless
-  // scrolled up), the kinds of request and what goes with the first one, a rule, the field, and the keys. Shown in place of the node face.
+  // scrolled up), then the composer as one block: before the first request a rule, the kinds of request and the row under them; a rule, the
+  // field, and the keys. Shown in place of the node face.
   const line = () => new TextRenderable(renderer, { selectable: false, bg: palette.panel, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none", visible: false });
-  const talkHead = line(), talkTabs = line(), talkInclude = line(), talkRule = line(), talkHint = line();
+  const talkHead = line(), talkTop = line(), talkTabs = line(), talkInclude = line(), talkRule = line(), talkHint = line();
   const talkScroll = new ScrollBoxRenderable(renderer, { ...surface, flexGrow: 1, minHeight: 1, marginTop: 1, scrollX: false, scrollY: true, stickyScroll: true, stickyStart: "bottom", visible: false,
     verticalScrollbarOptions: { showArrows: false, trackOptions: { foregroundColor: palette.edgeDim, backgroundColor: palette.panel } } });
   const talkText = new TextRenderable(renderer, { selectable: false, bg: palette.panel, width: "100%", flexShrink: 0, fg: palette.body, wrapMode: "none" });
@@ -94,8 +95,8 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   const talkPrompt = new TextRenderable(renderer, { selectable: false, content: "›", fg: palette.accent, wrapMode: "none", flexShrink: 0, width: 1, marginRight: 1 });
   const talkRow = new BoxRenderable(renderer, { height: 3, width: "100%", flexShrink: 0, flexDirection: "row", backgroundColor: palette.background, paddingLeft: 1, paddingRight: 1, visible: false });
   talkRow.add(talkPrompt); talkRow.add(talkInput);
-  for (const child of [talkHead, talkScroll, talkTabs, talkInclude, talkRule, talkRow, talkHint]) inspector.add(child);
-  const talk = { head: talkHead, scroll: talkScroll, text: talkText, tabs: talkTabs, include: talkInclude, rule: talkRule, row: talkRow, prompt: talkPrompt, input: talkInput, hint: talkHint };
+  for (const child of [talkHead, talkScroll, talkTop, talkTabs, talkInclude, talkRule, talkRow, talkHint]) inspector.add(child);
+  const talk = { head: talkHead, scroll: talkScroll, text: talkText, top: talkTop, tabs: talkTabs, include: talkInclude, rule: talkRule, row: talkRow, prompt: talkPrompt, input: talkInput, hint: talkHint };
   // One bottom row: the mode badge (the only filled block on screen), then key hints or a short-lived notice; zoom and version on the right.
   const statusLeft = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 1, flexGrow: 1, fg: palette.muted, wrapMode: "none" });
   const statusRight = new TextRenderable(renderer, { selectable: false, height: 1, flexShrink: 0, fg: palette.muted, wrapMode: "none" });
@@ -121,14 +122,15 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
     const title = onBorder({ left: 1, top: -1 }, titleChunks), meta = onBorder({ right: 1, top: -1 }), foot = onBorder({ left: 1, bottom: -1 });
     const content = new TextRenderable(renderer, { selectable: false, fg: palette.body, wrapMode: "none", flexShrink: 0 });
     for (const child of [content, title.box, meta.box, foot.box]) panel.add(child);
-    // `columns` and `rows` are the content's; the frame adds its border and padding, and is at most 100 columns wide (and never wider or taller than the screen).
-    const place = (columns: number, rows: number) => {
-      const w = Math.max(20, Math.min(columns + 4, 100, renderer.width - 2)), h = Math.max(3, Math.min(rows + 2, renderer.height - 2));
+    // `columns` and `rows` are the content's; the frame adds its border and padding, and is at most `cap` columns wide (100 for a dialog; help passes
+    // its own) and never wider or taller than the screen.
+    const place = (columns: number, rows: number, cap = 100) => {
+      const w = Math.max(20, Math.min(columns + 4, cap, renderer.width - 2)), h = Math.max(3, Math.min(rows + 2, renderer.height - 2));
       panel.width = w; panel.height = h;
       panel.left = Math.floor((renderer.width - w) / 2); panel.top = Math.max(0, Math.floor((renderer.height - h) / 2));
     };
     return Object.assign(modal, { scrim, panel, content, title, meta, foot, place,
-      open(columns: number, rows: number) { place(columns, rows); scrim.visible = panel.visible = true; },
+      open(columns: number, rows: number, cap?: number) { place(columns, rows, cap); scrim.visible = panel.visible = true; },
       close() { scrim.visible = panel.visible = false; } });
   };
   const help = makeModal([fg(palette.accent)("◆ "), fg(palette.text)("Keyboard shortcuts")]);

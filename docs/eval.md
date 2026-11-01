@@ -42,7 +42,7 @@ Fresh agents (no draft, no overlay) followed the skill's hand-written workflow o
 | camenae-sdk, agent | 23 of 23 (81 ignored: tests, scripts, tools, examples, config) | 12 of 12 | 0 | 7 | 11 / 12 |
 | camenae-sdk, draft | 70 of 70 | 3 of 3 | 0 | 7 | 8 / 3 |
 
-**Pass marks, from this baseline:** every eligible file claimed, every relationship backed by an import, no connected pair undeclared, no readable view over 20 boxes, no group with more than about 7 children. Both agent models and both drafts meet all of them, so these are a floor, not a ranking. Since 2026-10-28 (Phase 4a, when the draft began opening a folder that is most of its package) the last two read: no view draws more than nine children of one group as cards (the rest are in its everything view), and no readable view holds more than 20 boxes in all. The scorer prints both (`most boxes in a readable one`, `most cards inside one box`).
+**Pass marks:** every eligible file claimed, every relationship backed by an import, no connected pair undeclared, no readable view over 20 boxes in all, and an opened folder or collection draws every child as a card while its view holds at most 20 boxes, otherwise its strongest (never leaving out a box that holds a declared start) with the rest in its everything view. Both agent models and both drafts meet all of them, so these are a floor, not a ranking. The scorer prints both card counts (`most boxes in a readable one`, `most cards inside one box`). The card rule was about 7 children per group at this baseline, at most nine cards from 2026-10-28 (Phase 4a, when the draft began opening a folder that is most of its package), and all while readable from 2026-10-31 (Phase 4e step 0e).
 
 **What this cannot tell you.** The scorer checks that a model agrees with the imports; it cannot tell whether the grouping is the one a maintainer would draw, or whether a description is right. Neither repo has authors' rules to score against, and the agents read only file headers, so their descriptions are inferred from names and imports (they said so). The agent's coarser model leaves out 71 and 81 files by choice; `check` reports the count so the reader can disagree. One agent also removed a relationship (web to server over HTTP) because no import backs it: honest, but the overview then shows the web group unconnected.
 
@@ -416,3 +416,44 @@ The draft opens a folder that holds more than half of its holder's read files an
 | Miniflux | 4 of 4 | 4 of 4 | 108 s / $0.45 | 0 of 30 (0 of 25) |
 
 The `mealie` note that fails reads "The FastAPI backend: HTTP routes call services, which use repositories over SQLAlchemy models … Also serves the built frontend in production." The last sentence is true (`mealie/app.py` line 160 calls `spa.mount_spa(app)`), so the reference's forbidden word, meant for a namer that takes the backend for the whole app, catches a correct note here. One run; the reference was not changed by the build. The review (2026-10-29) corrected the reference: `mealie` now forbids `vue` and `nuxt`, which only a note that puts the UI in the backend folder would say; the same namer overlay scores **9 of 10** against it (`frontend/vuetify.options.js` is the one miss, as in Phase 4), and the Phase 1 overlay stays 8 of 10.
+
+## First day (2026-10-29)
+
+`pathlight brief --first-day` puts the facts and the names together for a person new to the code. What can be measured without asking anyone: whether its **Where it starts** lists the files a person says the app really starts from. Each names reference now carries `entrypoints` (groups of files, any one of which counts), and `bun tests/eval/names.ts` prints the hits and misses after the name scores. Scratch copies of the three clones with their Phase 1 `.pathlight/`.
+
+| | starts the reference names | before (`main`: package.json only) | after |
+| --- | --- | --- | --- |
+| Outline | `server/index.ts` or `server/main.ts`; `app/index.tsx` | 1 of 2 (`app/index.tsx`, as a file nothing imports) | 1 of 2, the same |
+| Mealie | `mealie/app.py` or `mealie/main.py`; `frontend/nuxt.config.ts` | 0 of 2 | 1 of 2: `mealie/main.py`, script “mealie” in `pyproject.toml` |
+| Miniflux | `main.go` | 0 of 1 (twelve `_test.go` files filled the list) | 1 of 1: Go `package main` with `func main` |
+
+The two misses are honest: Outline's `start` script runs the built `build/server/index.js`, which the scan cannot map back to `server/index.ts` (it is imported by nothing but is not listed among the twelve largest unimported files either), and Nuxt has no entry file, only its configuration, which the rule leaves out with every `*.config.*`. Test files (`_test.go`, `test_*.py`, `*_test.py`, `conftest.py`) are no longer starts, and a Go file counts as imported when its package is (Go files of one package use each other without an import), which took Miniflux's list from twelve test files to `main.go` and the UI's scripts. Since step 0b (2026-10-30) a file under a migrations folder (`migrations/`, `alembic/versions/`) is never a start either.
+
+**The briefing's rules, since step 0d (2026-10-30):** five parts (what it is, how it is built, where it starts, the journeys, how sure), where **Where it starts** is the starts the project declares (scripts, `bin`, `main`, `__main__.py`/`main.py`, a Go `package main`) and nothing else, one line saying so when there are none, and How sure is one line. A file nothing imports stays in `pathlight brief`'s own list (twelve), a lead for the agent, and Read these first is gone. Re-scored the same day: Outline 0 of 2 (its one hit, `app/index.tsx`, was there only as a file nothing imports), Mealie 1 of 2, Miniflux 1 of 1.
+
+**Names did not move.** The Phase 1 overlays score as before (Outline 12 of 12, Mealie 8 of 10, Miniflux 3 of 4) and the Phase 4a namer overlays as before (Mealie 9 of 10, Miniflux 4 of 4); this phase changes what the namer replies, not what it names. A fresh namer run per clone and one onboarding walk per clone were not done in the build: under `--permission-mode dontAsk` with `Bash(pathlight *)` allowed, the namer's `pathlight name --from - <<'JSON'` heredoc was refused. The review (2026-10-29, `docs/internal/review-2026-10-29-phase-4e.md`) found the cause by bisection and did both. The cause is narrow: Claude Code refuses, under that rule, a heredoc whose body holds a JSON object with a quoted key (`[{"key":"a"}]`; `[]` and `[{}]` pass), headless and as a prompt interactively; a one-line herestring (`--from - <<< '[…]'`) and the per-box form pass. So the namer saves with a herestring.
+
+**The namer, re-run** (Sonnet, the herestring told in the prompt; logs, overlays and scores under `.cache/eval/phase-4e/*/namer-review/`): Outline 15 of 15 boxes named in one batch, 12 of 12 marks, $0.20; Mealie 36 of 36 in two batches, 8 of 10 (`vuetify.options.js` as before, and `mealie`, whose new note has no recipe/meal/shopping word), $0.27; Miniflux 30 of 30 in two, 4 of 4, $0.19. Every reply was the first-day briefing as printed, then journeys, then what it could not tell. The namer opened **no source file** in any run (its only reads were the brief's persisted output) yet wrote 4, 16 and 14 notes without an "inferred" mark, so the briefing's "named from the code" count repeats what the note says, not what was read: a measure to print beside the names score from now on (the `Read` calls in the run's stream), and a rule for the namer.
+
+**Files the namer read**, printed beside the names score for every namer run from now on, because the briefing's **How sure** ("N boxes named from the code") rests on it: the `Read` calls in the run's `stream-json` whose path is in the workspace (the brief's own persisted output does not count), with `jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name=="Read") | .input.file_path' namer-stream.jsonl`. Since step 0b the namer must mark `(inferred from file names)` on every note for a box whose files it did not open.
+
+| namer run (review, 2026-10-29) | names score | `Read` of a workspace file | other reads | notes without "inferred" |
+| --- | --- | --- | --- | --- |
+| Outline | 12 of 12 | 0 | one `head` of `build.js` and a script, in the shell | 4 |
+| Mealie | 8 of 10 | 0 (one `Read` of the brief's persisted output) | none | 16 |
+| Miniflux | 4 of 4 | 0 (one `Read` of the brief's persisted output) | none | 14 |
+
+**The walks** (Sonnet with the plugin, one headless turn per message, a viewer open in a private tmux server so `pathlight point` writes; transcripts and screens under `.cache/eval/phase-4e/*/walk-review/`; copies of the Phase 1-named clones with their journeys):
+
+| | Outline (6 journeys) | Mealie (3) | Miniflux (none: the tracer asked, `start-server` recorded, 6 steps) | parcel (hand-written) |
+| --- | --- | --- | --- | --- |
+| asked before pointing | yes | yes | yes | yes |
+| journeys walked, steps | 2 (3 + 2) | 3 (4 + 2 + 2) | 1, steps 1–3 (the driver cut it) | none to walk |
+| boxes after | 4 | 1 | 0 (cut) | 4, two with `--view` |
+| points that moved the viewer | 5 of 6 (a `for` loop was refused) | 4, then the clear | 3 | 4, then the clear |
+| files read | 3 | 3 | 9 | 2 |
+| "inferred" / "not read" sentences | 10 | 5 | 3 | 1 |
+| behaviour described without reading | none found | none | none | none |
+| messages, cost | 7, $1.67 | 5, $1.14 | 4, $0.88 | 5, $0.69 |
+
+The mark `← agent` was on screen after every point, with a `Went to …` and a Back entry when the box was in another view; the walk needed no viewer change. What it tripped over: `pathlight brief` takes a box key and the journeys name elements by id (four misses), and two of four agents trimmed the briefing instead of pasting it, dropping the fifteen `Where it starts` lines; both are carried to step 0b.

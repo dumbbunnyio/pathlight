@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -88,7 +89,7 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
     expect(second).not.toContain("≠");
     await tmux("send-keys", "-t", pane, "]", "]", "]");
     const last = await until(text => text.includes("Selected: parcel.fulfillment.shipping") && text.includes("5/5"), "step 5");
-    expect(last).toContain("≠ no relationship in the model");
+    expect(last).toContain("≠ no arrow on the map for this hop");
     // Esc leaves flow mode and brings back the connections.
     await tmux("send-keys", "-t", pane, "Escape");
     const left = await until(text => /^ diagram /m.test(text) && text.includes("Connects"), "diagram mode");
@@ -243,9 +244,9 @@ test("F opens the journey a t just drew, whatever the selection, and its arrival
     };
     await until(text => text.includes("In flows") && text.includes("◇ Placing an order"), "the first flow through the selection");
     await delay(700);
-    // The offered first question is a how-question: draw it is on, and Enter sends it.
+    // The offered first question is a how-question: it records a journey, and Enter sends it.
     await tmux("send-keys", "-t", shown.pane, "t");
-    await until(text => text.includes("Talk ·") && text.includes("● draw it"), "the talk with draw it on");
+    await until(text => text.includes("Talk ·") && text.includes("· records a journey"), "the talk recording a journey");
     await tmux("send-keys", "-t", shown.pane, "Enter");
     await until(text => text.includes("have the path recorded as a pathlight journey"), "the question in the agent's pane", harness);
     // After the send the talk stays showing and the keys are back on the diagram; from here on, nothing may move.
@@ -276,3 +277,69 @@ test("F opens the journey a t just drew, whatever the selection, and its arrival
     await rm(directory, { recursive: true, force: true });
   }
 }, 90_000);
+
+// Entering a flow goes to the view where its steps are distinct, with a Back entry; a step whose box the view does not draw goes to one that does.
+test("F reads a journey in the view that draws its steps apart, and b comes back", async () => {
+  const directory = await workspace(false);
+  try {
+    const see = async (view: string, select: string, keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", view, "--workspace", directory, "--project", "parcel",
+      "--cols", "150", "--rows", "36", "--select", select, "--keys", keys])).split("\n");
+    const where = (screen: string[]) => screen[1]!.trim().split(" ")[0];
+    // The overview draws Parcel as one box: every step but the first lands on it. Services draws them apart.
+    const entered = await see("index", "customer", "F");
+    expect(where(entered)).toBe("parcel/services");
+    expect(entered[1]).toContain("back 1");
+    expect(entered.at(-1)).toMatch(/^ flow +Selected: parcel\.storefront /);
+    expect(entered.at(-1)).not.toContain("Went to");
+    expect(entered.join("\n")).toMatch(/Steps ─+ 1\/5/);
+    expect(where(await see("index", "customer", "F,Escape,b"))).toBe("parcel/index");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+// The review's Mealie copy (not in the repository): Code generation, from Packages, is read in the app's components view, and a step whose box the
+// view does not draw goes to the view that does.
+const mealie = "/tmp/opencode/step0b-mealie";
+// The copy is David's live clone and gains journeys as he asks `t` how-questions, so the journey is chosen by name through search, never as "the first `F`".
+test.skipIf(!existsSync(join(mealie, ".pathlight")))("on the Mealie copy, Code generation from Packages opens in mealie_components, and a step elsewhere goes there", async () => {
+  const see = async (view: string, keys: string, select?: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", view, "--workspace", mealie,
+    "--cols", "160", "--rows", "40", ...(select ? ["--select", select] : []), "--keys", keys])).split("\n");
+  const packages = await see("index", "/,Tab,Tab,Tab,Code gen,Enter");
+  expect(packages[1]!.trim().split(" ")[0]).toBe("live_mealie/mealie_components");
+  expect(packages.join("\n")).toContain("Code generation tools → Data shapes");
+  // From Backend translations' neighbourhood, Code generation read there at step 4; step 3 lands on the backend's entry point, which it does not draw.
+  const away = await see("mealie_mealie_lang_near", "2,Enter,[", "mealie.mealie.lang");
+  expect(away[1]).toContain("back 1");
+  expect(away.at(-1)).toContain("Selected: mealie.mealie.root");
+  expect(away.join("\n")).not.toContain("is not in this view");
+}, 120_000);
+
+// Search lists journeys beside views, boxes and files; tab narrows it to one kind, named in the title with the others dimmed beside it, and choosing a
+// journey reads it as F would.
+test("search finds journeys, tab narrows it by kind, and choosing a journey reads it", async () => {
+  const directory = await workspace(false);
+  try {
+    const see = async (keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", "index", "--workspace", directory, "--project", "parcel",
+      "--cols", "150", "--rows", "36", "--select", "customer", "--keys", keys])).split("\n");
+    const all = (await see("/")).join("\n");
+    expect(all).toMatch(/Search · all views boxes journeys files/);
+    expect(all).toMatch(/journey +Placing an order/);
+    expect(all).toMatch(/box +Customer/);
+    expect(all).toContain("tab kind");
+    // Three tabs: journeys only.
+    const journeys = (await see("/,Tab,Tab,Tab")).join("\n");
+    expect(journeys).toMatch(/journey +Placing an order +● 5 steps/);
+    expect(journeys).not.toMatch(/ box +Customer/);
+    expect(journeys).not.toMatch(/ view +/);
+    // Back with shift-tab to boxes, and on round to all.
+    const boxes = (await see("/,Tab,Tab,Tab,BTab")).join("\n");
+    expect(boxes).toMatch(/ box +Customer/);
+    expect(boxes).not.toMatch(/journey +Placing an order/);
+    const round = (await see("/,Tab,Tab,Tab,Tab,Tab")).join("\n");
+    expect(round).toMatch(/ box +Customer/);
+    expect(round).toMatch(/journey +Placing an order/);
+    // Choosing it reads it, in the view where its steps are apart.
+    const chosen = await see("/,Tab,Tab,Tab,Enter");
+    expect(chosen[1]!.trim().split(" ")[0]).toBe("parcel/services");
+    expect(chosen.at(-1)).toMatch(/^ flow /);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 120_000);

@@ -4,30 +4,30 @@
                                                                                                  │ Agent adapters                component  
                                                                                                  │                                          
  ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ 1 Connects ──────────────────────── 2  
-                    ┌─ ◆ Keyboard shortcuts ───────────────────────────────────────────────────────── pathlight 0.1.1 ─┐  Records tool li…  
-                    │ ── out of the selected box  ── into it  ┈┈ other relationships  ── the agent's reading (a flow)  │  Opens a view      
-                    │                                                                                                  │                    
- ·       ·      ·   │ Understand it ────────────────   Direct it ────────────────────   Shape the map ──────────────── │                    
-                    │ click, h j k l  select a box,    t        tell it what to         d          ask it to trace a   │                    
-                    │                 a neighbour               change                             flow                │                    
-                    │ tab             through the      c        session and review      m          ask it to improve   │                    
- ·       ·      ·   │                 inspector, in    a        follow the work                    the map             │                    
-                    │                 a flow: next     w        jump to the agent's     n          name and note it    │                    
-                    │                 step                      work                               yourself            │                    
- ·       ·      ·   │ enter, o        into a group,    e        files (in a flow: its   p          replay the session  │                    
-                    │                 open a link               code)                   s          subagent calls      │                    
-  ╭─────────────────│ backspace       up to the        /        search views, boxes,    T          choose a theme      │                    
-  │ Agent adapters  │                 parent                    files                   1–4        focus a card, esc   │                    
- ·╰─────────────────│ t               ask how          g        go to any view                     or tab leaves       │                    
-                    │                 something        b        back                    j k        move in the card    │                    
-  ╭─────────────────│                 works            i        inspector, or the       space      fold the card       │                    
-  │ LikeC4 catalog  │ F               step through a            talk and back           PgUp PgDn  scroll the          │                    
- ·╰─────────────────│                 flow             z        widen the talk                     inspector           │                    
-                    │ [ ]             steps, esc       f        fit everything          v          swap hjkl and       │                    
-                    │                 leaves           0  + -   actual size, zoom                  arrows              │                    
- ·       ·      ·   │ ?               this help        r        centre the selection    q          quit                │                    
-                    │                                  ← ↑ ↓ →  pan                                                    │                    
-                    └─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────┘                    
+                                                                                                 │   → Activity metadata  Records tool li…  
+                                                                                                 │   → tmux launcher      Opens a view      
+    ┌─ ◆ Keyboard shortcuts ───────────────────────────────────────────────────────────────────────────────────────── pathlight 0.1.1 ─┐    
+ ·  │ ── out of the selected box                 ── into it                                 ┈┈ other relationships                     │    
+    │ ── the agent's reading (a flow)                                                                                                  │    
+    │ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────   │    
+    │                                                                                                                                  │    
+ ·  │ Understand it ──────────────────────────   Direct it ──────────────────────────────   Shape the map ──────────────────────────   │    
+    │ click, h j k l  select a box, a            c        what it did this session, and     d          ask it to trace a flow          │    
+    │                 neighbour                           the review                        m          ask it to improve the map       │    
+ ·  │ tab             through the inspector,     a        follow the work                   n          name and note it yourself       │    
+    │                 in a flow: next step       w        jump to the agent's work          p          replay the session              │    
+  ╭─│ enter           into a box                 e        files (in a flow: its code)       s          subagent calls                  │    
+  │ │ o               the view a box opens       /        search everything, tab a kind     T          choose a theme                  │    
+ ·╰─│ b, backspace    back where you were,       g        go to any view                    1–4        focus a card, esc or tab        │    
+    │                 else up                    i        inspector, or the talk and back              leaves                          │    
+  ╭─│ t               ask how it works, or       z        widen the talk                    j k        move in the card                │    
+  │ │                 tell it what to change     f        fit everything                    space      fold the card                   │    
+ ·╰─│ F               step through a flow        0  + -   actual size, zoom                 PgUp PgDn  scroll the inspector            │    
+    │ [ ]             steps, esc leaves          r        centre the selection              v          swap hjkl and arrows            │    
+    │ ?               this help                  ← ↑ ↓ →  pan                               q          quit                            │    
+ ·  └─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────────────────────────────────────┘    
+                                                                                                 │                                          
+                                                                                                 │                                          
                                                                                                  │                                          
  ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
                                                                                                  │ ──────────────────────────────────────── 

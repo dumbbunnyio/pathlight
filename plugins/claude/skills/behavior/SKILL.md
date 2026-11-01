@@ -1,5 +1,5 @@
 ---
-name: pathlight-behavior
+name: behavior
 description: Use when the user wants a state diagram or flow of what a user sees or what a feature does ("draw the flow", "statechart", "what should happen when...", "how does a request move through the system"), to find where a flow breaks, or to mark which states are broken or fixed in pathlight. Writes a behavior view (states) or a journey (a dynamic view through the real components) in a *.behavior.c4 file and shows it with pathlight.
 ---
 
@@ -15,7 +15,7 @@ A behavior view answers "what should happen, step by step?" It is a state diagra
 
 ## Where it goes
 
-Write one file per flow in the folder of the LikeC4 project it belongs to (`.pathlight/` for the model `pathlight draft` writes), named `NAME.behavior.c4` (for example `messages.behavior.c4`). `pathlight draft` leaves these alone, so a rerun never loses them. If the project has no model at all, ask before creating `likec4.config.json` and `pathlight.activity.json` in `.pathlight/` (see the pathlight skill).
+Write one file per flow in the folder of the LikeC4 project it belongs to (`.pathlight/` for the model `pathlight draft` writes), named `NAME.behavior.c4` (for example `messages.behavior.c4`). `pathlight draft` leaves these alone, so a rerun never loses them. If the project has no model at all, ask before creating `likec4.config.json` and `pathlight.activity.json` in `.pathlight/` (see the map skill, `/pathlight:map`).
 
 Put one flow in one `flow` element, tagged `#behavior`, with its states inside it, and name the flow after what it is (`signup`), because top-level ids are shared with the generated architecture model and a clash stops it compiling. Declare `tag behavior` in the file's `specification`, as the example does: it keeps the flow out of the architecture views. Avoid LikeC4 reserved words as ids (`storage`, `notation`, `model`, `view`, `style`, `group`).
 
@@ -122,7 +122,7 @@ views {
 ```
 
 - Put it in the same `*.behavior.c4` file as the state diagram it belongs to, or its own; `pathlight draft` leaves those files alone.
-- Every hop should be a relationship the model already has. A hop it does not have is shown with `≠ no relationship in the model` and listed by `pathlight flows`: that is the story and the model disagreeing, so say which one you think is wrong instead of adding the relationship to make the warning go away.
+- Every hop should be a relationship the model already has. A hop it does not have is shown with `≠ no arrow on the map for this hop` and listed by `pathlight flows`: that is the story and the model disagreeing, so say which one you think is wrong instead of adding the relationship to make the warning go away.
 - Name the files you read in the `description`, and the commit (`Synced at <short sha>`). A journey is your reading of the code, drawn in the agent's colour and labelled so; it never says what happened.
 - The person traces it with `F` in the viewer (`[` `]` to step, `esc` to leave) and sees which components the agent has touched along it. Mark nothing as passed or failed: observed calls are shown beside the steps and are not part of the flow.
 

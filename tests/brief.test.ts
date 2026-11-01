@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
-import { briefOf, formatBrief, nameBoxes, select } from "../src/brief";
+import { briefOf, formatBrief, formatFirstDay, nameBoxes, select, type FirstDay } from "../src/brief";
 import { draftWorkspace } from "../src/draft";
 import { overlayIn, run } from "./effects";
 
@@ -92,6 +92,21 @@ test("pathlight brief prints a box and pathlight name takes a JSON array on stan
     await expect(cli("name", "--workspace", directory)).rejects.toThrow("Use pathlight name KEY");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 90_000);
+
+test("pathlight brief takes an element id as a journey's step or the pointer names it, resolved to its box's key", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-id-"));
+  try {
+    await write(directory);
+    await Effect.runPromise(draftWorkspace(directory));
+    const keys = JSON.parse(await readFile(join(directory, ".cache", "pathlight", "keys.json"), "utf8")).keys as Record<string, string>;
+    const id = Object.entries(keys).find(([, key]) => key === "src/database")![0];
+    expect(id).not.toBe("src/database");
+    const byId = await cli("brief", id, "--workspace", directory);
+    expect(byId).toContain("## src/database  (component");
+    expect(byId).toBe(await cli("brief", "src/database", "--workspace", directory));
+    await expect(cli("brief", `${id}_nope`, "--workspace", directory)).rejects.toThrow("No box has the key or element id");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
 
 test("the brief opens with what the project says about itself, only when it covers the whole map", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-context-"));
@@ -201,3 +216,129 @@ test("an opened folder is a box listed like a package: where it sits, what is in
     expect(formatBrief([core], boxes)).toContain("## src/core  (folder · 18 files, 19 lines)\ngenerated name: core\n");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("Python and Go starts: pyproject.toml's scripts, a __main__.py or main.py, and a Go package main with func main; their tests are no starts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-entry-py-go-"));
+  try {
+    await cp("tests/fixtures/python", join(directory, "py"), { recursive: true });
+    await cp("tests/fixtures/go", join(directory, "go"), { recursive: true });
+    await writeFile(join(directory, "py", "pyproject.toml"), `[project]\nname = "shop"\nversion = "1.0"\n\n[project.scripts]\nshop = "shop.orders:run"\n\n[project.gui-scripts]\nshop-gui = "shop.catalog:show"\n`);
+    await writeFile(join(directory, "py", "src", "shop", "__main__.py"), "from shop import orders\n");
+    await writeFile(join(directory, "py", "src", "shop", "test_orders.py"), "from shop import orders\n");
+    await Effect.runPromise(draftWorkspace(directory));
+    const text = await cli("brief", "--workspace", directory);
+    const starts = text.slice(text.indexOf("# Where the code"), text.indexOf("\n\n", text.indexOf("# Where the code")));
+    expect(starts).toContain("py/src/shop/orders.py");
+    expect(starts).toMatch(/py\/src\/shop\/orders\.py \[[^\]]+\] — script “shop” in py\/pyproject\.toml/);
+    expect(starts).toMatch(/py\/src\/shop\/catalog\.py \[[^\]]+\] — script “shop-gui” in py\/pyproject\.toml/);
+    expect(starts).toContain("py/src/shop/__main__.py");
+    expect(starts).toMatch(/py\/app\/main\.py .*— Python main\.py/);
+    expect(starts).toMatch(/go\/cmd\/shop\/main\.go .*— Go package main with func main/);
+    // The other file of package main has no func main; a test file is never a start; a Go file whose package is imported is reached.
+    expect(starts).not.toContain("go/cmd/shop/extra.go — Go");
+    expect(starts).not.toContain("_test.go");
+    expect(starts).not.toContain("test_orders.py");
+    expect(starts).not.toContain("go/internal/storage/entry.go");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+// Everything under a folder, with each file's modification time: what --first-day must leave exactly as it was.
+const snapshot = async (root: string) => {
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  return Promise.all(entries.filter(entry => entry.isFile()).map(async entry => { const path = join(entry.parentPath, entry.name); return `${path} ${(await stat(path)).mtimeMs}`; })).then(list => list.sort());
+};
+
+test("brief --first-day prints its five parts from the facts and the names, each honest when empty, and writes nothing", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-"));
+  try {
+    await write(directory);
+    await run("git", ["-C", directory, "init", "-q"]);
+    await Effect.runPromise(draftWorkspace(directory));
+    const before = await snapshot(directory);
+    const bare = await cli("brief", "--first-day", "--workspace", directory);
+    expect(await snapshot(directory)).toEqual(before);
+    expect(bare.match(/^## .*$/gm)).toEqual(["## What it is", "## How it is built", "## Where it starts", "## Journeys to follow", "## How sure"]);
+    expect(bare).toContain("## What it is\nnot named yet: no box holds the whole app");
+    expect(bare).toContain("- session — not named yet [src/session]");
+    expect(bare).toContain("## Where it starts\nno declared start (no script, main or package main)");
+    expect(bare).toContain("## Journeys to follow\nnone recorded yet");
+    expect(bare).toContain("0 boxes named from the code, 0 inferred from file names, 4 not named.");
+    // The numbers are the scan's own.
+    const scan = JSON.parse(await cli("scan", "--workspace", directory));
+    expect(bare).toContain(`4 boxes · ${scan.coverage.files} files read · ${scan.coverage.imports} imports · read: TypeScript`);
+
+    await writeFile(join(directory, "names.json"), JSON.stringify([
+      { key: "src/session", title: "Sessions", note: "Starts a session against the database." },
+      { key: "src/database", title: "Database", note: "Holds the connection. (inferred from file names)" }]));
+    await cli("name", "--workspace", directory, "--from", join(directory, "names.json"));
+    await cli("flow", "add", "start-session", "--workspace", directory, "--title", "Starting a session", "--reads", "src/session.ts", "--step", "session -> database: opens the connection", "--step", "database -> session: hands it back");
+    const day = await cli("brief", "--first-day", "--workspace", directory);
+    expect(day).toContain("- Sessions — Starts a session against the database. [src/session]");
+    expect(day).toContain("- Database — Holds the connection. (inferred) [src/database]");
+    expect(day).toMatch(/F {2}Starting a session {2}\(journey start-session, 2 steps/);
+    // How sure is one line; the commit and the boxes whose files are unchanged are in --json only.
+    const sure = day.slice(day.indexOf("## How sure")).trim().split("\n");
+    expect(sure).toHaveLength(2);
+    expect(sure[1]).toMatch(/^1 box named from the code, 1 inferred from file names, 2 not named, named \d{4}-\d{2}-\d{2}\.$/);
+    // The same as data.
+    const data = JSON.parse(await cli("brief", "--first-day", "--json", "--workspace", directory));
+    expect(data.journeys).toEqual([{ id: "start-session", title: "Starting a session", kind: "journey", steps: 2, findings: expect.any(Number) }]);
+    expect(data.numbers.files).toBe(scan.coverage.files);
+    expect(data).not.toHaveProperty("read");
+    expect(data.sure).toMatchObject({ named: 1, inferred: 1, unnamed: 2, recorded: { at: expect.any(Number) }, unchanged: { same: 2, of: 2 } });
+    await expect(cli("brief", "--first-day", "src/session", "--workspace", directory)).rejects.toThrow(/takes no keys/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 90_000);
+
+test("a declared start is where it starts, and a map with a box for the whole app says what it is from that box", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-app-"));
+  try {
+    await write(directory);
+    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "demo", description: "A demo of sessions.", bin: { demo: "./src/index.ts" } }));
+    await Effect.runPromise(draftWorkspace(directory));
+    const day = await cli("brief", "--first-day", "--workspace", directory);
+    expect(day).toContain("## What it is\nNo box holds the whole app; in the project's own words (package.json): A demo of sessions.");
+    expect(day).toContain("## Where it starts\nsrc/index.ts [.#loose] — bin “demo”\n\n");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+test("the briefing lists the declared starts only, never a file just because nothing imports it, and never a migration", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-starts-"));
+  try {
+    await write(directory);
+    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "demo", scripts: { serve: "bun src/index.ts", stop: "bun src/session/stop.ts", run: "bun src/session/run.ts" } }));
+    const extra: Record<string, string> = {
+      "migrations/0001_init.ts": "export const up = 1;\n".repeat(40), "src/database/migrations/0002_users.ts": "export const up = 2;\n".repeat(40),
+      "app/alembic/versions/0003_tables.py": "x = 1\n".repeat(40), "app/alembic/env.py": "y = 1\n",
+    };
+    for (let index = 1; index <= 8; index++) extra[`tools/tool${index}.ts`] = `export const t${index} = 1;\n`.repeat(index);
+    for (const [path, text] of Object.entries(extra)) { await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), text); }
+    await Effect.runPromise(draftWorkspace(directory));
+    const day = await cli("brief", "--first-day", "--workspace", directory);
+    const section = (heading: string) => { const lines = day.slice(day.indexOf(heading)).split("\n"); return lines.slice(1, lines.indexOf("")); };
+    const starts = section("## Where it starts");
+    const file = (line: string) => line.split(" ")[0];
+    expect(starts.map(file)).toEqual(["src/index.ts", "src/session/stop.ts", "src/session/run.ts"]);
+    expect(starts.join("\n")).not.toMatch(/migrations\/|alembic\/versions\//);
+    // pathlight brief's own list keeps its twelve, without the migrations either.
+    const brief = await cli("brief", "--workspace", directory);
+    const listed = brief.slice(brief.indexOf("# Where the code can be started")).split("\n\n")[0]!.split("\n").slice(1);
+    expect(listed.filter(line => line.endsWith("no other file imports it")).length).toBeGreaterThan(3);
+    expect(listed.join("\n")).not.toMatch(/migrations\/|alembic\/versions\//);
+    expect(starts[0]).toBe("src/index.ts [src] — script “serve”");
+    expect(day).not.toContain("Read these first");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+test("the briefing's named date is the local day, not the UTC one", () => {
+  const day: FirstDay = { project: "demo", drafted: true, what: { source: "none" }, built: [], numbers: { boxes: 0, files: 0, imports: 0, languages: [], unread: [] },
+    starts: [], journeys: [], sure: { named: 1, inferred: 0, unnamed: 0, byPerson: 0, recorded: { at: Date.UTC(2026, 9, 30, 4, 0) } } };
+  const zone = process.env.TZ;
+  try {
+    // 04:00 UTC on the 30th is 21:00 on the 29th in Los Angeles and 13:00 on the 30th in Tokyo.
+    process.env.TZ = "America/Los_Angeles";
+    expect(formatFirstDay(day)).toContain("named 2026-10-29.");
+    process.env.TZ = "Asia/Tokyo";
+    expect(formatFirstDay(day)).toContain("named 2026-10-30.");
+  } finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; }
+});

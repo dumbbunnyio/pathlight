@@ -9,8 +9,9 @@ import { run, mappingIn, overlayIn } from "./effects";
 test("a map request names the overlay key, carries the rules and no control characters", () => {
   const text = mapMessage({ title: "Loose\x1b[31m files", id: "demo.loose", key: ".#loose", files: ["a.ts"], links: ["→ Core"] }, "what are\nthese?");
   expect(text).toContain('"Loose [31m files" component (demo.loose): what are these? [overlay key: .#loose; files: a.ts; connects: → Core]');
-  expect(text).toContain('"by":"agent"');
-  expect(text).toContain("wait for my yes");
+  expect(text).toContain("Read the files and answer me here. If it should be renamed, merged or split, or you advise against what I asked, say so with your reasons and wait for my yes; rename or redraw nothing until then.");
+  expect(text).toContain('Never change an entry marked "by":"human".');
+  expect(text).not.toContain("run pathlight draft");
   expect(text).not.toMatch(/[\x00-\x1f\x7f]/);
 });
 
@@ -62,12 +63,12 @@ test("n pins a name and note from the viewer, m asks the agent to improve the ma
     await until(shown.pane, text => text.includes("Money side"), "renamed box after reload");
     // The agent request carries the key and goes to the harness pane.
     await tmux("send-keys", "-t", shown.pane, "m");
-    await until(shown.pane, text => text.includes("▎Improve the map") && text.includes("it reads the files"), "the talk on the map tab");
+    await until(shown.pane, text => text.includes("Improve the map") && text.includes("it reads the files"), "the talk on the map tab");
     await tmux("send-keys", "-t", shown.pane, "-l", "what is this for?");
     await tmux("send-keys", "-t", shown.pane, "Enter");
     const typed = (await until(harness, text => text.replace(/\n/g, "").includes("overlay key:"), "request echoed")).replace(/\n/g, "");
     expect(typed).toContain("what is this for?");
-    expect(typed).toContain('"by":"agent"');
+    expect(typed).toContain('Never change an entry marked "by":"human".');
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

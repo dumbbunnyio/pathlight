@@ -9,7 +9,7 @@ import { wrapWords } from "../src/viewer/text";
  * fixture's views, the nested example and hand-made layouts.
  */
 const aspect = 0.5, column = 16, row = 16 / aspect;
-const options = { aspect, kindRow: true };
+const options = { aspect, wordRow: true };
 
 const scenes = async (workspace: string) => Effect.runPromise(Effect.scoped(Effect.gen(function* () {
   const source = yield* acquireModel(workspace);
@@ -89,7 +89,7 @@ test("every leaf card is readable and all cards in a view share one size: the wi
       if (grew("y", "height")) expect(rows, `${name}: ${card.id} rows`).toBeGreaterThanOrEqual(3 + lines); else expect(rows, `${name}: ${card.id} rows`).toBe(3 + lines);
     }
     // Without a kind row a card is one row shorter.
-    const bare = new Map(compact(nodes, { aspect, kindRow: false }).map(node => [node.id, node]));
+    const bare = new Map(compact(nodes, { aspect, wordRow: false }).map(node => [node.id, node]));
     for (const card of cards) expect(bare.get(card.id)!.height, `${name}: ${card.id}`).toBe(out.get(card.id)!.height - row);
   }
   // One long title sets the width for three short ones, and its two lines the height of all four.
@@ -100,10 +100,10 @@ test("every leaf card is readable and all cards in a view share one size: the wi
 
 test("a card that straddles two later ones shifts to keep the overlap before it grows: server_near's four cards are one size", () => {
   const nodes = hand.find(scene => scene.name.startsWith("server_near"))!.nodes;
-  for (const kindRow of [true, false]) {
-    const out = new Map(compact(nodes, { aspect, kindRow }).map(node => [node.id, node]));
+  for (const wordRow of [true, false]) {
+    const out = new Map(compact(nodes, { aspect, wordRow }).map(node => [node.id, node]));
     const rows = (id: string) => out.get(id)!.height / row, top = (id: string) => out.get(id)!.y / row;
-    expect(new Set(["integrations", "server", "app", "shared"].map(rows))).toEqual(new Set([kindRow ? 5 : 4]));
+    expect(new Set(["integrations", "server", "app", "shared"].map(rows))).toEqual(new Set([wordRow ? 5 : 4]));
     // The left pair sits between the right pair, overlapping both, and the two of them still share a top edge.
     expect(top("integrations")).toBe(top("server"));
     expect(top("integrations")).toBeGreaterThan(top("app"));
@@ -151,4 +151,16 @@ test("compact fit is deterministic and idempotent", async () => {
     expect(compact(nodes, options), name).toEqual(once);
     expect(compact(once, options), name).toEqual(once);
   }
+});
+
+test("a box that opens a view says how many boxes are inside it, a leaf says nothing, and no card names its kind", async () => {
+  const { insideWords } = await import("../src/viewer/card-view");
+  const view = { id: "index", nodes: [
+    { id: "n1", modelRef: "shop", navigateTo: "shop_components", children: [] },
+    { id: "n2", modelRef: "customer", children: [] },
+    { id: "n3", modelRef: "lonely", navigateTo: "lonely_near", children: [] },
+    { id: "n4", modelRef: "frame", navigateTo: "index", children: ["n5"] },
+  ] };
+  const boxes = new Set(["shop", "shop.api", "shop.api.routes", "shop.db", "customer", "lonely", "frame", "frame.x"]);
+  expect(insideWords(view, boxes)).toEqual(new Map([["n1", "[3]"]]));
 });

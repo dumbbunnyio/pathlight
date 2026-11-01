@@ -6,7 +6,7 @@ Pathlight draws your codebase's architecture beside your AI coding agent and lig
 
 In a tmux pane, in the project you work in:
 
-- **Claude Code** (with the plugin): type `/pathlight`. The first time, the agent runs `pathlight setup`, draws a first map from the code, names its boxes, and opens the viewer beside the conversation. Later, `/pathlight:open` reopens it without asking the model.
+- **Claude Code** (with the plugin): type `/pathlight:map`. The first time, the agent runs `pathlight setup`, draws a first map from the code, names its boxes, shows the first-day briefing (`pathlight brief --first-day`: what it is, how it is built, where it starts, the journeys, how sure the names are), and opens the viewer beside the conversation. Say "walk me through this codebase" and it follows the journeys step by step, moving the diagram to each box once you agree. Later, `/pathlight:open` reopens it without asking the model.
 - **OpenCode** (with the plugin): type `/pathlight`, and `/pathlight-open` to reopen it.
 - **A shell**: `pathlight setup --yes` draws the map, `pathlight init --workspace .` wires the agent's hooks, `pathlight open` turns the pane into the viewer.
 
@@ -20,7 +20,7 @@ In a tmux pane, in the project you work in:
 
 ## Understand it
 
-Everyone starts here, even on their own code. Select boxes (a click, `h j k l`), go into a group with `enter` and back out with `backspace`. Ask how something works with `t`: a question about a path ("how does a document get saved?", "where does the token go?") is answered and recorded as a journey, which `F` walks on the diagram. Everything drawn this way is the agent's reading of the code, in violet, never something observed.
+Everyone starts here, even on their own code. Select boxes (a click, `h j k l`), go into a group with `enter`, and step back with `backspace` (or `b`): back where you were, else up a level. Ask how something works with `t`: a question about a path ("how does a document get saved?", "where does the token go?") is answered and recorded as a journey, which `F` walks on the diagram. Everything drawn this way is the agent's reading of the code, in violet, never something observed.
 
 ## Direct it
 

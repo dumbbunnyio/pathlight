@@ -18,7 +18,8 @@ export function createState<Node, Diagram, Reload>(selected: Node | undefined) {
     selected,
     history: [] as Visit[],
     pendingReload: undefined as Reload | undefined,
-    pendingVisit: undefined as { diagram: Diagram; restore?: Visit; select?: string; file?: string; notice?: string } | undefined,
+    /** `flow`: the flow to read on arrival, at that step (1-based); `pointed` says the agent's pointer asked for it, so the arrival is marked as its. */
+    pendingVisit: undefined as { diagram: Diagram; restore?: Visit; select?: string; file?: string; notice?: string; flow?: { type: string; id: string; step: number; pointed?: boolean } } | undefined,
     /** Which section (if any) owns the movement keys. Undefined means the diagram does. */
     focusSection: undefined as SectionKey | undefined,
     cursor: { connections: 0, files: 0, activity: 0, steps: 0, flows: 0 } as Record<SectionKey, number>,
@@ -30,6 +31,12 @@ export type ViewState<Node, Diagram, Reload> = ReturnType<typeof createState<Nod
 
 /** Back keeps the last 32 visits. */
 export const remember = (state: { history: Visit[] }, visit: Visit) => { state.history.push(visit); if (state.history.length > 32) state.history.shift(); };
+
+/** After a reload, the visits whose view is gone are dropped, so Back never returns to a view the model no longer has. */
+export const forgetGone = (state: { history: Visit[] }, exists: (view: string) => boolean) => {
+  const kept = state.history.filter(visit => exists(visit.view));
+  state.history.splice(0, state.history.length, ...kept);
+};
 
 /** A new selection starts its cards from the top. */
 export const choose = <Node>(state: { selected: Node | undefined; fileCursor: number; cursor: Record<SectionKey, number> }, node: Node) => {

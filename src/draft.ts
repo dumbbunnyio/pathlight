@@ -6,6 +6,7 @@ import { configFile, home, mappingFile, modelFile, overlayFile } from "./layout"
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace, type Scan } from "./scan";
 import { scannedLanguages } from "./languages";
+import { declaredStartsOf } from "./starts";
 
 /**
  * A first picture of a codebase made from facts alone, with no model in the loop: packages become boxes, the top-level folders
@@ -327,8 +328,6 @@ export const viewCap = 16;
 export const openFloor = 100;
 /** …or at least this share of them. */
 export const openShare = 0.9;
-/** An opened folder's own view draws this many of its children as cards (its collections among them); the rest are in its "everything" view. */
-export const folderCap = 9;
 /** A readable view holds at most this many boxes in all: its own members plus the neighbours that connect to them. */
 export const crowdedAbove = 20;
 
@@ -435,7 +434,7 @@ const childrenOf = (item: DraftPackage, folder?: string) => ({
   folders: item.folders.filter(inner => inner.parent === folder).map(inner => inner.id),
 });
 
-export function analyse(draft: Draft): Analysis {
+export function analyse(draft: Draft, starts: ReadonlySet<string> = new Set()): Analysis {
   const packageOf = new Map(draft.packages.flatMap(item => item.components.map(entry => [entry.id, item.id] as const)));
   const { chain, drawnIn } = placesOf(draft);
   const weight = new Map<string, number>();
@@ -455,6 +454,19 @@ export function analyse(draft: Draft): Analysis {
   const ranked = (ids: readonly string[], files: (id: string) => number) => [...ids].sort((a, b) =>
     Number(tooling.has(a)) - Number(tooling.has(b)) || (weight.get(b) ?? 0) - (weight.get(a) ?? 0) || files(b) - files(a) || byText(a, b));
   const minor = new Set<string>();
+  // A box that holds a declared start (a script, a main) is where a reader begins: it is never left out of a view. It takes the place of the weakest
+  // box shown that is not one.
+  const holdsStart = (item: DraftPackage, id: string) => item.components.some(entry => (entry.id === id || entry.id.startsWith(`${id}.`)) && entry.files.some(path => starts.has(path)));
+  const leftOut = (item: DraftPackage, order: readonly string[], room: number) => {
+    const shown = order.slice(0, room), hidden = order.slice(room);
+    for (const id of hidden.filter(id => holdsStart(item, id))) {
+      const weakest = shown.findLastIndex(other => !holdsStart(item, other));
+      if (weakest < 0) break;
+      hidden[hidden.indexOf(id)] = shown[weakest]!;
+      shown.splice(weakest, 1);
+    }
+    return hidden;
+  };
   if (!draft.flat && draft.packages.length > viewCap) {
     const filesOf = (id: string) => draft.packages.find(item => item.id === id)!.components.reduce((sum, entry) => sum + entry.files.length, 0);
     for (const id of ranked(draft.packages.map(item => item.id), filesOf).slice(viewCap)) minor.add(id);
@@ -468,22 +480,24 @@ export function analyse(draft: Draft): Analysis {
     // The box drawn around the package is one more node.
     const room = Math.max(5, crowdedAbove - 1 - groups.length - neighboursOf(own, id => packageOf.get(id)));
     if (top.length <= room) continue;
-    for (const id of ranked(top, id => filesIn(item, id)).slice(room)) minor.add(id);
+    for (const id of leftOut(item, ranked(top, id => filesIn(item, id)), room)) minor.add(id);
   }
-  // An opened folder draws its strongest children as cards, its collections among them, and leaves the rest to its "everything" view.
+  // An opened folder draws all its children as cards (its collections among them) while its view stays readable: the cards, the collections'
+  // frames, its own frame and the neighbours drawn, at most `crowdedAbove` in all. Only above that it keeps the strongest and leaves the rest to its
+  // "everything" view.
   for (const item of draft.packages) for (const folder of item.folders) {
     const { members, groups } = childrenOf(item, folder.id);
     const inside = new Set(item.components.filter(entry => entry.id.startsWith(`${folder.id}.`)).map(entry => entry.id));
-    const room = Math.min(folderCap - groups.length, Math.max(5, crowdedAbove - 1 - groups.length - neighboursOf(inside, drawnIn(chain(folder.id)))));
+    const room = Math.max(5, crowdedAbove - 1 - groups.length - neighboursOf(inside, drawnIn(chain(folder.id))));
     if (members.length <= room) continue;
-    for (const id of ranked(members, id => filesIn(item, id)).slice(room)) minor.add(id);
+    for (const id of leftOut(item, ranked(members, id => filesIn(item, id)), room)) minor.add(id);
   }
   // A collection that holds more than a view can show lists its strongest members and leaves the rest to its "everything" view.
   for (const item of draft.packages) for (const group of item.groups) {
     const members = item.components.filter(entry => entry.group === group.id);
     const room = Math.max(5, crowdedAbove - 1 - neighboursOf(new Set(members.map(entry => entry.id)), id => (packageOf.get(id) === item.id ? id : packageOf.get(id))));
     if (members.length <= room) continue;
-    for (const id of ranked(members.map(entry => entry.id), id => members.find(entry => entry.id === id)!.files.length).slice(room)) minor.add(id);
+    for (const id of leftOut(item, ranked(members.map(entry => entry.id), id => members.find(entry => entry.id === id)!.files.length), room)) minor.add(id);
   }
   const packageEdges = draft.relationships.flatMap(edge => { const a = packageOf.get(edge.from), b = packageOf.get(edge.to); return a && b && a !== b ? [[a, b] as const] : []; });
   const componentCycles = new Map<string, string[][]>();
@@ -503,9 +517,9 @@ const nearView = (id: string) => `${viewName(id)}_near`;
 const cyclesView = (id: string) => `${viewName(id)}_cycles`;
 
 /** `behavior`: a `*.behavior.c4` file sits beside the draft, so the views that list every top-level element leave out what it tags `#behavior`. */
-export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = new Map(), behavior = false, unread: ReadonlySet<string> = new Set()) {
+export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = new Map(), behavior = false, unread: ReadonlySet<string> = new Set(), starts: ReadonlySet<string> = new Set()) {
   const notBehavior = behavior ? ["    exclude * where tag is #behavior"] : [];
-  const analysis = analyse(draft);
+  const analysis = analyse(draft, starts);
   const { minor } = analysis;
   const inCycle = new Set([...analysis.componentCycles.values()].flatMap(found => found.flat()));
   const inPackageCycle = new Set(analysis.packageCycles.flat());
@@ -565,9 +579,11 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   // child of the same name does not shadow).
   const withoutMinor = (scope: string) => ["    exclude * where tag is #minor", ...(minor.has(scope) ? [`    include ${scope}`] : [])];
   // Inside a view scoped to an element, names resolve against that element first, so its children are named locally ("app.loose.app" would
-  // find the child `app` and look for `loose` below it); an unscoped view names things in full.
+  // find the child `app` and look for `loose` below it); an unscoped view names things in full. A child whose local name starts with the scope's own
+  // name (`mealie` in `view of mealie`) names the subject as well, and LikeC4 gives the link to both: that child is named in full.
+  const localName = (id: string, scope: string) => { const name = id.slice(scope.length + 1); return name.split(".")[0] === scope.split(".").at(-1) ? id : name; };
   const links = (shown: readonly string[], group: ReadonlySet<string>, scope?: string) => shown.flatMap(id => group.has(id) || connected.has(id)
-    ? [`    include ${scope ? id.slice(scope.length + 1) : id} with {`, `      navigateTo ${group.has(id) ? componentsView(id) : nearView(id)}`, "    }"] : []);
+    ? [`    include ${scope ? localName(id, scope) : id} with {`, `      navigateTo ${group.has(id) ? componentsView(id) : nearView(id)}`, "    }"] : []);
 
   /**
    * A view shows what is inside its scope plus what that connects to; every other thing is drawn as `drawn(id)` (itself, the collection
@@ -862,7 +878,8 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const lines = new Map([...scan.files.map(file => [file.path, file.lines] as const), ...yield* unreadLines(root, unread)]);
   // Only a state diagram declares `tag behavior`; a journey from `flow add` does not, and naming a tag no file declares stops the model compiling.
   const behaviorTexts = yield* Effect.forEach(existing.filter(name => /\.behavior\.(c4|likec4)$/.test(name)), name => io("Draft.behavior", () => readFile(join(target, name), "utf8")).pipe(Effect.catch(() => Effect.succeed(""))));
-  const rendered = renderDraft(draft, lines, behaviorTexts.some(declaresBehavior), unreadSet);
+  const starts = new Set((yield* declaredStartsOf(root, scan, paths)).map(start => start.file));
+  const rendered = renderDraft(draft, lines, behaviorTexts.some(declaresBehavior), unreadSet, starts);
   const mappings = draft.packages.flatMap(item => item.components.flatMap(entry => entry.globs.map(glob => ({ glob, element: entry.id }))));
   yield* io("Draft.write", async () => {
     await mkdir(target, { recursive: true });

@@ -24,7 +24,7 @@ export default Plugin.define({
         context.ui.toast.show({ message: `Pathlight: ${message}`, variant: "error" });
       }
     };
-    // The counterpart of Claude's `/pathlight`: asks the agent to use the pathlight skill. Only the terminal process knows the real tmux pane, so it is
+    // The counterpart of Claude's `/pathlight`: asks the agent to use the pathlight map skill. Only the terminal process knows the real tmux pane, so it is
     // handed over here, and the skill passes it to `pathlight show --pane` (OpenCode's background service may not share this terminal's environment).
     const ask = async (view: string | undefined) => {
       const pane = process.env.TMUX_PANE, socket = process.env.TMUX?.split(",")[0];
@@ -34,7 +34,7 @@ export default Plugin.define({
         const sessionID = route.type === "session" ? route.sessionID : (await context.client.session.create({ location: { directory } })).id;
         if (route.type !== "session") context.ui.router.navigate({ type: "session", sessionID });
         const where = pane ? ` The user's tmux pane is ${pane}${socket ? ` on the tmux server with socket ${socket}` : ""}; pass it as --pane${socket ? " and --socket" : ""}.` : "";
-        await context.client.session.prompt({ sessionID, text: `Use the pathlight skill${view ? ` to show the "${view}" view` : " to show the architecture"}.${where}` });
+        await context.client.session.prompt({ sessionID, text: `Use the pathlight map skill${view ? ` to show the "${view}" view` : " to show the architecture"}.${where}` });
       } catch (error) {
         context.ui.toast.show({ message: `Pathlight: ${error instanceof Error ? error.message : String(error)}`, variant: "error" });
       }

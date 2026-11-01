@@ -1,0 +1,36 @@
+ ◆ pathlight / Pathlight implementation                                                                                                     
+ viewer/live · 6 nodes                                                                                                                      
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                 │ Agent adapters                component  
+                                                                                                 │                                          
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ 1 Connects ──────────────────────── 2  
+                                                                                                 │   → Activity metadata  Records tool li…  
+                                                                                                 │   → tmux launcher      Opens a view      
+                                                                                                 │                                          
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
+                                                                                                 │                                          
+                                                                                                 │                                          
+                                                                                                 │                                          
+ ·       ·      ·      ·   ╭─────────────────╮       ·      ·      ·      ·       ·      ·      ·│                                          
+                    ┌─ Search · all views boxes journeys files ───────────────────────────────────────────── 1–4 of 4 ─┐                    
+                    │  › c▏                                                                                            │                    
+ ·       ·      ·   │  box     LikeC4 catalog                                                                ● here    │                    
+                    │  box     tmux launcher                                                                 ● here    │                    
+  ╭─────────────────│  box     Activity metadata                                                             ● here    │                    
+  │ Agent adapters  │  view    Landscape view                                                                6 nodes   │                    
+ ·╰─────────────────└─ type search  tab kind  ↑↓ choose  enter go  esc close ──────────────────────────────────────────┘                    
+                                                 ┊                       ┊                       │                                          
+  ╭─────────────────╮                            ┊ ╭─────────────────╮   ┊                       │                                          
+  │ LikeC4 catalog  │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┴▶│ PNG export      │─┈┈╯                       │                                          
+ ·╰─────────────────╯  ·       ·      ·      ·     ╰─────────────────╯    ·       ·      ·      ·│                                          
+                                                                                                 │                                          
+                                                                                                 │                                          
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
+                                                                                                 │                                          
+                                                                                                 │                                          
+                                                                                                 │                                          
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
+                                                                                                 │ ──────────────────────────────────────── 
+                                                                                                 │                                          
+ ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ › how does Agent adapters work?        t 
+ diagram   Selected: plugin                                                                                             zoom 91%  │  ? help 

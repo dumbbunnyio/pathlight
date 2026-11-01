@@ -121,15 +121,16 @@ export default Plugin.define({
       const packaged = fileURLToPath(new URL("./skills/", import.meta.url));
       const folder = existsSync(packaged) ? packaged : fileURLToPath(new URL("../claude/skills/", import.meta.url));
       const present = (await ctx.skill.list()).data;
-      for (const name of await readdir(folder)) {
-        const file = `${folder}${name}/SKILL.md`;
+      // A folder is the skill's name inside the Claude plugin (`/pathlight:map`); OpenCode has no plugin namespace, so here it is `pathlight-map`, as `pathlight init` names its copies.
+      for (const folderName of await readdir(folder)) {
+        const file = `${folder}${folderName}/SKILL.md`, name = `pathlight-${folderName}`;
         const text = await readFile(file, "utf8").catch(() => undefined);
         if (text === undefined || present.some(skill => skill.id === name || skill.name === name)) continue;
         const description = /^description:\s*(.+)$/m.exec(text)?.[1]?.trim();
         await ctx.skill.transform(editor => editor.add({ id: name, name, ...(description ? { description } : {}), path: file, content: text.replace(/^---\n[\s\S]*?\n---\n/, "") } as SkillInfo));
       }
     } catch { /* The skills are a convenience; the tools and recording do not depend on them. */ }
-    // The tracer: a subagent that runs the pathlight-behavior skill's trace on a mid-size model, so a large conversation model does not spend its tokens reading code.
+    // The tracer: a subagent that runs the pathlight behavior skill's trace on a mid-size model, so a large conversation model does not spend its tokens reading code.
     // The models the person can use are only known once the host has resolved its providers, so the choice is made when it reports them and the agent is rebuilt.
     const tracerOption = typeof ctx.options?.tracerModel === "string" ? ctx.options.tracerModel : undefined;
     let models: ModelInfo[] = [];

@@ -96,30 +96,37 @@ test("init can skip the project-local Claude hooks for plugin users", async () =
   expect(await Bun.file(join(project, ".claude", "settings.local.json")).exists()).toBe(false);
   expect(await Bun.file(mappingIn(project)).exists()).toBe(true);
   // The plugin supplies the skill to Claude Code, so only the cross-agent location gets a copy.
-  expect(await Bun.file(join(project, ".claude", "skills", "pathlight", "SKILL.md")).exists()).toBe(false);
-  expect(await Bun.file(join(project, ".agents", "skills", "pathlight", "SKILL.md")).text()).toBe(await Bun.file("plugins/claude/skills/pathlight/SKILL.md").text());
+  expect(await Bun.file(join(project, ".claude", "skills", "pathlight-map", "SKILL.md")).exists()).toBe(false);
+  expect(await Bun.file(join(project, ".agents", "skills", "pathlight-map", "SKILL.md")).text()).toBe(await copied("map"));
 });
 
-test("init writes the pathlight skill next to the Claude hooks and replaces it on a rerun", async () => {
+// A project's skills folder has no plugin namespace, so the copy of the plugin's `map` is `pathlight-map`, its name line with it.
+const copied = async (name: string) => (await Bun.file(`plugins/claude/skills/${name}/SKILL.md`).text()).replace(`name: ${name}\n`, `name: pathlight-${name}\n`);
+
+test("init writes the pathlight skills next to the Claude hooks, replaces them on a rerun and removes a copy under the old name", async () => {
   const project = join(directory, "init-skill");
   await cp("examples/parcel", project, { recursive: true, filter: path => !path.includes(".cache") });
+  const old = join(project, ".claude", "skills", "pathlight", "SKILL.md");
+  await mkdir(dirname(old), { recursive: true });
+  await writeFile(old, "---\nname: pathlight\n---\nold\n");
   const result = await invoke("init", "--workspace", project);
   expect(result.code).toBe(0);
-  expect(result.stdout).toContain("Skills: pathlight, pathlight-behavior written to .claude/skills");
-  expect(await Bun.file(join(project, ".claude", "skills", "pathlight-behavior", "SKILL.md")).text()).toBe(await Bun.file("plugins/claude/skills/pathlight-behavior/SKILL.md").text());
-  const written = join(project, ".claude", "skills", "pathlight", "SKILL.md");
-  expect(await Bun.file(written).text()).toBe(await Bun.file("plugins/claude/skills/pathlight/SKILL.md").text());
+  expect(result.stdout).toContain("Skills: pathlight-behavior, pathlight-map, pathlight-onboarding written to .claude/skills");
+  expect(await Bun.file(join(project, ".claude", "skills", "pathlight-behavior", "SKILL.md")).text()).toBe(await copied("behavior"));
+  const written = join(project, ".claude", "skills", "pathlight-map", "SKILL.md");
+  expect(await Bun.file(written).text()).toBe(await copied("map"));
+  expect(await Bun.file(old).exists()).toBe(false);
   expect(await Bun.file(join(project, ".agents")).exists()).toBe(false);
   await writeFile(written, "stale");
   expect((await invoke("init", "--workspace", project)).code).toBe(0);
-  expect(await Bun.file(written).text()).toContain("name: pathlight");
+  expect(await Bun.file(written).text()).toContain("name: pathlight-map");
 });
 
 test("init leaves the skills to the installed plugin and removes the copies it once wrote", async () => {
   const project = join(directory, "init-plugin");
   await cp("examples/parcel", project, { recursive: true, filter: path => !path.includes(".cache") });
   expect((await invoke("init", "--workspace", project)).code).toBe(0);
-  const copy = join(project, ".claude", "skills", "pathlight", "SKILL.md");
+  const copy = join(project, ".claude", "skills", "pathlight-map", "SKILL.md");
   const own = join(project, ".claude", "skills", "mine", "SKILL.md");
   await mkdir(dirname(own), { recursive: true });
   await writeFile(own, "---\nname: mine\n---\n");
@@ -128,15 +135,16 @@ test("init leaves the skills to the installed plugin and removes the copies it o
   await writeFile(join(claudeHome(), "plugins", "installed_plugins.json"), JSON.stringify({ version: 2, plugins: { "pathlight@pathlight": [{ scope: "user" }] } }));
   const result = await invoke("init", "--workspace", project);
   expect(result.code).toBe(0);
-  expect(result.stdout).toContain("removed the copies in .claude/skills (2)");
+  expect(result.stdout).toContain("removed the copies in .claude/skills (3)");
   expect(await Bun.file(copy).exists()).toBe(false);
   expect(await Bun.file(join(project, ".claude", "skills", "pathlight-behavior", "SKILL.md")).exists()).toBe(false);
   expect(await Bun.file(own).exists()).toBe(true);
   const again = await invoke("init", "--workspace", project);
   expect(again.stdout).toContain("none were written");
   expect(await Bun.file(copy).exists()).toBe(false);
-  await mkdir(dirname(copy), { recursive: true });
-  await writeFile(copy, "---\nname: pathlight\n---\nold\n");
+  const former = join(project, ".claude", "skills", "pathlight", "SKILL.md");
+  await mkdir(dirname(former), { recursive: true });
+  await writeFile(former, "---\nname: pathlight\n---\nold\n");
   expect((await invoke("doctor", "--workspace", project)).stdout).toContain("hides the plugin's newer ones");
   await rm(join(claudeHome(), "plugins"), { recursive: true });
 });

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { countsLine, headContent, pinnedLines, sectionHeader, splitDescription } from "../src/viewer/inspector-view";
+import { countsLine, headContent, hiddenLine, opensLine, pinnedLines, sectionHeader, splitDescription } from "../src/viewer/inspector-view";
 import { type KeyMode, keyAction } from "../src/viewer/keys";
 import { numberedCards } from "../src/viewer/widgets";
 import { palette } from "../src/ui";
@@ -61,11 +61,26 @@ test("each card's header shows the key that focuses it, and the keys and the num
   expect(numberedCards(["activity", "connections", "flows"])).toEqual(["activity", "connections", "flows", "files"]);
   expect(numberedCards(["connections"])).toEqual(["connections", "files"]);
   expect(numberedCards(["activity", "steps"])).toEqual(["activity", "steps", "files"]);
-  const mode = (cards: KeyMode["cards"], flow = false): KeyMode => ({ layer: "main", askContext: false, replay: false, fileMode: false, focusSection: undefined, flow, listMode: false, cards, vim: true });
+  const mode = (cards: KeyMode["cards"], flow = false): KeyMode => ({ layer: "main", replay: false, fileMode: false, focusSection: undefined, flow, listMode: false, cards, vim: true });
   const key = (digit: string, cards: KeyMode["cards"], flow = false) => keyAction({ name: digit, sequence: digit, ctrl: false, meta: false, shift: false }, mode(cards, flow));
   for (const shown of [["activity", "connections", "flows"], ["connections"], ["activity", "steps"], ["steps"]] as const) {
     const cards = numberedCards(shown);
     cards.forEach((card, index) => expect(key(String(index + 1), cards, shown.includes("steps" as never))).toEqual({ type: "focus", section: card }));
     expect(key(String(cards.length + 1), cards)).toEqual({ type: "idle" });
   }
+});
+
+test("a box that opens a view the draft thinned says how many smaller boxes that view leaves out, and names no key", () => {
+  expect(hiddenLine("7 smaller ones are not shown here; internal_all lists everything.")).toBe("7 smaller boxes are not drawn in its view");
+  expect(hiddenLine("1 smaller one is not shown here; internal_all lists everything.")).toBe("1 smaller box is not drawn in its view");
+  expect(hiddenLine("")).toBe("");
+});
+
+test("a box whose children are drawn here and that opens a view says what o opens, on its own dim line under the counts", () => {
+  const head = headContent({ title: "Commerce", kind: "system", planned: false, tags: [], description: { txt: "4 files, 120 lines" }, mapped: 4,
+    opens: [opensLine("Checkout"), hiddenLine("2 smaller ones are not shown here")].join("\n"), width: 50 });
+  expect(head.about.chunks.map(chunk => chunk.text).filter(text => text !== "\n")).toEqual(["4 files, 120 lines", "o opens Checkout", "2 smaller boxes are not drawn in its view"]);
+  const colours = head.about.chunks.filter(chunk => chunk.text !== "\n").map(chunk => chunk.fg);
+  for (const colour of colours) expect(colour).toEqual(RGBA.fromHex(palette.muted));
+  expect(head.rows).toBe(4);
 });

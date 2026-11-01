@@ -9,6 +9,7 @@ import { type Diff, diffWorkspace, recordDiff } from "./diff";
 import { draftWorkspace } from "./draft";
 import { type Decisions, decide, pending, reviewItems, reviewMessage, type Verdict } from "./review";
 import type { Plan } from "./plan";
+import { readPoint, type Point } from "./point";
 import type { Stale } from "./stale";
 import { nodeFiles } from "./node-files";
 import { firstChange, openEditor } from "./editor";
@@ -19,7 +20,7 @@ import { borderHints, palette, setPalette } from "./ui";
 import { type Mode, loadThemes, paletteOf, savedTheme, themeFromEnvironment } from "./theme";
 import { cellAt, rasterize, routeEdges, type Route } from "./routes";
 import { checkFlows } from "./flows";
-import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges } from "./flow-view";
+import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges, type FlowMap } from "./flow-view";
 import { attempt, failure, io } from "./effects";
 import { writeReady } from "./ready";
 import { createConversationReader, type Message } from "./conversation";
@@ -28,20 +29,20 @@ import { declarationsFor } from "./languages";
 import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
 import { createCamera } from "./viewer/camera";
 import { boundsOf, compact, kindsVary } from "./viewer/compact";
-import { cardLook } from "./viewer/card-view";
+import { cardLook, insideWords } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
-import { helpContent } from "./viewer/help";
-import { allotSections, firstQuestion, headContent, nodeListContent, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
+import { helpCap, helpContent } from "./viewer/help";
+import { allotSections, firstQuestion, headContent, nodeListContent, hiddenLine, opensLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
 import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
 import { createThemePicker } from "./viewer/theme-picker";
 import { createAskDialog } from "./viewer/ask-dialog";
 import type { TalkState } from "./viewer/talk-view";
 import { reviewSection } from "./viewer/review-view";
-import { choose, createState, firstNode, remember, type Visit } from "./viewer/state";
-import { createFlowMode, stepElement } from "./viewer/flow-mode";
+import { choose, createState, firstNode, forgetGone, remember, type Visit } from "./viewer/state";
+import { createFlowMode, flowView, stepElement } from "./viewer/flow-mode";
 import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
@@ -58,22 +59,24 @@ let { config, files, fileError, diagrams } = world;
 type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
 const watching = Boolean(binding || following);
 const shaped = new WeakMap<Layout, Layout>();
-// Whether a view's cards spend their first row on the kind, a planned element's status or the activity counts: decided once per view, so it is on every card or none.
-const kindRows = new WeakMap<Layout, { kinds: boolean; row: boolean }>();
+// Whether a view's cards spend their first row on a word (`[36]`), a planned element's status or the activity counts: decided once per view, so it is
+// on every card or none; and the words themselves, by node.
+const wordRows = new WeakMap<Layout, { words: ReadonlyMap<string, string>; row: boolean }>();
 const shape = (raw: Layout): Layout => {
   const known = shaped.get(raw);
   if (known) return known;
-  // A planned element with no files yet keeps its `[planned]` row; the kind row is drawn only when kinds vary among the view's cards. Watching a session,
-  // every card keeps that row, so the activity counts that appear there never move the layout.
+  // A planned element with no files yet keeps its `[planned]` row; the word row is drawn when a card in the view has a word, or its kinds vary (the row
+  // it always had, see kindsVary). Watching a session, every card keeps that row, so the activity counts that appear there never move the layout.
   const planned = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`)) && ![...files].some(([element, paths]) => (element === ref || element.startsWith(`${ref}.`)) && paths.length);
   const input = raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
     x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined, status: planned(String(node.modelRef)) }));
-  const kinds = kindsVary(raw.nodes);
-  const rects = compact(input, { aspect: 0.5, kindRow: kinds || watching });
+  const words = insideWords(raw, new Set([...diagrams.values()].flatMap(other => other.nodes.map(node => String(node.modelRef)))));
+  const row = words.size > 0 || kindsVary(raw.nodes) || watching;
+  const rects = compact(input, { aspect: 0.5, wordRow: row });
   const nodes = raw.nodes.map((node, index) => ({ ...node, x: rects[index]!.x, y: rects[index]!.y, width: rects[index]!.width, height: rects[index]!.height }));
   const next = { ...raw, nodes, bounds: boundsOf(nodes) } as Layout;
   shaped.set(raw, next);
-  kindRows.set(next, { kinds, row: kinds || watching || input.some(node => !node.children.length && node.status) });
+  wordRows.set(next, { words, row: row || input.some(node => !node.children.length && node.status) });
   return next;
 };
 const getDiagram = (id: string) => {
@@ -161,7 +164,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const guide = helpContent({ tier, vim: vimTraverses, screenWidth: renderer.width, version: pkg.version, diff: diff !== undefined });
     help.content.content = guide.content; help.meta.content = guide.meta;
     help.foot.content = new StyledText(borderHints(hints.help));
-    if (help.visible) help.place(guide.width, guide.height); else help.open(guide.width, guide.height);
+    if (help.visible) help.place(guide.width, guide.height, helpCap); else help.open(guide.width, guide.height, helpCap);
   };
   // With nothing selected the head says what the app is: the note of the box the view is about, else of the model's first top-level box.
   const appNote = () => {
@@ -199,7 +202,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
   };
   const liveLabel = () => binding ? `${binding.source}:${binding.session.slice(0, 8)}` : "waiting for a session";
-  const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id))]);
+  // The agent's pointer (`pathlight point`): the element it last asked the viewer to show, marked beside the view's name while it is the selection
+  // and until the next key. `pointSeen` is the newest pointer acted on; one older than the viewer is never acted on.
+  let pointMark: string | undefined, pointSeen = Date.now();
+  // Flow mode the pointer turned on (`pathlight point … --journey ID --step N`): the next pointer leaves it, as `esc` does. A pointer naming a journey
+  // the viewer has not read yet waits for the next reading of the flows.
+  let pointFlow = false, pointWaiting: Point | undefined;
+  const pointed = () => pointMark !== undefined && String(state.selected?.modelRef ?? "") === pointMark;
+  const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id)),
+    ...(pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : [])]);
   // Right-hand: the live session when there is one (a spinner replaces the dot while a tool runs), otherwise nothing.
   // The last `pathlight check` (the Stop hook runs one at the end of each turn): shown only when the model and the code disagree, with how old that check is.
   let stale: Stale | undefined;
@@ -218,7 +229,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // A step selects its card and leaves the camera where it is, moving only when the card is off screen (entering flow mode keeps a fitted view).
     select: node => { selectNode(node, false); camera.ensureVisible(node); },
     title: id => elementTitle(id), say: text => { message = text; }, update: () => update(),
-    entering: () => { if (state.focusSection === "connections") state.focusSection = undefined; }, leaving: () => { if (state.focusSection === "steps") state.focusSection = undefined; } });
+    entering: () => { if (state.focusSection === "connections") state.focusSection = undefined; }, leaving: () => { pointFlow = false; if (state.focusSection === "steps") state.focusSection = undefined; },
+    start: (flow, step) => startFlow(flow, step), away: (flow, index, element) => readElsewhere(flow, index, element) });
   let flowPath = new Set<string>();
   let flowItems: ReturnType<typeof flowsThrough> = [];
   const inPlan = (ref: string) => (plan?.elements ?? []).some(id => ref === id || ref.startsWith(`${id}.`) || id.startsWith(`${ref}.`));
@@ -380,6 +392,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       Effect.ensuring(Effect.sync(() => { if (summary.visible) summary.content.content = summaryContent(); if (!editorActive) update(); }))));
   };
   const tickerContent = () => ticker(binding ? config : undefined, events, elementTitle, Date.now());
+  // Whether the bound session's turn is open (its pointer's `ended` is null): only then is the newest work offered as `working in … w go and follow`.
+  let turnOpen = false;
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
     let step = 32;
@@ -455,7 +469,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       return [entry, { left, top, right, bottom }] as const;
     }));
     // The first row is on every card or none: when the zoom gives cards fewer rows than the layout did, it goes from all of them, before a title line.
-    const rows = kindRows.get(diagram) ?? { kinds: false, row: false };
+    const rows = wordRows.get(diagram) ?? { words: new Map<string, string>(), row: false };
     const header = rows.row && [...placed].every(([entry, drawn]) => entry.node.children.length > 0 || drawn.bottom - drawn.top >= Math.round(entry.node.height / cell.y));
     for (const entry of nodeObjects) {
       const group = entry.node.children.length > 0, id = String(entry.node.id), ref = String(entry.node.modelRef);
@@ -464,7 +478,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const numbers = badges.get(id);
       const { left, top, right, bottom } = placed.get(entry)!;
       const width = right - left, height = bottom - top;
-      const look = cardLook({ title: entry.node.title, kind: entry.node.kind && rows.kinds ? String(entry.node.kind) : "", header, group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
+      const look = cardLook({ title: entry.node.title, word: rows.words.get(String(entry.node.id)) ?? "", header, group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
         selected: isSelected, previewed: previewed === id, flashing: (flashes.get(ref) ?? 0) > now,
         neighbour: diagram.edges.some(edge => (edge.target === state.selected?.id && edge.source === entry.node.id) || (edge.source === state.selected?.id && edge.target === entry.node.id)),
         unbuilt: waiting(ref), planned: Boolean(plan) && inPlan(ref), offPlan: !!plan && related.length > 0 && !inPlan(ref), numbers, flow: Boolean(flowMode.active), width, height });
@@ -487,7 +501,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     const paths = selectedPaths();
     const selected = state.selected;
-    const opens = selected?.navigateTo ? `o opens ${diagrams.get(String(selected.navigateTo))?.title ?? selected.navigateTo}` : "";
+    const target = selected?.navigateTo ? diagrams.get(String(selected.navigateTo)) : undefined;
+    // A box whose children are drawn here and that opens a view: Enter goes into the children, so the line says what `o` opens.
+    const linked = selected?.navigateTo && String(selected.navigateTo) !== String(diagram.id);
+    const both = linked && selected.children.some(child => diagram.nodes.some(node => node.id === child));
+    const opens = [both ? opensLine(String(target?.title ?? selected.navigateTo)) : "", linked ? hiddenLine(describe(target?.description)) : ""].filter(Boolean).join("\n");
     const head = headContent({ title: selected?.title, kind: selected?.kind ? String(selected.kind) : "", technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
       tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
       by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length, app: selected ? undefined : appNote() });
@@ -568,7 +586,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (goto.visible) gotoPicker.render();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
     const mode = replay ? "replay" : fileMode ? "files" : dialog.focus !== "none" ? "talk" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "flow" : "diagram";
-    const work = binding || following ? newestWork() : undefined;
+    const work = (binding || following) && turnOpen ? newestWork() : undefined;
     if (message !== lastToast) {
       lastToast = message;
       if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^(Asked|Drawn:) /.test(shown) ? 3500 : 2000); }
@@ -578,7 +596,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       section: !fileMode ? state.focusSection : undefined, flow: flowMode.active && !fileMode ? { title: flowMode.active.title, step: flowMode.step, steps: flowMode.active.steps.length } : undefined,
       files: fileMode ? { cursor: state.fileCursor, count: paths.length } : undefined }) });
     statusLeft.content = footing.left; statusRight.content = footing.right;
-    // One activity line, top right: an offer when the work is in another view, else the latest call. It is dropped when it would not fit.
+    // One activity line, top right: an offer while the turn is open and the work is in another view, else the call running now. It is dropped when it would not fit.
     crumbHint.content = crumbActivity(work && "view" in work ? workOffer(work.title) : tickerContent(), renderer.width - 2 - crumbPlain.length - 3);
     dirty = true; renderer.requestRender();
   };
@@ -592,12 +610,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const reveal = (target = state.selected) => { if (target) camera.reveal(target); };
   // Opt-in only (key `a`): select the node of the newest call, running or finished (reads end in milliseconds), and glide to it.
   // Only calls after follow was turned on (or resumed) count, so it shows work as it happens and never replays history. A component that is not in this view
-  // falls back to the nearest ancestor that is. The user's own selection or camera movement pauses it.
+  // but is in another goes there (the view `w` would choose, remembered so `b` returns); one no view has falls back to the nearest ancestor here.
+  // The user's own selection or camera movement pauses it.
   const followActivity = () => {
     const latest = events[0];
-    if (!followCamera || followPaused || !latest || latest.call === focusedCall || latest.time < followSince) return;
-    const target = [...elementsOf(rules, latest)].map(element => nodeOrAncestor(diagram, element)).filter((node): node is Node => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
+    if (!followCamera || followPaused || !latest || latest.call === focusedCall || latest.time < followSince || state.pendingVisit) return;
     focusedCall = latest.call;
+    const work = newestIn([latest], rules, diagram, diagrams);
+    if (work && "view" in work) {
+      if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming) { focusedCall = ""; return; }
+      remember(state, visit());
+      camera.animating = false; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: `Went to ${work.title} · following (a to stop)` };
+      return;
+    }
+    const target = work?.node ?? [...elementsOf(rules, latest)].map(element => nodeOrAncestor(diagram, element)).filter((node): node is Node => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
     if (!target) return;
     followSelecting = true;
     try { message = ""; selectNode(target, true); } finally { followSelecting = false; }
@@ -641,6 +667,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (closing) return;
     runTask(checkFlows(view.workspace).pipe(Effect.map(flowMaps), Effect.tap(list => Effect.sync(() => {
       flowMode.load(list);
+      const waiting = pointWaiting;
+      if (waiting) { pointWaiting = undefined; if (!state.pendingVisit && !editorActive) pointAtStep(waiting); }
       if (!editorActive && !closing) update();
     })), Effect.catch(() => Effect.void)));
   };
@@ -656,7 +684,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     indexEvents(); noteCalls();
     const work = newestWork();
     if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } }
-    else if (work) { camera.animating = false; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element }; message = `Went to ${work.title}`; }
+    else if (work) { camera.animating = false; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element }; }
     update();
   };
   const beginReplay = () => {
@@ -689,8 +717,42 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // The picker: `/` searches every view, box and mapped file in the project, `g` only the views (see viewer/pickers.ts).
   const viewHaving = (element: string) => viewIn(diagrams, diagram, element);
-  const gotoPicker = createGotoPicker({ screen: renderer, widget: goto, candidates: mode => pickCandidates({ views: diagrams, current: diagram, mode, files, ignore: config?.ignore ?? [] }),
-    viewOf: element => String(viewHaving(element)?.[1].title ?? ""), go: pick => { if (pick.kind === "view") goToView(pick.view!); else landOn(pick.element!, pick.path); }, update: () => update() });
+  const gotoPicker = createGotoPicker({ screen: renderer, widget: goto, candidates: mode => pickCandidates({ views: diagrams, current: diagram, mode, files, ignore: config?.ignore ?? [], flows: flowMode.flows }),
+    viewOf: element => String(viewHaving(element)?.[1].title ?? ""), go: pick => { if (pick.kind === "view") goToView(pick.view!); else if (pick.flow) { goto.close(); startFlow(pick.flow, 1); update(); } else landOn(pick.element!, pick.path); }, update: () => update() });
+  // Reading a flow at a step: here when this view draws the step's box, else in the view that does, with a Back entry (the header's title says where; no notice). The step
+  // reader is on the node face, so the talk turns to it. `pointed`: the agent's pointer asked for it, so the arrival is marked as its pointing.
+  // Which view: one already reading this flow stays when it draws the step; otherwise the view that draws the most distinct boxes for its steps.
+  const startFlow = (flow: FlowMap, step: number, pointed = false) => {
+    if (dialog.showing) { dialog.flip(); inspectorPreference = "open"; }
+    const element = stepElement(flow, step - 1), reading = flowMode.active?.type === flow.type && flowMode.active.id === flow.id;
+    const best = reading && element && nodeOrAncestor(diagram, element) ? String(diagram.id) : flowView(flow, diagrams, String(diagram.id), String(state.selected?.modelRef ?? ""));
+    const elsewhere = best && best !== String(diagram.id) ? [best, diagrams.get(best)!] as const : undefined;
+    if (!elsewhere) {
+      followSelecting = pointed;
+      try { flowMode.enter(flow, step); } finally { followSelecting = false; }
+      if (pointed) pointMark = String(state.selected?.modelRef ?? "");
+      return;
+    }
+    remember(state, visit());
+    camera.animating = false;
+    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), flow: { type: flow.type, id: flow.id, step, pointed } };
+  };
+  // A step whose box this view does not draw: the view that draws that box, the step selected there, with a Back entry.
+  const readElsewhere = (flow: FlowMap, index: number, element: string) => {
+    const elsewhere = viewHaving(element);
+    if (!elsewhere) { message = `${elementTitle(element)} is in no view`; update(); return; }
+    remember(state, visit());
+    camera.animating = false;
+    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), flow: { type: flow.type, id: flow.id, step: index + 1 } };
+  };
+  // A pointer with a journey and a step: that journey is read at that step until `esc` or the next pointer.
+  const pointAtStep = (point: Point) => {
+    const flow = flowMode.flows.find(item => item.type === "journey" && item.id === point.journey);
+    if (!flow) { message = `The agent pointed at journey ${point.journey}, which the viewer has not read`; update(); return; }
+    startFlow(flow, point.step ?? 1, true);
+    pointFlow = true;
+    update();
+  };
   const themePicker = createThemePicker({ renderer, picker, recolour: () => [renderer.root, inspector], themes, names: themeNames, order: themeOrder, name: themeName, mode: themeMode,
     wanted: wantedTheme, fixedMode: Boolean(environment.mode), say: text => { message = text; }, redraw: () => { dirty = true; update(); }, update: () => update(), run: effect => runTask(effect), closing: () => closing });
   const goToView = (id: string) => {
@@ -716,15 +778,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!best) { message = "That is not in any view"; update(); return; }
     remember(state, visit());
     camera.animating = false; state.pendingVisit = { diagram: getDiagram(best[0]), select: element, file: path };
-    message = `Went to ${String(best[1].title ?? best[0])}`;
   };
   // Ask about a node (`t`), or ask the agent to improve the map (`m`) or trace a flow (`d`), or name it yourself (`n`): see viewer/ask-dialog.ts.
   const askContext = (target: Node) => {
     const title = (id: string) => diagram.nodes.find(node => node.id === id)?.title ?? id;
     const links = [...diagram.edges.filter(edge => edge.source === target.id).map(edge => `→ ${title(edge.target)}`),
       ...diagram.edges.filter(edge => edge.target === target.id).map(edge => `← ${title(edge.source)}`)];
-    const activity = [...new Set((byElement.get(String(target.modelRef ?? "")) ?? []).flatMap(event => event.paths.map(path => `${event.operation} ${path}`)))];
-    return { files: files.get(String(target.modelRef ?? "")) ?? [], links, activity };
+    return { links };
   };
   // The scan's imports, read when a request first needs them and again after a reload: a request names the files on the component's edges.
   let imports: Scan["imports"] | undefined;
@@ -748,7 +808,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     empty: !binding ? "no session bound yet · the reply lands in the agent pane" : conversation.error ? "cannot read the conversation"
       : !pointer?.transcript ? "nothing recorded from this session's conversation yet · the reply lands in the agent pane" : "no messages yet" });
   const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
-    live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); }, background: hot });
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); } });
   nameInput.onContentChange = () => fitName();
   talk.input.onContentChange = () => dialog.typed();
   help.dismiss = () => help.close();
@@ -805,8 +865,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   nodeListText.onMouseDown = event => {
     if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || state.pendingVisit) return;
     const node = diagram.nodes[event.y - nodeListText.y];
-    if (node) selectNode(node, false);
+    if (node) clickOn(node);
   };
+  // A click selects; it is not a visit, so `b` does not walk back through clicks.
+  const clickOn = (node: Node) => selectNode(node, false);
   viewport.onMouseDown = event => {
     if (editorActive || help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || state.pendingVisit) return;
     // A click on the diagram hands the keys back to it; the talk stays showing.
@@ -817,7 +879,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     // rounding can put a group's visible title just outside that plane.
     const entry = nodeObjects.filter(({ box }) => box.visible && event.x >= box.x && event.x < box.x + box.width
       && event.y >= box.y && event.y < box.y + box.height).sort((a, b) => b.node.level - a.node.level)[0];
-    if (entry) selectNode(entry.node, false);
+    if (entry) clickOn(entry.node);
   };
   // A paste into the picker is text for the query, not keys.
   renderer.keyInput.on("paste", event => {
@@ -827,7 +889,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   });
   // Which action a key means is decided in viewer/keys.ts; here it is done.
   const glide = (change: () => void) => camera.glide(change);
+  // Back: the newest visit whose view still exists, camera and selection restored; one the model lost since is passed over. False when there is none.
+  const goBack = () => {
+    for (let saved = state.history.pop(); saved; saved = state.history.pop()) {
+      if (!diagrams.get(saved.view)?.nodes.length) continue;
+      state.pendingVisit = { diagram: getDiagram(saved.view), restore: saved }; camera.animating = false;
+      return true;
+    }
+    return false;
+  };
+  // Whatever a key's case throws is said in the footer, never printed over the screen.
   const perform = (action: Action) => {
+    try { act(action); } catch (error) { message = error instanceof Error ? error.message : String(error); update(); }
+  };
+  const act = (action: Action) => {
     const play = replay;
     const replayGo = (index: number) => { if (play) { play.playing = false; showStep(index); } };
     const key_ = state.focusSection;
@@ -838,10 +913,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "askSend": dialog.nameNext(); return;
       case "talkLeave": dialog.blur(); return;
       case "talkTab": dialog.tab(action.by); return;
-      case "talkToggles": dialog.toToggles(); return;
-      case "talkField": dialog.toField(); return;
-      case "talkChoose": dialog.choose(action.by); return;
-      case "talkToggle": dialog.toggle(); return;
       case "talkSend": dialog.send(); return;
       case "talkScroll": dialog.scroll(action.by); return;
       case "talkBack": dialog.back(); return;
@@ -849,7 +920,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "themeCancel": themePicker.cancel(); return;
       case "themeKeep": themePicker.keep(); return;
       case "themeMove": themePicker.move(action.to); return;
-      case "gotoClose": case "gotoGo": case "gotoMove": case "gotoPage": case "gotoHome": case "gotoEnd": case "gotoClear": case "gotoErase": case "gotoType": gotoPicker.key(action); return;
+      case "gotoClose": case "gotoGo": case "gotoMove": case "gotoPage": case "gotoHome": case "gotoEnd": case "gotoClear": case "gotoErase": case "gotoType": case "gotoKind": gotoPicker.key(action); return;
       case "summaryClose": summary.close(); update(); return;
       case "reviewMove": reviewCursor = Math.max(0, reviewCursor + action.by); summary.content.content = summaryContent(); update(); return;
       case "decide": decideOn(action.verdict); return;
@@ -909,17 +980,29 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "flowStep": flowMode.goTo(flowMode.step + action.by); return;
       case "exitFlow": flowMode.exit(); return;
       case "search": camera.animating = false; gotoPicker.begin("all"); return;
-      case "back": {
-        const saved = state.history.at(-1);
-        if (saved) { const next = getDiagram(saved.view); state.history.pop(); state.pendingVisit = { diagram: next, restore: saved }; camera.animating = false; }
-        else { message = "No previous view"; update(); }
-        return;
-      }
-      case "open":
-        if (action.enter && state.selected?.children.length) selectNode(diagram.nodes.find(node => node.id === state.selected?.children[0]), true);
+      case "back": if (!goBack()) { message = "No previous view"; update(); } return;
+      // Enter goes into a box: into its children when this view draws them (a group, or the frame the view is about), else into the view it opens.
+      // Going into a group is a visit too, so back first reselects it in this view and only then leaves it. `o` opens the view a box links to even
+      // when its children are drawn here.
+      case "open": {
+        const child = diagram.nodes.find(node => node.id === state.selected?.children[0]);
+        if (child) { remember(state, visit()); selectNode(child, true); }
         else openLink();
         return;
-      case "parent": selectNode(diagram.nodes.find(node => node.id === state.selected?.parent), true); return;
+      }
+      case "openView": openLink(); return;
+      // `b` and backspace are one stack: backspace steps back too, and only with nowhere to go back to goes up, to the box that holds the selection
+      // in this view, else to the view whose box opens this one.
+      case "parent": {
+        if (goBack()) return;
+        const holder = diagram.nodes.find(node => node.id === state.selected?.parent);
+        if (holder) { selectNode(holder, true); return; }
+        const above = [...diagrams].find(([id, other]) => id !== String(diagram.id) && other.nodes.some(node => String(node.navigateTo ?? "") === String(diagram.id)));
+        if (!above) { message = "No previous view"; update(); return; }
+        const opener = above[1].nodes.find(node => String(node.navigateTo ?? "") === String(diagram.id))!;
+        camera.animating = false; state.pendingVisit = { diagram: getDiagram(above[0]), select: String(opener.modelRef ?? opener.id) };
+        return;
+      }
       case "views": gotoPicker.begin("views"); return;
       case "themes": themePicker.begin(); return;
       case "ask": dialog.ask(!engaged && state.selected ? firstQuestion(state.selected.title) : ""); return;
@@ -935,7 +1018,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); if (followCamera) message = "Following the work (a to stop)"; update(); }
         else if (work) {
           remember(state, visit());
-          camera.animating = false; startFollow(); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: `Went to ${work.title}${followCamera ? " · following (a to stop)" : ""}` }; update();
+          camera.animating = false; startFollow(); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: followCamera ? `Went to ${work.title} · following (a to stop)` : "" }; update();
         } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
         return;
       }
@@ -1010,8 +1093,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   renderer.keyInput.on("keypress", key => {
     if (editorActive) return;
+    if (pointMark !== undefined) { pointMark = undefined; update(); }
     const layer = state.pendingVisit ? "visit" : dialog.naming ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : dialog.focus !== "none" ? "talk" : "main";
-    const action = keyAction(key, { layer, askContext: dialog.focus === "toggles", talk: { showing: dialog.showing, fresh: dialog.fresh, top: dialog.atTop }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
+    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
     if (!action) return;
     if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();
@@ -1036,6 +1120,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
         diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; imports = undefined;
+        forgetGone(state, id => Boolean(diagrams.get(id)?.nodes.length));
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;
         nodeObjects = mountNodes(); routes = computeRoutes(); gapFor = "";
@@ -1062,6 +1147,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       else { camera.autoFit = true; fit(); camera.settle(); }
       if (next.select) state.selected = nodeForElement(next.select) ?? state.selected;
       if (next.file) showFile(next.file);
+      const reading = next.flow, flow = reading && flowMode.flows.find(item => item.type === reading.type && item.id === reading.id);
+      if (reading && flow) {
+        followSelecting = Boolean(reading.pointed);
+        try { flowMode.enter(flow, reading.step); } finally { followSelecting = false; }
+        if (reading.pointed) pointMark = String(state.selected?.modelRef ?? "");
+        message = next.notice ?? "";
+      }
       update();
     }
     layout();
@@ -1137,6 +1229,34 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (!editorActive) update();
     }
   }).pipe(Effect.repeat(Schedule.spaced("3 seconds")), Effect.forkScoped);
+  // The pointer is read on its own, more often than the checks, so a walk-through step moves the diagram when it is said. Each pointer is acted on
+  // once: the element is selected (in the view it names, else here, else in a view that draws it) and marked; nothing after that follows the agent.
+  // While a modal is open or the talk's field has the keys it is let go, as a reply is.
+  yield* Effect.gen(function* () {
+    const point = yield* readPoint(view.workspace);
+    if (!point) { if (pointMark !== undefined) { pointMark = undefined; update(); } return; }
+    if (point.at <= pointSeen || state.pendingVisit || state.pendingReload || editorActive) return;
+    pointSeen = point.at;
+    if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || dialog.focus !== "none") return;
+    if (point.journey) {
+      // A journey written a moment ago may not have been read yet: read the flows, then act on it.
+      if (flowMode.flows.some(item => item.type === "journey" && item.id === point.journey)) pointAtStep(point); else { pointWaiting = point; loadFlows(); }
+      return;
+    }
+    // A pointer without a journey leaves the journey the last pointer turned on.
+    if (pointFlow && flowMode.active) flowMode.exit();
+    const here = point.view === undefined || point.view === String(diagram.id) ? nodeForElement(point.element) : undefined;
+    if (here) {
+      pointMark = point.element; followSelecting = true;
+      try { message = ""; selectNode(here, true); } finally { followSelecting = false; }
+      return;
+    }
+    const elsewhere = point.view && diagrams.get(point.view)?.nodes.length ? [point.view, diagrams.get(point.view)!] as const : viewHaving(point.element);
+    if (!elsewhere) { message = `The agent pointed at ${point.element}, which no view draws`; update(); return; }
+    remember(state, visit());
+    pointMark = point.element; camera.animating = false;
+    state.pendingVisit = { diagram: getDiagram(elsewhere[0]), select: point.element };
+  }).pipe(Effect.catch(() => Effect.void), Effect.repeat(Schedule.spaced("500 millis")), Effect.forkScoped);
   if (binding || following) yield* Effect.gen(function* () {
     if (replay) {
       if (replay.playing && Date.now() >= replay.next) {
@@ -1148,7 +1268,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (following) binding = (yield* latestBinding(view.workspace)) ?? binding;
     allEvents = binding ? yield* readActivity(view.workspace, binding) : [];
     events = visibleEvents(allEvents);
-    const signature = `${binding?.session}/${events.map(event => `${event.call}${event.phase}`).join()}`;
+    turnOpen = binding ? (yield* readSession(view.workspace, binding))?.ended === null : false;
+    const signature = `${binding?.session}/${turnOpen}/${events.map(event => `${event.call}${event.phase}`).join()}`;
     const changed = signature !== lastSignature;
     lastSignature = signature;
     indexEvents(); noteCalls(); followActivity();

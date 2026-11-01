@@ -44,8 +44,9 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("Selected: parcel.commerce")).toContain("parcel/services");
     expect(await capture("parcel/services")).not.toContain("back ");
+    // Enter on a group whose children are drawn here goes into them, even when it also opens a view; backspace comes back.
     await tmux("send-keys", "-t", pane, "Enter");
-    await capture("Selected: parcel.commerce.api");
+    expect(await capture("Selected: parcel.commerce.api")).toContain("parcel/services");
     await tmux("send-keys", "-t", pane, "BSpace");
     await settled();
     await tmux("send-keys", "-t", pane, "+", "Right");
@@ -53,7 +54,9 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     expect(beforeLink).toContain("Selected: parcel.commerce");
     const pid = await tmux("display-message", "-p", "-t", pane, "#{pane_pid}");
 
-    await tmux("send-keys", "-t", pane, "o");
+    await find("checkout");
+    await capture("› checkout");
+    await tmux("send-keys", "-t", pane, "Enter");
     expect(await capture("parcel/checkout")).toContain("back 1");
     await settled();
     await tmux("send-keys", "-t", pane, "b");
@@ -100,3 +103,51 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await rm(directory, { recursive: true, force: true });
   }
 }, 40000);
+
+// `b` and backspace are one stack: backspace steps back through the visits as `b` does, and only with none left goes up, first to the box that holds
+// the selection in this view, then to the view whose box opens this one. `b` with nothing to go back to stays and says so.
+test("backspace steps back like b, and goes up only when there is nowhere to go back to", async () => {
+  const see = async (keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", "checkout", "--workspace", "examples/parcel", "--project", "parcel",
+    "--cols", "140", "--rows", "36", "--select", "parcel.commerce.api", "--keys", keys])).split("\n");
+  const where = (screen: string[]) => [screen.find(line => line.includes("parcel/"))!.trim().split(" ")[0], /Selected: (\S+)/.exec(screen.at(-1)!)?.[1]];
+  // Up through the boxes that hold the API in this view, then to the view whose box opens it.
+  expect(where(await see("BSpace,BSpace"))).toEqual(["parcel/checkout", "parcel"]);
+  const up = await see("BSpace,BSpace,BSpace");
+  expect(where(up)).toEqual(["parcel/services", "parcel.commerce"]);
+  // The header's title says where you are; a move you made yourself raises no notice.
+  expect(up.at(-1)).not.toContain("Went to");
+  // Into the group and straight back: backspace takes the visit, as b would.
+  expect(where(await see("BSpace,BSpace,BSpace,Enter,BSpace"))).toEqual(["parcel/services", "parcel.commerce"]);
+  expect(where(await see("BSpace,BSpace,BSpace,Enter,b"))).toEqual(["parcel/services", "parcel.commerce"]);
+  // o opens the view a box links to even when its children are drawn here.
+  const opened = await see("BSpace,BSpace,BSpace,o");
+  expect(where(opened)[0]).toBe("parcel/checkout");
+  expect(opened.find(line => line.includes("parcel/checkout"))).toContain("back 1");
+  // b alone, with no visit behind it, stays.
+  const stays = await see("b");
+  expect(where(stays)).toEqual(["parcel/checkout", "parcel.commerce.api"]);
+  expect(stays.at(-1)).toContain("No previous view");
+}, 120_000);
+
+// Enter into a group is a step on the back stack: b and backspace first reselect the frame in the same view, and only then leave it.
+test("back after Enter into a group reselects the frame in the same view before leaving it", async () => {
+  const see = async (keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", "checkout", "--workspace", "examples/parcel", "--project", "parcel",
+    "--cols", "140", "--rows", "36", "--select", "parcel.commerce", "--keys", keys])).split("\n");
+  const where = (screen: string[]) => [screen.find(line => line.includes("parcel/"))!.trim().split(" ")[0], /Selected: (\S+)/.exec(screen.at(-1)!)?.[1]];
+  const inside = await see("Enter");
+  expect(where(inside)[0]).toBe("parcel/checkout");
+  expect(where(inside)[1]).toStartWith("parcel.commerce.");
+  expect(inside.find(line => line.includes("parcel/checkout"))).toContain("back 1");
+  expect(where(await see("Enter,b"))).toEqual(["parcel/checkout", "parcel.commerce"]);
+  expect(where(await see("Enter,BSpace"))).toEqual(["parcel/checkout", "parcel.commerce"]);
+  const twice = await see("Enter,b,b");
+  expect(where(twice)).toEqual(["parcel/checkout", "parcel.commerce"]);
+  expect(twice.at(-1)).toContain("No previous view");
+}, 120_000);
+
+// The word on a card's first row: a box that opens a view says how many boxes are inside it; a leaf says nothing; no card names its kind.
+test("the overview's Parcel says how many boxes are inside it, and no card says person, system or component", async () => {
+  const screen = await run(process.execPath, [resolve("src/cli.ts"), "see", "index", "--workspace", "examples/parcel", "--project", "parcel", "--cols", "140", "--rows", "36"]);
+  expect(screen).toMatch(/│ \[11\] +│[^\n]*\n[^\n]*│ Parcel +│/);
+  expect(screen).not.toMatch(/│ (person|system|component|external)\b/);
+}, 60_000);

@@ -7,10 +7,25 @@ import { fade, labelTitle, nl } from "./text";
 /** A card drawn with dashes: the preview of a connection's other end, or a planned element with no files yet. */
 export const dashed = { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯", horizontal: "┄", vertical: "┆", topT: "┬", bottomT: "┴", leftT: "├", rightT: "┤", cross: "┼" };
 
+/**
+ * The word on a box's first row: how many boxes are inside it, for a box that opens a view (a package on the overview too); nothing on a leaf, and no
+ * kind word anywhere (`component`, `folder`, `package` told the reader nothing). Counted from every view's boxes, so it is the boxes there are to see.
+ */
+export const insideWords = (view: { id: unknown; nodes: readonly { id: unknown; modelRef?: unknown; navigateTo?: unknown; children: readonly unknown[] }[] }, boxes: ReadonlySet<string>) => {
+  const words = new Map<string, string>();
+  for (const node of view.nodes) {
+    if (node.children.length || !node.navigateTo || String(node.navigateTo) === String(view.id)) continue;
+    const ref = String(node.modelRef), count = [...boxes].filter(box => box.startsWith(`${ref}.`)).length;
+    if (count) words.set(String(node.id), `[${count.toLocaleString("en")}]`);
+  }
+  return words;
+};
+
 /** What a card is to the viewer at this moment. */
 export interface CardFacts {
-  title: string; kind: string; group: boolean; tags: readonly string[];
-  /** Whether leaf cards spend their first row on the kind and status: the view decides, so it is on every card or none. */
+  /** `word`: what its first row says on the left (`[36]`, see `insideWords`), or nothing. */
+  title: string; word: string; group: boolean; tags: readonly string[];
+  /** Whether leaf cards spend their first row on the word and status: the view decides, so it is on every card or none. */
   header: boolean;
   related: ActivityEvent[]; now: number;
   selected: boolean; neighbour: boolean; previewed: boolean; flashing: boolean;
@@ -22,7 +37,7 @@ export interface CardFacts {
 }
 
 /**
- * How a card looks: its border colour and dashes, the text in its top border (a group's title; a leaf's observed tag) and a leaf's label (the kind and
+ * How a card looks: its border colour and dashes, the text in its top border (a group's title; a leaf's observed tag) and a leaf's label (the word and
  * status on the first row when the view has that row, then the title, with any spare rows blank beneath it). Selection and the panel cursor's target take the accent; neighbours are a step brighter; a running call
  * pulses the accent; a card off the flow's path steps back.
  */
@@ -52,7 +67,7 @@ export function cardLook(card: CardFacts) {
   const dashes = (card.previewed && !card.selected) || card.unbuilt ? dashed : undefined;
   const bright = card.selected || card.neighbour || card.previewed;
   if (group) return { border, dashes, title: `${card.title}${state ? ` [${state}]` : card.unbuilt ? " [planned]" : ""}${counts ? ` ·${counts}` : ""}`, titleColor: undefined, label: undefined };
-  // First line: the kind (dim) on the left and observed activity (dim) on the right; then the title.
+  // First line: the word (dim) on the left and observed activity (dim) on the right; then the title.
   const { width, height } = card;
   const rows = height - 2, textWidth = Math.max(4, width - 4);
   const stateText = card.unbuilt ? "[planned]" : "";
@@ -60,7 +75,7 @@ export function cardLook(card: CardFacts) {
   // A narrow card keeps just the glyph, so the state is still there when the words do not fit.
   const title = !tag ? undefined : width >= tag.text.length + 6 ? ` ${tag.text} ` : width >= 7 ? ` ${tag.text.slice(0, tag.text.indexOf(" ") > 0 ? tag.text.indexOf(" ") : 1)} ` : undefined;
   const statusText = [stateText, counts].filter(Boolean).join(" ");
-  const kindText = card.kind.length + (statusText ? statusText.length + 1 : 0) < textWidth ? card.kind : "";
+  const kindText = card.word.length + (statusText ? statusText.length + 1 : 0) < textWidth ? card.word : "";
   const header = card.header && rows >= 2;
   const gap = Math.max(1, textWidth - kindText.length - statusText.length);
   const first: TextChunk[] = header ? [fg(palette.muted)(kindText.slice(0, Math.max(0, textWidth - statusText.length - 1))),

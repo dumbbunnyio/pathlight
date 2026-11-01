@@ -48,10 +48,25 @@ export const headContent = (options: { title: string | undefined; kind: string; 
   const { words, counts } = options.title === undefined ? { words: options.app ?? "", counts: "" } : splitDescription(describe(options.description), options.note);
   const lines = [...(words ? wrapWords(words, width).map(line => ({ line, color: palette.body })) : []),
     ...(counts ? wrapWords(countsLine(counts, options.mapped), width).map(line => ({ line, color: palette.muted })) : []),
-    ...(opens ? [{ line: opens, color: palette.muted }] : [])];
+    ...opens.split("\n").filter(Boolean).flatMap(text => wrapWords(text, width).map(line => ({ line, color: palette.muted })))];
   const about = new StyledText(lines.flatMap((entry, index) => [...(index ? [nl] : []), fg(entry.color)(entry.line)]));
   return { title, what: new StyledText([fg(palette.muted)(what || " ")]), hasWhat: what !== "", about, hasAbout: lines.length > 0,
     rows: 1 + (what ? 1 : 0) + lines.length };
+};
+
+/**
+ * The muted line under a box whose children this view draws and that also opens a view: Enter goes into the children, `o` opens the view. Only
+ * then: on a leaf the two keys do the same, and the line would be noise.
+ */
+export const opensLine = (title: string) => `o opens ${title}`;
+
+/**
+ * The muted line under a box that opens a view: how many smaller boxes that view leaves out, when the draft's description of it says so (`7 smaller
+ * ones are not shown here; …`), since a view's own description is never shown. Nothing when it leaves none out.
+ */
+export const hiddenLine = (viewDescription: string) => {
+  const hidden = /\b(\d[\d,]*) smaller ones? (?:is|are) not shown\b/.exec(viewDescription)?.[1];
+  return hidden ? `${hidden} smaller ${hidden === "1" ? "box is" : "boxes are"} not drawn in its view` : "";
 };
 
 /** Each card's share of the inspector, as `layoutSections` applies it. */
