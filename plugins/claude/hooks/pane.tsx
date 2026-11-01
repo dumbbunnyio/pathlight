@@ -135,7 +135,7 @@ export const register: Register = on => {
     const opened = await $.ui.open({ id: PANE, title: 'Pathlight', focus: true, columns: 140 })
     if (!opened.isPlaced) { wanted = undefined; return next(e) }
     $.ui.invalidate('ui.render')
-    return { text: 'Pathlight is beside the conversation. Type to drive it; click its last row for Tab and the arrows; ctrl+x tab brings the keys back after Esc.' }
+    return { text: 'Pathlight is beside the conversation. Type to drive it; click its last row for the arrows; ctrl+x tab brings the keys back after Esc.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -173,6 +173,16 @@ export const register: Register = on => {
     }
     current.drawn = { cols, rows }
     return <Box flexDirection="column"><Raster key={RASTER} columns={cols} rows={rows} cells={frame.cells} />{keyRow}</Box>
+  })
+
+  // Tab in the field: the ring would leave it for the pane's close mark; the field keeps it and Pathlight gets Tab (Shift+Tab too, as from the
+  // Client row: the ring says nothing of which it was). Up and Down only come back to the field, and Left and Right stay in it, so the arrows need
+  // the Client row.
+  on('ui.focus', async ($, e, next) => {
+    if (e.component !== 'Pane' || e.requestId !== PANE) return next(e)
+    // The field is the ring's one element: the person moving the ring off every element is Tab leaving the field.
+    if (e.origin.kind === 'person' && e.element === undefined && run?.focused) { send($, '/key', { key: 'tab' }); return { deny: 'Tab goes to Pathlight' } }
+    return next(e)
   })
 
   // The Client row: every key once it has been clicked, posted in order with a number; a number already forwarded is never sent twice.
