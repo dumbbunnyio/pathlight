@@ -1,4 +1,4 @@
-import { BoxRenderable, TextRenderable, StyledText, fg, RGBA, createCliRenderer } from "@opentui/core";
+import { BoxRenderable, TextRenderable, StyledText, fg, RGBA, createCliRenderer, type CliRenderer, type CliRendererConfig } from "@opentui/core";
 import { Effect, FiberSet, Schedule } from "effect";
 import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -48,7 +48,18 @@ import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
 import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
 
-export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string }) {
+/**
+ * Who draws the viewer when it is not the terminal's own process: `pathlight pane` hands it a headless renderer and takes the frames, says when the
+ * first one is out, and sends the talk's requests as the person's prompt through its host instead of typing into a tmux pane.
+ */
+export interface ViewerHost {
+  renderer: (config: CliRendererConfig) => Promise<CliRenderer>;
+  ready?: (renderer: CliRenderer) => void;
+  /** Resolves to what the talk says instead of its usual line (the request was queued, say), or nothing; fails with the host's refusal. */
+  send: (text: string) => Effect.Effect<string | undefined, Error>;
+}
+
+export const viewNative = Effect.fn("Native.view")(function* (options: { view: View; activity?: ActivityBinding; follow?: boolean; parent?: string; ready?: string; select?: string; host?: ViewerHost }) {
 const view = options.view;
 let binding = options.activity;
 const following = options.follow === true;
@@ -96,8 +107,12 @@ const wantedTheme = environment.name || (yield* savedTheme().pipe(Effect.catch((
 let themeName = [wantedTheme, "pathlight"].find(name => themes.has(name))!;
 let themeMode: Mode = environment.mode ?? "dark";
 try { setPalette(paletteOf(themes.get(themeName)!, themeMode)); } catch { themeName = "pathlight"; setPalette(paletteOf(themes.get("pathlight")!, themeMode)); }
-if (!process.stdin.isTTY || !process.stdout.isTTY) return yield* Effect.fail(failure("Native.terminal", "The native viewer needs a terminal. Use pathlight show to open a tmux pane."));
-const renderer = yield* Effect.acquireRelease(io("Native.renderer", () => createCliRenderer({ exitOnCtrlC: false, exitSignals: [], consoleMode: "disabled", targetFps: 30, backgroundColor: palette.background })),
+const host = options.host;
+// Where a request to the agent goes: up to the host that draws the viewer, else typed into the agent's tmux pane (`--parent`), else nowhere.
+const sendToAgent = host ? (text: string) => host.send(text) : options.parent ? (text: string) => sendToPane(options.parent!, text, true).pipe(Effect.as(undefined)) : undefined;
+if (!host && (!process.stdin.isTTY || !process.stdout.isTTY)) return yield* Effect.fail(failure("Native.terminal", "The native viewer needs a terminal. Use pathlight show to open a tmux pane."));
+const rendererConfig: CliRendererConfig = { exitOnCtrlC: false, exitSignals: [], consoleMode: "disabled", targetFps: 30, backgroundColor: palette.background };
+const renderer = yield* Effect.acquireRelease(io("Native.renderer", () => host ? host.renderer(rendererConfig) : createCliRenderer(rendererConfig)),
   renderer => io("Native.close", async () => { renderer.destroy(); await renderer.closed; }).pipe(Effect.orDie));
 const stopped = Promise.withResolvers<void>();
 const stop = () => stopped.resolve();
@@ -383,8 +398,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     runTask(Effect.gen(function* () {
       decisions = yield* decide(view.workspace, item, verdict);
       if (verdict === "accepted" && drafted) message = `Accepted ${pair}`;
-      else if (options.parent) {
-        yield* sendToPane(options.parent, reviewMessage(item, verdict, elementTitle), true);
+      else if (sendToAgent) {
+        yield* sendToAgent(reviewMessage(item, verdict, elementTitle));
         message = verdict === "accepted" ? `Accepted ${pair}: asked the agent to add it to the model` : `Rejected ${pair}: asked the agent to take it out`;
       } else message = `${verdict === "accepted" ? "Accepted" : "Rejected"} ${pair}; there is no agent pane to tell (open the viewer with pathlight show)`;
       yield* settleReview;
@@ -575,7 +590,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       entry.content.verticalScrollBar.visible = focused && entry.content.scrollHeight > entry.content.viewport.height;
     }
     const pinned = pinnedLines({ width: Math.max(10, inspector.width - (mounted === "overlay" ? 3 : 2)), files: paths.length, session: Boolean(binding), replay: Boolean(binding && events.length),
-      title: selected?.title, canAsk: Boolean(options.parent), background: hot, first: !engaged });
+      title: selected?.title, canAsk: Boolean(sendToAgent), background: hot, first: !engaged });
     inspectorActions.content = pinned.actions;
     inspectorAsk.content = pinned.ask;
     // The column's two faces: the node (its head, cards, actions and question line) or the talk.
@@ -807,7 +822,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const talkConversation = () => ({ messages: conversation.messages, state: talkState(),
     empty: !binding ? "no session bound yet · the reply lands in the agent pane" : conversation.error ? "cannot read the conversation"
       : !pointer?.transcript ? "nothing recorded from this session's conversation yet · the reply lands in the agent pane" : "no messages yet" });
-  const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, parent: options.parent, selected: () => state.selected, context: askContext, relevant: requestFiles,
+  const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, send: sendToAgent, selected: () => state.selected, context: askContext, relevant: requestFiles,
     live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); } });
   nameInput.onContentChange = () => fitName();
   talk.input.onContentChange = () => dialog.typed();
@@ -1095,7 +1110,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (editorActive) return;
     if (pointMark !== undefined) { pointMark = undefined; update(); }
     const layer = state.pendingVisit ? "visit" : dialog.naming ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : dialog.focus !== "none" ? "talk" : "main";
-    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses });
+    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses, pane: Boolean(host) });
     if (!action) return;
     if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();
@@ -1301,6 +1316,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   renderer.start(); update();
   const ready = yield* io("Native.firstFrame", () => Promise.race([displayed.promise.then(() => true), stopped.promise.then(() => false), renderer.closed.then(() => false)]));
   if (ready && options.ready) yield* writeReady(options.ready, { ready: true });
+  if (ready) host?.ready?.(renderer);
   // Flows are read after the first frame, so opening a view never waits for them.
   if (ready) loadFlows();
   if (ready) yield* io("Native.wait", () => Promise.race([stopped.promise, renderer.closed]));

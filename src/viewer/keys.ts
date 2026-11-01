@@ -1,4 +1,4 @@
-import type { Hint } from "../ui";
+import { type Hint, paneMode } from "../ui";
 import type { SectionKey } from "./widgets";
 
 /** A key as OpenTUI reports it. */
@@ -15,7 +15,16 @@ export interface KeyMode {
   cards: readonly SectionKey[];
   /** `h j k l` select when true (arrows pan); `v` swaps them. */
   vim: boolean;
+  /**
+   * Drawn by a host whose Escape is its own (`pathlight pane`): `q` is the viewer's Esc wherever no field is typing, and never quits (the pane's own
+   * close does). Where a field is typing `q` is a letter, and `f12` stands for the host's Esc, which hands the keys back to the conversation: it leaves
+   * the field too. Nothing changes outside pane mode.
+   */
+  pane?: boolean;
 }
+
+/** The key the pane's host sends when its Esc hands the keys back to the conversation (`src/pane.ts`). */
+export const paneBlur = "f12";
 
 /**
  * Every action a key can ask for. The viewer performs them; this file only decides which one a key means where it was pressed.
@@ -47,6 +56,14 @@ const directions: Record<string, Direction> = { h: "left", j: "down", k: "up", l
 
 /** What a key means where it was pressed; undefined leaves it to the focused input untouched. */
 export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
+  if (mode.pane) {
+    const typing = mode.layer === "ask" || mode.layer === "talk" || mode.layer === "goto" || (mode.layer === "main" && mode.fileMode);
+    const escape = { ...key, name: "escape", sequence: "\x1b", ctrl: false, meta: false, shift: false };
+    if (key.name === paneBlur) { if (!typing) return { type: "swallow" }; key = escape; }
+    else if (!typing && key.name === "q" && key.sequence === "q" && !key.ctrl && !key.meta) key = escape;
+    // The pane's process ends with the pane: ctrl+c there is the person's and never quits it.
+    else if (key.ctrl && key.name === "c") return { type: "swallow" };
+  }
   if (key.ctrl && key.name === "c") return { type: "stop" };
   if (mode.layer === "visit") return { type: "swallow" };
   // The naming modal (`n`): its field has every key but these.
@@ -181,19 +198,19 @@ export type Tier = 1 | 2 | 3;
  * agent, then shapes the map. `t` is listed once, in the first (asking and telling are one key). `vim` says which family selects (the other pans).
  */
 export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" | "Shape the map"; tier: Tier; rows: HelpRow[] }[] => {
-  const arrows = "← ↑ ↓ →";
+  const arrows = "← ↑ ↓ →", leave = paneMode ? "q" : "esc";
   return [
     { name: "Understand it", tier: 1, rows: [[`click, ${vim ? "h j k l" : arrows}`, "select a box, a neighbour", ["traverse", "listMove"]],
       ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter", "into a box", ["open"]], ["o", "the view a box opens", ["openView"]], ["b, backspace", "back where you were, else up", ["back", "parent"]], ["t", "ask how it works, or tell it what to change", ["ask"]],
-      ["F", "step through a flow", ["cycleFlow"]], ["[ ]", "steps, esc leaves", ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
+      ["F", "step through a flow", ["cycleFlow"]], ["[ ]", `steps, ${leave} leaves`, ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
     { name: "Direct it", tier: 2, rows: [["c", "what it did this session, and the review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
       ["/", "search everything, tab a kind", ["search"]], ["g", "go to any view", ["views"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
       ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
     { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a flow", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
       ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],
-      ["1–4", "focus a card, esc or tab leaves", ["focus", "sectionLeave"]], ["j k", "move in the card", ["sectionMove"]], ["space", "fold the card", ["sectionFold"]],
-      ["PgUp PgDn", "scroll the inspector", ["scrollInspector"]], ["v", "swap hjkl and arrows", ["swap"]], ["q", "quit", ["stop"]]] },
+      ["1–4", `focus a card, ${leave} or tab leaves`, ["focus", "sectionLeave"]], ["j k", "move in the card", ["sectionMove"]], ["space", "fold the card", ["sectionFold"]],
+      ["PgUp PgDn", "scroll the inspector", ["scrollInspector"]], ["v", "swap hjkl and arrows", ["swap"]], ["q", paneMode ? "leave a mode" : "quit", ["stop"]]] },
   ];
 };
 

@@ -1,6 +1,6 @@
 import { fg, StyledText, type createCliRenderer } from "@opentui/core";
 import { Effect } from "effect";
-import { askMessage, flowMessage, isHowQuestion, mapMessage, sendToPane } from "../ask";
+import { askMessage, flowMessage, isHowQuestion, mapMessage } from "../ask";
 import type { Message } from "../conversation";
 import { readEntry, readKeys, saveElement } from "../edit";
 import { borderHints, palette } from "../ui";
@@ -25,7 +25,10 @@ export interface TalkConversation { messages: readonly Message[]; empty: string;
  * `pathlight draft` records; a hand-written model has none.
  */
 export function createAskDialog<Target extends AskTarget>(options: {
-  renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "talk" | "naming" | "nameInput" | "namePrompt" | "nameRow" | "nameColumns">; workspace: string; parent: string | undefined;
+  renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "talk" | "naming" | "nameInput" | "namePrompt" | "nameRow" | "nameColumns">; workspace: string;
+  /** Sends a request as the person's prompt (typed into the agent's tmux pane, or handed to the host the viewer is drawn in); absent with no agent to
+   * reach. It answers what to tell the person instead of the usual line, or nothing. */
+  send: ((text: string) => Effect.Effect<string | undefined, Error>) | undefined;
   selected: () => Target | undefined; context: (target: Target) => { links: string[] }; relevant: (target: Target) => Effect.Effect<string[]>;
   live: () => { bound: boolean; label: string }; conversation: () => TalkConversation;
   say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void;
@@ -88,11 +91,11 @@ export function createAskDialog<Target extends AskTarget>(options: {
     options.run(readKeys(workspace).pipe(Effect.tap(found => Effect.sync(() => { keys = found; options.update(); })), Effect.catch(() => Effect.void)));
     options.say(""); focusOn("field");
   };
-  const needsPane = (what: string) => { if (options.parent) return false; tell(`${what} needs the viewer opened with pathlight show, which knows your agent's pane`); return true; };
+  const needsPane = (what: string) => { if (options.send) return false; tell(`${what} needs the viewer opened with pathlight show, which knows your agent's pane`); return true; };
   // The text is made once the relevant files are known (the scan's imports are read on the first request).
   const sent = (target: Target, text: (files: string[]) => string, done: string) => options.run(options.relevant(target).pipe(
-    Effect.flatMap(files => sendToPane(options.parent!, text(files), true)),
-    Effect.tap(() => Effect.sync(() => tell(done))),
+    Effect.flatMap(files => options.send!(text(files))),
+    Effect.tap(said => Effect.sync(() => tell(said ?? done))),
     Effect.catch(error => Effect.sync(() => tell(error.message)))));
 
   // `n`: the person's own name and note, in the modal.
@@ -103,7 +106,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     naming.content.content = new StyledText([fg(palette.muted)("about".padEnd(8)), fg(palette.text)(naming_.target.title), fg(palette.purple)(`  ${naming_.target.id}`), nl,
       fg(palette.muted)(naming_.step === "name" ? "step 1 of 2" : "step 2 of 2 · empty clears it")]);
     namePrompt.fg = palette.accent;
-    naming.foot.content = new StyledText(borderHints(hints.askSave(naming_.step === "name")));
+    naming.foot.content = new StyledText(borderHints(hints.askSave(naming_.step === "name"), true));
     naming.meta.content = new StyledText([fg(palette.muted)(" ")]);
     renderer.requestRender();
   };
@@ -142,12 +145,12 @@ export function createAskDialog<Target extends AskTarget>(options: {
     typed() { options.update(); },
     /** Enter in the field: the first request with its context, or the typed text alone. An empty field sends nothing (the offered question counts). */
     send() {
-      const target = options.selected(), parent = options.parent, text = typedOrOffered();
-      if (!current || !parent || !text) return;
+      const target = options.selected(), send = options.send, text = typedOrOffered();
+      if (!current || !send || !text) return;
       if (!current.fresh) {
         const typed = talk.input.plainText;
         talk.input.setText(""); focusOn("none");
-        options.run(sendToPane(parent, typed, true).pipe(Effect.tap(() => Effect.sync(() => tell("Sent to the agent pane · the reply shows here"))),
+        options.run(send(typed).pipe(Effect.tap(said => Effect.sync(() => tell(said ?? "Sent to the agent pane · the reply shows here"))),
           Effect.catch(error => Effect.sync(() => tell(error.message)))));
         return;
       }

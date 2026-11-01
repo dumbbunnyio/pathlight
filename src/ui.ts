@@ -46,14 +46,24 @@ setPalette({ ...palette });
 
 export type Hint = readonly [key: string, label: string];
 
+/**
+ * Pane mode: the viewer is drawn inside a host (`pathlight pane`) whose Escape is its own (it hands the keys back to the conversation), so `q` leaves
+ * a mode there and every hint that says `esc` says `q`. Off everywhere else, where nothing changes.
+ */
+export let paneMode = false;
+export const setPaneMode = (on: boolean) => { paneMode = on; };
+/** A hint's key as drawn: `esc` is `q` in pane mode, except where a field is typing (`q` types there, and the host's Esc leaves the field). */
+export const keyName = (key: string, typing = false) => paneMode && !typing && key === "esc" ? "q" : key;
+
 /** A filled label, used for the mode and live badges. */
 export const pill = (text: string, color: string) => bg(color)(fg(palette.background)(` ${text} `));
 
 /** Key hints: the key in white, its meaning dim, as many as fit the width (most important first). */
-export function hintChunks(hints: readonly Hint[], width: number): TextChunk[] {
+export function hintChunks(hints: readonly Hint[], width: number, typing = false): TextChunk[] {
   const chunks: TextChunk[] = [fg(palette.muted)(" ")];
   let used = 1;
-  for (const [key, label] of hints) {
+  for (const [shown, label] of hints) {
+    const key = keyName(shown, typing);
     const need = key.length + 1 + label.length + 2;
     if (used + need > width) break;
     chunks.push(fg(palette.text)(key), fg(palette.muted)(` ${label}  `));
@@ -63,9 +73,9 @@ export function hintChunks(hints: readonly Hint[], width: number): TextChunk[] {
 }
 
 /** Key hints set into a modal's bottom border: key bright, label dim, two spaces between pairs, a space at each end. */
-export function borderHints(hints: readonly Hint[]): TextChunk[] {
+export function borderHints(hints: readonly Hint[], typing = false): TextChunk[] {
   const chunks: TextChunk[] = [fg(palette.muted)(" ")];
-  hints.forEach(([key, label], index) => chunks.push(fg(palette.text)(key), fg(palette.muted)(index < hints.length - 1 ? ` ${label}  ` : ` ${label} `)));
+  hints.forEach(([key, label], index) => chunks.push(fg(palette.text)(keyName(key, typing)), fg(palette.muted)(index < hints.length - 1 ? ` ${label}  ` : ` ${label} `)));
   return chunks;
 }
 
