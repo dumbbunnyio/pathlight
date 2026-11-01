@@ -23,7 +23,10 @@ const KeyRow: ClientModule<{ acked?: number }, State> = (props, surface) => {
       surface.post({ events: pending })
     })
     surface.onPointer(event => {
-      if (event.type === 'down' && !surface.state?.holding) surface.setState({ ...(surface.state ?? { pending: [], seq: 0 }), holding: true })
+      if (event.type !== 'down') return
+      // The click takes the keys: the hooks module is told, so it does not read the pane's lost focus as Esc.
+      surface.post({ events: surface.state?.pending ?? [], clicked: true })
+      if (!surface.state?.holding) surface.setState({ ...(surface.state ?? { pending: [], seq: 0 }), holding: true })
     })
   }
   const holding = surface.state?.holding === true && acked >= 0

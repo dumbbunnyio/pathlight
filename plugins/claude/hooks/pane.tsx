@@ -30,6 +30,8 @@ type Run = {
   keys: Promise<unknown>
   focused: boolean
   acked: number
+  /** When the key row's Client was last clicked: it takes the keys, and the pane reads as unfocused, but nothing was handed back to the chat. */
+  clicked: number
 }
 
 let run: Run | undefined
@@ -60,7 +62,7 @@ function send($: any, path: string, body: unknown) {
 async function start($: any, size: { cols: number; rows: number }) {
   const target = wanted
   if (!target || run) return
-  const current: Run = { asked: size, stopped: false, keys: Promise.resolve(), focused: true, acked: 0 }
+  const current: Run = { asked: size, stopped: false, keys: Promise.resolve(), focused: true, acked: 0, clicked: 0 }
   run = current
   const session = await $.session.id()
   const argv = ['pathlight', 'pane', ...(target.view ? [target.view] : []), '--workspace', target.root,
@@ -153,8 +155,9 @@ export const register: Register = on => {
     const current = run
     if (!current) return <Text dimColor>Pathlight stopped. /pathlight:open starts it again.</Text>
     if (current.ended) return <Text dimColor>Pathlight stopped: {current.ended}. /pathlight:open starts it again.</Text>
-    // The keys came back to the conversation (Esc): a field the viewer was typing in leaves it too.
-    if (current.focused && !props.isFocused) send($, '/key', { key: 'blur' })
+    // The keys came back to the conversation (Esc): a field the viewer was typing in leaves it too. A click on the key row's Client also reads as the
+    // pane losing the keys, but the keys went to Pathlight: wait for the Client's word before leaving the field.
+    if (current.focused && !props.isFocused) void blurUnlessClicked($, current)
     current.focused = props.isFocused
     if (current.asked.cols !== cols || current.asked.rows !== rows) { current.asked = { cols, rows }; send($, '/resize', { cols, rows }) }
     const frame = current.frame
@@ -188,7 +191,8 @@ export const register: Register = on => {
   // The Client row: every key once it has been clicked, posted in order with a number; a number already forwarded is never sent twice.
   on('ui.message', async ($, e) => {
     const current = run
-    const events = (e.data as { events?: unknown } | undefined)?.events
+    const data = e.data as { events?: unknown; clicked?: unknown } | undefined, events = data?.events
+    if (current && data?.clicked === true) current.clicked = await $.clock.now()
     if (!current || !Array.isArray(events)) return {}
     for (const event of events as { seq?: unknown; key?: unknown; ctrl?: unknown; shift?: unknown; meta?: unknown }[]) {
       if (typeof event?.seq !== 'number' || event.seq <= current.acked || typeof event.key !== 'string' || event.key.length > 16) continue
@@ -203,6 +207,12 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => { if (e.agentId === undefined) working = false; return next(e) })
   on('ui.close', async ($, e, next) => { if (e.id === PANE) { stop(); wanted = undefined } return next(e) })
   on('session.end', async ($, e, next) => { stop(); wanted = undefined; return next(e) })
+}
+
+/** The pane lost the keys: unless the key row's Client was clicked just now (it holds them), the viewer leaves a field it was typing in. */
+async function blurUnlessClicked($: any, current: Run) {
+  await $.clock.sleep(150)
+  if (run === current && !current.focused && await $.clock.now() - current.clicked > 1000) send($, '/key', { key: 'blur' })
 }
 
 /** The field changed: what was typed around the blank is keys, a blank lost is a Backspace; the field is then drawn empty again. */
