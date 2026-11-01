@@ -819,9 +819,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (pointer.ended === null || events.some(isActive) || (events[0]?.time ?? 0) > pointer.ended) return "working";
     return Date.now() - pointer.ended < 10 * 60_000 ? "done" : undefined;
   };
+  // Where the reply lands: in the host's own transcript when a host draws the viewer (and here, read from it), else the agent's tmux pane.
+  const lands = host ? "the reply shows here" : "the reply lands in the agent pane";
   const talkConversation = () => ({ messages: conversation.messages, state: talkState(),
-    empty: !binding ? "no session bound yet · the reply lands in the agent pane" : conversation.error ? "cannot read the conversation"
-      : !pointer?.transcript ? "nothing recorded from this session's conversation yet · the reply lands in the agent pane" : "no messages yet" });
+    empty: !binding ? `no session bound yet · ${lands}` : conversation.error ? "cannot read the conversation"
+      : !pointer?.transcript ? `nothing recorded from this session's conversation yet · ${lands}` : "no messages yet" });
   const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, send: sendToAgent, selected: () => state.selected, context: askContext, relevant: requestFiles,
     live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); } });
   nameInput.onContentChange = () => fitName();

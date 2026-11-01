@@ -92,7 +92,8 @@ async function heard($: any, current: Run, line: string) {
   } else if (line.startsWith('socket ')) current.socket = line.slice(7)
   else if (line.startsWith('ask ')) {
     const ask = JSON.parse(line.slice(4)) as { id: number; text: string }
-    await submit($, ask)
+    // Not awaited: a submit during a running turn resolves only when its own turn starts, and the frames must keep coming meanwhile.
+    void submit($, ask)
   }
 }
 
@@ -178,8 +179,9 @@ export const register: Register = on => {
     return { props: { acked: current.acked } }
   })
 
-  on('turn.start', async ($, e, next) => { working = true; return next(e) })
-  on('turn.complete', async ($, e, next) => { working = false; return next(e) })
+  // The main loop's turns alone (a subagent's start and end carry `agentId` and say nothing about the conversation); an interrupted turn completes as `aborted`.
+  on('turn.start', async ($, e, next) => { if (e.agentId === undefined) working = true; return next(e) })
+  on('turn.complete', async ($, e, next) => { if (e.agentId === undefined) working = false; return next(e) })
   on('ui.close', async ($, e, next) => { if (e.id === PANE) { stop(); wanted = undefined } return next(e) })
   on('session.end', async ($, e, next) => { stop(); wanted = undefined; return next(e) })
 }

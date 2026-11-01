@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { askMessage, flowMessage, isHowQuestion, mapMessage } from "../ask";
 import type { Message } from "../conversation";
 import { readEntry, readKeys, saveElement } from "../edit";
-import { borderHints, palette } from "../ui";
+import { borderHints, palette, paneMode } from "../ui";
 import { hints } from "./keys";
 import { type TalkState, type TalkTab, talkContent, talkHeader, talkHint, talkIncludeLine, talkTabs, talkTabsLine } from "./talk-view";
 import { nl, spinAt } from "./text";
@@ -150,7 +150,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
       if (!current.fresh) {
         const typed = talk.input.plainText;
         talk.input.setText(""); focusOn("none");
-        options.run(send(typed).pipe(Effect.tap(said => Effect.sync(() => tell(said ?? "Sent to the agent pane · the reply shows here"))),
+        options.run(send(typed).pipe(Effect.tap(said => Effect.sync(() => tell(said ?? (paneMode ? "Sent as your prompt · the reply shows here" : "Sent to the agent pane · the reply shows here")))),
           Effect.catch(error => Effect.sync(() => tell(error.message)))));
         return;
       }
