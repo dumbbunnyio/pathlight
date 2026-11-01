@@ -62,11 +62,11 @@ export const setPoint = Effect.fn("Point.set")(function* (workspace: string, nam
   const titles = new Map([...model.elements()].map(item => [String(item.id), item.title] as const));
   const keys = yield* readKeys(root);
   // Ids are unique, but a key is a path and can equal another box's id (Mealie's root package is `mealie`, its backend's key is `mealie`): such a
-  // name is refused with both, so the agent says the id it means rather than the viewer picking one.
+  // name is refused with both, each with the one name that reaches it (the root's own id is the ambiguous one, so for it that is its key).
   const keyed = [...keys].find(([id, key]) => key === named && titles.has(id))?.[0];
   if (titles.has(named) && keyed && keyed !== named) {
     const key = keys.get(named);
-    return yield* Effect.fail(failure("Point.element", `\`${named}\` is the id of ${titles.get(named)}${key ? ` (key \`${key}\`)` : ""} and the key of ${titles.get(keyed)} (id \`${keyed}\`). Say the id.`));
+    return yield* Effect.fail(failure("Point.element", `\`${named}\` names two boxes: ${titles.get(named)} (say \`${key ?? named}\`) and ${titles.get(keyed)} (say \`${keyed}\`).`));
   }
   const element = titles.has(named) ? named : keyed;
   if (!element) return yield* Effect.fail(failure("Point.element", `Unknown element: ${named}. Use an id from the model (pathlight check) or a box's key from pathlight brief.`));

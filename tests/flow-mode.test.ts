@@ -299,10 +299,11 @@ test("F reads a journey in the view that draws its steps apart, and b comes back
 // The review's Mealie copy (not in the repository): Code generation, from Packages, is read in the app's components view, and a step whose box the
 // view does not draw goes to the view that does.
 const mealie = "/tmp/opencode/step0b-mealie";
+// The copy is David's live clone and gains journeys as he asks `t` how-questions, so the journey is chosen by name through search, never as "the first `F`".
 test.skipIf(!existsSync(join(mealie, ".pathlight")))("on the Mealie copy, Code generation from Packages opens in mealie_components, and a step elsewhere goes there", async () => {
   const see = async (view: string, keys: string, select?: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", view, "--workspace", mealie,
     "--cols", "160", "--rows", "40", ...(select ? ["--select", select] : []), "--keys", keys])).split("\n");
-  const packages = await see("index", "F");
+  const packages = await see("index", "/,Tab,Tab,Tab,Code gen,Enter");
   expect(packages[1]!.trim().split(" ")[0]).toBe("live_mealie/mealie_components");
   expect(packages.join("\n")).toContain("Code generation tools → Data shapes");
   // From Backend translations' neighbourhood, Code generation read there at step 4; step 3 lands on the backend's entry point, which it does not draw.
