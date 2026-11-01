@@ -3,3 +3,6 @@ node_modules/
 .cache/
 dist/
 docs/internal/
+
+# Written by Claude Code when it loads the plugin as a mod: extends the generated, self-ignored .claude-plugin/types/.
+plugins/claude/tsconfig.json

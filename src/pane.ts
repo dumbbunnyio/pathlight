@@ -111,11 +111,14 @@ export const paneView = Effect.fn("Pane.view")(function* (options: { view: View;
   let nextSend = 1;
   const emit = () => {
     if (!setup) return;
+    // A frame that changed no cell is the last picture again: nothing to read or send (the renderer draws on at its own pace while anything moves).
+    const size = `${setup.renderer.width} ${setup.renderer.height}`;
+    if (setup.renderer.getNativeStats().cellsUpdated === 0 && size === lastSize) return;
     const frame = setup.captureSpans();
-    const cells = encodeFrame(frame), size = `${frame.cols} ${frame.rows}`;
+    const cells = encodeFrame(frame);
     if (cells === last && size === lastSize) return;
     last = cells; lastSize = size;
-    write(`frame ${size} ${cells}`);
+    write(`frame ${frame.cols} ${frame.rows} ${cells}`);
   };
 
   const directory = options.socket ? undefined : yield* Effect.acquireRelease(io("Pane.directory", () => mkdtemp(join(tmpdir(), "pathlight-pane-"))),

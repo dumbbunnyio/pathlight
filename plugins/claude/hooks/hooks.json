@@ -1,4 +1,7 @@
 {
+  "modules": [
+    "./pane.tsx"
+  ],
   "hooks": {
     "PreToolUse": [
       {
