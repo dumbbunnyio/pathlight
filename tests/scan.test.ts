@@ -56,11 +56,13 @@ test("importsOf reads an import whose list of names runs to hundreds of lines (g
 test("importsOf agrees with Bun's own scanner on this repository's value imports", async () => {
   const files = (await run("git", ["ls-files", "src", "plugins", "tests"])).split("\n").filter((path: string) => /\.(ts|tsx|js|mjs)$/.test(path));
   expect(files.length).toBeGreaterThan(30);
-  const transpiler = new Bun.Transpiler({ loader: "ts" });
+  const transpilers = { ts: new Bun.Transpiler({ loader: "ts" }), tsx: new Bun.Transpiler({ loader: "tsx" }) };
   for (const path of files) {
     const source = await readFile(path, "utf8");
     const ours = new Set(importsOf(source).filter(item => item.kind !== "type").map(item => item.specifier));
-    const bun = new Set(transpiler.scanImports(source.replace(/^#!.*/, "")).map(item => item.path));
+    // Bun's tsx loader adds the JSX runtime's imports to any file with JSX; a mod's JSX compiles against the host's `h`, and the source imports no React.
+    const added = (specifier: string) => path.endsWith(".tsx") && /^react(\/jsx(-dev)?-runtime)?$/.test(specifier) && !source.includes(`"${specifier}"`) && !source.includes(`'${specifier}'`);
+    const bun = new Set(transpilers[path.endsWith(".tsx") ? "tsx" : "ts"].scanImports(source.replace(/^#!.*/, "")).map(item => item.path).filter(specifier => !added(specifier)));
     expect([path, [...ours].sort()]).toEqual([path, [...bun].sort()]);
   }
 });

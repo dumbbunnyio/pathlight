@@ -87,7 +87,7 @@ To reopen the viewer yourself, with no agent involved:
 | Where you are | Command | Result | Inference |
 | --- | --- | --- | --- |
 | A shell prompt in a tmux pane | `pathlight open [VIEW]` | That pane becomes the viewer | none |
-| Inside Claude Code | `/pathlight:open [VIEW]` | A viewer pane is split beside the conversation | none (a plugin hook handles it and blocks the prompt, so the model is never called) |
+| Inside Claude Code | `/pathlight:open [VIEW]` | In the fullscreen layout from 110 columns, Pathlight is drawn in Claude Code's own pane beside the transcript ([Inside Claude Code](#inside-claude-code)); elsewhere a viewer pane is split beside the conversation | none (the plugin answers the command itself, so the model is never called) |
 | Inside OpenCode | `/pathlight-open [VIEW]` | A viewer pane is split beside the conversation | none (the CLI plugin handles it) |
 | Inside Claude Code or OpenCode | `! pathlight open [VIEW]` | The same split | none (a shell escape) |
 
@@ -161,6 +161,14 @@ Better names and notes go in `.pathlight/pathlight.overlay.json` beside the draf
 Beyond names, the overlay can correct the structure. `"merges":[{"title":"Data store","keys":["packages/core/src/database","packages/core/src/style"],"by":"human"}]` makes those folders one top-level component; `"splits":[{"key":"packages/core/src/session","by":"agent"}]` opens a folder as the draft opens a big one: a box with its own view, one component per subfolder and its loose files inside it; `"relationships":[{"from":"packages/core#loose","to":"packages/core/src/database","title":"reads and writes rows","by":"human"}]` labels an arrow that imports already support (the import count moves to its description). Every entry may say who made the decision with `"by":"human"` or `"by":"agent"`. An entry that contradicts the code (a merge of a folder that is gone or already merged, a split of a folder with no subfolders, a title for an arrow no import supports) is skipped and listed after the run, never drawn. A `human` entry is a pin: if it differs from the last commit's overlay (or was removed), `draft` says so and leaves the decision to the person. Merges and splits work on folder components, not on single loose files.
 
 It never rewrites a LikeC4 model you wrote: if the workspace has one, use `--out DIR` to write the draft elsewhere (or `--force`). A file it generated starts with a marker line and is replaced on the next run, so do not edit it by hand. See [scan format](docs/scan.md) for what counts as an import, and [measuring map quality](docs/eval.md) for how the draft is scored.
+
+## Inside Claude Code
+
+With the Claude plugin installed (Claude Code 2.1.287 or later), `/pathlight:open [VIEW]` in Claude Code's fullscreen layout (`/tui fullscreen`, or `CLAUDE_CODE_NO_FLICKER=1`) on a terminal of 110 columns or more draws Pathlight in a pane docked beside the transcript, bound to that conversation: no tmux pane, nothing to arrange. Claude Code gives a docked pane at most 45% of the terminal's width, so on a 232-column terminal the pane is about 103 columns and the inspector opens over the diagram with `i`; at 312 columns it is 140 and the inspector docks beside it. On the main-screen layout, under 110 columns, or on an older Claude Code, the same command opens the tmux pane as before (that one still needs tmux, as do `pathlight show` and OpenCode).
+
+The pane opens with the keys: type to drive it (`h j k l`, Enter, Backspace, `t i F T ? [ ] /`, `+ -`, Space, and the talk's text). Tab, the arrows, PgUp/PgDn and Home/End need one click on the pane's last row first, which then says `every key goes to Pathlight`. Esc is Claude Code's: it hands the keys back to the conversation and leaves the pane showing (and leaves a field you were typing in). In the pane `q` does what Esc does in the viewer (leaves a card, a flow, the talk, help, the session summary or the theme list; in a field it is a letter) and never quits; close the pane with its ✕. Clicks on the diagram do not reach it in the pane.
+
+The talk's request is sent as your own prompt (the transcript labels it "Prompt from the pathlight plugin"), with exactly the text `pathlight show` would type into the agent's pane; sent while the agent is working, it waits for the turn to end and the talk says so. The reply shows in the talk as it does in tmux. Pathlight calls no model; the pane records nothing (the plugin's hooks still do) and is a `pathlight pane` process that ends when the pane closes or the session ends.
 
 ## See the screen as text
 

@@ -145,6 +145,16 @@ Press `1`–`4` to focus the card with that number (its header turns amber and t
 Cards are sized to their content, capped at a fair share of the panel; only the focused card scrolls, with a thin scrollbar that is visible only while it is focused. When the inspector is too short for every open card, the least important untouched ones fold themselves.
 Press `g` for a list of every view in the project. Type to narrow it (fuzzy: the letters of each word in order, so `hlp mid` finds `helper / middleware`), `↑`/`↓` or `Ctrl+N`/`Ctrl+P` choose, `PgUp`/`PgDn`/`Home`/`End` move further, Enter goes and `Back` returns. The list scrolls inside its frame and the border shows which rows (`79–95 of 95`) you are looking at. This is a user's choice of view, not an inferred link.
 
+## Inside Claude Code (pane mode)
+
+`/pathlight:open` in Claude Code's fullscreen layout from 110 columns draws the viewer in a pane beside the transcript (`pathlight pane`, the same viewer on OpenTUI's headless renderer, its frames shown by the Claude plugin). Everything above holds there, with these differences, which apply only in the pane:
+
+- **Keys.** The pane opens with the keys and passes typed characters, Enter and Backspace at once. Tab, Shift+Tab (which arrives as Tab), the arrows, PgUp/PgDn, Home/End, Delete, a Backspace with nothing typed and ctrl chords reach the viewer after one click on the pane's last row. Esc never reaches the viewer: Claude Code uses it to hand the keys back to the conversation; the pane stays, and a field you were typing in (the talk, search, naming, the file filter) is left as Esc would leave it.
+- **`q` is Esc** wherever no field is typing: it leaves a focused card, a flow, the talk (a widened talk narrows first), help, the session summary and the theme list. It never quits; the pane's ✕ closes it. In a field, `q` is a letter. Every hint that says `esc` says `q`, except in a field.
+- **No pointer on the diagram.** Clicks over the diagram do not reach the viewer (Claude Code gives the keys to the conversation instead), so a box is selected with the keys or `/`.
+- **The talk's request** goes up to Claude Code and is submitted as your prompt, the text byte for byte what the tmux pane would be typed; one sent during a running turn waits for it, and the talk says it is queued.
+- **Size.** The pane is at most 45% of the terminal's width: about 103 columns on a 232-column terminal (the inspector is an overlay, `i`), 139 at 312 (docked).
+
 ## Live reload
 
 The viewer watches the workspace for changes to `.c4`/`.likec4` files, LikeC4 configuration and `.pathlight/pathlight.activity.json`, and rebuilds the diagram about half a second after the last change. Your selection, pan and zoom stay where they are, and a short notice lists added and removed nodes (`Model reloaded: + Billing service`).
