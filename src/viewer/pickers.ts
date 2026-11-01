@@ -120,7 +120,7 @@ export function createGotoPicker(options: {
     top = Math.max(0, Math.min(top, Math.max(0, list.length - rows)));
     const made = gotoContent(list, { query, index, top, rows, screenWidth: screen.width, viewOf: options.viewOf });
     widget.content.content = made.content; widget.meta.content = made.meta;
-    widget.foot.content = new StyledText(borderHints(mode === "all" ? hints.search : hints.goto));
+    widget.foot.content = new StyledText(borderHints(mode === "all" ? hints.search : hints.goto, true));
     widget.place(gotoColumns(screen.width), rows + 1 + (list.length ? 0 : 1));
   };
   return {

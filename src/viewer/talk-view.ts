@@ -1,6 +1,6 @@
 import { bg, bold, fg, StyledText, type TextChunk } from "@opentui/core";
 import type { Message } from "../conversation";
-import { palette } from "../ui";
+import { keyName, palette } from "../ui";
 import { clip, nl, wrapWords } from "./text";
 
 /** The talk's three kinds of request, in the order its tabs stand. */
@@ -107,7 +107,7 @@ export const talkIncludeLine = (options: { tab: TalkTab; subject: string | undef
 /** The last line of the talk: the keys that matter where the keys are. */
 export const talkHint = (options: { focused: boolean; fresh: boolean; wide: boolean; width: number }) => {
   const keys: [string, string][] = options.focused ? [["enter", "send"], ["alt+enter", "line"], ...(options.fresh ? [["tab", "kind"]] as [string, string][] : []), ["esc", "diagram"]]
-    : [["t", "reply"], ["z", options.wide ? "narrower" : "wider"], ["i", "node"], ["esc", "close"]];
+    : [["t", "reply"], ["z", options.wide ? "narrower" : "wider"], ["i", "node"], [keyName("esc"), "close"]];
   const chunks: TextChunk[] = [];
   let used = 0;
   for (const [key, does] of keys) {

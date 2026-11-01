@@ -13,7 +13,7 @@ export const modeHints = (options: { room: number; replay?: { playing: boolean; 
     ...hintChunks(hints.replay(replay.playing, replay.speed), room - 24)];
   if (options.section) return hintChunks(hints.section[options.section] as Hint[], room);
   if (flow) return [fg(palette.purple)(`◇ ${clip(flow.title, 24)} · ${flow.step + 1}/${flow.steps}  `), ...hintChunks(hints.flow, room - 40)];
-  if (files) return [fg(palette.accent)(`Files ${files.count ? files.cursor + 1 : 0}/${files.count}`), fg(palette.muted)("  type to filter  "), ...hintChunks(hints.files, room - 30)];
+  if (files) return [fg(palette.accent)(`Files ${files.count ? files.cursor + 1 : 0}/${files.count}`), fg(palette.muted)("  type to filter  "), ...hintChunks(hints.files, room - 30, true)];
   return [];
 };
 

@@ -25,6 +25,7 @@ import { addFlow, formatAdded, removeFlow } from "./flow-write";
 import { doctor, formatDoctor, hasFailures } from "./doctor";
 import { setup } from "./setup";
 import { seeView } from "./see";
+import { paneView } from "./pane";
 
 const help = `pathlight list [--workspace PATH]
 pathlight scan [--workspace PATH] [--out FILE]
@@ -45,6 +46,7 @@ pathlight show VIEW [--workspace PATH] [--project NAME] [--pane %ID] [--socket P
 pathlight view VIEW [--workspace PATH] [--project NAME] [--select ELEMENT]
 pathlight see VIEW [--workspace PATH] [--project NAME] [--cols N] [--rows N] [--select ELEMENT] [--keys KEY,KEY] [--ansi] [--follow] [--agent]
 pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--pane %ID] [--socket PATH]
+pathlight pane [VIEW] [--workspace PATH] [--project NAME] --cols N --rows N [--session ID --source claude] [--select ELEMENT] [--socket PATH]
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
 pathlight setup [--workspace PATH] [--yes]
@@ -64,6 +66,7 @@ setup is the first run: it checks the machine and the workspace, says what it wo
 init wires Claude Code hooks, the pathlight skills and the OpenCode plugin into a workspace. init --global registers the OpenCode plugin for every project instead (in OpenCode's own opencode.json); it records only in projects with a mapping.
 show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
 see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. --agent puts a pane running cat in that private server as the agent's pane, so t, m and d can be drawn and sent; nothing leaves it. For agents and tests.
+pane draws the viewer for a host that shows it in its own window (the Claude Code plugin's pane beside the conversation): frames on standard output, keys over a Unix socket, the talk's requests handed back to the host to send as your prompt. It is bound to the session named (the plugin always names its own), never follows, and ends when its output closes.
 open follows the most recent session and shows VIEW if given, else the view named index, else the first view.
 Typed at a shell prompt in tmux it turns that pane into the viewer; run by an agent it splits a pane beside it.
 --here always uses the current terminal and --split always splits.
@@ -88,7 +91,7 @@ const readStdin = io("CLI.stdin", async () => {
   return Buffer.concat(chunks).toString("utf8");
 });
 
-let readyPath: string | undefined;
+let readyPath: string | undefined, paneCommand = false;
 try {
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2), allowPositionals: true,
@@ -101,7 +104,7 @@ try {
     },
   });
   const [command, id, ...extra] = positionals;
-  readyPath = values.ready;
+  readyPath = values.ready; paneCommand = command === "pane";
   await Effect.runPromise(Effect.gen(function* () {
     const activity = values.session ? yield* Schema.decodeUnknownEffect(ActivityBinding)({ source: values.source, session: values.session }) : undefined;
     const follow = values.follow === true;
@@ -218,6 +221,16 @@ try {
       const view = yield* selectView(values.workspace, id, mappedProject && (yield* listViews(values.workspace)).views.some(entry => entry.id === id && entry.project === mappedProject) ? mappedProject : values.project);
       const screen = yield* seeView({ view, cols: yield* size("cols", values.cols, 120), rows: yield* size("rows", values.rows, 36), select: values.select, keys: values.keys?.split(",").map(key => key.trim()).filter(Boolean), ansi: values.ansi, follow: values.follow, agent: values.agent });
       process.stdout.write(screen);
+    } else if (command === "pane") {
+      const size = (name: string, text: string | undefined, low: number, high: number) => {
+        const value = Number(text);
+        return text !== undefined && Number.isInteger(value) && value >= low && value <= high ? Effect.succeed(value) : invalid(`--${name} must be a whole number from ${low} to ${high}.`);
+      };
+      const cols = yield* size("cols", values.cols, 20, 512), rows = yield* size("rows", values.rows, 8, 256);
+      const mappedProject = values.project ? undefined : yield* readActivityConfig(values.workspace).pipe(Effect.map(mapping => mapping.project), Effect.catch(() => Effect.succeed(undefined)));
+      const project = values.project ?? (mappedProject && (!id || (yield* listViews(values.workspace)).views.some(entry => entry.id === id && entry.project === mappedProject)) ? mappedProject : undefined);
+      const view = yield* selectView(values.workspace, id ?? (yield* overviewId(values.workspace, project)), project);
+      yield* paneView({ view, activity, cols, rows, select: values.select, socket: values.socket, signal: abort.signal });
     } else if (command === "show" || command === "view" || command === "open") {
       if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));
@@ -247,6 +260,8 @@ try {
     } else return yield* invalid(`Unknown command '${command}'. Use --help.`);
   }), { signal: abort.signal });
 } catch (error) {
+  // The pane ends when its host stops it: a signal there is the normal end, not an error to report.
+  if (abort.signal.aborted && paneCommand) process.exit(0);
   if (readyPath) await Effect.runPromise(writeReady(readyPath, { error: error instanceof Error ? error.message : String(error) }).pipe(Effect.ignore));
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
