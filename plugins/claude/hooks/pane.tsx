@@ -14,6 +14,8 @@ import type { Elements, Register } from 'claude-code'
 const PANE = 'pathlight'
 const RASTER = 'view'
 const FIELD = 'keys'
+/** The key row: the field (typed keys at once), then the Client (every key after a click), each saying what it is for. */
+const FIELD_COLUMNS = 14
 const TOO_NARROW = 'Pathlight needs a terminal of 110 columns or more beside the chat; `pathlight show` opens it in tmux.'
 
 type Frame = { cols: number; rows: number; cells: string }
@@ -158,8 +160,10 @@ export const register: Register = on => {
     const frame = current.frame
     const keyRow = (
       <Box flexDirection="row" height={1}>
-        <Input key={FIELD} value={blank} placeholder="type here: keys go to Pathlight" autoFocus
-          onInput={(value: string) => typed($, value)} onSubmit={(value: string) => submitted($, value)} />
+        <Box width={FIELD_COLUMNS} height={1}>
+          <Input key={FIELD} value={blank} placeholder="type here" submitLabel="↵" autoFocus
+            onInput={(value: string) => typed($, value)} onSubmit={(value: string) => submitted($, value)} />
+        </Box>
         <Client key="every-key" module="./pane-client.tsx" flexGrow={1} height={1} props={{ acked: current.acked }} />
       </Box>
     )
