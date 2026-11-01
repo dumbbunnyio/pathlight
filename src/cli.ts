@@ -26,6 +26,7 @@ import { doctor, formatDoctor, hasFailures } from "./doctor";
 import { setup } from "./setup";
 import { seeView } from "./see";
 import { paneView } from "./pane";
+import { saveClaude, savedClaude } from "./theme";
 
 const help = `pathlight list [--workspace PATH]
 pathlight scan [--workspace PATH] [--out FILE]
@@ -49,6 +50,7 @@ pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--
 pathlight pane [VIEW] [--workspace PATH] [--project NAME] --cols N --rows N [--session ID --source claude] [--select ELEMENT] [--socket PATH]
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
+pathlight config get claude | pathlight config set claude pane|tmux
 pathlight setup [--workspace PATH] [--yes]
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
@@ -110,7 +112,7 @@ try {
     const follow = values.follow === true;
     const invalid = (message: string) => Effect.fail(failure("CLI.arguments", message));
     if (values.help || !command) return void process.stdout.write(help);
-    if (extra.length && command !== "plan" && command !== "brief" && !(command === "flow" && extra.length === 1)) return yield* invalid("Too many arguments. Use --help.");
+    if (extra.length && command !== "plan" && command !== "brief" && !(command === "flow" && extra.length === 1) && !(command === "config" && extra.length <= 2)) return yield* invalid("Too many arguments. Use --help.");
     if (follow && activity) return yield* invalid("Use either --follow or --session, not both.");
 
     if (command === "list") {
@@ -198,6 +200,13 @@ try {
       const findings = yield* doctor(values.workspace);
       process.stdout.write(formatDoctor(findings));
       if (hasFailures(findings)) process.exitCode = 1;
+    } else if (command === "config") {
+      // Pathlight's own settings (src/theme.ts): `claude` is where the Claude Code plugin's /pathlight:open draws the viewer. `get` prints nothing when unset.
+      const [key, value] = extra;
+      if (key !== "claude" || (id === "get" && value !== undefined) || (id === "set" && value !== "pane" && value !== "tmux") || (id !== "get" && id !== "set"))
+        return yield* invalid("Use pathlight config get claude, or pathlight config set claude pane|tmux.");
+      if (id === "get") { const choice = yield* savedClaude(); if (choice) process.stdout.write(`${choice}\n`); }
+      else { yield* saveClaude(value as "pane" | "tmux"); process.stdout.write(`/pathlight:open now opens the ${value === "pane" ? "pane beside the conversation where Claude Code can place it" : "tmux pane"}\n`); }
     } else if (command === "setup") {
       if (id) return yield* invalid("setup takes no argument. Use --workspace PATH and --yes.");
       process.stdout.write(yield* setup(values.workspace, { yes: values.yes === true }));

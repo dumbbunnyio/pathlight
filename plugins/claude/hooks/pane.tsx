@@ -44,10 +44,12 @@ let refused = false
  */
 let blank = ' '
 
-/** The view the person named (`/pathlight:open VIEW`): a plain id, or nothing; anything else is dropped rather than put on a command line. */
-function viewOf(args: string): string {
-  const view = args.trim()
-  return /^[A-Za-z0-9_.-]{1,64}$/.test(view) ? view : ''
+/** The words after `/pathlight:open`: `tmux` or `pane` (where to draw it, for this run), then a plain view id; anything else is dropped. */
+export function argsOf(args: string): { where?: 'pane' | 'tmux'; view: string } {
+  const words = args.trim().split(/\s+/).filter(Boolean)
+  const where = words[0] === 'tmux' || words[0] === 'pane' ? words.shift() as 'pane' | 'tmux' : undefined
+  const view = words.length === 1 && /^[A-Za-z0-9_.-]{1,64}$/.test(words[0]!) ? words[0]! : ''
+  return { where, view }
 }
 
 /** Sends one message down the child's socket, after the ones before it: keys arrive in the order they were pressed. */
@@ -56,6 +58,12 @@ function send($: any, path: string, body: unknown) {
   if (!current?.socket || current.stopped) return
   const socket = current.socket
   current.keys = current.keys.then(() => $.http.fetch(`http://pathlight${path}`, { method: 'POST', body: JSON.stringify(body), socketPath: socket })).catch(() => undefined)
+}
+
+/** Where `/pathlight:open` draws when the command names neither: Pathlight's own setting (`pathlight config get claude`), else the pane. */
+async function preference($: any): Promise<'pane' | 'tmux'> {
+  const said = await $.process.run(['pathlight', 'config', 'get', 'claude']).catch(() => undefined)
+  return said?.exitCode === 0 && said.stdout.trim() === 'tmux' ? 'tmux' : 'pane'
 }
 
 /** The child's life: started once the pane knows its size, ended with the pane, the session or the module. */
@@ -130,16 +138,22 @@ function stop() {
 }
 
 export const register: Register = on => {
-  // `/pathlight:open` is commands/open.md; its run comes here first. The pane is drawn only where it is docked beside the transcript.
+  // `/pathlight:open` is commands/open.md; its run comes here first. The pane is drawn where it is docked beside the transcript, unless the command
+  // or the person's setting says tmux; then the command goes on to `open-hook.sh` with the view alone.
   on('command.run', { command: 'pathlight:open' }, async ($, e, next) => {
-    if (!e.presentation.isFullscreen || e.presentation.columns < 110) return next(e)
+    const { where, view } = argsOf(e.args)
+    if ((where ?? await preference($)) === 'tmux' || !e.presentation.isFullscreen || e.presentation.columns < 110) {
+      // One viewer at a time: a pane left open would be a second picture of the same map.
+      if (wanted || run) { stop(); wanted = undefined; await $.ui.close({ id: PANE }).catch(() => undefined) }
+      return next({ ...e, args: view })
+    }
     const found = await $.process.run(['sh', '-c', 'command -v pathlight']).catch(() => ({ exitCode: 1 }))
-    if (found.exitCode !== 0) return next(e)
+    if (found.exitCode !== 0) return next({ ...e, args: view })
     stop()
-    wanted = { view: viewOf(e.args), root: await $.session.root() }
+    wanted = { view, root: await $.session.root() }
     refused = false
     const opened = await $.ui.open({ id: PANE, title: 'Pathlight', focus: true, columns: 140 })
-    if (!opened.isPlaced) { wanted = undefined; return next(e) }
+    if (!opened.isPlaced) { wanted = undefined; return next({ ...e, args: view }) }
     $.ui.invalidate('ui.render')
     return { text: 'Pathlight is beside the conversation. Type to drive it; click its last row for the arrows; ctrl+x tab brings the keys back after Esc.' }
   })

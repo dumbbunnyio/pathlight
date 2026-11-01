@@ -6,8 +6,10 @@ case "$input" in
   *'"prompt":"/pathlight:open"'*|*'"prompt":"/pathlight:open '*) ;;
   *) exit 0 ;;
 esac
-# Only a plain view id is passed on; anything else is dropped rather than put on a command line.
-view=$(printf '%s' "$input" | sed -n 's/.*"prompt":"\/pathlight:open *\([A-Za-z0-9_.-]*\)".*/\1/p')
+# Only a plain view id is passed on; anything else is dropped rather than put on a command line. A leading `tmux` or `pane` says where to open it
+# (the Claude plugin's pane answers `pane` itself; here it is always tmux), and is never a view.
+view=$(printf '%s' "$input" | sed -n 's/.*"prompt":"\/pathlight:open *\(tmux \|pane \)\{0,1\}\([A-Za-z0-9_.-]*\)".*/\2/p')
+case "$view" in tmux|pane) view= ;; esac
 if ! command -v pathlight >/dev/null 2>&1; then
   reason="pathlight is not installed. Run: curl -fsSL https://raw.githubusercontent.com/dumbbunnyio/pathlight/main/install.sh | sh"
 else

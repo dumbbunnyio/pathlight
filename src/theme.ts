@@ -129,26 +129,55 @@ export const paletteFor = (entry: ThemeEntry, mode: Mode, canvas?: string) => Ef
   catch: cause => failure("Theme.resolve", cause),
 });
 
-// The chosen theme is remembered in `$XDG_CONFIG_HOME/pathlight/config.json` (only its name; nothing about any workspace).
-const ThemeChoice = Schema.Struct({ theme: Schema.optionalKey(Schema.String) });
+// Pathlight's own settings, in `$XDG_CONFIG_HOME/pathlight/config.json`: the chosen theme's name and, for the Claude Code plugin, where
+// `/pathlight:open` draws the viewer (`claude`: `pane` or `tmux`). Nothing about any workspace is stored there. Each write keeps the other keys.
+type Settings = { theme?: string; claude?: "pane" | "tmux" };
 const configFile = Effect.fn("Theme.configFile")(function* () {
   const configHome = yield* Config.String("XDG_CONFIG_HOME").pipe(Config.withDefault(""));
   return join(configHome || join(homedir(), ".config"), "pathlight", "config.json");
 });
 
-export const savedTheme = Effect.fn("Theme.saved")(function* () {
+/** The settings file as it stands, every key kept (a file that is not a JSON object reads as empty). */
+const readRaw = Effect.fn("Theme.readRaw")(function* () {
   const file = yield* configFile();
   const text = yield* io("Theme.readChoice", () => readFile(file, "utf8")).pipe(Effect.catchIf(error => hasCode(error, "ENOENT"), () => Effect.succeed("")));
-  if (!text) return undefined;
-  return (yield* json(text).pipe(Effect.flatMap(Schema.decodeUnknownEffect(ThemeChoice)), Effect.option)).pipe(option => option._tag === "Some" ? option.value.theme : undefined);
+  if (!text) return {} as Record<string, unknown>;
+  const raw = yield* json(text).pipe(Effect.option);
+  return raw._tag === "Some" && typeof raw.value === "object" && raw.value !== null && !Array.isArray(raw.value) ? raw.value as Record<string, unknown> : {};
+});
+
+/** The settings Pathlight reads; a value it does not understand is left out. */
+const readSettings = Effect.fn("Theme.readSettings")(function* () {
+  const record = yield* readRaw();
+  // Each key on its own, so a bad value for one never loses the other.
+  const theme = typeof record.theme === "string" ? record.theme : undefined, claude = record.claude === "pane" || record.claude === "tmux" ? record.claude : undefined;
+  return { ...(theme !== undefined ? { theme } : {}), ...(claude ? { claude } : {}) } as Settings;
+});
+
+const saveSettings = Effect.fn("Theme.saveSettings")(function* (change: Partial<Settings>) {
+  const file = yield* configFile();
+  const next = { ...(yield* readRaw()), ...change };
+  yield* io("Theme.writeChoice", async () => {
+    await mkdir(join(file, ".."), { recursive: true });
+    await writeFile(file, `${JSON.stringify(next, null, 2)}\n`);
+  });
+});
+
+export const savedTheme = Effect.fn("Theme.saved")(function* () {
+  return (yield* readSettings()).theme;
 });
 
 export const saveTheme = Effect.fn("Theme.save")(function* (name: string) {
-  const file = yield* configFile();
-  yield* io("Theme.writeChoice", async () => {
-    await mkdir(join(file, ".."), { recursive: true });
-    await writeFile(file, `${JSON.stringify({ theme: name }, null, 2)}\n`);
-  });
+  yield* saveSettings({ theme: name });
+});
+
+/** Where the Claude Code plugin's `/pathlight:open` draws the viewer when the command names neither: `pane` (beside the transcript) or `tmux`. */
+export const savedClaude = Effect.fn("Theme.savedClaude")(function* () {
+  return (yield* readSettings()).claude;
+});
+
+export const saveClaude = Effect.fn("Theme.saveClaude")(function* (choice: "pane" | "tmux") {
+  yield* saveSettings({ claude: choice });
 });
 
 export const themeFromEnvironment = Effect.fn("Theme.environment")(function* () {

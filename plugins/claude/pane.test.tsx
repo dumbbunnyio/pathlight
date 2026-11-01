@@ -9,18 +9,21 @@ const PANE = {
   props: { title: 'Pathlight', isFocused: true, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 13 }, view: {} },
 } as const
 
-const open = (isFullscreen: boolean, columns = 232) =>
-  ({ command: 'pathlight:open', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen, columns } }) as const
+const open = (isFullscreen: boolean, columns = 232, args = '') =>
+  ({ command: 'pathlight:open', args, origin: { kind: 'composer' }, presentation: { isFullscreen, columns } }) as const
 
 // Each stand-in below is the engine: nothing sits beneath the plugin in a test.
-function engine(on: any, options: { submitted?: (text: string) => unknown } = {}) {
-  const calls = { opened: [] as unknown[], fetched: [] as { url: string; body: unknown; socketPath?: string }[], submitted: [] as unknown[], spawned: [] as string[][] }
+// `saved` is what `pathlight config get claude` prints.
+function engine(on: any, options: { saved?: string; submitted?: (text: string) => unknown } = {}) {
+  const calls = { opened: [] as unknown[], closed: [] as unknown[], fetched: [] as { url: string; body: unknown; socketPath?: string }[], submitted: [] as unknown[], spawned: [] as string[][] }
   let release = () => {}
   const held = new Promise<void>(resolve => { release = resolve })
-  on('process.run', () => ({ value: { exitCode: 0, stdout: '/usr/local/bin/pathlight\n', stderr: '' } }))
+  on('process.run', (_: unknown, e: { argv: readonly string[] }) =>
+    ({ value: e.argv[1] === 'config' ? { exitCode: 0, stdout: options.saved ? `${options.saved}\n` : '', stderr: '' } : { exitCode: 0, stdout: '/usr/local/bin/pathlight\n', stderr: '' } }))
   on('session.root', () => ({ value: '/work/app' }))
   on('session.id', () => ({ value: 'session-1' }))
   on('ui.open', (_: unknown, e: unknown) => { calls.opened.push(e); return { value: { isPlaced: true } } })
+  on('ui.close', (_: unknown, e: unknown) => { calls.closed.push(e); return { value: undefined } })
   on('ui.blit', () => ({ value: {} }))
   on('http.fetch', (_: unknown, e: { url: string; init?: { body?: string; socketPath?: string } }) => {
     calls.fetched.push({ url: e.url, body: JSON.parse(e.init?.body ?? 'null'), socketPath: e.init?.socketPath })
@@ -63,6 +66,23 @@ test('on the main screen, or under 110 columns, the command goes on to the hook 
   expect((await $.command.run(open(false) as any) as { text?: string }).text).toBe('the classic hook')
   expect((await $.command.run(open(true, 100) as any) as { text?: string }).text).toBe('the classic hook')
   expect(calls.opened).toHaveLength(0)
+})
+
+test('the word tmux sends the command on with the view alone; the saved setting does the same; the word pane wins over the setting', async ($, on) => {
+  const forwarded: string[] = []
+  on('command.run', (_: unknown, e: { args: string }) => { forwarded.push(e.args); return { text: 'the classic hook' } })
+  const { calls, release } = engine(on, { saved: 'tmux' })
+  expect((await $.command.run(open(true, 232, 'tmux live') as any) as { text?: string }).text).toBe('the classic hook')
+  expect((await $.command.run(open(true, 232, '') as any) as { text?: string }).text).toBe('the classic hook')
+  expect(forwarded).toEqual(['live', ''])
+  expect(calls.opened).toHaveLength(0)
+  expect(String((await $.command.run(open(true, 232, 'pane live') as any) as { text?: string }).text)).toContain('Pathlight is beside the conversation')
+  const ui = await $.ui.mount(PANE as any)
+  await settle($)
+  // The view goes on to the viewer, the word never does.
+  expect(calls.spawned[0]?.slice(0, 3)).toEqual(['pathlight', 'pane', 'live'])
+  release()
+  await ui.unmount()
 })
 
 test('a key from the Client row goes down the socket once, and an ask line is one prompt sent as the person, its text unchanged', async ($, on) => {
