@@ -83,3 +83,22 @@ test('a key from the Client row goes down the socket once, and an ask line is on
   release()
   await ui.unmount()
 })
+
+const sent = (calls: ReturnType<typeof engine>['calls'], path: string) => calls.fetched.filter(call => call.url.endsWith(path)).map(call => call.body)
+
+test('what is typed into the field goes to Pathlight a key at a time, a lost blank is a Backspace, and Enter is Enter', async ($, on) => {
+  const { calls, release } = engine(on)
+  await $.command.run(open(true) as any)
+  const ui = await $.ui.mount(PANE as any)
+  await settle($)
+  // The field is drawn holding a blank, one space and then two by turns, so each drawing empties it.
+  await ui.input({ key: 'keys', text: ' lj', kind: 'change' })
+  await settle($)
+  await ui.input({ key: 'keys', text: ' ', kind: 'change' })
+  await settle($)
+  await ui.input({ key: 'keys', text: ' ', kind: 'submit' })
+  await settle($)
+  expect(sent(calls, '/key')).toEqual([{ key: 'l' }, { key: 'j' }, { key: 'backspace' }, { key: 'return' }])
+  release()
+  await ui.unmount()
+})

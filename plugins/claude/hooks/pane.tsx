@@ -13,6 +13,7 @@ import type { Elements, Register } from 'claude-code'
 
 const PANE = 'pathlight'
 const RASTER = 'view'
+const FIELD = 'keys'
 const TOO_NARROW = 'Pathlight needs a terminal of 110 columns or more beside the chat; `pathlight show` opens it in tmux.'
 
 type Frame = { cols: number; rows: number; cells: string }
@@ -26,7 +27,6 @@ type Run = {
   ended?: string
   keys: Promise<unknown>
   focused: boolean
-  typed: string
   acked: number
 }
 
@@ -34,6 +34,11 @@ let run: Run | undefined
 let wanted: { view: string; root: string } | undefined
 let working = false
 let refused = false
+/**
+ * The field is drawn holding one of two blanks, alternately, so every drawing is a new value and empties what was typed; what the person typed is
+ * what changed around the blank, and a lost blank is a Backspace. `blank` is what is drawn now.
+ */
+let blank = ' '
 
 /** The view the person named (`/pathlight:open VIEW`): a plain id, or nothing; anything else is dropped rather than put on a command line. */
 function viewOf(args: string): string {
@@ -53,7 +58,7 @@ function send($: any, path: string, body: unknown) {
 async function start($: any, size: { cols: number; rows: number }) {
   const target = wanted
   if (!target || run) return
-  const current: Run = { asked: size, stopped: false, keys: Promise.resolve(), focused: true, typed: '', acked: 0 }
+  const current: Run = { asked: size, stopped: false, keys: Promise.resolve(), focused: true, acked: 0 }
   run = current
   const session = await $.session.id()
   const argv = ['pathlight', 'pane', ...(target.view ? [target.view] : []), '--workspace', target.root,
@@ -153,7 +158,7 @@ export const register: Register = on => {
     const frame = current.frame
     const keyRow = (
       <Box flexDirection="row" height={1}>
-        <Input key="keys" placeholder="type here: keys go to Pathlight" autoFocus
+        <Input key={FIELD} value={blank} placeholder="type here: keys go to Pathlight" autoFocus
           onInput={(value: string) => typed($, value)} onSubmit={(value: string) => submitted($, value)} />
         <Client key="every-key" module="./pane-client.tsx" flexGrow={1} height={1} props={{ acked: current.acked }} />
       </Box>
@@ -186,19 +191,25 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => { stop(); wanted = undefined; return next(e) })
 }
 
-/** The Input's text grew or shrank: each new character is a key, each lost one a Backspace. */
+/** The field changed: what was typed around the blank is keys, a blank lost is a Backspace; the field is then drawn empty again. */
 function typed($: any, value: string) {
-  const current = run
-  if (!current) return
-  const before = current.typed
-  current.typed = value
-  if (value.startsWith(before)) for (const char of value.slice(before.length)) send($, '/key', { key: char })
-  else for (let index = 0; index < before.length - value.length; index++) send($, '/key', { key: 'backspace' })
+  // The field holding a blank as drawn is no keystroke (its own redraw, or Enter on nothing typed).
+  if (!run || value === blank) return
+  const before = blank
+  let head = 0
+  while (head < before.length && head < value.length && before[head] === value[head]) head++
+  let tail = 0
+  while (tail < before.length - head && tail < value.length - head && before[before.length - 1 - tail] === value[value.length - 1 - tail]) tail++
+  // A blank lost with nothing typed is a Backspace; with something typed it is the field drawn empty as the keys came back (ctrl+x tab).
+  const inserted = value.slice(head, value.length - tail), lost = inserted ? 0 : before.length - head - tail
+  for (let index = 0; index < lost; index++) send($, '/key', { key: 'backspace' })
+  for (const char of inserted) send($, '/key', { key: char === ' ' ? 'space' : char })
+  blank = before === ' ' ? '  ' : ' '
+  $.ui.invalidate('ui.render')
 }
 
-/** Enter in the Input: the field empties itself. */
+/** Enter in the field: whatever was typed, then Enter, and the field drawn empty again. */
 function submitted($: any, value: string) {
   typed($, value)
-  if (run) run.typed = ''
   send($, '/key', { key: 'return' })
 }
