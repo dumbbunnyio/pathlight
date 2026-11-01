@@ -12,10 +12,9 @@ const PANE = {
 const open = (isFullscreen: boolean, columns = 232, args = '') =>
   ({ command: 'pathlight:open', args, origin: { kind: 'composer' }, presentation: { isFullscreen, columns } }) as const
 
-// Each stand-in below is the engine: nothing sits beneath the plugin in a test.
-// `saved` is what `pathlight config get claude` prints.
+// Each stand-in below is the engine: nothing sits beneath the plugin in a test. `saved` is what `pathlight config get claude` prints.
 function engine(on: any, options: { saved?: string; submitted?: (text: string) => unknown } = {}) {
-  const calls = { opened: [] as unknown[], closed: [] as unknown[], toasts: [] as string[], fetched: [] as { url: string; body: unknown; socketPath?: string }[], submitted: [] as unknown[], spawned: [] as string[][] }
+  const calls = { opened: [] as any[], closed: [] as unknown[], fetched: [] as { url: string; body: unknown; socketPath?: string }[], submitted: [] as unknown[], spawned: [] as string[][], toasts: [] as string[] }
   let release = () => {}
   const held = new Promise<void>(resolve => { release = resolve })
   on('process.run', (_: unknown, e: { argv: readonly string[] }) =>
@@ -46,6 +45,8 @@ async function settle(_: unknown) {
   const later = (globalThis as { setTimeout?: (fn: () => void, ms: number) => unknown }).setTimeout
   for (let turn = 0; turn < 40; turn++) await (later ? new Promise<void>(resolve => { later(resolve, 5) }) : Promise.resolve())
 }
+
+const sent = (calls: ReturnType<typeof engine>['calls'], path: string) => calls.fetched.filter(call => call.url.endsWith(path)).map(call => call.body)
 
 test('/pathlight:open draws the pane beside a fullscreen transcript, bound to this session, and binds nothing else', async ($, on) => {
   const { calls, release } = engine(on)
@@ -100,6 +101,22 @@ test('the word tmux sends the command on with the view alone; the saved setting 
   await ui.unmount()
 })
 
+test("the agent's pathlight show opens the pane and is answered in one line; anything else runs as it would", async ($, on) => {
+  const { calls, release } = engine(on)
+  const ran: string[] = []
+  on('tool.call', (_: unknown, e: { command: string }) => { ran.push(e.command); return { result: { stdout: 'ran', stderr: '', interrupted: false } } })
+  // The session draws somewhere first: the band's drawing says where.
+  await $.ui.mount({ plugin: 'pathlight', component: 'AbovePrompt', requestId: 'band', surface: 'terminal', props: {} as any, viewport: { columns: 232, rows: 50, isFullscreen: true } } as any).catch(() => undefined)
+  const answered = await $.tool.call({ tool: 'Bash', command: 'pathlight show live --workspace /work/app' } as any) as { result?: { stdout?: string } }
+  expect(answered.result?.stdout).toBe('Pathlight is beside the conversation.')
+  expect(calls.opened).toHaveLength(1)
+  expect(ran).toEqual([])
+  for (const command of ['pathlight show live && rm -rf x', 'pathlight show live --workspace /elsewhere', 'pathlight list', 'echo pathlight show live']) await $.tool.call({ tool: 'Bash', command } as any)
+  expect(ran).toEqual(['pathlight show live && rm -rf x', 'pathlight show live --workspace /elsewhere', 'pathlight list', 'echo pathlight show live'])
+  expect(calls.opened).toHaveLength(1)
+  release()
+})
+
 test('a key from the Client row goes down the socket once, and an ask line is one prompt sent as the person, its text unchanged', async ($, on) => {
   const { calls, release } = engine(on)
   await $.command.run(open(true) as any)
@@ -114,12 +131,10 @@ test('a key from the Client row goes down the socket once, and an ask line is on
   expect(keys.map(call => call.body)).toEqual([{ key: 'l' }, { key: 'tab', shift: true }, { key: 'q' }])
   expect(keys.every(call => call.socketPath === '/run/pathlight-keys.sock')).toBe(true)
   // The idle conversation took the request: the talk is told it was sent.
-  expect(calls.fetched.filter(call => call.url.endsWith('/sent')).map(call => call.body)).toEqual([{ id: 1, ok: true }])
+  expect(sent(calls, '/sent')).toEqual([{ id: 1, ok: true }])
   release()
   await ui.unmount()
 })
-
-const sent = (calls: ReturnType<typeof engine>['calls'], path: string) => calls.fetched.filter(call => call.url.endsWith(path)).map(call => call.body)
 
 test('what is typed into the field goes to Pathlight a key at a time, a lost blank is a Backspace, and Enter is Enter', async ($, on) => {
   const { calls, release } = engine(on)

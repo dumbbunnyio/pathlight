@@ -4,7 +4,7 @@ import type { Elements, Register } from 'claude-code'
  * Pathlight inside Claude Code: `/pathlight:open` draws the viewer in a pane bound to this conversation, docked beside the transcript in the
  * fullscreen layout from 110 columns, inline above the prompt on the main screen. `/pathlight:open tmux` (or `"claude": "tmux"` in Pathlight's own
  * settings, `pathlight config set claude tmux`) goes on to `open-hook.sh`, which opens the tmux pane as before; so does a terminal the pane does not
- * fit and a Claude Code without mods.
+ * fit and a Claude Code without mods. The agent's own `pathlight show` / `pathlight open` opens the same pane where it can be placed.
  *
  * The viewer is `pathlight pane`, a child of this session: it prints frames (the Raster's cells) on its standard output and serves a Unix socket for
  * the person's keys and the pane's size. The talk's request comes up as an `ask` line and is submitted here as the person's own prompt; the reply is
@@ -40,7 +40,7 @@ let run: Run | undefined
 let wanted: { view: string; root: string } | undefined
 let working = false
 let refused = false
-/** Where the session draws, from its last drawing: the terminal's rows, which `command.run`'s presentation leaves out. */
+/** Where the session draws, from its last drawing: what `tool.call` decides by (it carries no presentation of its own). */
 let layout: { isFullscreen: boolean; columns: number; rows?: number } | undefined
 /**
  * The field is drawn holding one of two blanks, alternately, so every drawing is a new value and empties what was typed; what the person typed is
@@ -54,6 +54,27 @@ export function argsOf(args: string): { where?: 'pane' | 'tmux'; view: string } 
   const where = words[0] === 'tmux' || words[0] === 'pane' ? words.shift() as 'pane' | 'tmux' : undefined
   const view = words.length === 1 && /^[A-Za-z0-9_.-]{1,64}$/.test(words[0]!) ? words[0]! : ''
   return { where, view }
+}
+
+/**
+ * The agent's `pathlight show VIEW …` or `pathlight open [VIEW] …`, read and never run: the view it names when that is a plain id, or nothing.
+ * Undefined for anything else, including a command that chains, pipes, redirects or substitutes, or names another workspace, a pane or a socket.
+ */
+export function viewerCommand(command: string, root: string): { view: string } | undefined {
+  if (/[;&|<>`$()\n\\]/.test(command)) return undefined
+  const words = command.trim().split(/\s+/)
+  if (words[0] !== 'pathlight' || (words[1] !== 'show' && words[1] !== 'open')) return undefined
+  let view = ''
+  for (let index = 2; index < words.length; index++) {
+    const word = words[index]!
+    if (word === '--workspace') { const path = words[++index]; if (path !== '.' && path !== root && path !== `${root}/`) return undefined; continue }
+    if (word === '--project' || word === '--session' || word === '--source') { index++; continue }
+    if (word === '--follow' || word === '--here' || word === '--split') continue
+    if (word.startsWith('-')) return undefined
+    if (view || !/^[A-Za-z0-9_.-]{1,64}$/.test(word)) return undefined
+    view = word
+  }
+  return { view }
 }
 
 /** Sends one message down the child's socket, after the ones before it: keys arrive in the order they were pressed. */
@@ -178,7 +199,17 @@ export const register: Register = on => {
     return { text: 'Pathlight is beside the conversation. Type to drive it; click its last row for the arrows; ctrl+x tab brings the keys back after Esc.' }
   })
 
-  // Where the session draws, kept from the band's drawing: the rows decide whether the inline pane can be 24 tall.
+  // The agent's `pathlight show` / `pathlight open` opens this pane rather than a tmux split beside a pane already there. Read, never run; where the
+  // pane cannot be placed (or the person keeps tmux) the command runs as it always did.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const asked = viewerCommand(String(e.command ?? ''), await $.session.root())
+    // The band's width is the transcript's, not the terminal's, so in fullscreen the surface's own answer (placed or not) decides.
+    if (!asked || !layout || (!layout.isFullscreen && !fits(layout)) || await preference($) === 'tmux') return next(e)
+    if (!await openPane($, asked.view)) return next(e)
+    return { result: { stdout: 'Pathlight is beside the conversation.', stderr: '', interrupted: false } }
+  })
+
+  // Where the session draws, kept from the band's drawing for `tool.call`, which says nothing about it.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface === 'terminal' && e.viewport?.isFullscreen !== undefined) layout = { isFullscreen: e.viewport.isFullscreen, columns: e.viewport.columns, rows: e.viewport.rows }
     return next(e)
@@ -221,6 +252,7 @@ export const register: Register = on => {
     current.drawn = { cols, rows }
     return <Box flexDirection="column"><Raster key={RASTER} columns={cols} rows={rows} cells={frame.cells} />{keyRow}</Box>
   })
+
 
   // Tab in the field: the ring would leave it for the pane's close mark; the field keeps it and Pathlight gets Tab (Shift+Tab too, as from the
   // Client row: the ring says nothing of which it was). Up and Down only come back to the field, and Left and Right stay in it, so the arrows need
