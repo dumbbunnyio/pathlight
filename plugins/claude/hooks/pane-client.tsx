@@ -27,7 +27,7 @@ const KeyRow: ClientModule<{ acked?: number }, State> = (props, surface) => {
     })
   }
   const holding = surface.state?.holding === true && acked >= 0
-  return <Text dimColor wrap="truncate">{holding ? ' every key goes to Pathlight · q leaves a mode · esc: the chat' : ' ← type there, or click here for tab and the arrows · esc: the chat'}</Text>
+  return <Text dimColor wrap="truncate">{holding ? ' every key goes to Pathlight · q leaves a mode · esc: the chat' : ' ← type there, or click here for tab and the arrows · esc: the chat · ctrl+x tab: back'}</Text>
 }
 
 export default KeyRow

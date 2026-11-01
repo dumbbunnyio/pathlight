@@ -135,7 +135,7 @@ export const register: Register = on => {
     const opened = await $.ui.open({ id: PANE, title: 'Pathlight', focus: true, columns: 140 })
     if (!opened.isPlaced) { wanted = undefined; return next(e) }
     $.ui.invalidate('ui.render')
-    return { text: 'Pathlight is beside the conversation. Type to drive it; click its last row for Tab, the arrows and PgUp/PgDn; Esc comes back here.' }
+    return { text: 'Pathlight is beside the conversation. Type to drive it; click its last row for Tab and the arrows; ctrl+x tab brings the keys back after Esc.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
