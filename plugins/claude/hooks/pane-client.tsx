@@ -23,11 +23,14 @@ const KeyRow: ClientModule<{ acked?: number }, State> = (props, surface) => {
       surface.post({ events: pending })
     })
     surface.onPointer(event => {
-      if (event.type === 'down' && !surface.state?.holding) surface.setState({ ...(surface.state ?? { pending: [], seq: 0 }), holding: true })
+      if (event.type !== 'down') return
+      // The click takes the keys: the hooks module is told, so it does not read the pane's lost focus as Esc.
+      surface.post({ events: surface.state?.pending ?? [], clicked: true })
+      if (!surface.state?.holding) surface.setState({ ...(surface.state ?? { pending: [], seq: 0 }), holding: true })
     })
   }
   const holding = surface.state?.holding === true && acked >= 0
-  return <Text dimColor wrap="truncate">{holding ? ' every key goes to Pathlight · esc returns to the chat · q leaves a mode' : ' click here for tab, arrows and pgup · esc returns to the chat · q leaves a mode'}</Text>
+  return <Text dimColor wrap="truncate">{holding ? ' every key goes to Pathlight · q leaves a mode · esc: the chat' : ' ← type there, or click here for the arrows · esc: the chat · ctrl+x tab: back'}</Text>
 }
 
 export default KeyRow

@@ -155,7 +155,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   let inspectorPreference: "auto" | "open" | "closed" = "auto";
   let layoutKey = "";
-  let mounted: "none" | "docked" | "overlay" = "docked", overlayGeometry = "";
+  let mounted: "none" | "docked" | "below" | "overlay" = "docked", overlayGeometry = "";
   // Under 80 columns the diagram does not fit: a plain list of nodes replaces it.
   let listMode = false;
   let events: ActivityEvent[] = [];
@@ -257,11 +257,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const layout = () => {
     const side = renderer.width >= 120;
     listMode = renderer.width < 80;
+    // A narrow, tall screen (the pane beside Claude Code's transcript, a tall tmux split) puts the inspector under the diagram rather than over it.
+    const under = !side && !listMode && renderer.height >= 40;
     const talking = dialog.showing;
-    const visible = talking || inspectorPreference === "open" || inspectorPreference === "auto" && side;
-    // Wide terminals dock the inspector beside the diagram; narrower ones show it as an overlay on the right, toggled with `i`. Under 80 columns the
-    // talk takes the whole body, as the node list does.
-    const mount: typeof mounted = !visible ? "none" : side ? "docked" : "overlay";
+    const visible = talking || inspectorPreference === "open" || inspectorPreference === "auto" && (side || under);
+    // Wide terminals dock the inspector beside the diagram, narrow tall ones below it; narrower or shorter ones show it as an overlay on the right,
+    // toggled with `i`. Under 80 columns the talk takes the whole body, as the node list does.
+    const mount: typeof mounted = !visible ? "none" : side ? "docked" : under ? "below" : "overlay";
     if (mount === "overlay") {
       const width = talking ? listMode ? renderer.width : Math.min(renderer.width - 2, talkWidth()) : Math.min(renderer.width - 2, Math.max(38, Math.floor(renderer.width * 0.5)));
       const geometry = `${width}/${body.y}/${body.height}`;
@@ -270,22 +272,31 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         inspector.border = width === renderer.width ? false : ["left"];
       }
     }
-    const key = `${side}/${mount}/${talking}/${dialog.wide}`;
+    const key = `${side}/${mount}/${talking}/${dialog.wide}${mount === "below" ? `/${renderer.height}` : ""}`;
     if (key === layoutKey) return;
     layoutKey = key;
-    body.direction = "horizontal";
+    body.direction = mount === "below" ? "vertical" : "horizontal";
     for (const key of sectionOrder) if (!touched.has(key) && key !== "files") sections[key].open = true;
-    if (mounted === "docked") body.remove(inspector);
+    if (mounted === "docked" || mounted === "below") body.remove(inspector);
     else if (mounted === "overlay") renderer.root.remove(inspector);
     mounted = mount;
     inspector.visible = visible;
-    if (mount === "docked") {
+    if (mount === "docked" || mount === "below") {
       inspector.position = "relative"; inspector.border = false; inspector.left = 0; inspector.top = 0; inspector.height = "auto";
+      // Under the diagram it spans the width; beside it, the split sizes it from the width it had (the column's, as the widgets build it).
+      inspector.width = mount === "below" ? "100%" : 38;
       body.addPane(inspector);
     } else if (mount === "overlay") {
       inspector.position = "absolute"; inspector.border = ["left"]; inspector.borderColor = palette.border; inspector.zIndex = 15000;
       overlayGeometry = "";
       renderer.root.add(inspector);
+    }
+    // Below the diagram the inspector takes a little under half the body's rows (at least 12; a widened talk all but six); beside it, a share of the width.
+    if (mount === "below") {
+      const rows = Math.max(1, renderer.height - 4), panel = talking && dialog.wide ? rows - 6 : Math.max(12, Math.round(rows * 0.45));
+      body.minSizes = [6, 12];
+      body.sizes = [Math.max(1, rows - panel - 1), panel];
+      return;
     }
     const total = renderer.width;
     // A change of width is a resize: the diagram refits while it is fitted.
@@ -825,8 +836,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     empty: !binding ? `no session bound yet · ${lands}` : conversation.error ? "cannot read the conversation"
       : !pointer?.transcript ? `nothing recorded from this session's conversation yet · ${lands}` : "no messages yet" });
   const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, send: sendToAgent, selected: () => state.selected, context: askContext, relevant: requestFiles,
-    live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); } });
-  nameInput.onContentChange = () => fitName();
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); },
+    modal: () => Boolean(host) && renderer.width < 120 });
+  nameInput.onContentChange = () => { fitName(); dialog.typedAsk(); };
   talk.input.onContentChange = () => dialog.typed();
   help.dismiss = () => help.close();
   summary.dismiss = () => { summary.close(); update(); };
@@ -857,6 +869,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let clickedFile = -1;
   const endFiles = () => { clickedFile = -1; fileMode = false; state.focusSection = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
   const openFile = (path: string, line?: number, returned = `Returned from editor: ${path}`) => {
+    // A host's window has no terminal to hand to an editor (the headless renderer cannot suspend), and the host offers no way to open one.
+    if (host) { message = "Files open from the tmux viewer (pathlight show), or ask the agent"; update(); return; }
     editorActive = true;
     searchInput.blur();
     runTask(Effect.gen(function* () {
@@ -1112,7 +1126,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (editorActive) return;
     if (pointMark !== undefined) { pointMark = undefined; update(); }
     const layer = state.pendingVisit ? "visit" : dialog.naming ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : dialog.focus !== "none" ? "talk" : "main";
-    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses, pane: Boolean(host) });
+    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, askKinds: dialog.asking, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses, pane: Boolean(host),
+      overlay: mounted === "overlay" && inspector.visible && !dialog.showing });
     if (!action) return;
     if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
     if (action.type !== "pass") key.preventDefault();
