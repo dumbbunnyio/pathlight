@@ -141,8 +141,10 @@ test('what is typed into the field goes to Pathlight a key at a time, a lost bla
   await $.command.run(open(true) as any)
   const ui = await $.ui.mount(PANE as any)
   await settle($)
-  // The field is drawn holding a blank, one space and then two by turns, so each drawing empties it.
-  await ui.input({ key: 'keys', text: ' lj', kind: 'change' })
+  // The field is drawn holding a blank, one space and then two by turns, so each drawing empties it. Two keystrokes before it is redrawn: the second
+  // is read against what the field held, not against the blank.
+  const first = ui.input({ key: 'keys', text: ' l', kind: 'change' }), second = ui.input({ key: 'keys', text: ' lj', kind: 'change' })
+  await first; await second
   await settle($)
   await ui.input({ key: 'keys', text: ' ', kind: 'change' })
   await settle($)

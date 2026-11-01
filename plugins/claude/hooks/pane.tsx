@@ -43,10 +43,11 @@ let refused = false
 /** Where the session draws, from its last drawing: what `tool.call` decides by (it carries no presentation of its own). */
 let layout: { isFullscreen: boolean; columns: number; rows?: number } | undefined
 /**
- * The field is drawn holding one of two blanks, alternately, so every drawing is a new value and empties what was typed; what the person typed is
- * what changed around the blank, and a lost blank is a Backspace. `blank` is what is drawn now.
+ * The field is drawn holding one of two blanks, so every drawing after a keystroke is a new value and empties what was typed; what the person typed
+ * is what changed in the field, and a lost blank is a Backspace. `blank` is what is drawn next, `drawn` what it was drawn with last, and `shown`
+ * what it holds now as far as this module knows: the blank it was last drawn with, or what was typed since (two keystrokes can come before a redraw).
  */
-let blank = ' '
+let blank = ' ', drawn = '', shown = ''
 
 /** The words after `/pathlight:open`: `tmux` or `pane` (where to draw it, for this run), then a plain view id; anything else is dropped. */
 export function argsOf(args: string): { where?: 'pane' | 'tmux'; view: string } {
@@ -104,6 +105,7 @@ async function openPane($: any, view: string): Promise<boolean> {
   stop()
   wanted = { view, root: await $.session.root() }
   refused = false
+  drawn = ''
   // `columns` is the dock's (at most 45% of the terminal); `rows` the inline block's (up to what the layout spares).
   const opened = await $.ui.open({ id: PANE, title: 'Pathlight', focus: true, columns: 140, rows: 45 })
   if (!opened.isPlaced) { wanted = undefined; await $.ui.close({ id: PANE }).catch(() => undefined); return false }
@@ -188,9 +190,9 @@ export const register: Register = on => {
   on('command.run', { command: 'pathlight:open' }, async ($, e, next) => {
     const { where, view } = argsOf(e.args)
     layout = { ...e.presentation, rows: layout?.rows }
-    const small = !fits(layout)
-    if (small && !layout.isFullscreen && (where ?? 'pane') === 'pane') $.ui.toast(SMALL_TMUX)
-    if ((where ?? await preference($)) === 'tmux' || small) {
+    const small = !fits(layout), choice = where ?? await preference($)
+    if (small && !layout.isFullscreen && choice === 'pane') $.ui.toast(SMALL_TMUX)
+    if (choice === 'tmux' || small) {
       // One viewer at a time: a pane left open would be a second picture of the same map.
       if (wanted || run) { stop(); wanted = undefined; await $.ui.close({ id: PANE }).catch(() => undefined) }
       return next({ ...e, args: view })
@@ -236,6 +238,8 @@ export const register: Register = on => {
     current.focused = props.isFocused
     if (current.asked.cols !== cols || current.asked.rows !== rows) { current.asked = { cols, rows }; send($, '/resize', { cols, rows }) }
     const frame = current.frame
+    // A new blank is a new drawing: the field is emptied by it, and holds the blank from here.
+    if (drawn !== blank) { drawn = blank; shown = blank }
     const keyRow = (
       <Box flexDirection="row" height={1}>
         <Box width={FIELD_COLUMNS} height={1}>
@@ -293,9 +297,9 @@ async function blurUnlessClicked($: any, current: Run) {
 
 /** The field changed: what was typed around the blank is keys, a blank lost is a Backspace; the field is then drawn empty again. */
 function typed($: any, value: string) {
-  // The field holding a blank as drawn is no keystroke (its own redraw, or Enter on nothing typed).
-  if (!run || value === blank) return
-  const before = blank
+  // The field holding what it held is no keystroke (its own redraw, or Enter on nothing typed).
+  if (!run || value === shown) return
+  const before = shown
   let head = 0
   while (head < before.length && head < value.length && before[head] === value[head]) head++
   let tail = 0
@@ -304,7 +308,9 @@ function typed($: any, value: string) {
   const inserted = value.slice(head, value.length - tail), lost = inserted ? 0 : before.length - head - tail
   for (let index = 0; index < lost; index++) send($, '/key', { key: 'backspace' })
   for (const char of inserted) send($, '/key', { key: char === ' ' ? 'space' : char })
-  blank = before === ' ' ? '  ' : ' '
+  shown = value
+  // The next drawing must differ from the last, however many keystrokes came between.
+  blank = drawn === ' ' ? '  ' : ' '
   $.ui.invalidate('ui.render')
 }
 
