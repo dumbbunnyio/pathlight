@@ -153,6 +153,7 @@ Press `g` for a list of every view in the project. Type to narrow it (fuzzy: the
 - **`q` is Esc** wherever no field is typing: it leaves a focused card, a flow, the talk (a widened talk narrows first), the inspector drawn over the diagram, help, the session summary and the theme list. It never quits; the pane's ✕ closes it. In a field, `q` is a letter. Every hint that says `esc` says `q`, except in a field.
 - **No pointer on the diagram.** Clicks over the diagram do not reach the viewer (Claude Code gives the keys to the conversation instead), so a box is selected with the keys or `/`.
 - **The talk's request** goes up to Claude Code and is submitted as your prompt, the text byte for byte what would be typed into the agent's tmux pane; one sent during a running turn waits for it, and the talk says it is queued.
+- **No editor.** The pane has no terminal to hand to an editor, so Enter on a file (and `e` in a flow, and reading a review item) says in the footer that files open from the tmux viewer (`pathlight show`), or ask the agent.
 - **Size.** The pane is at most 45% of the terminal's width: about 103 columns on a 232-column terminal (the inspector is an overlay, `i`), 139 at 312 (docked).
 
 ## Live reload

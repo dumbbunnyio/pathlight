@@ -857,6 +857,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let clickedFile = -1;
   const endFiles = () => { clickedFile = -1; fileMode = false; state.focusSection = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
   const openFile = (path: string, line?: number, returned = `Returned from editor: ${path}`) => {
+    // A host's window has no terminal to hand to an editor (the headless renderer cannot suspend), and the host offers no way to open one.
+    if (host) { message = "Files open from the tmux viewer (pathlight show), or ask the agent"; update(); return; }
     editorActive = true;
     searchInput.blur();
     runTask(Effect.gen(function* () {

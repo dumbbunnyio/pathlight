@@ -124,6 +124,23 @@ test("t and Enter hand the request up as an ask line, byte for byte what show ty
   } finally { await pane.stop(); await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
+test("Enter on a file says where files open instead of suspending the renderer", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-pane-file-"));
+  await cp("tests/fixtures/viewer", directory, { recursive: true });
+  await Bun.write(join(directory, "plugins/claude.ts"), "export {};\n");
+  await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
+  const pane = await start(directory, 140, 36);
+  try {
+    await pane.settled();
+    await pane.key("e");
+    await pane.until(() => pane.state.frame?.text.includes("claude.ts"), "the files card");
+    await pane.key("return");
+    const said = await pane.until(() => pane.state.frame?.text.includes("Files open from the tmux viewer") && pane.state.frame, "the refusal");
+    expect(said.text).not.toContain("suspension");
+    expect(pane.child.exitCode).toBeNull();
+  } finally { await pane.stop(); await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
 test("the pane ends within a second of its output closing", async () => {
   const pane = await start("tests/fixtures/viewer", 80, 24);
   try {
