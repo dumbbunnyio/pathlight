@@ -141,6 +141,39 @@ test("Enter on a file says where files open instead of suspending the renderer",
   } finally { await pane.stop(); await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
+// In the pane under 120 columns the talk is a modal: the reply is in Claude Code's transcript beside it, and a column would hide half the diagram.
+test("t in a narrow pane asks in a modal, Tab changes the kind, Enter sends it as the prompt and closes it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-pane-modal-"));
+  await cp("tests/fixtures/viewer", directory, { recursive: true });
+  await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
+  const pane = await start(directory, 103, 44, ["--session", "pane-modal", "--source", "claude"]);
+  try {
+    await pane.settled();
+    await pane.key("t");
+    const open = await pane.until(() => pane.state.frame?.text.includes("how does Agent adapters work?") && pane.state.frame, "the modal with the first question offered");
+    expect(open.text).not.toContain("Talk · Agent adapters");
+    // The screen is kept as text: tests/golden/ask-modal-103x44.txt (the modal over the diagram, with the inspector below it).
+    await delay(600);
+    const screen = pane.state.frame!.text.split("\n").map(row => row.replace(/\s+$/, "")).join("\n") + "\n", file = "tests/golden/ask-modal-103x44.txt";
+    if (process.env.UPDATE_GOLDEN === "1") await writeFile(file, screen);
+    else expect(screen).toBe(await readFile(file, "utf8"));
+    await pane.key("tab");
+    await pane.until(() => pane.state.frame?.text.includes("Improve the map") && pane.state.frame.text.includes("needs a map drawn by pathlight draft"), "the map kind");
+    await pane.key("tab", "tab");
+    await pane.key("return");
+    const ask = await pane.until(() => pane.state.asks[0], "an ask line");
+    expect(ask.text).toBe(askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "how does Agent adapters work?", true));
+    expect((await pane.post("/sent", { id: ask.id, ok: true })).status).toBe(204);
+    const sent = await pane.until(() => pane.state.frame?.text.includes("Sent as your prompt") && pane.state.frame, "the footer's line");
+    expect(sent.text).not.toContain("Improve the map");
+    // q closes a modal opened and left alone: it is a letter only while typing, and the host's Esc (blur) closes it.
+    await pane.key("m");
+    await pane.until(() => pane.state.frame?.text.includes("What should it work out"), "the map modal");
+    await pane.key("blur");
+    await pane.until(() => pane.state.frame && !pane.state.frame.text.includes("What should it work out"), "the modal closed");
+  } finally { await pane.stop(); await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
 test("the pane ends within a second of its output closing", async () => {
   const pane = await start("tests/fixtures/viewer", 80, 24);
   try {

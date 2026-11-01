@@ -15,6 +15,8 @@ export interface KeyMode {
   cards: readonly SectionKey[];
   /** `h j k l` select when true (arrows pan); `v` swaps them. */
   vim: boolean;
+  /** The modal is a request to the agent (`t`, `m`, `d` in the narrow pane): Tab changes its kind. */
+  askKinds?: boolean;
   /** The node face is shown over the diagram (under 120 columns): Esc closes it, as `i` does. */
   overlay?: boolean;
   /**
@@ -72,6 +74,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   if (mode.layer === "ask") {
     if (key.name === "escape") return { type: "askCancel" };
     if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "askSend" };
+    if (key.name === "tab" && mode.askKinds) return { type: "talkTab", by: key.shift ? -1 : 1 };
     return undefined;
   }
   // The talk's field has the keys: Esc hands them to the diagram, Tab changes the kind of request until it is sent.

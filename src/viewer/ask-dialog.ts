@@ -34,6 +34,11 @@ export function createAskDialog<Target extends AskTarget>(options: {
   say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void;
   /** A request went to the agent; `drawing` when it asks for a journey to be recorded (`t` with a how-question, or `d`). */
   asked: (drawing: boolean) => void;
+  /**
+   * Whether `t`, `m` and `d` ask in a modal instead of the column: in Claude Code's pane under 120 columns, where the reply is in the transcript beside
+   * it and a column would hide half the diagram to repeat it. The modal is one request with its context, sent as the prompt; the footer says what came of it.
+   */
+  modal?: () => boolean;
 }) {
   const { renderer, workspace } = options, { talk, naming, nameInput, namePrompt, nameRow, nameColumns } = options.widgets;
   const tell = (message: string) => { options.say(message); options.update(); };
@@ -98,6 +103,57 @@ export function createAskDialog<Target extends AskTarget>(options: {
     Effect.tap(said => Effect.sync(() => tell(said ?? done))),
     Effect.catch(error => Effect.sync(() => tell(error.message)))));
 
+  // `t`, `m` and `d` in the modal: the kind of request, its box and the question offered, until Enter sends it or Esc closes it.
+  let asking: { tab: TalkTab; target: Target; offered: string } | undefined;
+  const askTitles: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a flow" };
+  const renderAsk = () => {
+    if (!asking) return;
+    const width = nameColumns(), typed = nameInput.plainText.trim(), mapReady = Boolean(keyOf(asking.target));
+    const tabs = talkTabsLine({ tab: asking.tab, mapReady });
+    const line = talkIncludeLine({ tab: asking.tab, subject: asking.target.title, drawing: asking.tab === "ask" && isHowQuestion(typed || asking.offered), mapReady, width });
+    naming.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(askTitles[asking.tab]), fg(palette.muted)(" ")]);
+    naming.content.content = new StyledText([...tabs.content.chunks, nl, ...line.content.chunks]);
+    nameInput.placeholder = asking.tab === "ask" && asking.offered ? asking.offered : placeholders[asking.tab];
+    namePrompt.fg = palette.accent;
+    naming.foot.content = new StyledText(borderHints([["enter", "send"], ["tab", "kind"], ["esc", "close"]], true));
+    const live = options.live();
+    naming.meta.content = new StyledText([fg(palette.muted)(` ${live.bound ? live.label : "no session"} `)]);
+    naming.place(width, 1 + line.rows + 1 + nameInput.height);
+    renderer.requestRender();
+  };
+  const beginAsk = (tab: TalkTab, offer = "") => {
+    const target = options.selected();
+    if (!target) return;
+    asking = { tab, target, offered: offer };
+    options.opening(); options.say("");
+    nameInput.setText(""); nameInput.height = 3; nameRow.height = 3;
+    naming.open(nameColumns(), 6); nameInput.focus(); renderAsk(); options.update();
+    options.run(readKeys(workspace).pipe(Effect.tap(found => Effect.sync(() => { keys = found; renderAsk(); })), Effect.catch(() => Effect.void)));
+  };
+  /** Enter in the modal: the request with the box's files and connections, as the column's first one, sent as the prompt; the modal closes. */
+  const sendAsk = () => {
+    if (!asking || !options.send) return;
+    const { tab, target, offered } = asking, text = nameInput.plainText.trim() || (tab === "ask" ? offered : "");
+    if (!text) return;
+    const context = options.context(target), ok = (more = "") => `Sent as your prompt · the reply is in the conversation${more}`;
+    if (tab === "map") {
+      const key = keyOf(target);
+      if (!key) { tell("Only a model made by pathlight draft can be edited here; edit your model file instead"); return; }
+      finishName();
+      sent(target, files => mapMessage({ title: target.title, id: String(target.id), key, files, links: context.links }, text), ok());
+      return;
+    }
+    finishName();
+    if (tab === "flow") {
+      options.asked(true);
+      sent(target, files => flowMessage({ title: target.title, id: String(target.id), files, links: context.links }, text), ok(" · F shows it once it is written"));
+      return;
+    }
+    const draw = isHowQuestion(text);
+    options.asked(draw);
+    sent(target, files => askMessage({ title: target.title, id: String(target.id), files, links: context.links }, text, draw), ok(draw ? " · F shows the path once it is recorded" : ""));
+  };
+
   // `n`: the person's own name and note, in the modal.
   let naming_: { key: string; target: Target; step: "name" | "note"; title: string; note: string } | undefined;
   const renderName = () => {
@@ -110,7 +166,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     naming.meta.content = new StyledText([fg(palette.muted)(" ")]);
     renderer.requestRender();
   };
-  const finishName = () => { naming_ = undefined; nameInput.blur(); naming.close(); options.update(); };
+  const finishName = () => { naming_ = undefined; asking = undefined; nameInput.blur(); naming.close(); options.update(); };
   naming.dismiss = finishName;
 
   return {
@@ -126,13 +182,16 @@ export function createAskDialog<Target extends AskTarget>(options: {
     /** `t`: the field of the talk there is (same subject, no tabs once sent), else a new talk on its first tab, offering `offer`. */
     ask(offer = "") {
       if (needsPane("Ask")) return;
+      if (options.modal?.()) { beginAsk("ask", offer); return; }
       if (current) { showing = true; replied = false; focusOn("field"); return; }
       if (options.selected()) begin("ask", offer);
     },
     /** `m` and `d` always begin a new talk on their tab. */
-    map() { if (!needsPane("Changing the map") && options.selected()) begin("map"); },
-    trace() { if (!needsPane("Tracing a flow") && options.selected()) begin("flow"); },
-    tab(by: number) { if (current?.fresh) { current.tab = talkTabs[(talkTabs.indexOf(current.tab) + by + talkTabs.length) % talkTabs.length]!; options.update(); } },
+    map() { if (!needsPane("Changing the map") && options.selected()) { if (options.modal?.()) beginAsk("map"); else begin("map"); } },
+    trace() { if (!needsPane("Tracing a flow") && options.selected()) { if (options.modal?.()) beginAsk("flow"); else begin("flow"); } },
+    tab(by: number) {
+      if (asking) { asking.tab = talkTabs[(talkTabs.indexOf(asking.tab) + by + talkTabs.length) % talkTabs.length]!; renderAsk(); return; }
+      if (current?.fresh) { current.tab = talkTabs[(talkTabs.indexOf(current.tab) + by + talkTabs.length) % talkTabs.length]!; options.update(); } },
     /** Esc in the field hands the keys to the diagram; the talk stays showing. */
     blur() { focusOn("none"); },
     /** Esc with the keys on the diagram: a widened talk narrows, else the talk closes and the node face returns. */
@@ -179,7 +238,12 @@ export function createAskDialog<Target extends AskTarget>(options: {
       sent(target, files => askMessage({ title: target.title, id: String(target.id), files, links: context.links }, text, draw),
         `Asked ${session} about ${target.title} · ${live.bound ? "the reply shows here" : "reply lands in the agent pane"}${draw ? " · F shows the path once it is recorded" : ""}`);
     },
-    get naming() { return naming_ !== undefined; },
+    /** The modal is up: naming a box (`n`), or a request in the narrow pane (`t`, `m`, `d`). */
+    get naming() { return naming_ !== undefined || asking !== undefined; },
+    /** Whether the modal is a request, whose Tab changes its kind. */
+    get asking() { return asking !== undefined; },
+    /** The question typed into the modal changed: whether it records a journey may follow it. */
+    typedAsk() { renderAsk(); },
     beginName() {
       const target = options.selected();
       if (!target) return;
@@ -197,6 +261,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     finishName,
     /** Enter in the naming modal: the name, then the note, then saved as the person's own. */
     nameNext() {
+      if (asking) { sendAsk(); return; }
       if (!naming_) return;
       const text = nameInput.plainText.trim();
       if (naming_.step === "name") {
