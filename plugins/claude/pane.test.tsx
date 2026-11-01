@@ -15,7 +15,7 @@ const open = (isFullscreen: boolean, columns = 232, args = '') =>
 // Each stand-in below is the engine: nothing sits beneath the plugin in a test.
 // `saved` is what `pathlight config get claude` prints.
 function engine(on: any, options: { saved?: string; submitted?: (text: string) => unknown } = {}) {
-  const calls = { opened: [] as unknown[], closed: [] as unknown[], fetched: [] as { url: string; body: unknown; socketPath?: string }[], submitted: [] as unknown[], spawned: [] as string[][] }
+  const calls = { opened: [] as unknown[], closed: [] as unknown[], toasts: [] as string[], fetched: [] as { url: string; body: unknown; socketPath?: string }[], submitted: [] as unknown[], spawned: [] as string[][] }
   let release = () => {}
   const held = new Promise<void>(resolve => { release = resolve })
   on('process.run', (_: unknown, e: { argv: readonly string[] }) =>
@@ -24,6 +24,7 @@ function engine(on: any, options: { saved?: string; submitted?: (text: string) =
   on('session.id', () => ({ value: 'session-1' }))
   on('ui.open', (_: unknown, e: unknown) => { calls.opened.push(e); return { value: { isPlaced: true } } })
   on('ui.close', (_: unknown, e: unknown) => { calls.closed.push(e); return { value: undefined } })
+  on('ui.toast', (_: unknown, e: { text?: string }) => { calls.toasts.push(String(e?.text ?? e)); return { value: undefined } })
   on('ui.blit', () => ({ value: {} }))
   on('http.fetch', (_: unknown, e: { url: string; init?: { body?: string; socketPath?: string } }) => {
     calls.fetched.push({ url: e.url, body: JSON.parse(e.init?.body ?? 'null'), socketPath: e.init?.socketPath })
@@ -51,7 +52,7 @@ test('/pathlight:open draws the pane beside a fullscreen transcript, bound to th
   const result = await $.command.run(open(true) as any)
   expect(String((result as { text?: string }).text)).toContain('Pathlight is beside the conversation')
   expect(calls.opened).toHaveLength(1)
-  expect(calls.opened[0]).toEqual(expect.objectContaining({ id: 'pathlight', focus: true, columns: 140 }))
+  expect(calls.opened[0]).toEqual(expect.objectContaining({ id: 'pathlight', focus: true, columns: 140, rows: 45 }))
   const ui = await $.ui.mount(PANE as any)
   await settle($)
   // The body less the key row; the session's own id, never --follow.
@@ -60,12 +61,26 @@ test('/pathlight:open draws the pane beside a fullscreen transcript, bound to th
   await ui.unmount()
 })
 
-test('on the main screen, or under 110 columns, the command goes on to the hook that opens the tmux pane', async ($, on) => {
+test('on the main screen the pane opens inline above the prompt; a terminal too small for it, or a fullscreen one under 110 columns, gets the tmux pane', async ($, on) => {
   const { calls } = engine(on)
   on('command.run', () => ({ text: 'the classic hook' }))
-  expect((await $.command.run(open(false) as any) as { text?: string }).text).toBe('the classic hook')
+  expect(String((await $.command.run(open(false) as any) as { text?: string }).text)).toContain('Pathlight is beside the conversation')
+  expect(calls.opened).toHaveLength(1)
+  expect((await $.command.run(open(false, 80) as any) as { text?: string }).text).toBe('the classic hook')
+  expect(calls.toasts.some(toast => toast.includes('too small'))).toBe(true)
   expect((await $.command.run(open(true, 100) as any) as { text?: string }).text).toBe('the classic hook')
-  expect(calls.opened).toHaveLength(0)
+  expect(calls.opened).toHaveLength(1)
+})
+
+test('an inline pane under 80 × 24 is closed with a toast that names /pathlight:open tmux', async ($, on) => {
+  const { calls } = engine(on)
+  await $.command.run(open(false) as any)
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, placement: 'inline', bodyColumns: 96, scroll: { offset: 0, bodyRows: 17 } } } as any)
+  await settle($)
+  expect(calls.toasts.some(toast => toast.includes('/pathlight:open tmux'))).toBe(true)
+  expect(calls.closed).toHaveLength(1)
+  expect(calls.spawned).toHaveLength(0)
+  await ui.unmount()
 })
 
 test('the word tmux sends the command on with the view alone; the saved setting does the same; the word pane wins over the setting', async ($, on) => {

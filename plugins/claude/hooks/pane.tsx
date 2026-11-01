@@ -1,9 +1,10 @@
 import type { Elements, Register } from 'claude-code'
 
 /**
- * Pathlight inside Claude Code: `/pathlight:open` in the fullscreen layout from 110 columns draws the viewer in a pane beside the transcript, bound to
- * this conversation. Elsewhere (the main screen, a narrower terminal, a Claude Code without mods) the command goes on to `open-hook.sh`, which opens
- * the tmux pane as before.
+ * Pathlight inside Claude Code: `/pathlight:open` draws the viewer in a pane bound to this conversation, docked beside the transcript in the
+ * fullscreen layout from 110 columns, inline above the prompt on the main screen. `/pathlight:open tmux` (or `"claude": "tmux"` in Pathlight's own
+ * settings, `pathlight config set claude tmux`) goes on to `open-hook.sh`, which opens the tmux pane as before; so does a terminal the pane does not
+ * fit and a Claude Code without mods.
  *
  * The viewer is `pathlight pane`, a child of this session: it prints frames (the Raster's cells) on its standard output and serves a Unix socket for
  * the person's keys and the pane's size. The talk's request comes up as an `ask` line and is submitted here as the person's own prompt; the reply is
@@ -14,9 +15,10 @@ import type { Elements, Register } from 'claude-code'
 const PANE = 'pathlight'
 const RASTER = 'view'
 const FIELD = 'keys'
+const SMALL = 'Pathlight needs 80 × 24 for its pane; /pathlight:open tmux opens it in tmux.'
+const SMALL_TMUX = 'The terminal is too small for Pathlight\'s pane (80 × 24 inside it); opening it in tmux.'
 /** The key row: the field (typed keys at once), then the Client (every key after a click), each saying what it is for. */
 const FIELD_COLUMNS = 14
-const TOO_NARROW = 'Pathlight needs a terminal of 110 columns or more beside the chat; `pathlight show` opens it in tmux.'
 
 type Frame = { cols: number; rows: number; cells: string }
 type Run = {
@@ -38,6 +40,8 @@ let run: Run | undefined
 let wanted: { view: string; root: string } | undefined
 let working = false
 let refused = false
+/** Where the session draws, from its last drawing: the terminal's rows, which `command.run`'s presentation leaves out. */
+let layout: { isFullscreen: boolean; columns: number; rows?: number } | undefined
 /**
  * The field is drawn holding one of two blanks, alternately, so every drawing is a new value and empties what was typed; what the person typed is
  * what changed around the blank, and a lost blank is a Backspace. `blank` is what is drawn now.
@@ -64,6 +68,26 @@ function send($: any, path: string, body: unknown) {
 async function preference($: any): Promise<'pane' | 'tmux'> {
   const said = await $.process.run(['pathlight', 'config', 'get', 'claude']).catch(() => undefined)
   return said?.exitCode === 0 && said.stdout.trim() === 'tmux' ? 'tmux' : 'pane'
+}
+
+/**
+ * Whether the pane can be drawn where this session draws: docked from 110 columns in fullscreen; inline on the main screen, which needs 80 × 24 inside
+ * its frame (the inline block leaves the prompt and a few transcript rows: about 13 of the terminal's rows, measured at 232 × 50 and 100 × 30).
+ */
+const fits = (where: { isFullscreen: boolean; columns: number; rows?: number }) => where.isFullscreen ? where.columns >= 110 : where.columns >= 84 && (where.rows === undefined || where.rows >= 38)
+
+/** Opens the pane bound to this conversation (a fresh viewer each time); false when the surface did not place it, and then nothing is left open. */
+async function openPane($: any, view: string): Promise<boolean> {
+  const found = await $.process.run(['sh', '-c', 'command -v pathlight']).catch(() => ({ exitCode: 1 }))
+  if (found.exitCode !== 0) return false
+  stop()
+  wanted = { view, root: await $.session.root() }
+  refused = false
+  // `columns` is the dock's (at most 45% of the terminal); `rows` the inline block's (up to what the layout spares).
+  const opened = await $.ui.open({ id: PANE, title: 'Pathlight', focus: true, columns: 140, rows: 45 })
+  if (!opened.isPlaced) { wanted = undefined; await $.ui.close({ id: PANE }).catch(() => undefined); return false }
+  $.ui.invalidate('ui.render')
+  return true
 }
 
 /** The child's life: started once the pane knows its size, ended with the pane, the session or the module. */
@@ -138,24 +162,26 @@ function stop() {
 }
 
 export const register: Register = on => {
-  // `/pathlight:open` is commands/open.md; its run comes here first. The pane is drawn where it is docked beside the transcript, unless the command
-  // or the person's setting says tmux; then the command goes on to `open-hook.sh` with the view alone.
+  // `/pathlight:open` is commands/open.md; its run comes here first. The pane is drawn where Claude Code can seat it, unless the command or the
+  // person's setting says tmux; then the command goes on to `open-hook.sh` with the view alone.
   on('command.run', { command: 'pathlight:open' }, async ($, e, next) => {
     const { where, view } = argsOf(e.args)
-    if ((where ?? await preference($)) === 'tmux' || !e.presentation.isFullscreen || e.presentation.columns < 110) {
+    layout = { ...e.presentation, rows: layout?.rows }
+    const small = !fits(layout)
+    if (small && !layout.isFullscreen && (where ?? 'pane') === 'pane') $.ui.toast(SMALL_TMUX)
+    if ((where ?? await preference($)) === 'tmux' || small) {
       // One viewer at a time: a pane left open would be a second picture of the same map.
       if (wanted || run) { stop(); wanted = undefined; await $.ui.close({ id: PANE }).catch(() => undefined) }
       return next({ ...e, args: view })
     }
-    const found = await $.process.run(['sh', '-c', 'command -v pathlight']).catch(() => ({ exitCode: 1 }))
-    if (found.exitCode !== 0) return next({ ...e, args: view })
-    stop()
-    wanted = { view, root: await $.session.root() }
-    refused = false
-    const opened = await $.ui.open({ id: PANE, title: 'Pathlight', focus: true, columns: 140 })
-    if (!opened.isPlaced) { wanted = undefined; return next({ ...e, args: view }) }
-    $.ui.invalidate('ui.render')
+    if (!await openPane($, view)) return next({ ...e, args: view })
     return { text: 'Pathlight is beside the conversation. Type to drive it; click its last row for the arrows; ctrl+x tab brings the keys back after Esc.' }
+  })
+
+  // Where the session draws, kept from the band's drawing: the rows decide whether the inline pane can be 24 tall.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.surface === 'terminal' && e.viewport?.isFullscreen !== undefined) layout = { isFullscreen: e.viewport.isFullscreen, columns: e.viewport.columns, rows: e.viewport.rows }
+    return next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -164,10 +190,10 @@ export const register: Register = on => {
     const { Box, Text, Raster, Input, Client } = $.ui.resolve(e) as Elements['terminal']
     const props = e.props
     const cols = Math.min(512, props.bodyColumns), rows = Math.min(256, props.scroll.bodyRows - 1)
-    // Inline (above the prompt) is too small to read; the dock is where the pane belongs.
+    // Inline (above the prompt) and too small to read: say so and close, rather than draw a sliver.
     if (props.placement === 'inline' && (props.scroll.bodyRows < 24 || props.bodyColumns < 80)) {
-      if (!refused) { refused = true; stop(); wanted = undefined; $.ui.toast(TOO_NARROW); void $.ui.close({ id: PANE }) }
-      return <Text dimColor>{TOO_NARROW}</Text>
+      if (!refused) { refused = true; stop(); wanted = undefined; $.ui.toast(SMALL); void $.ui.close({ id: PANE }) }
+      return <Text dimColor>{SMALL}</Text>
     }
     if (!run && wanted && cols >= 20 && rows >= 8) void start($, { cols, rows })
     const current = run

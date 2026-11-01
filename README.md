@@ -87,7 +87,7 @@ To reopen the viewer yourself, with no agent involved:
 | Where you are | Command | Result | Inference |
 | --- | --- | --- | --- |
 | A shell prompt in a tmux pane | `pathlight open [VIEW]` | That pane becomes the viewer | none |
-| Inside Claude Code | `/pathlight:open [VIEW]` | In the fullscreen layout from 110 columns, Pathlight is drawn in Claude Code's own pane beside the transcript ([Inside Claude Code](#inside-claude-code)); elsewhere a viewer pane is split beside the conversation | none (the plugin answers the command itself, so the model is never called) |
+| Inside Claude Code | `/pathlight:open [tmux\|pane] [VIEW]` | Pathlight is drawn in Claude Code's own pane, beside the transcript in the fullscreen layout from 110 columns, above the prompt on the main screen ([Inside Claude Code](#inside-claude-code)); with `tmux`, a saved `tmux` choice or too small a terminal, a viewer pane is split beside the conversation | none (the plugin answers the command itself, so the model is never called) |
 | Inside OpenCode | `/pathlight-open [VIEW]` | A viewer pane is split beside the conversation | none (the CLI plugin handles it) |
 | Inside Claude Code or OpenCode | `! pathlight open [VIEW]` | The same split | none (a shell escape) |
 
@@ -164,7 +164,12 @@ It never rewrites a LikeC4 model you wrote: if the workspace has one, use `--out
 
 ## Inside Claude Code
 
-With the Claude plugin installed (Claude Code 2.1.287 or later), `/pathlight:open [VIEW]` in Claude Code's fullscreen layout (`/tui fullscreen`, or `CLAUDE_CODE_NO_FLICKER=1`) on a terminal of 110 columns or more draws Pathlight in a pane docked beside the transcript, bound to that conversation: no tmux pane, nothing to arrange. Claude Code gives a docked pane at most 45% of the terminal's width, so on a 232-column terminal the pane is about 103 columns and the inspector opens over the diagram with `i`; at 312 columns it is 139 and the inspector docks beside it. On the main-screen layout, under 110 columns, or on an older Claude Code, the same command opens the tmux pane as before (that one still needs tmux, as do `pathlight show` and OpenCode).
+With the Claude plugin installed (Claude Code 2.1.287 or later), `/pathlight:open [VIEW]` draws Pathlight in Claude Code's own pane, bound to that conversation: no tmux pane, nothing to arrange. Where the pane goes is Claude Code's layout (`/tui` switches it):
+
+- **Fullscreen** (`/tui fullscreen`, or `CLAUDE_CODE_NO_FLICKER=1`), from 110 columns: **on the right**, docked beside the whole transcript. Claude Code gives a docked pane at most 45% of the terminal's width, so on a 232-column terminal the pane is about 103 columns and the inspector sits below the diagram; at 312 columns it is 139 and the inspector docks beside it.
+- **Main screen** (the default layout): **on top**, inline above the prompt box, the full width and up to 45 rows (228 × 37 on a 232 × 50 terminal, with the inspector beside the diagram and a few rows of transcript above it). Under 80 × 24 inside its frame it opens the tmux pane instead, and says so.
+
+Claude Code places a mod's pane and offers no way to dock it on the main screen, so there "on the right" is the tmux pane (below), or the fullscreen layout. Under 110 columns in fullscreen, or on an older Claude Code, the same command opens the tmux pane as before (that one still needs tmux, as do `pathlight show` and OpenCode).
 
 To keep the tmux pane instead, say so for one command or for good: `/pathlight:open tmux [VIEW]` opens the tmux pane this time and `/pathlight:open pane [VIEW]` the pane beside the conversation; `pathlight config set claude tmux` (or `pane`) saves the choice as `"claude": "tmux"` in Pathlight's own settings file, `~/.config/pathlight/config.json` beside the theme (nothing about any workspace is kept there), and the word in the command wins over the file. `pathlight config get claude` prints the saved choice.
 
