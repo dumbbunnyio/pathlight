@@ -108,16 +108,20 @@ async function heard($: any, current: Run, line: string) {
 
 /**
  * The talk's request, sent as the person's own words. A prompt sent while a turn runs waits for it (the submit resolves only when its own turn
- * starts), so the talk is told at once that it is queued; a refusal that comes later is a toast.
+ * starts), so the talk is told at once that it is queued; a refusal that comes later is a toast. A prompt a hook stops resolves to `{ drop }` with
+ * the hook's reason, said in the talk at once.
  */
 async function submit($: any, ask: { id: number; text: string }) {
   if (typeof ask?.text !== 'string' || typeof ask.id !== 'number') return
   if (working) send($, '/sent', { id: ask.id, ok: true, said: 'Queued behind the running turn · the reply shows here' })
   const queued = working
   const result = await $.prompt.submit({ text: ask.text, asUser: true }).catch((error: unknown) => ({ drop: String(error) }))
-  const reason = result?.drop as string | undefined
-  if (queued) { if (reason) $.ui.toast(`Pathlight's request was not sent: ${reason}`); return }
-  send($, '/sent', reason ? { id: ask.id, ok: false, said: `The conversation refused it: ${reason}` } : { id: ask.id, ok: true })
+  // Claude Code words a settings hook's stop as `Operation stopped by hook: <its reason>` (measured on 2.1.316, at once); the talk says whose stop it was.
+  const drop = typeof result?.drop === 'string' ? result.drop : undefined
+  const hooked = drop !== undefined && /^Operation stopped by hook:/i.test(drop)
+  const reason = drop === undefined ? undefined : `${hooked ? 'Stopped by a hook' : 'Not sent'}: ${drop.replace(/^Operation stopped by hook:\s*/i, '').trim() || 'no reason given'}`
+  if (queued) { if (reason !== undefined) $.ui.toast(`Pathlight's request: ${reason}`); return }
+  send($, '/sent', reason !== undefined ? { id: ask.id, ok: false, said: reason } : { id: ask.id, ok: true })
 }
 
 function stop() {

@@ -13,7 +13,7 @@ const open = (isFullscreen: boolean, columns = 232) =>
   ({ command: 'pathlight:open', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen, columns } }) as const
 
 // Each stand-in below is the engine: nothing sits beneath the plugin in a test.
-function engine(on: any) {
+function engine(on: any, options: { submitted?: (text: string) => unknown } = {}) {
   const calls = { opened: [] as unknown[], fetched: [] as { url: string; body: unknown; socketPath?: string }[], submitted: [] as unknown[], spawned: [] as string[][] }
   let release = () => {}
   const held = new Promise<void>(resolve => { release = resolve })
@@ -26,7 +26,7 @@ function engine(on: any) {
     calls.fetched.push({ url: e.url, body: JSON.parse(e.init?.body ?? 'null'), socketPath: e.init?.socketPath })
     return { value: { status: 204, ok: true, headers: {}, text: '' } }
   })
-  on('prompt.submit', (_: unknown, e: { text: string }) => { calls.submitted.push(e); return { text: e.text } })
+  on('prompt.submit', (_: unknown, e: { text: string }) => { calls.submitted.push(e); return options.submitted?.(e.text) ?? { text: e.text } })
   on('process.spawn', async function* (_: unknown, e: { argv: string[] }) {
     calls.spawned.push([...e.argv])
     yield { stream: 'stdout', text: 'socket /run/pathlight-keys.sock\nrea' }
@@ -99,6 +99,16 @@ test('what is typed into the field goes to Pathlight a key at a time, a lost bla
   await ui.input({ key: 'keys', text: ' ', kind: 'submit' })
   await settle($)
   expect(sent(calls, '/key')).toEqual([{ key: 'l' }, { key: 'j' }, { key: 'backspace' }, { key: 'return' }])
+  release()
+  await ui.unmount()
+})
+
+test('a prompt a hook stops is said in the talk at once, with the hook\'s reason', async ($, on) => {
+  const { calls, release } = engine(on, { submitted: () => ({ drop: 'Operation stopped by hook: not now' }) })
+  await $.command.run(open(true) as any)
+  const ui = await $.ui.mount(PANE as any)
+  await settle($)
+  expect(sent(calls, '/sent')).toEqual([{ id: 1, ok: false, said: 'Stopped by a hook: not now' }])
   release()
   await ui.unmount()
 })
