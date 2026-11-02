@@ -49,7 +49,7 @@ export const renderText = (text: string, width: number): TextChunk[][] => {
  * `← agent` use), its text at the left edge. With
  * nothing to show, one dim line saying why (`empty`), and nothing invented.
  */
-export const talkContent = (messages: readonly Message[], options: { width: number; empty: string }) => {
+export const talkContent = (messages: readonly Message[], options: { width: number; empty: string; working?: string }) => {
   const width = Math.max(10, options.width);
   if (!messages.length) { const lines = wrapWords(options.empty, width); return { content: new StyledText([fg(palette.muted)(lines.join("\n"))]), lines: lines.length }; }
   const rows: TextChunk[][] = [];
@@ -60,12 +60,14 @@ export const talkContent = (messages: readonly Message[], options: { width: numb
     rows.push([fg(yours ? palette.accent : palette.purple)(message.role), fg(palette.border)(` · ${clock(message.at)}`)]);
     rows.push(...(yours ? renderText(message.text, width - 1).map(row => [fg(palette.body)(" "), ...row]) : renderText(message.text, width)));
   }
+  // While the agent works on the last request, `⠋ working` stands where its reply will land; the agent's text replaces it.
+  if (options.working && messages.at(-1)?.role === "you") rows.push([], [fg(palette.accent)(`${options.working} working`)]);
   return { content: new StyledText(rows.flatMap((row, index) => [...index ? [nl] : [], ...row])), lines: rows.length };
 };
 
 /** The talk's first line: whom the next request is about, and at the right what the agent is doing, else which session it is. */
-export const talkHeader = (options: { subject: string | undefined; state: TalkState; spin: string; session: string | undefined; width: number }) => {
-  const right = options.state === "working" ? `working ${options.spin}` : options.state === "waiting" ? "waiting for you in its pane" : options.state === "done" ? "done"
+export const talkHeader = (options: { subject: string | undefined; state: TalkState; session: string | undefined; width: number }) => {
+  const right = options.state === "working" ? "working" : options.state === "waiting" ? "waiting for you in its pane" : options.state === "done" ? "done"
     : options.session ? `● ${options.session}` : "○ no session";
   const tone = options.state === "working" ? palette.accent : options.state === "waiting" ? palette.outgoing : options.state === "done" ? palette.muted
     : options.session ? palette.incoming : palette.border;

@@ -38,9 +38,9 @@ test("the conversation is each message under its role and time, a blank row apar
 });
 
 test("the header names the subject, and at the right what the agent is doing, else the session", () => {
-  const head = (state: Parameters<typeof talkHeader>[0]["state"], session?: string) => plain(talkHeader({ subject: "Orders", state, spin: "⠋", session, width: 56 }));
+  const head = (state: Parameters<typeof talkHeader>[0]["state"], session?: string) => plain(talkHeader({ subject: "Orders", state, session, width: 56 }));
   expect(head(undefined, "claude:3f2a9c")).toMatch(/^Talk · Orders +● claude:3f2a9c$/);
-  expect(head("working")).toMatch(/working ⠋$/);
+  expect(head("working")).toMatch(/ working$/);
   expect(head("waiting")).toMatch(/waiting for you in its pane$/);
   expect(head("done")).toMatch(/ done$/);
   expect(head(undefined)).toMatch(/○ no session$/);
@@ -67,4 +67,15 @@ test("the chosen tab is its word in the text colour, the others muted, with no b
   expect(tone("Improve the map").equals(RGBA.fromHex(palette.text))).toBe(true);
   expect(tone("Ask").equals(RGBA.fromHex(palette.muted))).toBe(true);
   expect(tabs.spans).toEqual([{ from: 0, to: 3 }, { from: 6, to: 21 }, { from: 24, to: 39 }]);
+});
+
+// Where the eye waits: under the last request, `⠋ working` while the agent works, gone once its text is the last message.
+test("a working row stands under the last request until the agent's reply arrives", () => {
+  const at = new Date(2026, 10, 2, 9, 30).getTime();
+  const asked = talkContent([{ id: "1", role: "you", at, text: "how does it work?" }], { width: 40, empty: "", working: "⠋" });
+  expect(plain(asked.content).split("\n")).toEqual([`you · ${clock(at)}`, " how does it work?", "", "⠋ working"]);
+  expect(asked.content.chunks.at(-1)!.fg!.equals(RGBA.fromHex(palette.accent))).toBe(true);
+  const answered = talkContent([{ id: "1", role: "you", at, text: "how does it work?" }, { id: "2", role: "agent", at, text: "It records calls." }], { width: 40, empty: "", working: "⠋" });
+  expect(plain(answered.content)).not.toContain("working");
+  expect(plain(talkContent([{ id: "1", role: "you", at, text: "hi" }], { width: 40, empty: "" }).content)).not.toContain("working");
 });

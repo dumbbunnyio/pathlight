@@ -61,8 +61,8 @@ export function createAskDialog<Target extends AskTarget>(options: {
     talk.top.visible = talk.tabs.visible = talk.include.visible = showing && Boolean(current?.fresh);
     if (!showing || !current) return;
     const target = options.selected(), conversation = options.conversation(), live = options.live();
-    talk.head.content = talkHeader({ subject: target?.title, state: conversation.state, spin: spinAt(Date.now()), session: live.bound ? live.label : undefined, width });
-    const made = talkContent(conversation.messages, { width: width - 1, empty: conversation.empty });
+    talk.head.content = talkHeader({ subject: target?.title, state: conversation.state, session: live.bound ? live.label : undefined, width });
+    const made = talkContent(conversation.messages, { width: width - 1, empty: conversation.empty, working: conversation.state === "working" ? spinAt(Date.now()) : undefined });
     talk.text.content = made.content; talk.text.height = made.lines;
     const mapReady = Boolean(keyOf(target));
     if (current.fresh) {
