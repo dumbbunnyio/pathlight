@@ -49,8 +49,10 @@ test("the header names the subject, and at the right what the agent is doing, el
 
 test("under the Ask tab the row says whom the question is about, and that it records a journey while it will be drawn; no toggles", () => {
   const line = (drawing: boolean, width = 50) => talkIncludeLine({ tab: "ask", subject: "Backend server", drawing, mapReady: true, width });
-  expect(plain(line(false).content)).toBe("about Backend server");
-  expect(plain(line(true).content)).toBe("about Backend server · records a journey");
+  expect(plain(line(false).content)).toBe("▸ about Backend server");
+  expect(plain(line(true).content)).toBe("▸ about Backend server · records a journey");
+  // The glyph and `about` muted, the title in the body color, the tail muted.
+  expect(line(true).content.chunks.map(chunk => chunk.fg)).toEqual([RGBA.fromHex(palette.muted), RGBA.fromHex(palette.body), RGBA.fromHex(palette.muted)]);
   expect(line(true).rows).toBe(1);
   expect(plain(line(true, 30).content)).toEndWith(" · records a journey");
   expect(plain(line(true, 30).content).length).toBeLessThanOrEqual(30);

@@ -100,9 +100,10 @@ export const talkIncludeLine = (options: { tab: TalkTab; subject: string | undef
     const lines = wrapWords(text, width);
     return { content: new StyledText([fg(palette.muted)(lines.join("\n"))]), rows: lines.length };
   }
-  const tail = options.drawing ? " · records a journey" : "";
-  const about = clip(`about ${options.subject ?? "nothing selected"}`, Math.max(6, width - tail.length));
-  return { content: new StyledText([fg(palette.muted)(about), ...(tail ? [fg(palette.muted)(tail)] : [])]), rows: 1 };
+  // `▸ about Agent adapters · records a journey`: the glyph and `about` muted, the box's title in the body color, the tail muted.
+  const tail = options.drawing ? " · records a journey" : "", lead = "▸ about ";
+  const subject = clip(options.subject ?? "nothing selected", Math.max(1, width - lead.length - tail.length));
+  return { content: new StyledText([fg(palette.muted)(lead), fg(options.subject ? palette.body : palette.muted)(subject), ...(tail ? [fg(palette.muted)(tail)] : [])]), rows: 1 };
 };
 
 /** The last line of the talk: the keys that matter where the keys are. */
