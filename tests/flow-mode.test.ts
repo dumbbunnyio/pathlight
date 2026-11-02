@@ -246,19 +246,18 @@ test("F opens the journey a t just drew, whatever the selection, and its arrival
     await delay(700);
     // The suggested question is a how-question: it records a journey; → takes it and Enter sends it.
     await tmux("send-keys", "-t", shown.pane, "t");
-    await until(text => text.includes("Talk ·") && text.includes("· records a journey"), "the talk recording a journey");
+    await until(text => text.includes("· records a journey"), "the request recording a journey");
     await tmux("send-keys", "-t", shown.pane, "Right");
     await delay(200);
     await tmux("send-keys", "-t", shown.pane, "Enter");
     await until(text => text.includes("have the path recorded as a pathlight journey"), "the question in the agent's pane", harness);
-    // After the send the talk stays showing and the keys are back on the diagram; from here on, nothing may move.
-    const before = await until(text => text.includes("Talk ·") && /^ diagram /m.test(text), "the keys back on the diagram");
+    // After the send the modal has closed and the keys are back on the diagram; from here on, nothing may move.
+    const before = await until(text => !text.includes("─ Ask ─") && /^ diagram /m.test(text), "the keys back on the diagram");
     // The toast for the request fills the footer for a moment; the zoom shows again when it has gone.
     const settled = await until(text => /zoom \d+%/.test(text) && !text.includes("Asked"), "the toast gone");
     const selection = /Selected: (\S+)/.exec(settled)?.[1], zoom = /zoom \d+%/.exec(settled)?.[0];
     expect(selection).toBeDefined();
     expect(zoom).toBeDefined();
-    expect(before).toContain("Talk ·");
     await writeFile(join(directory, "paying.behavior.c4"), `views {
   dynamic view paying {
     title 'Paying for an order'

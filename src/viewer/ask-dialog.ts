@@ -37,8 +37,9 @@ export function createAskDialog<Target extends AskTarget>(options: {
   /** A request went to the agent; `drawing` when it asks for a journey to be recorded (`t` with a how-question, or `d`). */
   asked: (drawing: boolean) => void;
   /**
-   * Whether `t`, `m` and `d` ask in a modal instead of the column: in Claude Code's pane under 120 columns, where the reply is in the transcript beside
-   * it and a column would hide half the diagram to repeat it. The modal is one request with its context, sent as the prompt; the footer says what came of it.
+   * Whether `t`, `m` and `d` ask in a modal instead of the column: wherever the viewer sits beside the conversation (a tmux split beside the agent's
+   * pane, Claude Code's pane), since the reply is on screen there already and a column would hide half the diagram to repeat it. The column is for
+   * where the conversation is hidden (the viewer's tmux window zoomed). The modal is one request with its context, sent as the prompt; the footer says what came of it.
    */
   modal?: () => boolean;
 }) {
@@ -180,6 +181,22 @@ export function createAskDialog<Target extends AskTarget>(options: {
 
   return {
     render,
+    /**
+     * Whether the talk is a modal or the column changed (tmux zoomed or unzoomed the viewer): an open request is carried across with its kind and
+     * its text. A column talk already sent closes when the conversation comes back into view.
+     */
+    reflow() {
+      const modal = options.modal?.() ?? false;
+      if (modal && current && showing) {
+        const { tab, fresh } = current, text = talk.input.plainText;
+        current = undefined; showing = false; talk.input.setText(""); focusOn("none");
+        if (fresh && options.selected()) { beginAsk(tab); nameInput.setText(text); nameInput.gotoBufferEnd(); renderAsk(); }
+      } else if (!modal && asking) {
+        const { tab } = asking, text = nameInput.plainText;
+        finishName();
+        if (options.selected()) { begin(tab); talk.input.setText(text); talk.input.gotoBufferEnd(); options.update(); }
+      }
+    },
     /** Whether the column shows the talk; whether a talk exists (`i` flips to it); whether it is widened. */
     get showing() { return showing; }, get exists() { return current !== undefined; }, get wide() { return wide; },
     get fresh() { return Boolean(current?.fresh); },

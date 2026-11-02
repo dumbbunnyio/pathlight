@@ -60,7 +60,7 @@ test("test files come last in a request, however many neighbours import them", (
     ["server/env.ts", "server/main.ts", "server/test/factories.ts", "server/__mocks__/x.ts", "server/routes/auth.spec.ts", "server/utils/a.test.ts"]);
 });
 
-/** A viewer opened with `show` beside `cat`, which stands in for the agent: whatever the viewer types into its pane, `cat` echoes back. */
+/** A viewer opened with `show` beside `cat`, which stands in for the agent (whatever the viewer types into its pane, `cat` echoes back), then zoomed. */
 const beside = async (name: string, prepare?: (directory: string) => Promise<void>, show: string[] = []) => {
   const directory = await mkdtemp(join(tmpdir(), `pathlight-${name}-`));
   const socket = join("/tmp", `c4${name.slice(0, 3)}-${process.pid}.sock`);
@@ -86,7 +86,11 @@ const beside = async (name: string, prepare?: (directory: string) => Promise<voi
   const type = (text: string) => tmux("send-keys", "-t", shown.pane, "-l", text);
   const close = async () => { await tmux("kill-server").catch(() => undefined); await rm(directory, { recursive: true, force: true }); };
   await until(shown.pane, text => text.includes("Selected: plugin"), "viewer");
-  await delay(700);
+  // These tests are about the talk column, which is where the conversation is hidden: the viewer's pane is zoomed, as a person makes it full screen.
+  // Beside the agent's pane `t` is the modal (tests/zoom.test.ts, tests/pane.test.ts).
+  await tmux("resize-pane", "-Z", "-t", shown.pane);
+  // Settled: the zoom refits the diagram, which eases; two captures a moment apart agree.
+  for (let previous = "", attempt = 0; attempt < 40; attempt++) { await delay(200); const now = await tmux("capture-pane", "-p", "-t", shown.pane); if (now === previous) break; previous = now; }
   return { directory, harness, pane: shown.pane, tmux, until, arrived, keys, type, close };
 };
 
@@ -154,6 +158,13 @@ test("t opens the talk in the column: the first Enter sends ask.ts's message unc
 test("Esc steps back: the field, then the talk, and the node face returns with the diagram exactly where it was; i flips faces and keeps the talk", async () => {
   const at = await beside("faces");
   try {
+    // A resize (here the zoom) keeps the docked split's old proportion until the layout is next set, which the talk's opening does: open and close
+    // it once, so `before` is the layout the rest of the test returns to.
+    await at.keys("t");
+    await at.until(at.pane, text => text.includes("Talk · Agent adapters"), "the talk");
+    await at.keys("Escape", "Escape");
+    await at.until(at.pane, text => !text.includes("Talk ·"), "the talk closed");
+    await delay(600);
     const before = await at.tmux("capture-pane", "-p", "-t", at.pane);
     await at.keys("t");
     await at.until(at.pane, text => text.includes("Talk · Agent adapters"), "the talk");

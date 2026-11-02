@@ -24,10 +24,12 @@ const screens: { name: string; args: string[] }[] = [
   { name: "docked-launcher-140x36", args: ["--cols", "140", "--rows", "36", "--select", "launcher"] },
   { name: "docked-wide-260x50", args: ["--cols", "260", "--rows", "50", "--select", "viewer"] },
   { name: "help-140x36", args: ["--cols", "140", "--rows", "36", "--keys", "?"] },
-  // The talk, opened with `t` beside a stand-in agent pane (`see --agent`): its tabs, toggles and offered question, with no session bound.
+  // `t` beside a stand-in agent pane (`see --agent`) opens the modal, as it does beside the conversation: its tabs and suggested question, no session bound.
   { name: "talk-140x36", args: ["--cols", "140", "--rows", "36", "--agent", "--keys", "t"] },
   { name: "talk-overlay-100x30", args: ["--cols", "100", "--rows", "30", "--agent", "--keys", "t"] },
   { name: "talk-70x24", args: ["--cols", "70", "--rows", "24", "--agent", "--keys", "t"] },
+  // Zoomed beside it (`see --zoom`), the conversation hidden: `t` opens the talk column on its first face.
+  { name: "talk-zoomed-140x36", args: ["--cols", "140", "--rows", "36", "--zoom", "--keys", "t"] },
   // The search picker with `c` typed, at every width it is drawn at, and narrowed to the views with `tab`.
   { name: "search-140x36", args: ["--cols", "140", "--rows", "36", "--keys", "/,c"] },
   { name: "search-100x30", args: ["--cols", "100", "--rows", "30", "--keys", "/,c"] },
@@ -104,7 +106,8 @@ test("the name-140x36 screen matches its snapshot", async () => {
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
-// The talk after its first request (the suggested question taken with →, then Enter), beside a recorded session whose pointer names the conversation fixture; its turn ended half a minute ago, so the
+// The talk column after its first request (the suggested question taken with →, then Enter), the viewer zoomed beside its agent pane (`see --zoom`:
+// the conversation is hidden, so the talk is the column), beside a recorded session whose pointer names the conversation fixture; its turn ended half a minute ago, so the
 // state line says `done`. Times are shown on the person's clock, so the screen is taken in UTC.
 test.each([{ name: "talk-reply-140x36", keys: "t,Right,Enter" }, { name: "talk-wide-140x36", keys: "t,Right,Enter,z" }])("the $name screen matches its snapshot", async ({ name, keys }) => {
   const directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "pathlight-golden-talk-"));
@@ -118,7 +121,7 @@ test.each([{ name: "talk-reply-140x36", keys: "t,Right,Enter" }, { name: "talk-w
     await writeFile(join(directory, ".cache", "pathlight", "sessions", "claude-talk-golden.json"), JSON.stringify({ version: 1, source: "claude", session: "talk-golden",
       transcript: join(directory, "conversation.jsonl"), waiting: false, ended: Date.now() - 30_000 }));
     const out = join(directory, "screen.txt");
-    await run("sh", ["-c", `TZ=UTC "$1" "$2" see live --workspace "$3" --project viewer --cols 140 --rows 36 --agent --follow --keys "$5" > "$4"`, "sh", process.execPath, resolve("src/cli.ts"), directory, out, keys]);
+    await run("sh", ["-c", `TZ=UTC "$1" "$2" see live --workspace "$3" --project viewer --cols 140 --rows 36 --zoom --follow --keys "$5" > "$4"`, "sh", process.execPath, resolve("src/cli.ts"), directory, out, keys]);
     const screen = await readFile(out, "utf8"), file = `tests/golden/${name}.txt`;
     if (process.env.UPDATE_GOLDEN === "1") { await mkdir("tests/golden", { recursive: true }); await writeFile(file, screen); return; }
     expect(screen).toBe(await readFile(file, "utf8"));

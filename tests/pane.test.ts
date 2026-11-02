@@ -92,7 +92,8 @@ test("a key moves the selection, a resize redraws at the new size, and q never q
   } finally { await pane.stop(); }
 }, 60_000);
 
-test("t and Enter hand the request up as an ask line, byte for byte what show types, and the host's answer is the talk's line", async () => {
+// In Claude Code's pane the conversation is beside the viewer at every width, so `t` asks in the modal there too (decision 3 of the design pass).
+test("t in the pane at any width asks in the modal and hands the request up as an ask line, byte for byte what show types, and the host's answer is the footer's line", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-pane-ask-"));
   await cp("tests/fixtures/viewer", directory, { recursive: true });
   await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [{ glob: "plugins/**", element: "plugin" }] }));
@@ -100,27 +101,21 @@ test("t and Enter hand the request up as an ask line, byte for byte what show ty
   try {
     await pane.settled();
     await pane.key("t");
-    await pane.until(() => pane.state.frame?.text.includes("how does Agent adapters work?"), "the talk with the first question offered");
+    const open = await pane.until(() => pane.state.frame?.text.includes("how does Agent adapters work?") && pane.state.frame, "the modal with the question suggested");
+    expect(open.text).not.toContain("Talk · Agent adapters");
     await pane.key("right", "return");
     const ask = await pane.until(() => pane.state.asks[0], "an ask line");
     // The same text tests/ask.test.ts sees typed into the agent's pane by show.
     expect(ask.text).toBe(askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "how does Agent adapters work?", true));
     expect((await pane.post("/sent", { id: ask.id, ok: true })).status).toBe(204);
-    await pane.until(() => pane.state.frame?.text.includes("Asked claude:pane-tes"), "the asked line");
-    // A later request is the typed text alone; q typed in the field is a letter, and the host's Esc (blur) leaves the field.
-    await pane.key("t", "q", "?");
-    await pane.until(() => pane.state.frame?.text.includes("q?"), "the typed q");
-    await pane.key("blur");
-    await pane.until(() => pane.state.frame?.text.includes("t reply"), "the field left");
-    await pane.key("t", "return");
+    await pane.until(() => pane.state.frame?.text.includes("Sent as your prompt"), "the footer's line");
+    // Each `t` is one request with its context; q typed in the field is a letter.
+    await pane.key("t", "q", "?", "return");
     const second = await pane.until(() => pane.state.asks[1], "the second ask");
-    expect(second.text).toBe("q?");
-    // A refusal is said in the talk's words.
+    expect(second.text).toBe(askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "q?", false));
+    // A refusal is said in the footer.
     await pane.post("/sent", { id: second.id, ok: false, said: "The prompt was refused: a Stop hook stands" });
     await pane.until(() => pane.state.frame?.text.includes("a Stop hook stands"), "the refusal");
-    // q steps back out of the talk, as Esc does outside the pane.
-    await pane.key("q");
-    await pane.until(() => pane.state.frame && !pane.state.frame.text.includes("Talk · Agent adapters"), "the talk closed");
   } finally { await pane.stop(); await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 

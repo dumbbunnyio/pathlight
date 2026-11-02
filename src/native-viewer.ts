@@ -14,6 +14,7 @@ import type { Stale } from "./stale";
 import { nodeFiles } from "./node-files";
 import { firstChange, openEditor } from "./editor";
 import { relevantFiles, sendToPane } from "./ask";
+import { run } from "./process";
 import { type Scan, scanWorkspace } from "./scan";
 import pkg from "../package.json" with { type: "json" };
 import { borderHints, palette, setPalette } from "./ui";
@@ -261,6 +262,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // The talk's width: two fifths of the terminal between 44 and 64 columns, or, widened with `z`, all but a strip of diagram.
   const talkWidth = () => dialog.wide ? Math.max(44, Math.min(renderer.width - 8, 120)) : Math.min(64, Math.max(44, Math.round(renderer.width * 0.4)));
   const layout = () => {
+    if (`${renderer.width}x${renderer.height}` !== sized) { sized = `${renderer.width}x${renderer.height}`; readZoom(); }
     const side = renderer.width >= 120;
     listMode = renderer.width < 80;
     // A narrow, tall screen (the pane beside Claude Code's transcript, a tall tmux split) puts the inspector under the diagram rather than over it.
@@ -311,6 +313,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     body.sizes = mount === "docked" ? [Math.max(1, total - panelSize - 1), panelSize] : [total];
   };
   let message = "", lastToast = "";
+  // Whether tmux has zoomed the viewer's window (the person made it full screen, hiding the conversation beside it): read on each resize, which a
+  // zoom causes, and only beside a parent pane in tmux. Zoomed, `t`, `m` and `d` open the talk column; otherwise the modal.
+  let zoomed = false, sized = "";
+  const readZoom = () => {
+    const pane = process.env.TMUX_PANE;
+    if (!options.parent || !process.env.TMUX || !pane) return;
+    runTask(run("tmux", ["display-message", "-p", "-t", pane, "#{window_zoomed_flag}"]).pipe(
+      Effect.tap(out => Effect.sync(() => { const next = out.trim() === "1"; if (next !== zoomed) { zoomed = next; dialog.reflow(); update(); } })), Effect.ignore));
+  };
   // One border per node: a leaf is a rounded outline whose inside is painted in the canvas colour (so grid dots do not show through);
   // a group is an outline with a title and no fill.
   const mountNodes = () => diagram.nodes.map(node => {
@@ -852,7 +863,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, send: sendToAgent, selected: () => state.selected, context: askContext, relevant: requestFiles,
     into: target => { const edge = diagram.edges.find(entry => entry.target === target.id); return edge ? diagram.nodes.find(node => node.id === edge.source)?.title : undefined; },
     live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { if (drawing) flowMode.expect(); },
-    modal: () => Boolean(host) && renderer.width < 120 });
+    modal: () => Boolean(host) || (Boolean(options.parent) && !zoomed) });
   nameInput.onContentChange = () => { fitName(); dialog.typedAsk(); };
   talk.input.onContentChange = () => dialog.typed();
   help.dismiss = () => help.close();
