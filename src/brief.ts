@@ -339,8 +339,10 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const scan = yield* scanWorkspace(root);
   const context = yield* contextOf(root);
   const found = yield* entryPointsOf(root, all);
-  const starts = found.filter(declaredStart);
   const byKey = new Map(all.map(box => [box.key, box] as const));
+  // A merged box's key is the overlay's `merge:<title>`, which reads as a bug to a person; it is named by its element id, which point and brief take too.
+  const shown = (key: string) => key.startsWith("merge:") ? byKey.get(key)?.id ?? key : key;
+  const starts = found.filter(declaredStart).map(entry => entry.box ? { ...entry, box: shown(entry.box) } : entry);
   const top = byKey.get(".") ?? (all.filter(box => box.depth === 0 && box.kind === "package").length === 1 ? all.find(box => box.depth === 0 && box.kind === "package") : undefined);
   // The README's first paragraph of prose, its links and emphasis read as plain words, cut after two sentences.
   const paragraph = context.readme?.split(/\n\s*\n/).map(part => part.replace(/^#.*$/gm, "").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`]{1,2}([^*_`]+)[*_`]{1,2}/g, "$1").replace(/\s+/g, " ").trim())
@@ -350,7 +352,7 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
     : context.description ? { source: "project", text: context.description, from: "package.json" } : paragraph ? { source: "project", text: paragraph.slice(0, 400), from: "README" } : { source: "none" };
   const level = [...all.filter(box => !box.parent && box !== top), ...(top?.inside ?? []).flatMap(key => byKey.get(key) ?? [])]
     .sort((a, b) => b.lines - a.lines || (a.key < b.key ? -1 : 1));
-  const built = level.map(box => ({ key: box.key, title: box.name?.title ?? box.generated, ...(box.name?.note ? { note: plainNote(box.name.note) } : {}),
+  const built = level.map(box => ({ key: shown(box.key), title: box.name?.title ?? box.generated, ...(box.name?.note ? { note: plainNote(box.name.note) } : {}),
     inferred: inferredMark.test(box.name?.note ?? ""), named: Boolean(box.name?.title || box.name?.note), files: box.files.length, lines: box.lines }));
   const drafted = yield* io("Brief.drafted", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
   const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
