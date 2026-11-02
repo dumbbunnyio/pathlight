@@ -130,7 +130,7 @@ export const paletteFor = (entry: ThemeEntry, mode: Mode, canvas?: string) => Ef
 });
 
 // Pathlight's own settings, in `$XDG_CONFIG_HOME/pathlight/config.json`: the chosen theme's name and, for the Claude Code plugin, where
-// `/pathlight:open` draws the viewer (`claude`: `pane` or `tmux`). Nothing about any workspace is stored there. Each write keeps the other keys.
+// `/pathlight:open` draws the viewer (`claude`: `pane` or `tmux`; unset means tmux). Nothing about any workspace is stored there. Each write keeps the other keys.
 type Settings = { theme?: string; claude?: "pane" | "tmux" };
 const configFile = Effect.fn("Theme.configFile")(function* () {
   const configHome = yield* Config.String("XDG_CONFIG_HOME").pipe(Config.withDefault(""));
@@ -171,7 +171,7 @@ export const saveTheme = Effect.fn("Theme.save")(function* (name: string) {
   yield* saveSettings({ theme: name });
 });
 
-/** Where the Claude Code plugin's `/pathlight:open` draws the viewer when the command names neither: `pane` (beside the transcript) or `tmux`. */
+/** Where the Claude Code plugin's `/pathlight:open` draws the viewer when the command names neither: `pane` (Claude Code's own, experimental) or `tmux` (unset). */
 export const savedClaude = Effect.fn("Theme.savedClaude")(function* () {
   return (yield* readSettings()).claude;
 });
