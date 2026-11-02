@@ -93,7 +93,7 @@ const shape = (raw: Layout): Layout => {
 const getDiagram = (id: string) => {
   const next = diagrams.get(id);
   if (!next) throw new Error(`Unknown linked view '${id}'.`);
-  if (!next.nodes.length) throw new Error(`View '${id}' has no nodes.`);
+  if (!next.nodes.length) throw new Error(`View '${id}' has no boxes.`);
   return shape(next);
 };
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
@@ -455,7 +455,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     canvas.visible = !listMode; nodeList.visible = listMode;
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
-    crumbPlain = `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${state.history.length ? ` · back ${state.history.length}` : ""}${diffText(diff)}${plan ? ` · plan ${plan.elements.length}` : ""}`;
+    crumbPlain = `${diagram.nodes.length} ${diagram.nodes.length === 1 ? "box" : "boxes"}${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${state.history.length ? ` · back ${state.history.length}` : ""}${diffText(diff)}${plan ? ` · plan ${plan.elements.length}` : ""}`;
     breadcrumb.content = crumbPlain;
     crumbHint.visible = true;
     camera.sync();
@@ -1053,7 +1053,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
         return;
       }
-      case "swap": vimTraverses = !vimTraverses; message = vimTraverses ? "hjkl select nodes, arrows pan" : "Arrows select nodes, hjkl pan"; update(); return;
+      case "swap": vimTraverses = !vimTraverses; message = vimTraverses ? "hjkl select boxes, arrows pan" : "Arrows select boxes, hjkl pan"; update(); return;
       case "listMove": {
         const index = diagram.nodes.findIndex(node => node.id === state.selected?.id), count = diagram.nodes.length;
         selectNode(diagram.nodes[(index + action.by + count) % count], false); return;

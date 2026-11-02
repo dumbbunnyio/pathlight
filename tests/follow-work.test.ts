@@ -96,21 +96,21 @@ test("follow goes to the view that has the component being worked on, and b come
       await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "started"));
       await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "completed"));
     };
-    await until(text => text.includes("parcel/index"), "the overview");
+    await until(text => text.includes("pathlight / Parcel / System context"), "the overview");
     await delay(700);
     // Follow off: the work is offered, never gone to.
     await read("before");
     await delay(900);
-    expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("parcel/index");
+    expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("pathlight / Parcel / System context");
     await tmux("send-keys", "-t", pane, "a");
     await until(text => text.includes("Following the work"), "follow on");
     await read("during");
-    const there = await until(text => /parcel\/(services|checkout)/.test(text), "the view with the API");
+    const there = await until(text => /pathlight \/ Parcel \/ (Service architecture|Checkout detail)/.test(text), "the view with the API");
     expect(there).toMatch(/Selected: parcel\.commerce\.api/);
     expect(there).toContain("back 1");
     expect(there).toMatch(/Went to Parcel \/ (Service architecture|Checkout detail) · following/);
     await tmux("send-keys", "-t", pane, "b");
-    await until(text => text.includes("parcel/index") && !text.includes("back 1"), "the overview again");
+    await until(text => text.includes("pathlight / Parcel / System context") && !text.includes("back 1"), "the overview again");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

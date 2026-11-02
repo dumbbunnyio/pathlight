@@ -23,7 +23,7 @@ test("g lists every view in the project, narrows as you type, and jumps on Enter
       }
       throw new Error(`Missing ${label}:\n${output}`);
     };
-    await until(text => text.includes("parcel/index") && text.includes(" nodes"), "index view");
+    await until(text => text.includes("pathlight / Parcel / System context") && text.includes(" boxes"), "index view");
     await delay(800);
     await tmux("send-keys", "-t", pane, "g");
     const listing = await until(text => text.includes("Go to view"), "view list");
@@ -36,7 +36,7 @@ test("g lists every view in the project, narrows as you type, and jumps on Enter
     expect(narrowed).toContain("Checkout detail");
     expect(narrowed).not.toContain("Service architecture");
     await tmux("send-keys", "-t", pane, "Enter");
-    await until(text => text.includes("parcel/checkout") && text.includes("back 1"), "checkout view after filtering");
+    await until(text => text.includes("pathlight / Parcel / Checkout detail") && text.includes("back 1"), "checkout view after filtering");
     // The view's id is not listed but still matches what you type.
     await tmux("send-keys", "-t", pane, "g");
     await until(text => text.includes("Go to view"), "view list for id search");
@@ -44,14 +44,14 @@ test("g lists every view in the project, narrows as you type, and jumps on Enter
     await tmux("send-keys", "-t", pane, "-l", "services");
     const byId = await until(text => text.includes("1–1 of 1"), "list narrowed by id");
     expect(byId).toContain("Service architecture");
-    expect(byId).not.toMatch(/\bservices\b.*nodes/);
+    expect(byId).not.toMatch(/\bservices\b.*boxes/);
     await tmux("send-keys", "-t", pane, "Escape");
     await tmux("send-keys", "-t", pane, "g");
     await until(text => text.includes("Go to view"), "view list again");
     await tmux("send-keys", "-t", pane, "Down", "Down", "Enter");
-    await until(text => text.includes("parcel/"), "view after arrows");
+    await until(text => !text.includes("Go to view") && /back \d/.test(text), "view after arrows");
     await tmux("send-keys", "-t", pane, "b");
-    await until(text => text.includes("parcel/checkout"), "back to checkout");
+    await until(text => text.includes("pathlight / Parcel / Checkout detail"), "back to checkout");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

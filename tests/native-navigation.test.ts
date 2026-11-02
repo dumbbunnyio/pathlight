@@ -30,7 +30,7 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
       await tmux("send-keys", "-t", pane, "-l", query);
     };
     const settled = async () => { await delay(700); return tmux("capture-pane", "-p", "-t", pane); };
-    await capture("parcel/services");
+    await capture("pathlight / Parcel / Service architecture");
     const initial = await settled();
     await find("qbohjkl");
     expect(await capture("Nothing matches")).toContain("qbohjkl");
@@ -42,11 +42,11 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await find("commerce");
     await capture("› commerce");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("Selected: parcel.commerce")).toContain("parcel/services");
-    expect(await capture("parcel/services")).not.toContain("back ");
+    expect(await capture("Selected: parcel.commerce")).toContain("pathlight / Parcel / Service architecture");
+    expect(await capture("pathlight / Parcel / Service architecture")).not.toContain("back ");
     // Enter on a group whose children are drawn here goes into them, even when it also opens a view; backspace comes back.
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("Selected: parcel.commerce.api")).toContain("parcel/services");
+    expect(await capture("Selected: parcel.commerce.api")).toContain("pathlight / Parcel / Service architecture");
     await tmux("send-keys", "-t", pane, "BSpace");
     await settled();
     await tmux("send-keys", "-t", pane, "+", "Right");
@@ -57,10 +57,10 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await find("checkout");
     await capture("› checkout");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("parcel/checkout")).toContain("back 1");
+    expect(await capture("pathlight / Parcel / Checkout detail")).toContain("back 1");
     await settled();
     await tmux("send-keys", "-t", pane, "b");
-    await capture("parcel/services");
+    await capture("pathlight / Parcel / Service architecture");
     expect(await settled()).toBe(beforeLink);
 
     await find("Checkout API");
@@ -72,21 +72,21 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
     await tmux("send-keys", "-t", pane, "Escape");
     expect(await settled()).toBe(beforeLink);
     await tmux("send-keys", "-t", pane, "o");
-    await capture("parcel/checkout");
+    await capture("pathlight / Parcel / Checkout detail");
     await find("parcel.commerce.api");
     await capture("› parcel.commerce.api");
     await tmux("send-keys", "-t", pane, "Enter");
     const selectedApi = await settled();
-    expect(selectedApi).toContain("parcel/checkout");
+    expect(selectedApi).toContain("pathlight / Parcel / Checkout detail");
     const event = await toolActivity(directory, { source: "claude", session: "navigation" }, "edit-1", "Edit",
       { file_path: join(directory, "src/api.ts") }, "started");
     await writeActivity(directory, event);
     await capture(/─ ■/);
     await tmux("send-keys", "-t", pane, "Enter");
-    await capture("parcel/services");
+    await capture("pathlight / Parcel / Service architecture");
     await tmux("send-keys", "-t", pane, "b");
-    const restored = await capture(/parcel\/checkout[\s\S]*Selected: parcel\.commerce\.api/);
-    expect(restored).toContain("parcel/checkout");
+    const restored = await capture(/Parcel \/ Checkout detail[\s\S]*Selected: parcel\.commerce\.api/);
+    expect(restored).toContain("pathlight / Parcel / Checkout detail");
     expect(restored).toMatch(/─ ■/);
     expect(restored.match(/zoom \d+%/)?.[0]).toBe(selectedApi.match(/zoom \d+%/)?.[0]);
     await tmux("send-keys", "-t", pane, "e");
@@ -109,23 +109,24 @@ test("search, hierarchy, and linked views preserve the Three camera and bound ac
 test("backspace steps back like b, and goes up only when there is nowhere to go back to", async () => {
   const see = async (keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", "checkout", "--workspace", "examples/parcel", "--project", "parcel",
     "--cols", "140", "--rows", "36", "--select", "parcel.commerce.api", "--keys", keys])).split("\n");
-  const where = (screen: string[]) => [screen.find(line => line.includes("parcel/"))!.trim().split(" ")[0], /Selected: (\S+)/.exec(screen.at(-1)!)?.[1]];
+  // The view by its title on the header's first line, and the selection.
+  const where = (screen: string[]) => [screen[0]!.trim().replace(/^◆ /, "").split("  ")[0], /Selected: (\S+)/.exec(screen.at(-1)!)?.[1]];
   // Up through the boxes that hold the API in this view, then to the view whose box opens it.
-  expect(where(await see("BSpace,BSpace"))).toEqual(["parcel/checkout", "parcel"]);
+  expect(where(await see("BSpace,BSpace"))).toEqual(["pathlight / Parcel / Checkout detail", "parcel"]);
   const up = await see("BSpace,BSpace,BSpace");
-  expect(where(up)).toEqual(["parcel/services", "parcel.commerce"]);
+  expect(where(up)).toEqual(["pathlight / Parcel / Service architecture", "parcel.commerce"]);
   // The header's title says where you are; a move you made yourself raises no notice.
   expect(up.at(-1)).not.toContain("Went to");
   // Into the group and straight back: backspace takes the visit, as b would.
-  expect(where(await see("BSpace,BSpace,BSpace,Enter,BSpace"))).toEqual(["parcel/services", "parcel.commerce"]);
-  expect(where(await see("BSpace,BSpace,BSpace,Enter,b"))).toEqual(["parcel/services", "parcel.commerce"]);
+  expect(where(await see("BSpace,BSpace,BSpace,Enter,BSpace"))).toEqual(["pathlight / Parcel / Service architecture", "parcel.commerce"]);
+  expect(where(await see("BSpace,BSpace,BSpace,Enter,b"))).toEqual(["pathlight / Parcel / Service architecture", "parcel.commerce"]);
   // o opens the view a box links to even when its children are drawn here.
   const opened = await see("BSpace,BSpace,BSpace,o");
-  expect(where(opened)[0]).toBe("parcel/checkout");
-  expect(opened.find(line => line.includes("parcel/checkout"))).toContain("back 1");
+  expect(where(opened)[0]).toBe("pathlight / Parcel / Checkout detail");
+  expect(opened[1]).toContain("back 1");
   // b alone, with no visit behind it, stays.
   const stays = await see("b");
-  expect(where(stays)).toEqual(["parcel/checkout", "parcel.commerce.api"]);
+  expect(where(stays)).toEqual(["pathlight / Parcel / Checkout detail", "parcel.commerce.api"]);
   expect(stays.at(-1)).toContain("No previous view");
 }, 120_000);
 
@@ -133,15 +134,16 @@ test("backspace steps back like b, and goes up only when there is nowhere to go 
 test("back after Enter into a group reselects the frame in the same view before leaving it", async () => {
   const see = async (keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", "checkout", "--workspace", "examples/parcel", "--project", "parcel",
     "--cols", "140", "--rows", "36", "--select", "parcel.commerce", "--keys", keys])).split("\n");
-  const where = (screen: string[]) => [screen.find(line => line.includes("parcel/"))!.trim().split(" ")[0], /Selected: (\S+)/.exec(screen.at(-1)!)?.[1]];
+  // The view by its title on the header's first line, and the selection.
+  const where = (screen: string[]) => [screen[0]!.trim().replace(/^◆ /, "").split("  ")[0], /Selected: (\S+)/.exec(screen.at(-1)!)?.[1]];
   const inside = await see("Enter");
-  expect(where(inside)[0]).toBe("parcel/checkout");
+  expect(where(inside)[0]).toBe("pathlight / Parcel / Checkout detail");
   expect(where(inside)[1]).toStartWith("parcel.commerce.");
-  expect(inside.find(line => line.includes("parcel/checkout"))).toContain("back 1");
-  expect(where(await see("Enter,b"))).toEqual(["parcel/checkout", "parcel.commerce"]);
-  expect(where(await see("Enter,BSpace"))).toEqual(["parcel/checkout", "parcel.commerce"]);
+  expect(inside[1]).toContain("back 1");
+  expect(where(await see("Enter,b"))).toEqual(["pathlight / Parcel / Checkout detail", "parcel.commerce"]);
+  expect(where(await see("Enter,BSpace"))).toEqual(["pathlight / Parcel / Checkout detail", "parcel.commerce"]);
   const twice = await see("Enter,b,b");
-  expect(where(twice)).toEqual(["parcel/checkout", "parcel.commerce"]);
+  expect(where(twice)).toEqual(["pathlight / Parcel / Checkout detail", "parcel.commerce"]);
   expect(twice.at(-1)).toContain("No previous view");
 }, 120_000);
 

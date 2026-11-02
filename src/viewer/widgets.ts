@@ -30,7 +30,7 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   breadcrumbRow.add(breadcrumb); breadcrumbRow.add(crumbHint);
   topBar.add(heading); topBar.add(breadcrumbRow);
   const searchInput = new InputRenderable(renderer, { flexGrow: 1, maxLength: 256,
-    placeholder: "Search nodes in this view", backgroundColor: palette.panel, textColor: palette.text, focusedBackgroundColor: palette.panel });
+    placeholder: "Search boxes in this view", backgroundColor: palette.panel, textColor: palette.text, focusedBackgroundColor: palette.panel });
   const searchPrompt = new TextRenderable(renderer, { selectable: false, content: " / ", fg: palette.incoming, wrapMode: "none", flexShrink: 0 });
   const searchRow = new BoxRenderable(renderer, { height: 1, width: "100%", flexShrink: 0, flexDirection: "row", visible: false, backgroundColor: palette.panel });
   searchRow.add(searchPrompt); searchRow.add(searchInput);

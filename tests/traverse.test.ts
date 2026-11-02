@@ -41,7 +41,7 @@ test("hjkl select the neighbouring node, arrows pan without selecting, and v swa
     expect(panned.split("\n").slice(3, 38).join("\n")).not.toBe(before.split("\n").slice(3, 38).join("\n"));
 
     await press("v");
-    await until("Arrows select nodes, hjkl pan");
+    await until("Arrows select boxes, hjkl pan");
     await press("Left"); await until("Selected:");
     expect(await screen()).not.toContain("Selected: parcel.commerce.relay");
     await press("v");

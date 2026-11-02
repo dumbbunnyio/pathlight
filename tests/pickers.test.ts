@@ -12,8 +12,8 @@ test("a view's title splits at its last ` / `: the own name, then the holder; a 
 
 test("a view's row says its own name first in the text colour, the holder after it dimmed and cut first, and its node count at the right", () => {
   const rows: Pick[] = [
-    { kind: "view", name: "Backend translations", holder, aliases: [], here: false, view: "a", detail: "5 nodes" },
-    { kind: "view", name: "Packages", aliases: [], here: true, view: "b", detail: "2 nodes" },
+    { kind: "view", name: "Backend translations", holder, aliases: [], here: false, view: "a", detail: "5 boxes" },
+    { kind: "view", name: "Packages", aliases: [], here: true, view: "b", detail: "2 boxes" },
   ];
   expect([gotoColumns(140), gotoColumns(100), gotoColumns(70)]).toEqual([96, 90, 60]);
   for (const screenWidth of [140, 100, 70]) {
@@ -23,7 +23,7 @@ test("a view's row says its own name first in the text colour, the holder after 
     // Every row is exactly the picker's width: nothing spills over the frame.
     for (const line of lines.slice(1, 3)) expect(line.length).toBe(inner);
     expect(lines[1]).toStartWith(" view    Backend translations Mealie");
-    expect(lines[1]).toEndWith(" 5 nodes  ");
+    expect(lines[1]).toEndWith(" 5 boxes  ");
     expect(lines[2]).toEndWith(" ● here   ");
     // The own name is in the text colour, the holder in the muted one.
     const chunks = content.chunks.filter(chunk => chunk.text.trim());

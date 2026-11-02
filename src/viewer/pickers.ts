@@ -33,7 +33,7 @@ export const pickCandidates = (options: { views: ReadonlyMap<string, WhereView>;
   // A view matches on its own name as its name, and on its whole title and its id as aliases.
   const views: Pick[] = [...options.views].filter(([, entry]) => entry.nodes.length).map(([id, entry]) => {
     const title = String(entry.title ?? id), { name, holder } = splitTitle(title);
-    return { kind: "view", name, ...(holder ? { holder } : {}), aliases: holder ? [title, id] : [id], here: id === current, view: id, detail: `${entry.nodes.length} nodes` };
+    return { kind: "view", name, ...(holder ? { holder } : {}), aliases: holder ? [title, id] : [id], here: id === current, view: id, detail: `${entry.nodes.length} ${entry.nodes.length === 1 ? "box" : "boxes"}` };
   });
   if (options.mode === "views") return views;
   const present = new Set(options.current.nodes.map(node => String(node.modelRef)));

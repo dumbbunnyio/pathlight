@@ -284,15 +284,16 @@ test("F reads a journey in the view that draws its steps apart, and b comes back
   try {
     const see = async (view: string, select: string, keys: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", view, "--workspace", directory, "--project", "parcel",
       "--cols", "150", "--rows", "36", "--select", select, "--keys", keys])).split("\n");
-    const where = (screen: string[]) => screen[1]!.trim().split(" ")[0];
+    // The view is named by its title on the header's first line.
+    const where = (screen: string[]) => screen[0]!.split(" / ").slice(1).join(" / ").split("  ")[0]!.trim();
     // The overview draws Parcel as one box: every step but the first lands on it. Services draws them apart.
     const entered = await see("index", "customer", "F");
-    expect(where(entered)).toBe("parcel/services");
+    expect(where(entered)).toBe("Parcel / Service architecture");
     expect(entered[1]).toContain("back 1");
     expect(entered.at(-1)).toMatch(/^ journey +Selected: parcel\.storefront /);
     expect(entered.at(-1)).not.toContain("Went to");
     expect(entered.join("\n")).toMatch(/Steps ─+ 1\/5/);
-    expect(where(await see("index", "customer", "F,Escape,b"))).toBe("parcel/index");
+    expect(where(await see("index", "customer", "F,Escape,b"))).toBe("Parcel / System context");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
@@ -304,7 +305,7 @@ test.skipIf(!existsSync(join(mealie, ".pathlight")))("on the Mealie copy, Code g
   const see = async (view: string, keys: string, select?: string) => (await run(process.execPath, [resolve("src/cli.ts"), "see", view, "--workspace", mealie,
     "--cols", "160", "--rows", "40", ...(select ? ["--select", select] : []), "--keys", keys])).split("\n");
   const packages = await see("index", "/,Tab,Tab,Tab,Code gen,Enter");
-  expect(packages[1]!.trim().split(" ")[0]).toBe("live_mealie/mealie_components");
+  expect(packages[0]!.startsWith((await see("mealie_components", "")).at(0)!.trimEnd())).toBe(true);
   expect(packages.join("\n")).toContain("Code generation tools → Data shapes");
   // From Backend translations' neighbourhood, Code generation read there at step 4; step 3 lands on the backend's entry point, which it does not draw.
   const away = await see("mealie_mealie_lang_near", "2,Enter,[", "mealie.mealie.lang");
@@ -339,7 +340,7 @@ test("search finds journeys, tab narrows it by kind, and choosing a journey read
     expect(round).toMatch(/journey +Placing an order/);
     // Choosing it reads it, in the view where its steps are apart.
     const chosen = await see("/,Tab,Tab,Tab,Enter");
-    expect(chosen[1]!.trim().split(" ")[0]).toBe("parcel/services");
+    expect(chosen[0]).toContain("Parcel / Service architecture");
     expect(chosen.at(-1)).toMatch(/^ journey /);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 120_000);

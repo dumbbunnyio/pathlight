@@ -182,6 +182,6 @@ test("native startup errors report readiness failure and roll back newly created
   await writeFile(join(failedWorkspace, "empty.c4"), "views { view empty { title 'Empty' } }");
   const before = await tmux("list-panes", "-a", "-F", "#{pane_id}");
   await expect(run(process.execPath, [cli, "show", "empty", "--workspace", failedWorkspace,
-    "--pane", parent, "--socket", socket])).rejects.toThrow("View 'empty' has no nodes");
+    "--pane", parent, "--socket", socket])).rejects.toThrow("View 'empty' has no boxes");
   expect(await tmux("list-panes", "-a", "-F", "#{pane_id}")).toBe(before);
 }, 30_000);

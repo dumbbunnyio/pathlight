@@ -250,7 +250,7 @@ test("the search picker isolates typing, ranks this view first, searches other v
     await tmux("send-keys", "-t", pane, "-l", "checkout");
     await capture("› checkout");
     // A view row says its own name first, its holder after it.
-    expect(await capture(/view\s+Checkout detail Parcel\s+\d+ nodes/)).not.toContain("Customer");
+    expect(await capture(/view\s+Checkout detail Parcel\s+\d+ boxes/)).not.toContain("Customer");
     await tmux("send-keys", "-t", pane, "C-u");
     await tmux("send-keys", "-t", pane, "-l", "commerce");
     await capture("› commerce");
@@ -269,15 +269,15 @@ test("the search picker isolates typing, ranks this view first, searches other v
     await tmux("resize-window", "-t", pane, "-x", "90", "-y", "36");
     await delay(300);
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("Selected: parcel.commerce.api")).toContain("parcel/services");
+    expect(await capture("Selected: parcel.commerce.api")).toContain("pathlight / Parcel / Service architecture");
     // A view picked from the list opens, and Back returns.
     await tmux("send-keys", "-t", pane, "/");
     await tmux("send-keys", "-t", pane, "-l", "Checkout detail");
     await capture("› Checkout detail");
     await tmux("send-keys", "-t", pane, "Enter");
-    expect(await capture("parcel/checkout")).toContain("back 1");
+    expect(await capture("pathlight / Parcel / Checkout detail")).toContain("back 1");
     await tmux("send-keys", "-t", pane, "b");
-    await capture("parcel/services");
+    await capture("pathlight / Parcel / Service architecture");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });
@@ -318,7 +318,7 @@ test("linked views keep one process and restore selection, scroll, and live acti
     await tmux("send-keys", "-t", pane, "l", "l", "j");
     await capture("Selected: email");
     await tmux("send-keys", "-t", pane, "Enter");
-    const rejected = await capture("View 'empty' has no nodes.");
+    const rejected = await capture("View 'empty' has no boxes.");
     expect(rejected).not.toContain("back ");
     expect(rejected).toContain("Selected: email");
     await tmux("send-keys", "-t", pane, "h");
