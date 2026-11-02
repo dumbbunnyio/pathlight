@@ -20,7 +20,7 @@ test("the host's text is rendered lightly: paragraphs wrap on words, list items 
   expect(text(renderText("see https://example.com/a/very/long/path/that/goes/on", 20)).every(line => line.length <= 20)).toBe(true);
 });
 
-test("the conversation is each message under its role and time, a blank row apart, the newest last, your words one column in under an accent you; with none, why, wrapped", () => {
+test("the conversation is each message under its role and time, a blank row apart, the newest last, your words one column in under an accent you, the agent's under agent in the agent color; with none, why, wrapped", () => {
   const at = new Date(2026, 9, 29, 12, 4).getTime();
   const long = Array.from({ length: 60 }, (_, index) => `word${index}`).join(" ");
   const made = talkContent([{ id: "1", role: "you", at, text: "where?" }, { id: "2", role: "agent", at, text: long }], { width: 40, empty: "" });
@@ -28,7 +28,7 @@ test("the conversation is each message under its role and time, a blank row apar
   expect(rows.slice(0, 4)).toEqual([`you · ${clock(at)}`, " where?", "", `agent · ${clock(at)}`]);
   const label = (role: string) => made.content.chunks.find(chunk => chunk.text === role)!.fg!;
   expect(label("you").equals(RGBA.fromHex(palette.accent))).toBe(true);
-  expect(label("agent").equals(RGBA.fromHex(palette.muted))).toBe(true);
+  expect(label("agent").equals(RGBA.fromHex(palette.purple))).toBe(true);
   expect(clock(at)).toBe("12:04");
   expect(rows.at(-1)).toContain("word59");
   expect(made.lines).toBe(rows.length);

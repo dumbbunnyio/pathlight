@@ -45,7 +45,8 @@ export const renderText = (text: string, width: number): TextChunk[][] => {
 
 /**
  * The conversation as the talk shows it: each message under `you · 12:04` or `agent · 12:04`, a blank row apart, oldest first, so the newest is at the bottom;
- * the person's own words stand apart, `you` in the accent colour and the text one column in. With
+ * the person's own words stand apart, `you` in the accent color and the text one column in; `agent` is in the agent's color (the one journeys and
+ * `← agent` use), its text at the left edge. With
  * nothing to show, one dim line saying why (`empty`), and nothing invented.
  */
 export const talkContent = (messages: readonly Message[], options: { width: number; empty: string }) => {
@@ -56,7 +57,7 @@ export const talkContent = (messages: readonly Message[], options: { width: numb
     // A blank row between messages: a code block or a list must not run into the next one's label.
     if (rows.length) rows.push([]);
     const yours = message.role === "you";
-    rows.push([fg(yours ? palette.accent : palette.muted)(message.role), fg(palette.border)(` · ${clock(message.at)}`)]);
+    rows.push([fg(yours ? palette.accent : palette.purple)(message.role), fg(palette.border)(` · ${clock(message.at)}`)]);
     rows.push(...(yours ? renderText(message.text, width - 1).map(row => [fg(palette.body)(" "), ...row]) : renderText(message.text, width)));
   }
   return { content: new StyledText(rows.flatMap((row, index) => [...index ? [nl] : [], ...row])), lines: rows.length };
