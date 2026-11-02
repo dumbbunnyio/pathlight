@@ -41,7 +41,7 @@ export const viewHaving = <View extends WhereView>(views: ReadonlyMap<string, Vi
  * one this view links to with navigateTo first, else the smallest view that contains the element. Never switches by itself.
  */
 export const newestWork = <Node extends WhereNode, View extends WhereView<Node>>(events: readonly ActivityEvent[], rules: readonly Rule[], here: WhereView<Node>, views: ReadonlyMap<string, View>):
-  { node: Node } | { view: string; element: string; title: string } | undefined => {
+  { node: Node } | { view: string; element: string; title: string; call: string } | undefined => {
   for (const event of events) {
     const elements = [...elementsOf(rules, event)];
     if (!elements.length) continue;
@@ -57,7 +57,7 @@ export const newestWork = <Node extends WhereNode, View extends WhereView<Node>>
       return undefined;
     }).filter((node): node is Node => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
     if (!best && enclosing) return { node: enclosing };
-    return best ? { view: best.id, element: best.element, title: String(best.entry.title ?? best.id) } : undefined;
+    return best ? { view: best.id, element: best.element, title: String(best.entry.title ?? best.id), call: event.call } : undefined;
   }
   return undefined;
 };

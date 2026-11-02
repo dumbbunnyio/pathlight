@@ -100,3 +100,67 @@ test("once the turn has ended the work is not offered and a finished call puts n
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+// The offer is for work the person has not gone to: after `w` and Back it stays away until a later call in a different box, and a new turn starts afresh.
+test("after w and b the offer stays away until a later call in another box, and a new turn offers it again", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-work-gone-"));
+  const socket = join("/tmp", `c4g-${process.pid}.sock`);
+  const tmux = (...args: string[]) => run("tmux", ["-S", socket, ...args]);
+  try {
+    await cp("tests/fixtures/viewer", directory, { recursive: true });
+    await appendFile(join(directory, "model.c4"), "\nviews {\n  view small {\n    title 'Launch path'\n    include launcher, viewer\n    autoLayout LeftRight\n  }\n}\n");
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [
+      { glob: "src/activity.ts", element: "activity" }, { glob: "src/plugin.ts", element: "plugin" }, { glob: "src/launcher.ts", element: "launcher" }] }));
+    const binding = { source: "claude" as const, session: "gone" };
+    await Effect.runPromise(recordSession(directory, binding, { ended: null }));
+    const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "work-gone", "-x", "140", "-y", "40", "-P", "-F", "#{pane_id}",
+      process.execPath, resolve("src/cli.ts"), "view", "small", "--workspace", directory, "--session", "gone", "--source", "claude");
+    const screen = () => tmux("capture-pane", "-p", "-t", pane);
+    const until = async (check: (text: string) => boolean, what: string) => {
+      for (let attempt = 0; attempt < 100; attempt++) { const text = await screen(); if (check(text)) return text; await delay(50); }
+      throw new Error(`Never saw ${what}:\n${await screen()}`);
+    };
+    const edit = async (id: string, file: string) => {
+      const input = { file_path: join(directory, file) };
+      await writeActivity(directory, toolActivity(directory, binding, id, "Edit", input, "started"));
+      await writeActivity(directory, toolActivity(directory, binding, id, "Edit", input, "completed"));
+    };
+    await until(text => text.includes("Launch path"), "the small view");
+    await edit("one", "src/activity.ts");
+    await until(text => text.includes("working in Pathlight implementation"), "the offer");
+    await tmux("send-keys", "-t", pane, "w");
+    await until(text => text.includes("Selected: activity"), "the work");
+    await tmux("send-keys", "-t", pane, "b");
+    await until(text => text.includes("Launch path") && !text.includes("back 1"), "back in the small view");
+    // `w` turned follow on; turn it off, so what the news line shows is the offer alone.
+    await until(text => text.includes("following Activity metadata"), "follow on");
+    await tmux("send-keys", "-t", pane, "a");
+    await until(text => text.includes("Follow off"), "follow off");
+    await delay(800);
+    expect(await screen()).not.toContain("working in");
+    // Another call in the same box is the same work: still not offered.
+    await edit("two", "src/activity.ts");
+    await delay(800);
+    expect(await screen()).not.toContain("working in");
+    // A later call in a different box is new work.
+    await edit("three", "src/plugin.ts");
+    await until(text => text.includes("working in Pathlight implementation"), "the offer for new work");
+    await tmux("send-keys", "-t", pane, "w");
+    await until(text => text.includes("Selected: plugin"), "the new work");
+    await tmux("send-keys", "-t", pane, "b");
+    await until(text => text.includes("Launch path") && !text.includes("back 1"), "back again");
+    await until(text => text.includes("following Agent adapters"), "follow on again");
+    await tmux("send-keys", "-t", pane, "a");
+    await until(text => text.includes("Follow off"), "follow off again");
+    await delay(800);
+    expect(await screen()).not.toContain("working in");
+    // A new turn starts afresh: the newest work is offered again.
+    await Effect.runPromise(recordSession(directory, binding, { ended: Date.now() }));
+    await delay(600);
+    await Effect.runPromise(recordSession(directory, binding, { ended: null }));
+    await until(text => text.includes("working in Pathlight implementation"), "the offer in a new turn");
+  } finally {
+    await tmux("kill-server").catch(() => {});
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);

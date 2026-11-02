@@ -426,6 +426,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let turnOpen = false;
   // Where follow last took the selection, named on the news line while follow is on.
   let followedTitle = "";
+  // The work the person (or follow) already went to from the offer: it is not offered again after Back. A later call in a different box is, and a
+  // new turn starts afresh.
+  let wentTo: { call: string; element: string } | undefined;
+  const offered = (work: ReturnType<typeof newestWork>) => work && "view" in work && !(wentTo && (work.call === wentTo.call || work.element === wentTo.element)) ? work : undefined;
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
     let step = 32;
@@ -618,7 +622,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (goto.visible) gotoPicker.render();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
     const mode = replay ? "replay" : fileMode ? "files" : dialog.focus !== "none" ? "talk" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "journey" : "diagram";
-    const work = (binding || following) && turnOpen ? newestWork() : undefined;
+    const work = (binding || following) && turnOpen ? offered(newestWork()) : undefined;
     if (message !== lastToast) {
       lastToast = message;
       if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^(Asked|Drawn:) /.test(shown) ? 3500 : 2000); }
@@ -654,7 +658,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (work && "view" in work) {
       if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming) { focusedCall = ""; return; }
       remember(state, visit());
-      camera.animating = false; followedTitle = elementTitle(work.element); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: "" };
+      camera.animating = false; followedTitle = elementTitle(work.element); wentTo = { call: work.call, element: work.element };
+      state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: "" };
       return;
     }
     const target = work?.node ?? [...elementsOf(rules, latest)].map(element => nodeOrAncestor(diagram, element)).filter((node): node is Node => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
@@ -1057,7 +1062,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); followedTitle = work.node.title; update(); }
         else if (work) {
           remember(state, visit());
-          camera.animating = false; startFollow(); followedTitle = elementTitle(work.element); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: "" }; update();
+          camera.animating = false; startFollow(); followedTitle = elementTitle(work.element); wentTo = { call: work.call, element: work.element }; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: "" }; update();
         } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
         return;
       }
@@ -1308,7 +1313,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (following) binding = (yield* latestBinding(view.workspace)) ?? binding;
     allEvents = binding ? yield* readActivity(view.workspace, binding) : [];
     events = visibleEvents(allEvents);
+    const wasOpen = turnOpen;
     turnOpen = binding ? (yield* readSession(view.workspace, binding))?.ended === null : false;
+    if (turnOpen && !wasOpen) wentTo = undefined;
     const signature = `${binding?.session}/${turnOpen}/${events.map(event => `${event.call}${event.phase}`).join()}`;
     const changed = signature !== lastSignature;
     lastSignature = signature;
