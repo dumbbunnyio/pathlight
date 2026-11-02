@@ -17,6 +17,8 @@ export interface KeyMode {
   vim: boolean;
   /** The modal is a request to the agent (`t`, `m`, `d` in the narrow pane): Tab changes its kind. */
   askKinds?: boolean;
+  /** The field with the keys is empty and shows a suggested question: `→` takes it. */
+  takes?: boolean;
   /** The node face is shown over the diagram (under 120 columns): Esc closes it, as `i` does. */
   overlay?: boolean;
   /**
@@ -38,7 +40,7 @@ export type Action =
   | { type: "stop" } | { type: "swallow" } | { type: "idle" } | { type: "pass" }
   | { type: "askCancel" } | { type: "askSend" }
   | { type: "talkLeave" } | { type: "talkTab"; by: -1 | 1 }
-  | { type: "talkSend" } | { type: "talkScroll"; by: -1 | 1 } | { type: "talkBack" } | { type: "talkWiden" }
+  | { type: "talkSend" } | { type: "talkTake" } | { type: "talkScroll"; by: -1 | 1 } | { type: "talkBack" } | { type: "talkWiden" }
   | { type: "themeCancel" } | { type: "themeKeep" } | { type: "themeMove"; to: "up" | "down" | "pageup" | "pagedown" | "home" | "end" }
   | { type: "gotoClose" } | { type: "gotoGo" } | { type: "gotoMove"; by: -1 | 1 } | { type: "gotoPage"; by: -1 | 1 } | { type: "gotoHome" } | { type: "gotoEnd" }
   | { type: "gotoClear" } | { type: "gotoErase" } | { type: "gotoType"; text: string } | { type: "gotoKind"; by: -1 | 1 }
@@ -75,6 +77,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "escape") return { type: "askCancel" };
     if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "askSend" };
     if (key.name === "tab" && mode.askKinds) return { type: "talkTab", by: key.shift ? -1 : 1 };
+    if (key.name === "right" && mode.takes) return { type: "talkTake" };
     return undefined;
   }
   // The talk's field has the keys: Esc hands them to the diagram, Tab changes the kind of request until it is sent.
@@ -83,6 +86,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "tab") return mode.talk?.fresh ? { type: "talkTab", by: key.shift ? -1 : 1 } : { type: "swallow" };
     if (key.name === "pageup" || key.name === "pagedown") return { type: "talkScroll", by: key.name === "pageup" ? -1 : 1 };
     if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "talkSend" };
+    if (key.name === "right" && mode.takes) return { type: "talkTake" };
     return undefined;
   }
   if (mode.layer === "picker") {

@@ -129,17 +129,18 @@ export const sectionHeader = (options: { open: boolean; focused: boolean; number
  * Under the cards, always the same two lines: what is one key away, then the question field. Until the user has selected something or asked once
  * (`first`), the field offers the first question itself: `how does <title> work?`, which `t` opens already typed.
  */
-export const pinnedLines = (options: { width: number; files: number; session: boolean; replay: boolean; title: string | undefined; canAsk: boolean; background: RGBA; first?: boolean }) => {
+export const pinnedLines = (options: { width: number; files: number; session: boolean; replay: boolean; title: string | undefined; canAsk: boolean; background: RGBA }) => {
   const { width } = options;
   const action = (key: string, text: string) => [fg(palette.body)(key), fg(palette.muted)(` ${text}   `)];
   const actions = new StyledText([fg(palette.rule)("─".repeat(width)), nl,
     ...(options.files ? action("e", `files ${options.files}`) : []), ...(options.session ? action("c", "session") : []), ...(options.replay ? action("p", "replay") : [])]);
-  const askLabel = clip(options.title === undefined ? "ask…" : options.first ? firstQuestion(options.title) : `ask about ${options.title}…`, width - 6);
+  // The question `t` offers, the same the talk's field shows as ghost text, so the line and the field agree.
+  const askLabel = clip(options.title === undefined ? "ask…" : firstQuestion(options.title), width - 6);
   const ask = new StyledText([fg(palette.accent)("› "), fg(options.canAsk ? palette.muted : palette.border)(askLabel.padEnd(width - 3)), fg(palette.body)("t")].map(chunk => ({ ...chunk, bg: options.background })));
   return { actions, ask };
 };
 
-/** The question a first-time reader is offered about the box a view opens on. */
+/** The question offered about a box: the pinned line under the cards and the talk's ghost text (see `suggestion` in talk-view.ts). */
 export const firstQuestion = (title: string) => `how does ${title} work?`;
 
 /** Under 80 columns the diagram does not fit: a plain list of nodes, indented by level, with the observed state or the kind on the right. */

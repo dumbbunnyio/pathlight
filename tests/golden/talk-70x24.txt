@@ -15,10 +15,10 @@
                                                                       
  ──────────────────────────────────────────────────────────────────── 
  Ask   Improve the map   Trace a journey                              
- about Agent adapters · records a journey                             
+ ▸ about Agent adapters · records a journey                           
  ──────────────────────────────────────────────────────────────────── 
   › how does Agent adapters work?                                     
                                                                       
                                                                       
- enter send   alt+enter line   tab kind   esc diagram                 
+ → take it   enter send   alt+enter line   tab kind   esc diagram     
  talk   Selected: plugin                          zoom 65%  │  ? help 

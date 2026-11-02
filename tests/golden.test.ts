@@ -104,9 +104,9 @@ test("the name-140x36 screen matches its snapshot", async () => {
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
 
-// The talk after its first request, beside a recorded session whose pointer names the conversation fixture; its turn ended half a minute ago, so the
+// The talk after its first request (the suggested question taken with →, then Enter), beside a recorded session whose pointer names the conversation fixture; its turn ended half a minute ago, so the
 // state line says `done`. Times are shown on the person's clock, so the screen is taken in UTC.
-test.each([{ name: "talk-reply-140x36", keys: "t,Enter" }, { name: "talk-wide-140x36", keys: "t,Enter,z" }])("the $name screen matches its snapshot", async ({ name, keys }) => {
+test.each([{ name: "talk-reply-140x36", keys: "t,Right,Enter" }, { name: "talk-wide-140x36", keys: "t,Right,Enter,z" }])("the $name screen matches its snapshot", async ({ name, keys }) => {
   const directory = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "pathlight-golden-talk-"));
   try {
     await cp("tests/fixtures/viewer", directory, { recursive: true });

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { clock, renderText, talkContent, talkHeader, talkIncludeLine, talkTabsLine } from "../src/viewer/talk-view";
+import { clock, renderText, suggestion, talkContent, talkHeader, talkHint, talkIncludeLine, talkTabsLine } from "../src/viewer/talk-view";
+import { keyAction, type KeyMode } from "../src/viewer/keys";
 import { palette } from "../src/ui";
 
 const text = (lines: { text: string }[][]) => lines.map(line => line.map(chunk => chunk.text).join(""));
@@ -78,4 +79,26 @@ test("a working row stands under the last request until the agent's reply arrive
   const answered = talkContent([{ id: "1", role: "you", at, text: "how does it work?" }, { id: "2", role: "agent", at, text: "It records calls." }], { width: 40, empty: "", working: "⠋" });
   expect(plain(answered.content)).not.toContain("working");
   expect(plain(talkContent([{ id: "1", role: "you", at, text: "hi" }], { width: 40, empty: "" }).content)).not.toContain("working");
+});
+
+// The suggestion comes from the box itself: a journey's from the first box with an arrow into it, else from where the box starts.
+test("the suggested question is derived from the box, and the map offers none", () => {
+  expect(suggestion("ask", { title: "Orders" })).toBe("how does Orders work?");
+  expect(suggestion("flow", { title: "Orders", into: "Checkout API" })).toBe("how does Checkout API reach Orders?");
+  expect(suggestion("flow", { title: "Customer", into: undefined })).toBe("what happens when Customer starts?");
+  expect(suggestion("map", { title: "Orders" })).toBeUndefined();
+});
+
+// The suggestion is ghost text: → takes it into an empty field (in the column and the modal), → elsewhere moves the cursor as ever, and the hint
+// names → while Enter would send nothing.
+test("→ takes the suggestion only into an empty field that shows one, and the hint names it then", () => {
+  const right = { name: "right", sequence: "\x1b[C", ctrl: false, meta: false, shift: false };
+  const mode = (over: Partial<KeyMode>): KeyMode => ({ layer: "main", replay: false, fileMode: false, focusSection: undefined, flow: false, listMode: false, cards: [], vim: true, ...over });
+  expect(keyAction(right, mode({ layer: "talk", talk: { showing: true, fresh: true }, takes: true }))).toEqual({ type: "talkTake" });
+  expect(keyAction(right, mode({ layer: "talk", talk: { showing: true, fresh: true }, takes: false }))).toBeUndefined();
+  expect(keyAction(right, mode({ layer: "ask", askKinds: true, takes: true }))).toEqual({ type: "talkTake" });
+  expect(keyAction(right, mode({ layer: "ask", askKinds: true, takes: false }))).toBeUndefined();
+  const hint = (take: boolean) => plain(talkHint({ focused: true, fresh: true, wide: false, width: 60, take }));
+  expect(hint(true)).toStartWith("→ take it   enter send");
+  expect(hint(false)).toStartWith("enter send");
 });

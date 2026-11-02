@@ -8,6 +8,13 @@ export type TalkTab = "ask" | "map" | "flow";
 export const talkTabs: readonly TalkTab[] = ["ask", "map", "flow"];
 const tabNames: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a journey" };
 
+/**
+ * The question offered in an empty field, as ghost text a key takes: for Ask `how does <box> work?`; for a journey, from the box's own arrows,
+ * `how does <the first box with an arrow into it> reach <box>?`, else `what happens when <box> starts?`. Improving the map offers nothing.
+ */
+export const suggestion = (tab: TalkTab, box: { title: string; into?: string | undefined }) =>
+  tab === "ask" ? `how does ${box.title} work?` : tab === "flow" ? box.into ? `how does ${box.into} reach ${box.title}?` : `what happens when ${box.title} starts?` : undefined;
+
 /** What the talk's state line can say; `undefined` says nothing (idle for long, or no session). */
 export type TalkState = "working" | "waiting" | "done" | undefined;
 
@@ -109,8 +116,9 @@ export const talkIncludeLine = (options: { tab: TalkTab; subject: string | undef
 };
 
 /** The last line of the talk: the keys that matter where the keys are. */
-export const talkHint = (options: { focused: boolean; fresh: boolean; wide: boolean; width: number }) => {
-  const keys: [string, string][] = options.focused ? [["enter", "send"], ["alt+enter", "line"], ...(options.fresh ? [["tab", "kind"]] as [string, string][] : []), ["esc", "diagram"]]
+export const talkHint = (options: { focused: boolean; fresh: boolean; wide: boolean; width: number; take?: boolean }) => {
+  // With the field empty and a suggestion in it, Enter sends nothing: the hint names the key that takes it.
+  const keys: [string, string][] = options.focused ? [...(options.take ? [["→", "take it"]] as [string, string][] : []), ["enter", "send"], ["alt+enter", "line"], ...(options.fresh ? [["tab", "kind"]] as [string, string][] : []), ["esc", "diagram"]]
     : [["t", "reply"], ["z", options.wide ? "narrower" : "wider"], ["i", "node"], [keyName("esc"), "close"]];
   const chunks: TextChunk[] = [];
   let used = 0;

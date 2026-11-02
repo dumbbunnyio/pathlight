@@ -32,5 +32,5 @@
   ·         ·          ·          ·         ·       ┊ ╭───────────╮         ·          ·          ·     │                                             
                                                     ╰▶│ Payment … │                                     │ ─────────────────────────────────────────── 
                                                       ╰───────────╯                                     │                                             
-                                                                                                        │ › ask about Orders…                       t 
+                                                                                                        │ › how does Orders work?                   t 
  journey   Selected: parcel.commerce.orders   [ ] step  F next journey  esc exit                                                  zoom 67%  │  ? help 

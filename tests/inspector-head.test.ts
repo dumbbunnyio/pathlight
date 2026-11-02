@@ -48,12 +48,11 @@ test("with nothing selected the head says what the app is, in the body colour un
   expect(head("Activity").about.chunks.map(chunk => chunk.text).join("")).toBe("Records calls.");
 });
 
-test("until the user selects or asks, the question field offers the first question about the box the view opens on", () => {
-  const field = (first: boolean, width = 40) => pinnedLines({ width, files: 3, session: false, replay: false, title: "Backend API and services", canAsk: true, background: RGBA.fromInts(0, 0, 0, 255), first })
+test("the question field under the cards offers the question the talk's field shows as ghost text", () => {
+  const field = (width = 40) => pinnedLines({ width, files: 3, session: false, replay: false, title: "Backend API and services", canAsk: true, background: RGBA.fromInts(0, 0, 0, 255) })
     .ask.chunks.map(chunk => chunk.text).join("");
-  expect(field(true, 60)).toBe(`› ${"how does Backend API and services work?".padEnd(57)}t`);
-  expect(field(false, 60)).toBe(`› ${"ask about Backend API and services…".padEnd(57)}t`);
-  expect(field(true)).toBe(`› ${"how does Backend API and services…".padEnd(37)}t`);
+  expect(field(60)).toBe(`› ${"how does Backend API and services work?".padEnd(57)}t`);
+  expect(field()).toBe(`› ${"how does Backend API and services…".padEnd(37)}t`);
 });
 
 test("each card's header shows the key that focuses it, and the keys and the numbers agree with Now hidden and shown and in a flow", () => {

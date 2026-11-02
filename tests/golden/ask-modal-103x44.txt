@@ -18,12 +18,12 @@
  ·╭──────────────────╮   ·       ·      ·       ·   ┊ ╭──────────────────╮    ┊·       ·       ·      ·
   │           ┌─ Ask ──────────────────────────────────────────────── claude:pane-mod ─┐
   │ LikeC4 cat│ Ask   Improve the map   Trace a journey                                │
-  ╰───────────│ about Agent adapters · records a journey                               │
+  ╰───────────│ ▸ about Agent adapters · records a journey                             │
  ·       ·    │                                                                        │       ·      ·
               │  › how does Agent adapters work?                                       │
               │                                                                        │
 ──────────────│                                                                        │───────────────
- Agent adapter└─ enter send  tab kind  esc close ──────────────────────────────────────┘
+ Agent adapter└─ → take it  enter send  tab kind  esc close ───────────────────────────┘
 
  ▾ 1 Work ──────────────────────────────────────────────────────────────────────────────────────────
  nothing observed here yet

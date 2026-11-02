@@ -21,10 +21,10 @@
   │ LikeC4 catalog   │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┴┈▶│ P│                                           
   ╰──────────────────╯  ·       ·      ·       ·     ╰──│ ───────────────────────────────────────── 
                                                         │ Ask   Improve the map   Trace a journey   
-                                                        │ about Agent adapters · records a journey  
+                                                        │ ▸ about Agent adapte… · records a journey 
   ·      ·       ·      ·       ·      ·       ·      · │ ───────────────────────────────────────── 
                                                         │  › how does Agent adapters work?          
                                                         │                                           
                                                         │                                           
-  ·      ·       ·      ·       ·      ·       ·      · │ enter send   alt+enter line   tab kind    
+  ·      ·       ·      ·       ·      ·       ·      · │ → take it   enter send   alt+enter line   
  talk   Selected: plugin                                                        zoom 94%  │  ? help 

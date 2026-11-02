@@ -93,7 +93,7 @@ const beside = async (name: string, prepare?: (directory: string) => Promise<voi
 test("t opens the talk in the column: the first Enter sends ask.ts's message unchanged, later ones the typed text alone, and the keys go back to the diagram", async () => {
   const at = await beside("talk");
   try {
-    // On first open t offers the first question about the box the view opens on, a how-question that records a journey, so the first ask is one Enter.
+    // t offers a question about the box, a how-question that records a journey, as ghost text in the field.
     // Under the tabs is whom it is about, with no toggles.
     await at.keys("t");
     const opened = await at.until(at.pane, text => text.includes("Talk · Agent adapters") && text.includes("how does Agent adapters work?") && text.includes("about Agent adapters · records a journey"), "the talk with the first question offered");
@@ -101,6 +101,13 @@ test("t opens the talk in the column: the first Enter sends ask.ts's message unc
     expect(opened).not.toContain("▎");
     expect(opened).not.toMatch(/[●○] (files|connections|activity|draw it)/);
     expect(opened).not.toContain("Ask the agent");
+    // The question is ghost text: Enter on the empty field sends nothing and the hint names the key that takes it; → takes it, then Enter sends.
+    expect(opened).toMatch(/→ take it\s+enter send/);
+    await at.keys("Enter");
+    await new Promise(done => setTimeout(done, 600));
+    expect(await at.tmux("capture-pane", "-p", "-t", at.harness)).not.toContain("About the");
+    await at.keys("Right");
+    await at.until(at.pane, text => !/→ take it/.test(text), "the question taken into the field");
     await at.keys("Enter");
     // Byte for byte what src/ask.ts builds: the files a request names are none here (the fixture maps no source), its connections are the view's.
     const first = askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "how does Agent adapters work?", true);

@@ -101,7 +101,7 @@ test("t and Enter hand the request up as an ask line, byte for byte what show ty
     await pane.settled();
     await pane.key("t");
     await pane.until(() => pane.state.frame?.text.includes("how does Agent adapters work?"), "the talk with the first question offered");
-    await pane.key("return");
+    await pane.key("right", "return");
     const ask = await pane.until(() => pane.state.asks[0], "an ask line");
     // The same text tests/ask.test.ts sees typed into the agent's pane by show.
     expect(ask.text).toBe(askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "how does Agent adapters work?", true));
@@ -160,7 +160,11 @@ test("t in a narrow pane asks in a modal, Tab changes the kind, Enter sends it a
     await pane.key("tab");
     await pane.until(() => pane.state.frame?.text.includes("Improve the map") && pane.state.frame.text.includes("needs a map drawn by pathlight draft"), "the map kind");
     await pane.key("tab", "tab");
+    // Enter on the empty field sends nothing; → takes the suggestion.
     await pane.key("return");
+    await delay(300);
+    expect(pane.state.asks).toHaveLength(0);
+    await pane.key("right", "return");
     const ask = await pane.until(() => pane.state.asks[0], "an ask line");
     expect(ask.text).toBe(askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "how does Agent adapters work?", true));
     expect((await pane.post("/sent", { id: ask.id, ok: true })).status).toBe(204);
