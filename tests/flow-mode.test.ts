@@ -133,8 +133,8 @@ test("F keeps the fitted camera, and a hop with no connector has its gap drawn, 
     const plain = await see([]), flow = await see(["F"]);
     const zoom = (text: string) => /zoom \d+%/.exec(text)?.[0];
     expect(zoom(flow)).toBe(zoom(plain));
-    // Only the diagram's columns: the step reader names the same components.
-    const at = (text: string, label: string) => { const rows = text.split("\n").map(line => line.slice(0, 100)); const row = rows.findIndex(line => line.includes(label)); return [row, rows[row]?.indexOf(label)]; };
+    // Only the diagram's columns and rows: the step reader names the same components, and so does the header's journey line.
+    const at = (text: string, label: string) => { const rows = text.split("\n").map(line => line.slice(0, 100)); const row = rows.findIndex((line, index) => index > 2 && line.includes(label)); return [row, rows[row]?.indexOf(label)]; };
     for (const label of ["Storefr", "Inventory", "Payment"]) expect(at(flow, label)).toEqual(at(plain, label));
     // The step orders → shipping has no relationship: its gap is the only dotted run in the agent's violet (#7466b0).
     const violetDots = (text: string) => (text.match(/38;2;116;102;176[^m]*m[┈┊]/g) ?? []).length;
@@ -292,6 +292,10 @@ test("F reads a journey in the view that draws its steps apart, and b comes back
     expect(entered[1]).toContain("back 1");
     expect(entered.at(-1)).toMatch(/^ journey +Selected: parcel\.storefront /);
     expect(entered.at(-1)).not.toContain("Went to");
+    // Which journey and step, and the step's box, are on the header's first line; the footer names only the keys.
+    expect(entered[0]).toContain("◇ Placing an order · 1/5 · Storefront");
+    expect(entered.at(-1)).not.toContain("◇");
+    expect(entered.at(-1)).toContain("F next journey");
     expect(entered.join("\n")).toMatch(/Steps ─+ 1\/5/);
     expect(where(await see("index", "customer", "F,Escape,b"))).toBe("Parcel / System context");
   } finally { await rm(directory, { recursive: true, force: true }); }

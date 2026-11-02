@@ -1,5 +1,5 @@
- ◆ pathlight / Pathlight implementation                                        ● live claude:pane-mod
- viewer/live · 6 nodes
+ ◆ pathlight / Pathlight implementation                                                        ● live
+ 6 boxes
 ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
 

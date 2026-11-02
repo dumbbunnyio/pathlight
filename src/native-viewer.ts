@@ -32,7 +32,7 @@ import { boundsOf, compact, kindsVary } from "./viewer/compact";
 import { cardLook, insideWords } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
-import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
+import { badgeContent as headerBadge, diffText, edgeMarks, journeyHeading } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
 import { allotSections, firstQuestion, headContent, nodeListContent, hiddenLine, opensLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
 import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
@@ -224,8 +224,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // the viewer has not read yet waits for the next reading of the flows.
   let pointFlow = false, pointWaiting: Point | undefined;
   const pointed = () => pointMark !== undefined && String(state.selected?.modelRef ?? "") === pointMark;
-  const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id)),
-    ...(pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : [])]);
+  const headingContent = () => {
+    const active = flowMode.active, element = active ? stepElement(active, flowMode.step) : undefined;
+    return new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id)),
+      ...(active ? journeyHeading({ title: active.title, step: flowMode.step, steps: active.steps.length, box: element ? elementTitle(element) : undefined, pointed: pointFlow && pointMark !== undefined })
+        : pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : [])]);
+  };
   // Right-hand: the live session when there is one (a spinner replaces the dot while a tool runs), otherwise nothing.
   // The last `pathlight check` (the Stop hook runs one at the end of each turn): shown only when the model and the code disagree, with how old that check is.
   let stale: Stale | undefined;
@@ -619,7 +623,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     const footing = footerContent({ mode, selected: String(state.selected?.id ?? ""), message, hidden, scale: camera.scale, width: renderer.width, hints: room => modeHints({ room,
       replay: replay && { playing: replay.playing, index: replay.index, steps: replay.data.steps.length, turn: replayTurn(), turns: replay.data.turns.length, speed: replay.speed },
-      section: !fileMode ? state.focusSection : undefined, flow: flowMode.active && !fileMode ? { title: flowMode.active.title, step: flowMode.step, steps: flowMode.active.steps.length } : undefined,
+      section: !fileMode ? state.focusSection : undefined, flow: Boolean(flowMode.active) && !fileMode,
       files: fileMode ? { cursor: state.fileCursor, count: paths.length } : undefined }) });
     statusLeft.content = footing.left; statusRight.content = footing.right;
     // One activity line, top right: an offer while the turn is open and the work is in another view, else the call running now. It is dropped when it would not fit.

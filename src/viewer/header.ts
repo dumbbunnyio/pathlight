@@ -3,7 +3,7 @@ import { formatAge } from "../activity";
 import type { Diff } from "../diff";
 import { partial, type Stale, staleText } from "../stale";
 import { palette } from "../ui";
-import { spinAt } from "./text";
+import { clip, spinAt } from "./text";
 
 const ago = (time: number, now: number) => { const age = formatAge(now - time); return age === "now" ? "just now" : `${age} ago`; };
 
@@ -51,6 +51,14 @@ export const badgeContent = (options: { width: number; replay: boolean; live: st
   const session = [fg(options.bound ? palette.incoming : palette.muted)(`${options.busy ? spinAt(options.now) : "●"} live `)];
   return new StyledText([...review, ...check, ...session]);
 };
+
+/**
+ * In journey mode, the header's first line says where you are in it, after the view's title: `◇ Placing an order · 4/5 · Orders`, the box being the
+ * step's own (a journey's hop arrives there, a state diagram's state names it), even when the card drawn for it is the box that holds it. `← agent`
+ * follows when the agent's pointer put the reading there.
+ */
+export const journeyHeading = (options: { title: string; step: number; steps: number; box: string | undefined; pointed: boolean }): TextChunk[] =>
+  [fg(palette.purple)(`  ◇ ${clip(options.title, 32)} · ${options.step + 1}/${options.steps}${options.box ? ` · ${clip(options.box, 28)}` : ""}`), ...(options.pointed ? [fg(palette.purple)("  ← agent")] : [])];
 
 /** What the last `pathlight diff` found, for the breadcrumb. Nothing changed, nothing said; new dependencies are the header's review, not repeated here. */
 export const diffText = (diff: Diff | undefined) => {

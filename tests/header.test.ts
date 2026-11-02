@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { badgeContent, reviewBadge, staleBadge } from "../src/viewer/header";
+import { badgeContent, journeyHeading, reviewBadge, staleBadge } from "../src/viewer/header";
 
 const stale = { version: 1 as const, time: 0, unmapped: 3, unmatched: 0, unsupported: 0, undeclared: 0 };
 const text = (chunks: { text: string }[]) => chunks.map(chunk => chunk.text).join("");
@@ -29,4 +29,10 @@ test("a clean check and a live session say only that", () => {
   expect(text(staleBadge(stale, 80, 60_000))).toBe("▲ out of date: 3 files not in the model · checked 1m ago ");
   const badge = badgeContent({ width: 140, replay: false, live: "claude:6323de6a", bound: true, watching: true, busy: false, open: 0, stale: clean, now: 0 });
   expect(typeof badge === "string" ? badge : badge.chunks.map(chunk => chunk.text).join("")).toBe("✓ in sync ● live ");
+});
+
+// The step's own box is named, whichever card the view draws it on (a step into Shipping worker read where only Fulfillment is drawn says Shipping worker).
+test("journey mode's heading names the journey, the step and the step's own box, and the agent's mark after it", () => {
+  expect(text(journeyHeading({ title: "Placing an order", step: 3, steps: 5, box: "Shipping worker", pointed: false }))).toBe("  ◇ Placing an order · 4/5 · Shipping worker");
+  expect(text(journeyHeading({ title: "Placing an order", step: 0, steps: 5, box: undefined, pointed: true }))).toBe("  ◇ Placing an order · 1/5  ← agent");
 });

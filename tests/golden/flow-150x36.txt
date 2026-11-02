@@ -1,5 +1,5 @@
- ◆ pathlight / Parcel / Service architecture                                                                                                          
- parcel/services · 16 nodes                                                                                                                           
+ ◆ pathlight / Parcel / Service architecture  ◇ Placing an order · 4/5 · Orders                                                                       
+ 16 boxes                                                                                                                                             
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                                                                                                         │ Orders                            database  
   ·         ·     ╭─Parcel────────────────────────────────────────────────────────────╮·          ·     │ PostgreSQL                                  
@@ -33,4 +33,4 @@
                                                     ╰▶│ Payment … │                                     │ ─────────────────────────────────────────── 
                                                       ╰───────────╯                                     │                                             
                                                                                                         │ › ask about Orders…                       t 
- journey   Selected: parcel.commerce.orders  ◇ Placing an order · 4/5   [ ] step  F next journey  esc exit                        zoom 67%  │  ? help 
+ journey   Selected: parcel.commerce.orders   [ ] step  F next journey  esc exit                                                  zoom 67%  │  ? help 
