@@ -123,7 +123,7 @@ views {
 
 - Put it in the same `*.behavior.c4` file as the state diagram it belongs to, or its own; `pathlight draft` leaves those files alone.
 - Every hop should be a relationship the model already has. A hop it does not have is shown with `≠ no arrow on the map for this hop` and listed by `pathlight flows`: that is the story and the model disagreeing, so say which one you think is wrong instead of adding the relationship to make the warning go away.
-- Name the files you read in the `description`, and the commit (`Synced at <short sha>`). A journey is your reading of the code, drawn in the agent's colour and labelled so; it never says what happened.
+- Name the files you read in the `description`, and the commit (`Synced at <short sha>`). A journey is your reading of the code, drawn in the agent's color and labeled so; it never says what happened.
 - The person traces it with `F` in the viewer (`[` `]` to step, `esc` to leave) and sees which components the agent has touched along it. Mark nothing as passed or failed: observed calls are shown beside the steps and are not part of the flow.
 
 ## Keeping it true
