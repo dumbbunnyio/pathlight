@@ -137,10 +137,14 @@ export function createAskDialog<Target extends AskTarget>(options: {
     if (!text) return;
     const context = options.context(target), ok = (more = "") => `Sent as your prompt · the reply is in the conversation${more}`;
     if (tab === "map") {
-      const key = keyOf(target);
-      if (!key) { tell("Only a model made by pathlight draft can be edited here; edit your model file instead"); return; }
-      finishName();
-      sent(target, files => mapMessage({ title: target.title, id: String(target.id), key, files, links: context.links }, text), ok());
+      // The keys are read again here, as the column does: Enter can come before the read the modal started when it opened.
+      options.run(readKeys(workspace).pipe(Effect.catch(() => Effect.succeed(keys)), Effect.flatMap(found => Effect.sync(() => {
+        keys = found;
+        const key = keyOf(target);
+        if (!key) { tell("Only a model made by pathlight draft can be edited here; edit your model file instead"); return; }
+        finishName();
+        sent(target, files => mapMessage({ title: target.title, id: String(target.id), key, files, links: context.links }, text), ok());
+      }))));
       return;
     }
     finishName();

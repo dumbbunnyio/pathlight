@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { askMessage } from "../src/ask";
+import { askMessage, mapMessage } from "../src/ask";
 import { frameText } from "../src/pane";
 import { keyAction, type KeyMode, type KeyPress } from "../src/viewer/keys";
 import { mappingIn, run } from "./effects";
@@ -207,3 +207,19 @@ test("in pane mode q is Esc wherever no field is typing, a letter where one is, 
   expect(keyAction(key("escape", "\x1b"), mode({}))).toEqual({ type: "idle" });
   expect(keyAction(key("q"), mode({ pane: true, overlay: true, flow: true }))).toEqual({ type: "exitFlow" });
 });
+
+// The modal's `m` on a drafted map: Enter right after opening it still finds the box's overlay key (it is read again on Enter, as the column does).
+test("m in the modal sends the map request with the box's key even when Enter comes at once", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-pane-map-"));
+  await cp("tests/fixtures/viewer", directory, { recursive: true });
+  await mkdir(join(directory, ".cache", "pathlight"), { recursive: true });
+  await writeFile(join(directory, ".cache", "pathlight", "keys.json"), JSON.stringify({ version: 1, keys: { plugin: "plugins" } }));
+  await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "viewer", mappings: [] }));
+  const pane = await start(directory, 103, 44, ["--session", "pane-map", "--source", "claude"]);
+  try {
+    await pane.settled();
+    await pane.key("m", "h", "i", "return");
+    const ask = await pane.until(() => pane.state.asks[0], "an ask line");
+    expect(ask.text).toBe(mapMessage({ title: "Agent adapters", id: "plugin", key: "plugins", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "hi"));
+  } finally { await pane.stop(); await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
