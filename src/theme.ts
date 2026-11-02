@@ -53,13 +53,13 @@ export const resolveRoles = (file: ThemeFile, mode: Mode) => {
       if (/^#[0-9a-f]{6}$/i.test(value)) return value.toLowerCase();
       if (/^#[0-9a-f]{8}$/i.test(value)) return mix(canvas, value.slice(0, 7).toLowerCase(), parseInt(value.slice(7), 16) / 255);
       if (/^#[0-9a-f]{3}$/i.test(value)) return `#${[...value.slice(1)].map(digit => digit + digit).join("")}`.toLowerCase();
-      if (chain.includes(value)) throw new Error(`Circular colour reference: ${[...chain, value].join(" -> ")}`);
+      if (chain.includes(value)) throw new Error(`Circular color reference: ${[...chain, value].join(" -> ")}`);
       const next = defs[value] ?? file.theme[value];
-      if (next === undefined) throw new Error(`Colour reference "${value}" is not in defs or theme`);
+      if (next === undefined) throw new Error(`Color reference "${value}" is not in defs or theme`);
       return resolve(next, [...chain, value]);
     }
     if (value && typeof value === "object" && mode in value) return resolve((value as Record<Mode, unknown>)[mode], chain);
-    throw new Error(`Unusable colour value ${JSON.stringify(value)}`);
+    throw new Error(`Unusable color value ${JSON.stringify(value)}`);
   };
   const background = file.theme.background === undefined ? undefined : resolve(file.theme.background, []);
   if (background) canvas = background;
