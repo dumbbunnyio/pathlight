@@ -23,7 +23,7 @@
               │  › how does Agent adapters work?                                       │
               │                                                                        │
 ──────────────│                                                                        │───────────────
- Agent adapter└─ enter send  tab kind  esc close ──────────────────────────────────────┘    component
+ Agent adapter└─ enter send  tab kind  esc close ──────────────────────────────────────┘
 
  ▾ 1 Now ───────────────────────────────────────────────────────────────────────────────────────────
  nothing observed here yet

@@ -542,7 +542,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const linked = selected?.navigateTo && String(selected.navigateTo) !== String(diagram.id);
     const both = linked && selected.children.some(child => diagram.nodes.some(node => node.id === child));
     const opens = [both ? opensLine(String(target?.title ?? selected.navigateTo)) : "", linked ? hiddenLine(describe(target?.description)) : ""].filter(Boolean).join("\n");
-    const head = headContent({ title: selected?.title, kind: selected?.kind ? String(selected.kind) : "", technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
+    const head = headContent({ title: selected?.title, technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
       tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
       by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length, app: selected ? undefined : appNote() });
     // A reply that came while the node face showed: one word where the talk's state line stands, and nothing else.

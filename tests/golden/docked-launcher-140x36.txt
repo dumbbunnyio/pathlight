@@ -1,7 +1,7 @@
  ◆ pathlight / Pathlight implementation                                                                                                     
  6 boxes                                                                                                                                    
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-                                                                                                 │ tmux launcher                 component  
+                                                                                                 │ tmux launcher                            
                                                                                                  │                                          
  ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ 1 Connects ──────────────────────── 3  
                                                                                                  │   ← Agent adapters     Opens a view      
