@@ -201,12 +201,12 @@ try {
       process.stdout.write(formatDoctor(findings));
       if (hasFailures(findings)) process.exitCode = 1;
     } else if (command === "config") {
-      // Pathlight's own settings (src/theme.ts): `claude` is where the Claude Code plugin's /pathlight:open draws the viewer. `get` prints nothing when unset.
+      // Pathlight's own settings (src/theme.ts): `claude` is where the Claude Code plugin's /pathlight:open draws the viewer. `get` prints nothing when unset (the tmux pane then).
       const [key, value] = extra;
       if (key !== "claude" || (id === "get" && value !== undefined) || (id === "set" && value !== "pane" && value !== "tmux") || (id !== "get" && id !== "set"))
         return yield* invalid("Use pathlight config get claude, or pathlight config set claude pane|tmux.");
       if (id === "get") { const choice = yield* savedClaude(); if (choice) process.stdout.write(`${choice}\n`); }
-      else { yield* saveClaude(value as "pane" | "tmux"); process.stdout.write(`/pathlight:open now opens the ${value === "pane" ? "pane beside the conversation where Claude Code can place it" : "tmux pane"}\n`); }
+      else { yield* saveClaude(value as "pane" | "tmux"); process.stdout.write(`/pathlight:open now opens the ${value === "pane" ? "experimental pane inside Claude Code where it can place one (at most 45% of the terminal)" : "tmux pane, the default"}\n`); }
     } else if (command === "setup") {
       if (id) return yield* invalid("setup takes no argument. Use --workspace PATH and --yes.");
       process.stdout.write(yield* setup(values.workspace, { yes: values.yes === true }));

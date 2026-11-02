@@ -1,10 +1,12 @@
 import type { Elements, Register } from 'claude-code'
 
 /**
- * Pathlight inside Claude Code: `/pathlight:open` draws the viewer in a pane bound to this conversation, docked beside the transcript in the
- * fullscreen layout from 110 columns, inline above the prompt on the main screen. `/pathlight:open tmux` (or `"claude": "tmux"` in Pathlight's own
- * settings, `pathlight config set claude tmux`) goes on to `open-hook.sh`, which opens the tmux pane as before; so does a terminal the pane does not
- * fit and a Claude Code without mods. The agent's own `pathlight show` / `pathlight open` opens the same pane where it can be placed.
+ * Pathlight inside Claude Code, experimental and off by default: `/pathlight:open pane` (or `"claude": "pane"` in Pathlight's own settings,
+ * `pathlight config set claude pane`) draws the viewer in a pane bound to this conversation, docked beside the transcript in the fullscreen layout
+ * from 110 columns, inline above the prompt on the main screen. Otherwise, and with `/pathlight:open tmux`, a terminal the pane does not fit or a
+ * Claude Code without mods, the command goes on to `open-hook.sh`, which opens the tmux pane as it always did. Off by default because Claude Code
+ * caps a docked pane at 45% of the terminal and offers no way to resize or place it (David, 2026-11-01); the work is kept for when that changes.
+ * With the pane chosen, the agent's own `pathlight show` / `pathlight open` opens the same pane where it can be placed.
  *
  * The viewer is `pathlight pane`, a child of this session: it prints frames (the Raster's cells) on its standard output and serves a Unix socket for
  * the person's keys and the pane's size. The talk's request comes up as an `ask` line and is submitted here as the person's own prompt; the reply is
@@ -86,10 +88,10 @@ function send($: any, path: string, body: unknown) {
   current.keys = current.keys.then(() => $.http.fetch(`http://pathlight${path}`, { method: 'POST', body: JSON.stringify(body), socketPath: socket })).catch(() => undefined)
 }
 
-/** Where `/pathlight:open` draws when the command names neither: Pathlight's own setting (`pathlight config get claude`), else the pane. */
+/** Where `/pathlight:open` draws when the command names neither: Pathlight's own setting (`pathlight config get claude`), else tmux. */
 async function preference($: any): Promise<'pane' | 'tmux'> {
   const said = await $.process.run(['pathlight', 'config', 'get', 'claude']).catch(() => undefined)
-  return said?.exitCode === 0 && said.stdout.trim() === 'tmux' ? 'tmux' : 'pane'
+  return said?.exitCode === 0 && said.stdout.trim() === 'pane' ? 'pane' : 'tmux'
 }
 
 /**
@@ -185,8 +187,8 @@ function stop() {
 }
 
 export const register: Register = on => {
-  // `/pathlight:open` is commands/open.md; its run comes here first. The pane is drawn where Claude Code can seat it, unless the command or the
-  // person's setting says tmux; then the command goes on to `open-hook.sh` with the view alone.
+  // `/pathlight:open` is commands/open.md; its run comes here first. The pane is drawn where Claude Code can seat it when the command or the
+  // person's setting says `pane`; otherwise the command goes on to `open-hook.sh` with the view alone, and tmux opens the viewer as before.
   on('command.run', { command: 'pathlight:open' }, async ($, e, next) => {
     const { where, view } = argsOf(e.args)
     layout = { ...e.presentation, rows: layout?.rows }
@@ -201,8 +203,8 @@ export const register: Register = on => {
     return { text: 'Pathlight is beside the conversation. Type to drive it; click its last row for the arrows; ctrl+x tab brings the keys back after Esc.' }
   })
 
-  // The agent's `pathlight show` / `pathlight open` opens this pane rather than a tmux split beside a pane already there. Read, never run; where the
-  // pane cannot be placed (or the person keeps tmux) the command runs as it always did.
+  // With the pane chosen, the agent's `pathlight show` / `pathlight open` opens this pane rather than a tmux split beside a pane already there. Read,
+  // never run; where the pane cannot be placed, or by default, the command runs as it always did.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const asked = viewerCommand(String(e.command ?? ''), await $.session.root())
     // The band's width is the transcript's, not the terminal's, so in fullscreen the surface's own answer (placed or not) decides.
