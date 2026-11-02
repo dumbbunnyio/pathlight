@@ -31,7 +31,7 @@ import { createCamera } from "./viewer/camera";
 import { boundsOf, compact, kindsVary } from "./viewer/compact";
 import { cardLook, insideWords } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
-import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
+import { crumbActivity, followNews, footerContent, modeHints, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, diffText, edgeMarks, journeyHeading } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
 import { allotSections, firstQuestion, headContent, nodeListContent, hiddenLine, opensLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
@@ -424,6 +424,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const tickerContent = () => ticker(binding ? config : undefined, events, elementTitle, Date.now());
   // Whether the bound session's turn is open (its pointer's `ended` is null): only then is the newest work offered as `working in … w go and follow`.
   let turnOpen = false;
+  // Where follow last took the selection, named on the news line while follow is on.
+  let followedTitle = "";
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
     let step = 32;
@@ -626,8 +628,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       section: !fileMode ? state.focusSection : undefined, flow: Boolean(flowMode.active) && !fileMode,
       files: fileMode ? { cursor: state.fileCursor, count: paths.length } : undefined }) });
     statusLeft.content = footing.left; statusRight.content = footing.right;
-    // One activity line, top right: an offer while the turn is open and the work is in another view, else the call running now. It is dropped when it would not fit.
-    crumbHint.content = crumbActivity(work && "view" in work ? workOffer(work.title) : tickerContent(), renderer.width - 2 - crumbPlain.length - 3);
+    // The news line, top right, the one place for what the agent and the session are doing now: follow while it is on (where it took you), else an
+    // offer while the turn is open and the work is in another view, else the call running now. Nothing the agent did reaches the footer.
+    const news = (binding || following) && followCamera && !followPaused ? followNews(followedTitle || "the work") : work && "view" in work ? workOffer(work.title) : tickerContent();
+    crumbHint.content = crumbActivity(news, renderer.width - 2 - crumbPlain.length - 3);
     dirty = true; renderer.requestRender();
   };
   // Fit takes in the connectors too, so one that goes round the outermost card is not cut at the canvas edge.
@@ -650,12 +654,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (work && "view" in work) {
       if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming) { focusedCall = ""; return; }
       remember(state, visit());
-      camera.animating = false; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: `Went to ${work.title} · following (a to stop)` };
+      camera.animating = false; followedTitle = elementTitle(work.element); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: "" };
       return;
     }
     const target = work?.node ?? [...elementsOf(rules, latest)].map(element => nodeOrAncestor(diagram, element)).filter((node): node is Node => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
     if (!target) return;
-    followSelecting = true;
+    followSelecting = true; followedTitle = target.title;
     try { message = ""; selectNode(target, true); } finally { followSelecting = false; }
   };
   type Direction = "left" | "right" | "up" | "down";
@@ -1050,10 +1054,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const work = newestWork();
         // Going to the work is asking to watch it, so follow turns on with the jump (`a` stops it); a viewer with no session has nothing to follow.
         const startFollow = () => { if (binding || following) { followCamera = true; followPaused = false; focusedCall = ""; followSince = Date.now(); } };
-        if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); if (followCamera) message = "Following the work (a to stop)"; update(); }
+        if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); followedTitle = work.node.title; update(); }
         else if (work) {
           remember(state, visit());
-          camera.animating = false; startFollow(); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: followCamera ? `Went to ${work.title} · following (a to stop)` : "" }; update();
+          camera.animating = false; startFollow(); followedTitle = elementTitle(work.element); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: "" }; update();
         } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
         return;
       }

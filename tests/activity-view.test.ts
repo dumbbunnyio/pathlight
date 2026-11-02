@@ -32,3 +32,9 @@ test("the header line is live only: the verb, the label and the boxes while a ca
   expect(ticker(config, [{ ...event, phase: "completed", time: now - 1000 }], title, now)).toBeUndefined();
   expect(ticker(config, [{ ...event, phase: "failed", time: now - 1000 }], title, now)).toBeUndefined();
 });
+
+// While follow is on the news line says where it took you and the key that stops it; it is the only place follow speaks.
+test("the news line names where follow went and how to stop it", async () => {
+  const { followNews } = await import("../src/viewer/footer");
+  expect(followNews("Checkout API").map(chunk => chunk.text).join("")).toBe("following Checkout API   a  stop");
+});

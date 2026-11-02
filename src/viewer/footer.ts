@@ -48,5 +48,8 @@ export const crumbActivity = (activity: readonly TextChunk[] | undefined, availa
   return new StyledText(fitted);
 };
 
+/** The news line while follow is on: where it last took you, for as long as it lasts, and the key that stops it. */
+export const followNews = (box: string): TextChunk[] => [fg(palette.muted)("following "), fg(palette.text)(box), fg(palette.muted)("  "), pill("a", palette.accent), fg(palette.muted)(" stop")];
+
 /** An offer when the work is in another view. */
 export const workOffer = (title: string): TextChunk[] => [fg(palette.accent)("● "), fg(palette.text)(`working in ${title}`), fg(palette.muted)("  "), pill("w", palette.accent), fg(palette.muted)(" go and follow")];

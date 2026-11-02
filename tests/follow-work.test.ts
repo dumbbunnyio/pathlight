@@ -108,7 +108,13 @@ test("follow goes to the view that has the component being worked on, and b come
     const there = await until(text => /pathlight \/ Parcel \/ (Service architecture|Checkout detail)/.test(text), "the view with the API");
     expect(there).toMatch(/Selected: parcel\.commerce\.api/);
     expect(there).toContain("back 1");
-    expect(there).toMatch(/Went to Parcel \/ (Service architecture|Checkout detail) · following/);
+    // Follow says where it took you on the news line, not in a toast: nothing the agent did reaches the footer, and the line lasts while follow is on.
+    expect(there.split("\n")[1]).toMatch(/following Checkout API +a +stop/);
+    expect(there).not.toContain("Went to");
+    await delay(2_500);
+    const later = await tmux("capture-pane", "-p", "-t", pane);
+    expect(later.split("\n")[1]).toMatch(/following Checkout API +a +stop/);
+    expect(later.trimEnd().split("\n").at(-1)).not.toContain("follow");
     await tmux("send-keys", "-t", pane, "b");
     await until(text => text.includes("pathlight / Parcel / System context") && !text.includes("back 1"), "the overview again");
   } finally {

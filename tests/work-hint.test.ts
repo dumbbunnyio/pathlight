@@ -46,8 +46,8 @@ test("work outside the view shows a hint and w switches to the view that has it"
     expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("Launch path");
     await tmux("send-keys", "-t", pane, "w");
     await until("Selected: activity");
-    // Going to the work is asking to watch it: follow is on, and `a` stops it.
-    await until("following (a to stop)");
+    // Going to the work is asking to watch it: follow is on, and `a` stops it, said on the news line.
+    await until("following Activity metadata");
     expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("Pathlight implementation");
   } finally {
     await tmux("kill-server").catch(() => {});
