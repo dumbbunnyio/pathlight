@@ -162,6 +162,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // Calls made by subagents carry a label and are shown with it; `s` hides them to leave only the conversation's own calls.
   let showSubagents = true, allEvents: ActivityEvent[] = [];
   const visibleEvents = (list: ActivityEvent[]) => showSubagents ? list : list.filter(event => !event.agent);
+  // Work is edits and commands: a read is kept in the journal, `c` and replay, and shown nowhere live (the Work card, the card tags and counts, the
+  // news line, follow and the `w` offer), so nothing sends the person to a box that shows nothing. Replay shows the session as it was, reads too.
+  const working = () => replay ? events : events.filter(event => event.operation !== "read");
   // Replay: the retained calls of the bound session, walked one step at a time. While it is on, `events` is the calls up to the current step and the live poll stands aside.
   let replay: { data: Replay; index: number; playing: boolean; speed: number; next: number } | undefined;
   let byElement = new Map<string, ActivityEvent[]>();
@@ -196,7 +199,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const flashes = nodeFlashes;
   const noteCalls = () => {
     const stamp = Date.now() + 600;
-    for (const event of events) {
+    for (const event of working()) {
       if (seenCalls.has(event.call)) continue;
       seenCalls.add(event.call);
       if (!calmLoaded) continue;
@@ -209,8 +212,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const indexEvents = () => {
     byElement = new Map();
     byPath = new Map();
-    for (const event of events) for (const path of event.paths) if (!byPath.has(path) || event.time > (byPath.get(path)?.time ?? 0)) byPath.set(path, event);
-    for (const event of events) {
+    const live = working();
+    for (const event of live) for (const path of event.paths) if (!byPath.has(path) || event.time > (byPath.get(path)?.time ?? 0)) byPath.set(path, event);
+    for (const event of live) {
       for (const element of new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element))) {
         byElement.set(element, [...byElement.get(element) ?? [], event]);
       }
@@ -254,7 +258,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let flowItems: ReturnType<typeof flowsThrough> = [];
   const inPlan = (ref: string) => (plan?.elements ?? []).some(id => ref === id || ref.startsWith(`${id}.`) || id.startsWith(`${ref}.`));
   const badgeContent = () => headerBadge({ width: renderer.width, replay: Boolean(replay), live: liveLabel(), bound: Boolean(binding), watching: Boolean(binding || following),
-    busy: events.some(isActive), open: pending(reviewItems(diff, decisions)).length, stale, now: Date.now() });
+    busy: working().some(isActive), open: pending(reviewItems(diff, decisions)).length, stale, now: Date.now() });
   let activityError = "";
   // The talk's width: two fifths of the terminal between 44 and 64 columns, or, widened with `z`, all but a strip of diagram.
   const talkWidth = () => dialog.wide ? Math.max(44, Math.min(renderer.width - 8, 120)) : Math.min(64, Math.max(44, Math.round(renderer.width * 0.4)));
@@ -354,7 +358,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const autoFolded = new Set<SectionKey>();
   const isOpen = (key: SectionKey) => sections[key].open && !autoFolded.has(key);
   // Files stay out of sight until asked for (`e`, or its number): the actions line says how many there are.
-  // "Now" says nothing when there is no session to watch.
+  // "Work" says nothing when there is no session to watch.
   const shownSections = () => sectionOrder.filter(key => key === "files" ? fileMode || state.focusSection === "files" : key === "activity" ? Boolean(binding || following)
     : key === "steps" ? Boolean(flowMode.active) : key === "connections" ? !flowMode.active : !flowMode.active && flowsThrough(flowMode.flows, String(state.selected?.modelRef ?? "")).length > 0);
   const layoutSections = () => {
@@ -375,9 +379,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (rows <= 0) return;
     if (line < box.scrollTop) box.scrollTo(line); else if (line >= box.scrollTop + rows) box.scrollTo(line - rows + 1);
   };
-  // "Now", the session summary and the header's activity line are written in viewer/activity-view.ts from what the journal retained.
+  // "Work", the session summary and the header's activity line are written in viewer/activity-view.ts from what the journal retained.
   const activityContent = () => {
-    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events, element: String(state.selected?.modelRef ?? ""), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
+    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events: working(), element: String(state.selected?.modelRef ?? ""), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
     contentRows.activity = card.lines;
     return new StyledText(card.chunks);
   };
@@ -421,7 +425,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }).pipe(Effect.catch(error => Effect.sync(() => { message = error.message; })),
       Effect.ensuring(Effect.sync(() => { if (summary.visible) summary.content.content = summaryContent(); if (!editorActive) update(); }))));
   };
-  const tickerContent = () => ticker(binding ? config : undefined, events, elementTitle, Date.now());
+  const tickerContent = () => ticker(binding ? config : undefined, working(), elementTitle, Date.now());
   // Whether the bound session's turn is open (its pointer's `ended` is null): only then is the newest work offered as `working in … w go and follow`.
   let turnOpen = false;
   // Where follow last took the selection, named on the news line while follow is on.
@@ -651,7 +655,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // but is in another goes there (the view `w` would choose, remembered so `b` returns); one no view has falls back to the nearest ancestor here.
   // The user's own selection or camera movement pauses it.
   const followActivity = () => {
-    const latest = events[0];
+    const latest = working()[0];
     if (!followCamera || followPaused || !latest || latest.call === focusedCall || latest.time < followSince || state.pendingVisit) return;
     focusedCall = latest.call;
     const work = newestIn([latest], rules, diagram, diagrams);
@@ -711,7 +715,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (!editorActive && !closing) update();
     })), Effect.catch(() => Effect.void)));
   };
-  const newestWork = () => newestIn(events, rules, diagram, diagrams);
+  const newestWork = () => newestIn(working(), rules, diagram, diagrams);
   const replayTurn = () => { let turn = 0; replay?.data.turns.forEach((start, index) => { if (start <= replay!.index) turn = index; }); return turn; };
   // Show the session as it stood after step `index`: the calls so far, the newest one flashing, and the camera on its component (switching view when it lives elsewhere).
   const showStep = (index: number) => {

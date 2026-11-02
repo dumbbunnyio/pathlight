@@ -449,8 +449,8 @@ test.each([
     await click("Commerce", "parcel.commerce");
     const binding = { source: "claude", session: "group-test" } satisfies Parameters<typeof toolActivity>[1];
     await writeActivity(directory, toolActivity(directory, binding, "api-edit", "Edit", { path: "src/api.ts" }, "started"));
-    await writeActivity(directory, toolActivity(directory, binding, "group-read", "Read", { path: "src/system.ts" }, "started"));
-    const active = await capture("Commerce [read]");
+    await writeActivity(directory, toolActivity(directory, binding, "group-edit", "Edit", { path: "src/system.ts" }, "started"));
+    const active = await capture("Commerce [edit]");
     expect(active).toContain("■");
     expect(active).toContain("Checkout API");
     await click("Checkout API", "parcel.commerce.api");

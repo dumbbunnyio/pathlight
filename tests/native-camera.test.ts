@@ -60,14 +60,14 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     expect(column).toBeGreaterThanOrEqual(0);
     await tmux("send-keys", "-t", pane, "-l", `\x1b[<0;${column + 3};${row + 1}M\x1b[<0;${column + 3};${row + 1}m`);
     await capture("Selected: activity");
-    const event = await toolActivity(directory, { source: "claude", session: "three-smoke" }, "read-1", "Read",
+    const event = await toolActivity(directory, { source: "claude", session: "three-smoke" }, "edit-1", "Edit",
       { file_path: join(directory, "src/activity.ts") }, "started");
     await writeActivity(directory, event);
-    await capture("◦ read");
+    await capture("■ edit");
     await tmux("send-keys", "-t", pane, "1");
-    expect(await capture("read activity.ts")).toContain("◦ read");
+    expect(await capture("edit activity.ts")).toContain("■ edit");
     await writeActivity(directory, { ...event, phase: "completed", time: Date.now() });
-    expect(await capture("✓ done")).toContain("✓ read activity.ts");
+    expect(await capture("✓ done")).toContain("✓ edit activity.ts");
     await tmux("send-keys", "-t", pane, "Escape"); await delay(300);
     await tmux("send-keys", "-t", pane, "+", "Right");
     await delay(700);
@@ -90,7 +90,7 @@ test("Three camera, native labels, picking, resize, and editor return", async ()
     const narrow = await tmux("capture-pane", "-p", "-t", pane);
     expect(narrow).toContain("Selected: activity");
     // With a session attached the Activity card is the last to fold, so the work stays visible on a short pane.
-    expect(narrow).toContain("read activity.ts");
+    expect(narrow).toContain("edit activity.ts");
     await tmux("send-keys", "-t", pane, "f");
     await delay(700);
     await writeFile(resolve(".cache/native-check/capture-narrow.ansi"), await tmux("capture-pane", "-e", "-p", "-t", pane));

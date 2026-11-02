@@ -112,7 +112,7 @@ test("a live viewer observes Claude hook metadata without restart and reloads re
   const record = async (session: string, phase: string, file: string) => {
     const child = Bun.spawn([process.execPath, cli, "record", "--workspace", workspace], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     child.stdin.write(JSON.stringify({ hook_event_name: phase, session_id: session, tool_use_id: "call-live",
-      tool_name: "Read", tool_input: { file_path: join(workspace, file) }, cwd: workspace }));
+      tool_name: "Edit", tool_input: { file_path: join(workspace, file) }, cwd: workspace }));
     child.stdin.end();
     const [code, error] = await Promise.all([child.exited, new Response(child.stderr).text()]);
     expect(error).toBe("");
@@ -120,7 +120,7 @@ test("a live viewer observes Claude hook metadata without restart and reloads re
   };
   await record("live-session", "PreToolUse", "src/orders.ts");
   // While the call runs the header's line says what it does and where, never the file.
-  expect((await capture(pane, "now ◦ read in Orders")).split("\n")[1]).not.toContain("orders.ts");
+  expect((await capture(pane, "now ■ edit in Orders")).split("\n")[1]).not.toContain("orders.ts");
   await record("other-session", "PostToolUse", "PRIVATE-OTHER-SESSION.ts");
   await record("live-session", "PostToolUse", "src/orders.ts");
   // Once it has an outcome its row in the node list says so and the header's line is gone.

@@ -31,8 +31,8 @@ test("work outside the view shows a hint and w switches to the view that has it"
     };
     const call = async (id: string, file: string) => {
       const input = { file_path: join(directory, file) };
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, id, "Read", input, "started"));
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, id, "Read", input, "completed"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, id, "Edit", input, "started"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, id, "Edit", input, "completed"));
     };
     await Effect.runPromise(recordSession(directory, { source: "claude", session: "work" }, { ended: null }));
     await until("Launch path");
@@ -67,8 +67,8 @@ test("once the turn has ended the work is not offered and a finished call puts n
     // A call from a turn that is over, then the viewer opens against that session.
     const binding = { source: "claude" as const, session: "ended" };
     const input = { file_path: join(directory, "src/activity.ts") };
-    await writeActivity(directory, await toolActivity(directory, binding, "old", "Read", input, "started"));
-    await writeActivity(directory, await toolActivity(directory, binding, "old", "Read", input, "completed"));
+    await writeActivity(directory, await toolActivity(directory, binding, "old", "Edit", input, "started"));
+    await writeActivity(directory, await toolActivity(directory, binding, "old", "Edit", input, "completed"));
     await Effect.runPromise(recordSession(directory, binding, { ended: Date.now() }));
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "work-ended", "-x", "140", "-y", "40", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "small", "--workspace", directory, "--session", "ended", "--source", "claude");

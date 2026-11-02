@@ -65,7 +65,7 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
     return { name, box, header, content, open: true };
   };
   const sections = {
-    activity: makeSection("Now", [activityText]),
+    activity: makeSection("Work", [activityText]),
     steps: makeSection("Steps", [stepsText]),
     connections: makeSection("Connects", [relations]),
     flows: makeSection("In journeys", [flowsText]),

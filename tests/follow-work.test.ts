@@ -28,8 +28,8 @@ test("follow selects the node being worked on, pauses when the user selects, and
     // Reads end within milliseconds, so the call has usually completed by the time the viewer polls.
     const start = async (call: string, file: string) => {
       const input = { file_path: join(directory, file) };
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "started"));
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "completed"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Edit", input, "started"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Edit", input, "completed"));
     };
     await until("Selected:");
     await delay(700);
@@ -93,8 +93,8 @@ test("follow goes to the view that has the component being worked on, and b come
     };
     const read = async (call: string) => {
       const input = { file_path: join(directory, "api.ts") };
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "started"));
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "completed"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Edit", input, "started"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Edit", input, "completed"));
     };
     await until(text => text.includes("pathlight / Parcel / System context"), "the overview");
     await delay(700);
