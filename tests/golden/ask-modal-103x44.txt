@@ -17,7 +17,7 @@
                                                     ┊                         ┊
  ·╭──────────────────╮   ·       ·      ·       ·   ┊ ╭──────────────────╮    ┊·       ·       ·      ·
   │           ┌─ Ask ──────────────────────────────────────────────── claude:pane-mod ─┐
-  │ LikeC4 cat│ Ask   Improve the map   Trace a flow                                   │
+  │ LikeC4 cat│ Ask   Improve the map   Trace a journey                                │
   ╰───────────│ about Agent adapters · records a journey                               │
  ·       ·    │                                                                        │       ·      ·
               │  › how does Agent adapters work?                                       │

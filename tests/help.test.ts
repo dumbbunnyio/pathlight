@@ -96,7 +96,7 @@ test("? explains the connector colours above the tiers, in the colours themselve
   // Each item starts where its tier's column starts.
   const heads = rows.find(line => line.startsWith("Understand it"))!;
   expect([rows[0]!.indexOf("── into it"), rows[0]!.indexOf("┈┈ other")]).toEqual([heads.indexOf("Direct it"), heads.indexOf("Shape the map")]);
-  expect(rows[1]!.trimEnd()).toBe("── the agent's reading (a flow)");
+  expect(rows[1]!.trimEnd()).toBe("── the agent's reading (a journey)");
   expect(rows[2]).toMatch(/^─+$/);
   expect(rows[2]!.length).toBe(heads.length);
   expect(rows[3]!.trim()).toBe("");
@@ -105,7 +105,7 @@ test("? explains the connector colours above the tiers, in the colours themselve
   const colour = (content: typeof plain.content, glyphAt: number) => content.chunks.filter(chunk => /^[─┈]{2}$/.test(chunk.text))[glyphAt]!.fg!;
   const hex = [palette.outgoing, palette.incoming, palette.edgeDim, palette.purple, palette.green, palette.failure];
   const diff = helpContent({ tier: 1, vim: true, screenWidth: 140, version: "0", diff: true });
-  expect(text(diff.content).split("\n")[1]!.trimEnd()).toMatch(/^── the agent's reading \(a flow\) +── added since the base +┈┈ lost$/);
+  expect(text(diff.content).split("\n")[1]!.trimEnd()).toMatch(/^── the agent's reading \(a journey\) +── added since the base +┈┈ lost$/);
   hex.forEach((value, index) => expect(colour(diff.content, index).equals(RGBA.fromHex(value)), value).toBe(true));
   // Narrow, one item to a row, every line as wide as the tiers.
   const narrow = helpContent({ tier: 1, vim: true, screenWidth: 60, version: "0", diff: true });

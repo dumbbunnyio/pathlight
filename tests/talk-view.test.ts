@@ -60,9 +60,9 @@ test("under the Ask tab the row says whom the question is about, and that it rec
 
 test("the chosen tab is its word in the text colour, the others muted, with no bar, and each tab's span is its word", () => {
   const tabs = talkTabsLine({ tab: "map", mapReady: true });
-  expect(plain(tabs.content)).toBe("Ask   Improve the map   Trace a flow");
+  expect(plain(tabs.content)).toBe("Ask   Improve the map   Trace a journey");
   const tone = (word: string) => tabs.content.chunks.find(chunk => chunk.text === word)!.fg!;
   expect(tone("Improve the map").equals(RGBA.fromHex(palette.text))).toBe(true);
   expect(tone("Ask").equals(RGBA.fromHex(palette.muted))).toBe(true);
-  expect(tabs.spans).toEqual([{ from: 0, to: 3 }, { from: 6, to: 21 }, { from: 24, to: 36 }]);
+  expect(tabs.spans).toEqual([{ from: 0, to: 3 }, { from: 6, to: 21 }, { from: 24, to: 39 }]);
 });

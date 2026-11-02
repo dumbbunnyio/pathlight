@@ -68,7 +68,7 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
     activity: makeSection("Now", [activityText]),
     steps: makeSection("Steps", [stepsText]),
     connections: makeSection("Connects", [relations]),
-    flows: makeSection("In flows", [flowsText]),
+    flows: makeSection("In journeys", [flowsText]),
     files: makeSection("Files", [filesText]),
   };
   // Before the first layout nothing is measured; start with what is hidden by default already hidden, so no frame shows Files or an empty Now.

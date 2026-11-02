@@ -72,12 +72,12 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
       throw new Error(`Missing ${label}:\n${output}`);
     };
     // Flows are read after the first frame; the card says so when the selected component is in one.
-    const before = await until(text => text.includes("In flows") && text.includes("◇ Placing an order"), "the In flows card");
+    const before = await until(text => text.includes("In journeys") && text.includes("◇ Placing an order"), "the In journeys card");
     expect(before).toContain("◇ reading");
     expect(before).not.toContain("Steps");
 
     await tmux("send-keys", "-t", pane, "F");
-    const first = await until(text => /^ flow /m.test(text) && text.includes("1/5") && text.includes("opens checkout"), "flow mode on step 1");
+    const first = await until(text => /^ journey /m.test(text) && text.includes("1/5") && text.includes("opens checkout"), "flow mode on step 1");
     expect(first).toContain("a reading of the code, not observed");
     expect(first).toContain("Selected: parcel.storefront");
     expect(first).toContain("▶");
@@ -97,7 +97,7 @@ test("F traces a flow on the diagram: numbered steps, a reader in the inspector,
 
     // The next F is the other flow, a state diagram: its bug mark shows in the reader.
     await tmux("send-keys", "-t", pane, "F", "F");
-    await until(text => /^ flow /m.test(text) && text.includes("They see their cart"), "the state diagram");
+    await until(text => /^ journey /m.test(text) && text.includes("They see their cart"), "the state diagram");
     await tmux("send-keys", "-t", pane, "]");
     expect(await until(text => text.includes("marked as broken in the diagram"), "the bug mark")).toContain("They are charged twice");
     // After the last flow, F leaves.
@@ -242,7 +242,7 @@ test("F opens the journey a t just drew, whatever the selection, and its arrival
       }
       throw new Error(`Missing ${label}:\n${output}`);
     };
-    await until(text => text.includes("In flows") && text.includes("◇ Placing an order"), "the first flow through the selection");
+    await until(text => text.includes("In journeys") && text.includes("◇ Placing an order"), "the first flow through the selection");
     await delay(700);
     // The offered first question is a how-question: it records a journey, and Enter sends it.
     await tmux("send-keys", "-t", shown.pane, "t");
@@ -269,7 +269,7 @@ test("F opens the journey a t just drew, whatever the selection, and its arrival
     expect(arrived).toContain(`Selected: ${selection}`);
     expect(/zoom \d+%/.exec(arrived)?.[0]).toBe(zoom);
     await tmux("send-keys", "-t", shown.pane, "F");
-    const opened = await until(text => /^ flow /m.test(text), "flow mode");
+    const opened = await until(text => /^ journey /m.test(text), "flow mode");
     expect(opened).toContain("◇ Paying for an order");
     expect(opened).toContain("charges the card");
   } finally {
@@ -289,7 +289,7 @@ test("F reads a journey in the view that draws its steps apart, and b comes back
     const entered = await see("index", "customer", "F");
     expect(where(entered)).toBe("parcel/services");
     expect(entered[1]).toContain("back 1");
-    expect(entered.at(-1)).toMatch(/^ flow +Selected: parcel\.storefront /);
+    expect(entered.at(-1)).toMatch(/^ journey +Selected: parcel\.storefront /);
     expect(entered.at(-1)).not.toContain("Went to");
     expect(entered.join("\n")).toMatch(/Steps ─+ 1\/5/);
     expect(where(await see("index", "customer", "F,Escape,b"))).toBe("parcel/index");
@@ -340,6 +340,6 @@ test("search finds journeys, tab narrows it by kind, and choosing a journey read
     // Choosing it reads it, in the view where its steps are apart.
     const chosen = await see("/,Tab,Tab,Tab,Enter");
     expect(chosen[1]!.trim().split(" ")[0]).toBe("parcel/services");
-    expect(chosen.at(-1)).toMatch(/^ flow /);
+    expect(chosen.at(-1)).toMatch(/^ journey /);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 120_000);

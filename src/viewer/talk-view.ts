@@ -6,7 +6,7 @@ import { clip, nl, wrapWords } from "./text";
 /** The talk's three kinds of request, in the order its tabs stand. */
 export type TalkTab = "ask" | "map" | "flow";
 export const talkTabs: readonly TalkTab[] = ["ask", "map", "flow"];
-const tabNames: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a flow" };
+const tabNames: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a journey" };
 
 /** What the talk's state line can say; `undefined` says nothing (idle for long, or no session). */
 export type TalkState = "working" | "waiting" | "done" | undefined;

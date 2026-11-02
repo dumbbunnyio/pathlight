@@ -33,4 +33,4 @@
                                                     ╰▶│ Payment … │                                     │ ─────────────────────────────────────────── 
                                                       ╰───────────╯                                     │                                             
                                                                                                         │ › ask about Orders…                       t 
- flow   Selected: parcel.commerce.orders  ◇ Placing an order · 4/5   [ ] step  F next flow  esc exit                              zoom 67%  │  ? help 
+ journey   Selected: parcel.commerce.orders  ◇ Placing an order · 4/5   [ ] step  F next journey  esc exit                        zoom 67%  │  ? help 

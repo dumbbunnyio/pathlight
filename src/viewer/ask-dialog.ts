@@ -105,7 +105,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
 
   // `t`, `m` and `d` in the modal: the kind of request, its box and the question offered, until Enter sends it or Esc closes it.
   let asking: { tab: TalkTab; target: Target; offered: string } | undefined;
-  const askTitles: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a flow" };
+  const askTitles: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a journey" };
   const renderAsk = () => {
     if (!asking) return;
     const width = nameColumns(), typed = nameInput.plainText.trim(), mapReady = Boolean(keyOf(asking.target));
@@ -188,7 +188,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     },
     /** `m` and `d` always begin a new talk on their tab. */
     map() { if (!needsPane("Changing the map") && options.selected()) { if (options.modal?.()) beginAsk("map"); else begin("map"); } },
-    trace() { if (!needsPane("Tracing a flow") && options.selected()) { if (options.modal?.()) beginAsk("flow"); else begin("flow"); } },
+    trace() { if (!needsPane("Tracing a journey") && options.selected()) { if (options.modal?.()) beginAsk("flow"); else begin("flow"); } },
     tab(by: number) {
       if (asking) { asking.tab = talkTabs[(talkTabs.indexOf(asking.tab) + by + talkTabs.length) % talkTabs.length]!; renderAsk(); return; }
       if (current?.fresh) { current.tab = talkTabs[(talkTabs.indexOf(current.tab) + by + talkTabs.length) % talkTabs.length]!; options.update(); } },
@@ -229,7 +229,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
       }
       if (tab === "flow") {
         current.fresh = false; talk.input.setText(""); focusOn("none"); options.asked(true);
-        sent(target, files => flowMessage({ title: target.title, id: String(target.id), files, links: context.links }, text), `Asked the agent to trace a flow from ${target.title} · F shows it once it is written`);
+        sent(target, files => flowMessage({ title: target.title, id: String(target.id), files, links: context.links }, text), `Asked the agent to trace a journey from ${target.title} · F shows it once it is written`);
         return;
       }
       const draw = drawing();

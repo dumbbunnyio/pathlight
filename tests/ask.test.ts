@@ -97,7 +97,7 @@ test("t opens the talk in the column: the first Enter sends ask.ts's message unc
     // Under the tabs is whom it is about, with no toggles.
     await at.keys("t");
     const opened = await at.until(at.pane, text => text.includes("Talk · Agent adapters") && text.includes("how does Agent adapters work?") && text.includes("about Agent adapters · records a journey"), "the talk with the first question offered");
-    expect(opened).toContain("Ask   Improve the map   Trace a flow");
+    expect(opened).toContain("Ask   Improve the map   Trace a journey");
     expect(opened).not.toContain("▎");
     expect(opened).not.toMatch(/[●○] (files|connections|activity|draw it)/);
     expect(opened).not.toContain("Ask the agent");
@@ -203,7 +203,7 @@ test("d opens the talk on the trace tab: the request names the skill, the comman
   const at = await beside("flow");
   try {
     await at.keys("d");
-    await at.until(at.pane, text => text.includes("Trace a flow") && text.includes("it reads the code, then records a journey"), "the trace tab");
+    await at.until(at.pane, text => text.includes("Trace a journey") && text.includes("it reads the code, then records a journey"), "the trace tab");
     await at.keys("Enter");
     await delay(300);
     expect(await at.tmux("capture-pane", "-p", "-t", at.harness)).not.toContain("pathlight journey");
@@ -214,7 +214,7 @@ test("d opens the talk on the trace tab: the request names the skill, the comman
     expect(typed).toContain("pathlight flow add");
     expect(typed).not.toContain("tracer");
     expect(typed).toContain("pathlight behavior skill");
-    await at.until(at.pane, text => text.includes("Asked the agent to trace a flow"), "toast");
+    await at.until(at.pane, text => text.includes("Asked the agent to trace a journey"), "toast");
   } finally { await at.close(); }
 }, 60_000);
 

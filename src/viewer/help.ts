@@ -9,7 +9,7 @@ export const helpCap = 132;
 /** What each connector colour means, in the colours themselves; the diff's pair only when a diff is loaded. */
 const legendItems = (diff: boolean): [glyph: string, color: string, label: string][] => [
   ["──", palette.outgoing, "out of the selected box"], ["──", palette.incoming, "into it"], ["┈┈", palette.edgeDim, "other relationships"],
-  ["──", palette.purple, "the agent's reading (a flow)"], ...(diff ? [["──", palette.green, "added since the base"], ["┈┈", palette.failure, "lost"]] as [string, string, string][] : [])];
+  ["──", palette.purple, "the agent's reading (a journey)"], ...(diff ? [["──", palette.green, "added since the base"], ["┈┈", palette.failure, "lost"]] as [string, string, string][] : [])];
 
 /**
  * The keyboard help: the connector colours in rows of three aligned columns (one per row when narrow) with a rule under them, then three tiers of keys (understand it, direct it, shape the map),

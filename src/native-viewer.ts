@@ -611,7 +611,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (summary.visible) summary.content.content = summaryContent();
     if (goto.visible) gotoPicker.render();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    const mode = replay ? "replay" : fileMode ? "files" : dialog.focus !== "none" ? "talk" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "flow" : "diagram";
+    const mode = replay ? "replay" : fileMode ? "files" : dialog.focus !== "none" ? "talk" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "journey" : "diagram";
     const work = (binding || following) && turnOpen ? newestWork() : undefined;
     if (message !== lastToast) {
       lastToast = message;
