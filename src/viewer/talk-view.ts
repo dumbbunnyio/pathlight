@@ -115,10 +115,15 @@ export const talkIncludeLine = (options: { tab: TalkTab; subject: string | undef
   return { content: new StyledText([fg(palette.muted)(lead), fg(options.subject ? palette.body : palette.muted)(subject), ...(tail ? [fg(palette.muted)(tail)] : [])]), rows: 1 };
 };
 
+/**
+ * The glyph before the field: `→` while the field is empty and shows a suggested question (the key that takes it, standing in front of the ghost
+ * text; no hint names it), `›` otherwise.
+ */
+export const promptGlyph = (takes: boolean) => takes ? "→" : "›";
+
 /** The last line of the talk: the keys that matter where the keys are. */
-export const talkHint = (options: { focused: boolean; fresh: boolean; wide: boolean; width: number; take?: boolean }) => {
-  // With the field empty and a suggestion in it, Enter sends nothing: the hint names the key that takes it.
-  const keys: [string, string][] = options.focused ? [...(options.take ? [["→", "take it"]] as [string, string][] : []), ["enter", "send"], ["alt+enter", "line"], ...(options.fresh ? [["tab", "kind"]] as [string, string][] : []), ["esc", "diagram"]]
+export const talkHint = (options: { focused: boolean; fresh: boolean; wide: boolean; width: number }) => {
+  const keys: [string, string][] = options.focused ? [["enter", "send"], ["alt+enter", "line"], ...(options.fresh ? [["tab", "kind"]] as [string, string][] : []), ["esc", "diagram"]]
     : [["t", "reply"], ["z", options.wide ? "narrower" : "wider"], ["i", "node"], [keyName("esc"), "close"]];
   const chunks: TextChunk[] = [];
   let used = 0;

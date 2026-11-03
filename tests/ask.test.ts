@@ -105,13 +105,14 @@ test("t opens the talk in the column: the first Enter sends ask.ts's message unc
     expect(opened).not.toContain("▎");
     expect(opened).not.toMatch(/[●○] (files|connections|activity|draw it)/);
     expect(opened).not.toContain("Ask the agent");
-    // The question is ghost text: Enter on the empty field sends nothing and the hint names the key that takes it; → takes it, then Enter sends.
-    expect(opened).toMatch(/→ take it\s+enter send/);
+    // The question is ghost text with → standing before it (no hint names the key): Enter on the empty field sends nothing; → takes it, then Enter sends.
+    expect(opened).toMatch(/→ how does Agent adapters work\?/);
+    expect(opened).not.toContain("take it");
     await at.keys("Enter");
     await new Promise(done => setTimeout(done, 600));
     expect(await at.tmux("capture-pane", "-p", "-t", at.harness)).not.toContain("About the");
     await at.keys("Right");
-    await at.until(at.pane, text => !/→ take it/.test(text), "the question taken into the field");
+    await at.until(at.pane, text => /› how does Agent adapters work\?/.test(text) && !/→ how does/.test(text), "the question taken into the field, the glyph › again");
     await at.keys("Enter");
     // Byte for byte what src/ask.ts builds: the files a request names are none here (the fixture maps no source), its connections are the view's.
     const first = askMessage({ title: "Agent adapters", id: "plugin", files: [], links: ["→ Activity metadata", "→ tmux launcher"] }, "how does Agent adapters work?", true);

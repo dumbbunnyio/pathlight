@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { clock, renderText, suggestion, talkContent, talkHeader, talkHint, talkIncludeLine, talkTabsLine } from "../src/viewer/talk-view";
+import { clock, renderText, suggestion, talkContent, talkHeader, promptGlyph, talkHint, talkIncludeLine, talkTabsLine } from "../src/viewer/talk-view";
 import { keyAction, type KeyMode } from "../src/viewer/keys";
 import { palette } from "../src/ui";
 
@@ -89,16 +89,18 @@ test("the suggested question is derived from the box, and the map offers none", 
   expect(suggestion("map", { title: "Orders" })).toBeUndefined();
 });
 
-// The suggestion is ghost text: → takes it into an empty field (in the column and the modal), → elsewhere moves the cursor as ever, and the hint
-// names → while Enter would send nothing.
-test("→ takes the suggestion only into an empty field that shows one, and the hint names it then", () => {
+// The suggestion is ghost text: → takes it into an empty field (in the column and the modal), → elsewhere moves the cursor as ever, and the glyph
+// before the field is → while Enter would send nothing (no hint names it).
+test("→ takes the suggestion only into an empty field that shows one, and the field's glyph is → then", () => {
   const right = { name: "right", sequence: "\x1b[C", ctrl: false, meta: false, shift: false };
   const mode = (over: Partial<KeyMode>): KeyMode => ({ layer: "main", replay: false, fileMode: false, focusSection: undefined, flow: false, listMode: false, cards: [], vim: true, ...over });
   expect(keyAction(right, mode({ layer: "talk", talk: { showing: true, fresh: true }, takes: true }))).toEqual({ type: "talkTake" });
   expect(keyAction(right, mode({ layer: "talk", talk: { showing: true, fresh: true }, takes: false }))).toBeUndefined();
   expect(keyAction(right, mode({ layer: "ask", askKinds: true, takes: true }))).toEqual({ type: "talkTake" });
   expect(keyAction(right, mode({ layer: "ask", askKinds: true, takes: false }))).toBeUndefined();
-  const hint = (take: boolean) => plain(talkHint({ focused: true, fresh: true, wide: false, width: 60, take }));
-  expect(hint(true)).toStartWith("→ take it   enter send");
-  expect(hint(false)).toStartWith("enter send");
+  expect(promptGlyph(true)).toBe("→");
+  expect(promptGlyph(false)).toBe("›");
+  const hint = plain(talkHint({ focused: true, fresh: true, wide: false, width: 60 }));
+  expect(hint).toStartWith("enter send");
+  expect(hint).not.toContain("→");
 });

@@ -5,7 +5,7 @@ import type { Message } from "../conversation";
 import { readEntry, readKeys, saveElement } from "../edit";
 import { borderHints, palette, paneMode } from "../ui";
 import { hints } from "./keys";
-import { suggestion, type TalkState, type TalkTab, talkContent, talkHeader, talkHint, talkIncludeLine, talkTabs, talkTabsLine } from "./talk-view";
+import { suggestion, type TalkState, type TalkTab, talkContent, talkHeader, promptGlyph, talkHint, talkIncludeLine, talkTabs, talkTabsLine } from "./talk-view";
 import { nl, spinAt } from "./text";
 import type { createWidgets } from "./widgets";
 
@@ -78,10 +78,11 @@ export function createAskDialog<Target extends AskTarget>(options: {
     talk.rule.content = talk.top.content = new StyledText([fg(palette.rule)("─".repeat(Math.max(1, width)))]);
     talk.input.placeholder = current.fresh ? offered() ?? placeholders[current.tab] : "reply…";
     talk.prompt.fg = focus === "field" ? palette.accent : palette.border;
+    talk.prompt.content = promptGlyph(!talk.input.plainText && Boolean(offered()));
     // Three rows, growing to a third of the column, then scrolling.
     const rows = Math.max(3, Math.min(Math.max(3, Math.floor(height / 3)), talk.input.virtualLineCount));
     if (talk.input.height !== rows) { talk.input.height = rows; talk.row.height = rows; }
-    talk.hint.content = talkHint({ focused: focus === "field", fresh: current.fresh, wide, width, take: !talk.input.plainText && Boolean(offered()) });
+    talk.hint.content = talkHint({ focused: focus === "field", fresh: current.fresh, wide, width });
   };
   const focusOn = (next: typeof focus) => {
     focus = next;
@@ -119,8 +120,8 @@ export function createAskDialog<Target extends AskTarget>(options: {
     naming.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(askTitles[asking.tab]), fg(palette.muted)(" ")]);
     naming.content.content = new StyledText([...tabs.content.chunks, nl, ...line.content.chunks]);
     nameInput.placeholder = offer ?? placeholders[asking.tab];
-    namePrompt.fg = palette.accent;
-    naming.foot.content = new StyledText(borderHints([...(!typed && offer ? [["→", "take it"]] as [string, string][] : []), ["enter", "send"], ["tab", "kind"], ["esc", "close"]], true));
+    namePrompt.fg = palette.accent; namePrompt.content = promptGlyph(!nameInput.plainText && Boolean(offer));
+    naming.foot.content = new StyledText(borderHints([["enter", "send"], ["tab", "kind"], ["esc", "close"]], true));
     const live = options.live();
     naming.meta.content = new StyledText([fg(palette.muted)(` ${live.bound ? live.label : "no session"} `)]);
     naming.place(width, 1 + line.rows + 1 + nameInput.height);
@@ -171,7 +172,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     naming.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(naming_.step === "name" ? "Name" : "Note"), fg(palette.muted)(" ")]);
     naming.content.content = new StyledText([fg(palette.muted)("about".padEnd(8)), fg(palette.text)(naming_.target.title), fg(palette.purple)(`  ${naming_.target.id}`), nl,
       fg(palette.muted)(naming_.step === "name" ? "step 1 of 2" : "step 2 of 2 · empty clears it")]);
-    namePrompt.fg = palette.accent;
+    namePrompt.fg = palette.accent; namePrompt.content = promptGlyph(false);
     naming.foot.content = new StyledText(borderHints(hints.askSave(naming_.step === "name"), true));
     naming.meta.content = new StyledText([fg(palette.muted)(" ")]);
     renderer.requestRender();
