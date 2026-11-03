@@ -137,7 +137,7 @@ views {
     expect(await cli("point", "parcel.commerce.api", "--journey", "placeorder", "--step", "2")).toBe("Pointed the viewer at parcel.commerce.api, step 2 of placeorder.");
     expect(JSON.parse(await readFile(join(work, ".cache/pathlight/point.json"), "utf8"))).toMatchObject({ version: 1, element: "parcel.commerce.api", journey: "placeorder", step: 2 });
     const second = await until(text => text.includes("◇ Placing an order · 2/4"), "flow mode at step 2");
-    expect(second).toMatch(/^ flow /m);
+    expect(second).toMatch(/^ journey /m);
     expect(second).toContain("Selected: parcel.commerce.api");
     expect(second).toContain("← agent");
     expect(second).toContain("Steps");

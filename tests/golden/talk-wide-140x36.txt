@@ -1,5 +1,5 @@
- ◆ pathlight / Pathlight implementation                                                                             ● live claude:talk-gol  
- viewer/live · 6 nodes                                                                                                                      
+ ◆ pathlight / Pathlight implementation                                                                                             ● live  
+ 6 boxes                                                                                                                                    
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  ·         ·       │ Talk · Agent adapters                                                                                             done 
                    │                                                                                                                        

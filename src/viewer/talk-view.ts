@@ -6,7 +6,14 @@ import { clip, nl, wrapWords } from "./text";
 /** The talk's three kinds of request, in the order its tabs stand. */
 export type TalkTab = "ask" | "map" | "flow";
 export const talkTabs: readonly TalkTab[] = ["ask", "map", "flow"];
-const tabNames: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a flow" };
+const tabNames: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a journey" };
+
+/**
+ * The question offered in an empty field, as ghost text a key takes: for Ask `how does <box> work?`; for a journey, from the box's own arrows,
+ * `how does <the first box with an arrow into it> reach <box>?`, else `what happens when <box> starts?`. Improving the map offers nothing.
+ */
+export const suggestion = (tab: TalkTab, box: { title: string; into?: string | undefined }) =>
+  tab === "ask" ? `how does ${box.title} work?` : tab === "flow" ? box.into ? `how does ${box.into} reach ${box.title}?` : `what happens when ${box.title} starts?` : undefined;
 
 /** What the talk's state line can say; `undefined` says nothing (idle for long, or no session). */
 export type TalkState = "working" | "waiting" | "done" | undefined;
@@ -45,10 +52,11 @@ export const renderText = (text: string, width: number): TextChunk[][] => {
 
 /**
  * The conversation as the talk shows it: each message under `you · 12:04` or `agent · 12:04`, a blank row apart, oldest first, so the newest is at the bottom;
- * the person's own words stand apart, `you` in the accent colour and the text one column in. With
+ * the person's own words stand apart, `you` in the accent color and the text one column in; `agent` is in the agent's color (the one journeys and
+ * `← agent` use), its text at the left edge. With
  * nothing to show, one dim line saying why (`empty`), and nothing invented.
  */
-export const talkContent = (messages: readonly Message[], options: { width: number; empty: string }) => {
+export const talkContent = (messages: readonly Message[], options: { width: number; empty: string; working?: string }) => {
   const width = Math.max(10, options.width);
   if (!messages.length) { const lines = wrapWords(options.empty, width); return { content: new StyledText([fg(palette.muted)(lines.join("\n"))]), lines: lines.length }; }
   const rows: TextChunk[][] = [];
@@ -56,15 +64,17 @@ export const talkContent = (messages: readonly Message[], options: { width: numb
     // A blank row between messages: a code block or a list must not run into the next one's label.
     if (rows.length) rows.push([]);
     const yours = message.role === "you";
-    rows.push([fg(yours ? palette.accent : palette.muted)(message.role), fg(palette.border)(` · ${clock(message.at)}`)]);
+    rows.push([fg(yours ? palette.accent : palette.purple)(message.role), fg(palette.border)(` · ${clock(message.at)}`)]);
     rows.push(...(yours ? renderText(message.text, width - 1).map(row => [fg(palette.body)(" "), ...row]) : renderText(message.text, width)));
   }
+  // While the agent works on the last request, `⠋ working` stands where its reply will land; the agent's text replaces it.
+  if (options.working && messages.at(-1)?.role === "you") rows.push([], [fg(palette.accent)(`${options.working} working`)]);
   return { content: new StyledText(rows.flatMap((row, index) => [...index ? [nl] : [], ...row])), lines: rows.length };
 };
 
 /** The talk's first line: whom the next request is about, and at the right what the agent is doing, else which session it is. */
-export const talkHeader = (options: { subject: string | undefined; state: TalkState; spin: string; session: string | undefined; width: number }) => {
-  const right = options.state === "working" ? `working ${options.spin}` : options.state === "waiting" ? "waiting for you in its pane" : options.state === "done" ? "done"
+export const talkHeader = (options: { subject: string | undefined; state: TalkState; session: string | undefined; width: number }) => {
+  const right = options.state === "working" ? "working" : options.state === "waiting" ? "waiting for you in its pane" : options.state === "done" ? "done"
     : options.session ? `● ${options.session}` : "○ no session";
   const tone = options.state === "working" ? palette.accent : options.state === "waiting" ? palette.outgoing : options.state === "done" ? palette.muted
     : options.session ? palette.incoming : palette.border;
@@ -99,10 +109,17 @@ export const talkIncludeLine = (options: { tab: TalkTab; subject: string | undef
     const lines = wrapWords(text, width);
     return { content: new StyledText([fg(palette.muted)(lines.join("\n"))]), rows: lines.length };
   }
-  const tail = options.drawing ? " · records a journey" : "";
-  const about = clip(`about ${options.subject ?? "nothing selected"}`, Math.max(6, width - tail.length));
-  return { content: new StyledText([fg(palette.muted)(about), ...(tail ? [fg(palette.muted)(tail)] : [])]), rows: 1 };
+  // `▸ about Agent adapters · records a journey`: the glyph and `about` muted, the box's title in the body color, the tail muted.
+  const tail = options.drawing ? " · records a journey" : "", lead = "▸ about ";
+  const subject = clip(options.subject ?? "nothing selected", Math.max(1, width - lead.length - tail.length));
+  return { content: new StyledText([fg(palette.muted)(lead), fg(options.subject ? palette.body : palette.muted)(subject), ...(tail ? [fg(palette.muted)(tail)] : [])]), rows: 1 };
 };
+
+/**
+ * The glyph before the field: `→` while the field is empty and shows a suggested question (the key that takes it, standing in front of the ghost
+ * text; no hint names it), `›` otherwise.
+ */
+export const promptGlyph = (takes: boolean) => takes ? "→" : "›";
 
 /** The last line of the talk: the keys that matter where the keys are. */
 export const talkHint = (options: { focused: boolean; fresh: boolean; wide: boolean; width: number }) => {

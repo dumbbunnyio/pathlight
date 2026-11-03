@@ -1,7 +1,7 @@
  ◆ pathlight / Pathlight implementation                                                                                                     
- viewer/live · 6 nodes                                                                                                                      
+ 6 boxes                                                                                                                                    
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-                                                                                                 │ Agent adapters                component  
+                                                                                                 │ Agent adapters                           
                                                                                                  │                                          
  ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│ ▾ 1 Connects ──────────────────────── 2  
                                                                                                  │   → Activity metadata  Records tool li…  

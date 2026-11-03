@@ -3,18 +3,18 @@ import { formatAge } from "../activity";
 import type { Diff } from "../diff";
 import { partial, type Stale, staleText } from "../stale";
 import { palette } from "../ui";
-import { spinAt } from "./text";
+import { clip, spinAt } from "./text";
 
 const ago = (time: number, now: number) => { const age = formatAge(now - time); return age === "now" ? "just now" : `${age} ago`; };
 
-/** The last `pathlight check` (the Stop hook runs one at the end of each turn): shown only when the model and the code disagree, with how old that check is. */
+/** The last `pathlight check` (the Stop hook runs one at the end of each turn): the model and the code disagreeing, with how old that check is. */
 export const staleBadge = (stale: Stale | undefined, room: number, now: number): TextChunk[] => {
   const detail = staleText(stale);
   if (!stale) return [];
-  // A clean check says so, quietly: silence would look the same as a hook that never ran.
+  // A clean check says so, quietly and without its age: silence would look the same as a hook that never ran, and nothing is wrong to date.
   // When most of the source is in languages the scan does not read, "in sync" says what it covers.
   if (!detail) {
-    const options = partial(stale) ? [`✓ in sync · TS/JS only · checked ${ago(stale.time, now)} `, "✓ in sync · TS/JS only ", "✓ TS/JS only "] : [`✓ in sync · checked ${ago(stale.time, now)} `];
+    const options = partial(stale) ? ["✓ in sync · TS/JS only ", "✓ TS/JS only "] : ["✓ in sync "];
     const text = options.find(option => option.length <= room);
     return text ? [fg(palette.muted)(text)] : [];
   }
@@ -35,21 +35,30 @@ export const reviewBadge = (open: number, stale: Stale | undefined, room: number
 
 /**
  * The header's right-hand side: the replay, or the new dependencies waiting for a verdict (the one thing in the header that asks for a decision;
- * with an out-of-date check it is one badge), then the last check, then the live session when there is one (a spinner replaces the dot while a tool runs).
+ * with an out-of-date check it is one badge), then the last check, then `● live` when there is a session (a spinner replaces the dot while a tool runs).
  */
 export const badgeContent = (options: { width: number; replay: boolean; live: string; bound: boolean; watching: boolean; busy: boolean; open: number; stale: Stale | undefined; now: number }) => {
   const room = Math.max(0, options.width - 40), { open, live } = options;
   if (options.replay) return new StyledText([fg(palette.accent)("◀ replay"), fg(palette.border)(` ${live} `)]);
-  const sessionRoom = options.watching ? 8 + live.length : 0;
+  const sessionRoom = options.watching ? 8 : 0;
   const merged = open > 0 && staleText(options.stale) !== undefined;
   const ask = open ? `▲ ${open} new dependenc${open === 1 ? "y" : "ies"} · c review ` : "";
   const review = merged ? reviewBadge(open, options.stale, room - sessionRoom) : ask && ask.length <= room ? [fg(palette.accent)(ask)] : [];
   const left = room - (review.length ? ask.length : 0) - sessionRoom;
   const check = merged ? [] : staleBadge(options.stale, left, options.now);
   if (!options.watching) { const only = [...review, ...check]; return only.length ? new StyledText(only) : ""; }
-  const session = [fg(options.bound ? palette.incoming : palette.muted)(`${options.busy ? spinAt(options.now) : "●"} live`), fg(palette.border)(` ${live} `)];
+  // The session's id is in `c`; the header only says that one is live.
+  const session = [fg(options.bound ? palette.incoming : palette.muted)(`${options.busy ? spinAt(options.now) : "●"} live `)];
   return new StyledText([...review, ...check, ...session]);
 };
+
+/**
+ * In journey mode, the header's first line says where you are in it, after the view's title: `◇ Placing an order · 4/5 · Orders`, the box being the
+ * step's own (a journey's hop arrives there, a state diagram's state names it), even when the card drawn for it is the box that holds it. `← agent`
+ * follows when the agent's pointer put the reading there.
+ */
+export const journeyHeading = (options: { title: string; step: number; steps: number; box: string | undefined; pointed: boolean }): TextChunk[] =>
+  [fg(palette.purple)(`  ◇ ${clip(options.title, 32)} · ${options.step + 1}/${options.steps}${options.box ? ` · ${clip(options.box, 28)}` : ""}`), ...(options.pointed ? [fg(palette.purple)("  ← agent")] : [])];
 
 /** What the last `pathlight diff` found, for the breadcrumb. Nothing changed, nothing said; new dependencies are the header's review, not repeated here. */
 export const diffText = (diff: Diff | undefined) => {

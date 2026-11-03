@@ -5,7 +5,7 @@ import type { Message } from "../conversation";
 import { readEntry, readKeys, saveElement } from "../edit";
 import { borderHints, palette, paneMode } from "../ui";
 import { hints } from "./keys";
-import { type TalkState, type TalkTab, talkContent, talkHeader, talkHint, talkIncludeLine, talkTabs, talkTabsLine } from "./talk-view";
+import { suggestion, type TalkState, type TalkTab, talkContent, talkHeader, promptGlyph, talkHint, talkIncludeLine, talkTabs, talkTabsLine } from "./talk-view";
 import { nl, spinAt } from "./text";
 import type { createWidgets } from "./widgets";
 
@@ -25,32 +25,36 @@ export interface TalkConversation { messages: readonly Message[]; empty: string;
  * `pathlight draft` records; a hand-written model has none.
  */
 export function createAskDialog<Target extends AskTarget>(options: {
-  renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "talk" | "naming" | "nameInput" | "namePrompt" | "nameRow" | "nameColumns">; workspace: string;
+  renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "talk" | "naming" | "nameInput" | "namePrompt" | "nameRow" | "nameColumns" | "nameBounds">; workspace: string;
   /** Sends a request as the person's prompt (typed into the agent's tmux pane, or handed to the host the viewer is drawn in); absent with no agent to
    * reach. It answers what to tell the person instead of the usual line, or nothing. */
   send: ((text: string) => Effect.Effect<string | undefined, Error>) | undefined;
   selected: () => Target | undefined; context: (target: Target) => { links: string[] }; relevant: (target: Target) => Effect.Effect<string[]>;
+  /** The title of the first box with an arrow into this one, for a journey's suggested question. */
+  into: (target: Target) => string | undefined;
   live: () => { bound: boolean; label: string }; conversation: () => TalkConversation;
   say: (message: string) => void; update: () => void; run: (effect: Effect.Effect<void>) => unknown; opening: () => void;
   /** A request went to the agent; `drawing` when it asks for a journey to be recorded (`t` with a how-question, or `d`). */
   asked: (drawing: boolean) => void;
   /**
-   * Whether `t`, `m` and `d` ask in a modal instead of the column: in Claude Code's pane under 120 columns, where the reply is in the transcript beside
-   * it and a column would hide half the diagram to repeat it. The modal is one request with its context, sent as the prompt; the footer says what came of it.
+   * Whether `t`, `m` and `d` ask in a modal instead of the column: wherever the viewer sits beside the conversation (a tmux split beside the agent's
+   * pane, Claude Code's pane), since the reply is on screen there already and a column would hide half the diagram to repeat it. The column is for
+   * where the conversation is hidden (the viewer's tmux window zoomed). The modal is one request with its context, sent as the prompt; the footer says what came of it.
    */
   modal?: () => boolean;
 }) {
-  const { renderer, workspace } = options, { talk, naming, nameInput, namePrompt, nameRow, nameColumns } = options.widgets;
+  const { renderer, workspace } = options, { talk, naming, nameInput, namePrompt, nameRow, nameColumns, nameBounds } = options.widgets;
   const tell = (message: string) => { options.say(message); options.update(); };
   // A talk exists from `t`, `m` or `d` until Esc closes it; `fresh` until its first request is sent (the tabs show until then).
   let current: { tab: TalkTab; fresh: boolean } | undefined;
   let showing = false, wide = false, focus: "field" | "none" = "none", replied = false;
   // A question goes with the box's files and connections, never the activity, and is drawn as a journey when it is a how-question (`d` is the
-  // explicit way). `offered` is the first question, shown as the placeholder and sent by Enter alone.
-  let offered = "", keys = new Map<string, string>();
+  // explicit way). The suggested question is ghost text in an empty field: `→` takes it, and Enter on an empty field sends nothing.
+  let keys = new Map<string, string>();
   let tabSpans: { from: number; to: number }[] = [];
-  const typedOrOffered = () => talk.input.plainText.trim() || (current?.fresh ? offered : "");
-  const drawing = () => isHowQuestion(typedOrOffered());
+  const suggested = (tab: TalkTab, target: Target | undefined) => target ? suggestion(tab, { title: target.title, into: options.into(target) }) : undefined;
+  const offered = () => current?.fresh ? suggested(current.tab, options.selected()) : undefined;
+  const drawing = () => isHowQuestion(talk.input.plainText.trim() || offered() || "");
   const keyOf = (target: Target | undefined) => target ? keys.get(String(target.modelRef ?? "")) ?? keys.get(String(target.id)) : undefined;
   const placeholders: Record<TalkTab, string> = { ask: "Ask how something works, or tell it what to change", map: "What should it work out, or what should it be called?",
     flow: "What should it trace? (for example: what happens when someone places an order)" };
@@ -61,8 +65,8 @@ export function createAskDialog<Target extends AskTarget>(options: {
     talk.top.visible = talk.tabs.visible = talk.include.visible = showing && Boolean(current?.fresh);
     if (!showing || !current) return;
     const target = options.selected(), conversation = options.conversation(), live = options.live();
-    talk.head.content = talkHeader({ subject: target?.title, state: conversation.state, spin: spinAt(Date.now()), session: live.bound ? live.label : undefined, width });
-    const made = talkContent(conversation.messages, { width: width - 1, empty: conversation.empty });
+    talk.head.content = talkHeader({ subject: target?.title, state: conversation.state, session: live.bound ? live.label : undefined, width });
+    const made = talkContent(conversation.messages, { width: width - 1, empty: conversation.empty, working: conversation.state === "working" ? spinAt(Date.now()) : undefined });
     talk.text.content = made.content; talk.text.height = made.lines;
     const mapReady = Boolean(keyOf(target));
     if (current.fresh) {
@@ -72,8 +76,9 @@ export function createAskDialog<Target extends AskTarget>(options: {
       talk.include.content = line.content; talk.include.height = line.rows;
     }
     talk.rule.content = talk.top.content = new StyledText([fg(palette.rule)("─".repeat(Math.max(1, width)))]);
-    talk.input.placeholder = current.fresh ? offered || placeholders[current.tab] : "reply…";
+    talk.input.placeholder = current.fresh ? offered() ?? placeholders[current.tab] : "reply…";
     talk.prompt.fg = focus === "field" ? palette.accent : palette.border;
+    talk.prompt.content = promptGlyph(!talk.input.plainText && Boolean(offered()));
     // Three rows, growing to a third of the column, then scrolling.
     const rows = Math.max(3, Math.min(Math.max(3, Math.floor(height / 3)), talk.input.virtualLineCount));
     if (talk.input.height !== rows) { talk.input.height = rows; talk.row.height = rows; }
@@ -90,8 +95,8 @@ export function createAskDialog<Target extends AskTarget>(options: {
   };
   talk.row.onMouseDown = () => { if (showing) focusOn("field"); };
   // A new talk: the tabs again, the field empty, the keys in it.
-  const begin = (tab: TalkTab, offer = "") => {
-    current = { tab, fresh: true }; showing = true; replied = false; offered = offer;
+  const begin = (tab: TalkTab) => {
+    current = { tab, fresh: true }; showing = true; replied = false;
     talk.input.setText(""); options.opening();
     options.run(readKeys(workspace).pipe(Effect.tap(found => Effect.sync(() => { keys = found; options.update(); })), Effect.catch(() => Effect.void)));
     options.say(""); focusOn("field");
@@ -104,43 +109,53 @@ export function createAskDialog<Target extends AskTarget>(options: {
     Effect.catch(error => Effect.sync(() => tell(error.message)))));
 
   // `t`, `m` and `d` in the modal: the kind of request, its box and the question offered, until Enter sends it or Esc closes it.
-  let asking: { tab: TalkTab; target: Target; offered: string } | undefined;
-  const askTitles: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a flow" };
+  let asking: { tab: TalkTab; target: Target } | undefined;
+  const askTitles: Record<TalkTab, string> = { ask: "Ask", map: "Improve the map", flow: "Trace a journey" };
   const renderAsk = () => {
     if (!asking) return;
     const width = nameColumns(), typed = nameInput.plainText.trim(), mapReady = Boolean(keyOf(asking.target));
     const tabs = talkTabsLine({ tab: asking.tab, mapReady });
-    const line = talkIncludeLine({ tab: asking.tab, subject: asking.target.title, drawing: asking.tab === "ask" && isHowQuestion(typed || asking.offered), mapReady, width });
+    const offer = suggested(asking.tab, asking.target);
+    const line = talkIncludeLine({ tab: asking.tab, subject: asking.target.title, drawing: asking.tab === "ask" && isHowQuestion(typed || offer || ""), mapReady, width });
     naming.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(askTitles[asking.tab]), fg(palette.muted)(" ")]);
-    naming.content.content = new StyledText([...tabs.content.chunks, nl, ...line.content.chunks]);
-    nameInput.placeholder = asking.tab === "ask" && asking.offered ? asking.offered : placeholders[asking.tab];
-    namePrompt.fg = palette.accent;
+    // The tabs as a tab bar, a rule under them, then whom it is about; a blank row and the field follow (David, 2026-11-02: the two rows read as one
+    // without the rule, and the field was too small).
+    naming.content.content = new StyledText([...tabs.content.chunks, nl, fg(palette.rule)("─".repeat(Math.max(1, width))), nl, ...line.content.chunks]);
+    nameInput.placeholder = offer ?? placeholders[asking.tab];
+    namePrompt.fg = palette.accent; namePrompt.content = promptGlyph(!nameInput.plainText && Boolean(offer));
     naming.foot.content = new StyledText(borderHints([["enter", "send"], ["tab", "kind"], ["esc", "close"]], true));
     const live = options.live();
     naming.meta.content = new StyledText([fg(palette.muted)(` ${live.bound ? live.label : "no session"} `)]);
-    naming.place(width, 1 + line.rows + 1 + nameInput.height);
+    nameBounds.lead = 1 + 1 + line.rows + 1;
+    naming.place(width, nameBounds.lead + nameInput.height);
     renderer.requestRender();
   };
-  const beginAsk = (tab: TalkTab, offer = "") => {
+  const beginAsk = (tab: TalkTab) => {
     const target = options.selected();
     if (!target) return;
-    asking = { tab, target, offered: offer };
+    asking = { tab, target };
     options.opening(); options.say("");
-    nameInput.setText(""); nameInput.height = 3; nameRow.height = 3;
-    naming.open(nameColumns(), 6); nameInput.focus(); renderAsk(); options.update();
+    nameBounds.floor = 5; nameBounds.cap = 8;
+    nameInput.setText(""); nameInput.height = 5; nameRow.height = 5;
+    naming.open(nameColumns(), 9); nameInput.focus(); renderAsk(); options.update();
     options.run(readKeys(workspace).pipe(Effect.tap(found => Effect.sync(() => { keys = found; renderAsk(); })), Effect.catch(() => Effect.void)));
   };
   /** Enter in the modal: the request with the box's files and connections, as the column's first one, sent as the prompt; the modal closes. */
   const sendAsk = () => {
     if (!asking || !options.send) return;
-    const { tab, target, offered } = asking, text = nameInput.plainText.trim() || (tab === "ask" ? offered : "");
+    // An empty field sends nothing, even with a suggestion in it: `→` takes it first, and the hint says so.
+    const { tab, target } = asking, text = nameInput.plainText.trim();
     if (!text) return;
     const context = options.context(target), ok = (more = "") => `Sent as your prompt · the reply is in the conversation${more}`;
     if (tab === "map") {
-      const key = keyOf(target);
-      if (!key) { tell("Only a model made by pathlight draft can be edited here; edit your model file instead"); return; }
-      finishName();
-      sent(target, files => mapMessage({ title: target.title, id: String(target.id), key, files, links: context.links }, text), ok());
+      // The keys are read again here, as the column does: Enter can come before the read the modal started when it opened.
+      options.run(readKeys(workspace).pipe(Effect.catch(() => Effect.succeed(keys)), Effect.flatMap(found => Effect.sync(() => {
+        keys = found;
+        const key = keyOf(target);
+        if (!key) { tell("Only a model made by pathlight draft can be edited here; edit your model file instead"); return; }
+        finishName();
+        sent(target, files => mapMessage({ title: target.title, id: String(target.id), key, files, links: context.links }, text), ok());
+      }))));
       return;
     }
     finishName();
@@ -161,7 +176,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     naming.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(naming_.step === "name" ? "Name" : "Note"), fg(palette.muted)(" ")]);
     naming.content.content = new StyledText([fg(palette.muted)("about".padEnd(8)), fg(palette.text)(naming_.target.title), fg(palette.purple)(`  ${naming_.target.id}`), nl,
       fg(palette.muted)(naming_.step === "name" ? "step 1 of 2" : "step 2 of 2 · empty clears it")]);
-    namePrompt.fg = palette.accent;
+    namePrompt.fg = palette.accent; namePrompt.content = promptGlyph(false);
     naming.foot.content = new StyledText(borderHints(hints.askSave(naming_.step === "name"), true));
     naming.meta.content = new StyledText([fg(palette.muted)(" ")]);
     renderer.requestRender();
@@ -171,6 +186,22 @@ export function createAskDialog<Target extends AskTarget>(options: {
 
   return {
     render,
+    /**
+     * Whether the talk is a modal or the column changed (tmux zoomed or unzoomed the viewer): an open request is carried across with its kind and
+     * its text. A column talk already sent closes when the conversation comes back into view.
+     */
+    reflow() {
+      const modal = options.modal?.() ?? false;
+      if (modal && current && showing) {
+        const { tab, fresh } = current, text = talk.input.plainText;
+        current = undefined; showing = false; talk.input.setText(""); focusOn("none");
+        if (fresh && options.selected()) { beginAsk(tab); nameInput.setText(text); nameInput.gotoBufferEnd(); renderAsk(); }
+      } else if (!modal && asking) {
+        const { tab } = asking, text = nameInput.plainText;
+        finishName();
+        if (options.selected()) { begin(tab); talk.input.setText(text); talk.input.gotoBufferEnd(); options.update(); }
+      }
+    },
     /** Whether the column shows the talk; whether a talk exists (`i` flips to it); whether it is widened. */
     get showing() { return showing; }, get exists() { return current !== undefined; }, get wide() { return wide; },
     get fresh() { return Boolean(current?.fresh); },
@@ -180,15 +211,25 @@ export function createAskDialog<Target extends AskTarget>(options: {
     get replied() { return replied; },
     noteReply() { if (!showing) replied = true; },
     /** `t`: the field of the talk there is (same subject, no tabs once sent), else a new talk on its first tab, offering `offer`. */
-    ask(offer = "") {
+    ask() {
       if (needsPane("Ask")) return;
-      if (options.modal?.()) { beginAsk("ask", offer); return; }
+      if (options.modal?.()) { beginAsk("ask"); return; }
       if (current) { showing = true; replied = false; focusOn("field"); return; }
-      if (options.selected()) begin("ask", offer);
+      if (options.selected()) begin("ask");
     },
+    /** `→` in an empty field: the suggested question becomes the field's text, the cursor after it. */
+    take() {
+      const field = asking ? nameInput : current && focus === "field" ? talk.input : undefined;
+      const offer = asking ? suggested(asking.tab, asking.target) : offered();
+      if (!field || field.plainText || !offer) return;
+      field.setText(offer); field.gotoBufferEnd();
+      if (asking) renderAsk(); else options.update();
+    },
+    /** Whether the field with the keys is empty and offers a suggestion, so `→` takes it. */
+    get takes() { return asking ? !nameInput.plainText && Boolean(suggested(asking.tab, asking.target)) : focus === "field" && !talk.input.plainText && Boolean(offered()); },
     /** `m` and `d` always begin a new talk on their tab. */
     map() { if (!needsPane("Changing the map") && options.selected()) { if (options.modal?.()) beginAsk("map"); else begin("map"); } },
-    trace() { if (!needsPane("Tracing a flow") && options.selected()) { if (options.modal?.()) beginAsk("flow"); else begin("flow"); } },
+    trace() { if (!needsPane("Tracing a journey") && options.selected()) { if (options.modal?.()) beginAsk("flow"); else begin("flow"); } },
     tab(by: number) {
       if (asking) { asking.tab = talkTabs[(talkTabs.indexOf(asking.tab) + by + talkTabs.length) % talkTabs.length]!; renderAsk(); return; }
       if (current?.fresh) { current.tab = talkTabs[(talkTabs.indexOf(current.tab) + by + talkTabs.length) % talkTabs.length]!; options.update(); } },
@@ -204,7 +245,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
     typed() { options.update(); },
     /** Enter in the field: the first request with its context, or the typed text alone. An empty field sends nothing (the offered question counts). */
     send() {
-      const target = options.selected(), send = options.send, text = typedOrOffered();
+      const target = options.selected(), send = options.send, text = talk.input.plainText.trim();
       if (!current || !send || !text) return;
       if (!current.fresh) {
         const typed = talk.input.plainText;
@@ -229,7 +270,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
       }
       if (tab === "flow") {
         current.fresh = false; talk.input.setText(""); focusOn("none"); options.asked(true);
-        sent(target, files => flowMessage({ title: target.title, id: String(target.id), files, links: context.links }, text), `Asked the agent to trace a flow from ${target.title} · F shows it once it is written`);
+        sent(target, files => flowMessage({ title: target.title, id: String(target.id), files, links: context.links }, text), `Asked the agent to trace a journey from ${target.title} · F shows it once it is written`);
         return;
       }
       const draw = drawing();
@@ -253,6 +294,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
         return readEntry(workspace, key).pipe(Effect.flatMap(entry => Effect.sync(() => {
           naming_ = { key, target, step: "name", title: target.title, note: entry?.note ?? "" };
           options.opening();
+          nameBounds.floor = 3; nameBounds.cap = 6; nameBounds.lead = 3;
           nameInput.placeholder = "Name"; nameInput.setText(entry?.title ?? target.title); nameInput.gotoBufferEnd(); nameInput.height = 3; nameRow.height = 3;
           naming.open(nameColumns(), 6); nameInput.focus(); renderName(); options.say(""); options.update();
         })));

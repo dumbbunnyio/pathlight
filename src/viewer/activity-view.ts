@@ -34,7 +34,7 @@ export const cardTag = (related: ActivityEvent[], now: number): { text: string; 
 };
 
 /**
- * "Now": what the selected component's own mapped files saw, newest first, three rows with repeats collapsed. The work elsewhere is the header's
+ * "Work": the edits and commands the selected component's own mapped files saw, newest first, three rows with repeats collapsed. The work elsewhere is the header's
  * line, `w`, `a` and `c`. With no session, no mapping or nothing observed it says so in one line.
  */
 export function nowCard(options: { error: string; bound: boolean; following: boolean; config: ActivityConfig | undefined; events: ActivityEvent[]; element: string;

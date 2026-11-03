@@ -28,8 +28,8 @@ test("follow selects the node being worked on, pauses when the user selects, and
     // Reads end within milliseconds, so the call has usually completed by the time the viewer polls.
     const start = async (call: string, file: string) => {
       const input = { file_path: join(directory, file) };
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "started"));
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "completed"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Edit", input, "started"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Edit", input, "completed"));
     };
     await until("Selected:");
     await delay(700);
@@ -93,24 +93,30 @@ test("follow goes to the view that has the component being worked on, and b come
     };
     const read = async (call: string) => {
       const input = { file_path: join(directory, "api.ts") };
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "started"));
-      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Read", input, "completed"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Edit", input, "started"));
+      await writeActivity(directory, await toolActivity(directory, { source: "claude", session: "work" }, call, "Edit", input, "completed"));
     };
-    await until(text => text.includes("parcel/index"), "the overview");
+    await until(text => text.includes("pathlight / Parcel / System context"), "the overview");
     await delay(700);
     // Follow off: the work is offered, never gone to.
     await read("before");
     await delay(900);
-    expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("parcel/index");
+    expect(await tmux("capture-pane", "-p", "-t", pane)).toContain("pathlight / Parcel / System context");
     await tmux("send-keys", "-t", pane, "a");
     await until(text => text.includes("Following the work"), "follow on");
     await read("during");
-    const there = await until(text => /parcel\/(services|checkout)/.test(text), "the view with the API");
+    const there = await until(text => /pathlight \/ Parcel \/ (Service architecture|Checkout detail)/.test(text), "the view with the API");
     expect(there).toMatch(/Selected: parcel\.commerce\.api/);
     expect(there).toContain("back 1");
-    expect(there).toMatch(/Went to Parcel \/ (Service architecture|Checkout detail) · following/);
+    // Follow says where it took you on the news line, not in a toast: nothing the agent did reaches the footer, and the line lasts while follow is on.
+    expect(there.split("\n")[1]).toMatch(/following Checkout API +a +stop/);
+    expect(there).not.toContain("Went to");
+    await delay(2_500);
+    const later = await tmux("capture-pane", "-p", "-t", pane);
+    expect(later.split("\n")[1]).toMatch(/following Checkout API +a +stop/);
+    expect(later.trimEnd().split("\n").at(-1)).not.toContain("follow");
     await tmux("send-keys", "-t", pane, "b");
-    await until(text => text.includes("parcel/index") && !text.includes("back 1"), "the overview again");
+    await until(text => text.includes("pathlight / Parcel / System context") && !text.includes("back 1"), "the overview again");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

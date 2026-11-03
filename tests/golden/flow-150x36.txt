@@ -1,7 +1,7 @@
- ◆ pathlight / Parcel / Service architecture                                                                                                          
- parcel/services · 16 nodes                                                                                                                           
+ ◆ pathlight / Parcel / Service architecture  ◇ Placing an order · 4/5 · Orders                                                                       
+ 16 boxes                                                                                                                                             
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-                                                                                                        │ Orders                            database  
+                                                                                                        │ Orders                                      
   ·         ·     ╭─Parcel────────────────────────────────────────────────────────────╮·          ·     │ PostgreSQL                                  
                   │                                                                   │                 │ Orders and an outbox of committed order     
                   │                                  ╭─Fulfillment───────────────────╮│                 │ events.                                     
@@ -32,5 +32,5 @@
   ·         ·          ·          ·         ·       ┊ ╭───────────╮         ·          ·          ·     │                                             
                                                     ╰▶│ Payment … │                                     │ ─────────────────────────────────────────── 
                                                       ╰───────────╯                                     │                                             
-                                                                                                        │ › ask about Orders…                       t 
- flow   Selected: parcel.commerce.orders  ◇ Placing an order · 4/5   [ ] step  F next flow  esc exit                              zoom 67%  │  ? help 
+                                                                                                        │ › how does Orders work?                   t 
+ journey   Selected: parcel.commerce.orders   [ ] step  F next journey  esc exit                                                  zoom 67%  │  ? help 

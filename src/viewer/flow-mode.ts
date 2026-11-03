@@ -86,7 +86,7 @@ export function createFlowMode<Node>(options: {
       const start = options.start ?? ((flow: FlowMap, step: number) => mode.enter(flow, step));
       if (drawn) { mode.drawn = undefined; start(drawn, flowsThrough([drawn], options.selected())[0]?.steps[0] ?? 1); return; }
       const here = flowsHere(mode.flows, options.view(), options.selected());
-      if (!here.length) { options.say(mode.flows.length ? "No flow touches this view" : "No flows yet · select a box and press t to ask how it works"); options.update(); return; }
+      if (!here.length) { options.say(mode.flows.length ? "No journey touches this view" : "No journeys yet · select a box and press t to ask how it works"); options.update(); return; }
       const active = mode.active, at = active ? here.findIndex(flow => same(flow, active)) : -1;
       if (at === here.length - 1) { mode.exit(); return; }
       const next = here[at + 1]!, mine = flowsThrough([next], options.selected())[0]?.steps[0];
@@ -99,7 +99,7 @@ export function createFlowMode<Node>(options: {
       const awaiting = mode.awaiting, fresh = awaiting && list.find(flow => flow.type === "journey" && !awaiting.has(flow.id));
       if (fresh) { mode.awaiting = undefined; mode.drawn = fresh; options.say(`Drawn: ${fresh.title} · F walks it`); }
       const active = mode.active;
-      if (active) { mode.active = list.find(flow => same(flow, active)); if (!mode.active) options.say("That flow is gone"); }
+      if (active) { mode.active = list.find(flow => same(flow, active)); if (!mode.active) options.say("That journey is gone"); }
     },
   };
   return mode;

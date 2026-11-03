@@ -56,13 +56,16 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
       throw new Error(`Missing ${text}:\n${output}`);
     };
     await capture("Selected:");
-    expect(await capture("live waiting for a session")).not.toContain("claude:");
+    expect(await capture("● live")).not.toContain("claude:");
     const edit = (session: string, call: string) => writeActivity(directory,
       toolActivity(directory, { source: "claude", session }, call, "Edit", { file_path: join(directory, "src/activity.ts") }, "started"));
     await edit("session-one-aaaa", "e1");
-    await capture("live claude:session-");
-    // The card carries the tag in its top border while the tool runs.
-    expect(await capture("─ ■")).toContain("session-");
+    // The card carries the tag in its top border while the tool runs; the session's id is in `c`, not the header.
+    expect(await capture("─ ■")).not.toContain("claude:");
+    await tmux("send-keys", "-t", pane, "c");
+    await capture("claude:session-");
+    await tmux("send-keys", "-t", pane, "Escape");
+    for (let attempt = 0; attempt < 40 && (await screen()).includes("claude:session-"); attempt++) await delay(50);
     // `w` selects what the agent is working on.
     await tmux("send-keys", "-t", pane, "w");
     await capture("Selected: activity");
@@ -89,7 +92,9 @@ test("a viewer started with --follow shows the live badge, then switches to a ne
     for (let attempt = 0; attempt < 40 && (await screen()).includes("components touched"); attempt++) await delay(50);
     await delay(20);
     await edit("zzz-second-session", "e2");
-    await capture("live claude:zzz-seco");
+    await capture("─ ■");
+    await tmux("send-keys", "-t", pane, "c");
+    await capture("claude:zzz-seco");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

@@ -28,8 +28,8 @@ test("subagent calls carry their label in the activity list and s hides them", a
     };
     const input = (file: string) => ({ file_path: join(directory, file) });
     const binding = { source: "claude", session: "sub" } as const;
-    const start = async (id: string, file: string, agent?: string) => writeActivity(directory, await toolActivity(directory, binding, id, "Read", input(file), "started", directory, agent));
-    const finish = async (id: string, file: string, agent?: string) => writeActivity(directory, await toolActivity(directory, binding, id, "Read", input(file), "completed", directory, agent));
+    const start = async (id: string, file: string, agent?: string) => writeActivity(directory, await toolActivity(directory, binding, id, "Edit", input(file), "started", directory, agent));
+    const finish = async (id: string, file: string, agent?: string) => writeActivity(directory, await toolActivity(directory, binding, id, "Edit", input(file), "completed", directory, agent));
     const call = async (id: string, file: string, agent?: string) => { await start(id, file, agent); await finish(id, file, agent); };
     await until("Launch path");
     await call("own", "src/launcher.ts");
@@ -37,7 +37,7 @@ test("subagent calls carry their label in the activity list and s hides them", a
     await delay(20);
     // While the subagent's call runs, the header's line names who makes it; the selected component's own rows carry the label.
     await start("sub", "src/activity.ts", "Explore");
-    expect((await until("[Explore]")).split("\n")[1]).toContain("now ◦ read [Explore] in Activity metadata");
+    expect((await until("[Explore]")).split("\n")[1]).toContain("now ■ edit [Explore] in Activity metadata");
     await finish("sub", "src/activity.ts", "Explore");
     const shown = await until("[Explore]", true);
     expect(shown).toContain("·Explore");

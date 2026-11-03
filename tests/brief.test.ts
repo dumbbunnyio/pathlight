@@ -342,3 +342,17 @@ test("the briefing's named date is the local day, not the UTC one", () => {
     expect(formatFirstDay(day)).toContain("named 2026-10-30.");
   } finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; }
 });
+
+// A box the overlay merged has the key `merge:<title>`; the briefing names it by its element id, which `point` and `brief` take as well.
+test("brief --first-day names a merged box by its id, not its merge key", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-brief-first-day-merge-"));
+  try {
+    await write(directory);
+    await writeFile(overlayIn(directory), JSON.stringify({ version: 1, elements: {}, merges: [{ title: "Data store", keys: ["src/database", "src/session"], by: "human" }] }));
+    await Effect.runPromise(draftWorkspace(directory));
+    const day = await cli("brief", "--first-day", "--workspace", directory);
+    expect(day).not.toContain("merge:");
+    expect(day).toContain("- Data store — not named yet [data_store]");
+    expect(await cli("brief", "data_store", "--workspace", directory)).toContain("## merge:Data store");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);

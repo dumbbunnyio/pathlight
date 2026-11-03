@@ -1,5 +1,5 @@
  ◆ pathlight / Pathlight implementation                               
- viewer/live · 6 nodes                                                
+ 6 boxes                                                              
 ──────────────────────────────────────────────────────────────────────
  › Agent adapters                                          component  
    LikeC4 catalog                                          component  
@@ -11,7 +11,7 @@
    │  box     LikeC4 catalog                            ● here    │   
    │  box     tmux launcher                             ● here    │   
    │  box     Activity metadata                         ● here    │   
-   │  view    Landscape view                            6 nodes   │   
+   │  view    Landscape view                            6 boxes   │   
    └─ type search  tab kind  ↑↓ choose  enter go  esc close ──────┘   
                                                                       
                                                                       

@@ -51,7 +51,7 @@ test("the diagram stays fitted through resize until panned or zoomed; narrow ter
     // Below 120 columns with 40 rows the inspector sits under the diagram, across the full width; shorter, it is an overlay that `i` toggles.
     await tmux("resize-window", "-t", pane, "-x", "100", "-y", "40");
     // Its head starts at the screen's left edge, under the diagram, not beside it.
-    await until(text => inspectorShown(text) && /^ Agent adapters\s+component\s*$/m.test(text), "inspector below the diagram");
+    await until(text => inspectorShown(text) && /^ Agent adapters\s*$/m.test(text), "inspector below the diagram");
     await tmux("resize-window", "-t", pane, "-x", "100", "-y", "30");
     await until(text => !inspectorShown(text) && text.includes("zoom"), "inspector hidden below 120 columns and 40 rows");
     await delay(600);

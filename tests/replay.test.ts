@@ -68,7 +68,7 @@ test("p replays the session: steps, turns, play and exit", async () => {
       throw new Error(`${absent ? "Still has" : "Missing"} ${text}:\n${output}`);
     };
     const press = (...keys: string[]) => tmux("send-keys", "-t", pane, ...keys);
-    await until("live claude:sess");
+    await until("● live");
     await press("p");
     // Opens on the start of the last turn.
     await until("2/3");
@@ -93,7 +93,7 @@ test("p replays the session: steps, turns, play and exit", async () => {
     // Exit goes back to the live view.
     await press("Escape");
     await until("◀ replay", true);
-    await until("live claude:sess");
+    await until("● live");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(socket, { force: true });

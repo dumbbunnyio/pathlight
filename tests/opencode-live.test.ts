@@ -98,11 +98,19 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     await until(async () => (await tmux("capture-pane", "-p", "-t", pane)).includes("done") || undefined, "the first reply");
     await type("/pathlight-open live");
     const viewer = await viewerPane();
-    const early = await viewerShows(viewer, /opencode:ses_\w+/);
+    // The header says only `● live`; the session the viewer is bound to is named where the talk is, so `t` shows it and Esc closes it unsent.
+    const boundSession = async (pane: string) => {
+      await viewerShows(pane, "● live");
+      await tmux("send-keys", "-t", pane, "t");
+      const shown = await viewerShows(pane, /opencode:ses_\w+/);
+      await tmux("send-keys", "-t", pane, "Escape"); await delay(200); await tmux("send-keys", "-t", pane, "Escape");
+      return shown;
+    };
+    const early = await boundSession(viewer);
     expect(early).not.toContain("waiting for a session");
     const boundTo = /opencode:(ses_\w+)/.exec(early)![1]!;
 
-    // Recording needs no live request. Reads are recorded and shown in the viewer that was bound from the start.
+    // Recording needs no live request. Reads are recorded in the journal of the session the viewer was bound to from the start.
     await type("read the files please");
     const binding = await until(() => Effect.runPromise(latestBinding(workspace)), "a recorded OpenCode session");
     expect(binding.source).toBe("opencode");
@@ -113,8 +121,6 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     }, `${count} finished calls`);
     const summary = (found: Awaited<ReturnType<typeof events>>) => found.map(event => [event.tool, event.phase, event.operation, [...event.paths]].join(" ")).sort();
     expect(summary(await events(2))).toEqual(["read completed read src/activity.ts", "read completed read src/launcher.ts"]);
-    // The header names no file once a call is over; the calls reach the viewer as a card tag or a Now row.
-    await viewerShows(viewer, /✓ done|launcher\.ts/);
 
     // The talk's source: the session pointer names OpenCode's own database, and the reader finds the typed prompt there (and the reply once written).
     // If the database is not where the plugin looks, this stops and says where it is rather than guessing.
@@ -130,6 +136,8 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     expect(summary(await events(5))).toEqual([
       "edit completed edit src/launcher.ts", "read completed read src/activity.ts", "read completed read src/launcher.ts",
       "read failed read src/missing.ts", "shell completed command src/activity.ts"]);
+    // Work (an edit, a command) reaches the viewer as a card tag or a Work row; reads are kept for `c` and replay only.
+    await viewerShows(viewer, /✓ done|launcher\.ts/);
 
     // When a turn ends the plugin runs `pathlight check`, as Claude's Stop hook does: the viewer's out-of-date badge and review come from it.
     await until(async () => existsSync(join(workspace, ".cache", "pathlight", "stale.json")), "the end-of-turn check");
@@ -163,7 +171,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     await until(async () => (await others()).length === 0 || undefined, "the viewer closed");
     await type("show me the architecture");
     const reopened = await viewerPane();
-    await viewerShows(reopened, /live opencode:ses_/);
+    await boundSession(reopened);
   } finally {
     // OpenCode ignores the hangup tmux sends, so it is stopped explicitly.
     if (openCodePid) try { process.kill(openCodePid, "SIGTERM"); } catch { /* already gone */ }

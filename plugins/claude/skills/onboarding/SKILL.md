@@ -11,8 +11,8 @@ A person new to this code wants to know what it is, how it is built and where it
 
 - **Facts first.** Start from what pathlight prints: `pathlight brief --first-day`, `pathlight brief KEY` for the box in hand, `pathlight flows --json` for a journey's steps. Do not read the code to repeat what these already say.
 - **Files second, and narrowly.** When a step needs more, open the one file that decides it (the file the step names, the entry point, the box's largest file) and say which file you read. Never read a whole folder to sound thorough.
-- **Cite identifiers.** Name each box with its title and key (`Backend API and services [mealie]`), each file as `path:line`. A sentence about behaviour points at where it is.
-- **Say what was read and what was inferred.** A note marked `(inferred)` was worked out from file names; say so when you rely on it. Never describe behaviour you did not see in code or in a recorded step.
+- **Cite identifiers.** Name each box with its title and key (`Backend API and services [mealie]`), each file as `path:line`. A sentence about behavior points at where it is.
+- **Say what was read and what was inferred.** A note marked `(inferred)` was worked out from file names; say so when you rely on it. Never describe behavior you did not see in code or in a recorded step.
 - **Change nothing.** Names come only through the `pathlight-namer` agent and journeys only through the `pathlight-tracer` agent; do not edit the model, the overlay, the mapping or the code.
 - The person can stop at any step. Keep each message short: one box or one step, then wait.
 - **A long message scrambles the terminal and is not read.** A walk step is at most eight lines: the box as `<title> [<key>]`, what happens here in two or three sentences, one file as `path:line`, and one line on what you did not read; everything else only if asked.

@@ -14,6 +14,7 @@ import type { Stale } from "./stale";
 import { nodeFiles } from "./node-files";
 import { firstChange, openEditor } from "./editor";
 import { relevantFiles, sendToPane } from "./ask";
+import { run } from "./process";
 import { type Scan, scanWorkspace } from "./scan";
 import pkg from "../package.json" with { type: "json" };
 import { borderHints, palette, setPalette } from "./ui";
@@ -31,10 +32,10 @@ import { createCamera } from "./viewer/camera";
 import { boundsOf, compact, kindsVary } from "./viewer/compact";
 import { cardLook, insideWords } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
-import { crumbActivity, footerContent, modeHints, workOffer } from "./viewer/footer";
-import { badgeContent as headerBadge, diffText, edgeMarks } from "./viewer/header";
+import { crumbActivity, followNews, footerContent, modeHints, workOffer } from "./viewer/footer";
+import { badgeContent as headerBadge, diffText, edgeMarks, journeyHeading } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
-import { allotSections, firstQuestion, headContent, nodeListContent, hiddenLine, opensLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
+import { allotSections, headContent, nodeListContent, hiddenLine, opensLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
 import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
 import { createThemePicker } from "./viewer/theme-picker";
@@ -93,7 +94,7 @@ const shape = (raw: Layout): Layout => {
 const getDiagram = (id: string) => {
   const next = diagrams.get(id);
   if (!next) throw new Error(`Unknown linked view '${id}'.`);
-  if (!next.nodes.length) throw new Error(`View '${id}' has no nodes.`);
+  if (!next.nodes.length) throw new Error(`View '${id}' has no boxes.`);
   return shape(next);
 };
 let diagram = yield* attempt("Native.scene", () => getDiagram(view.id));
@@ -127,7 +128,7 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
   for (const resource of resources) resource.dispose();
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
-  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, talk, statusLeft, statusRight, footer, help, summary, naming, goto, picker, nameInput, namePrompt, nameRow, nameColumns, fitName, nodeList, nodeListText } = createWidgets(renderer);
+  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, talk, statusLeft, statusRight, footer, help, summary, naming, goto, picker, nameInput, namePrompt, nameRow, nameColumns, nameBounds, fitName, nodeList, nodeListText } = createWidgets(renderer);
   if (!binding && !following) { sections.activity.box.visible = false; sections.activity.box.height = 0; }
   let connectionItems: string[] = [];
   let fileLines: number[] = [];
@@ -162,6 +163,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // Calls made by subagents carry a label and are shown with it; `s` hides them to leave only the conversation's own calls.
   let showSubagents = true, allEvents: ActivityEvent[] = [];
   const visibleEvents = (list: ActivityEvent[]) => showSubagents ? list : list.filter(event => !event.agent);
+  // Work is edits and commands: a read is kept in the journal, `c` and replay, and shown nowhere live (the Work card, the card tags and counts, the
+  // news line, follow and the `w` offer), so nothing sends the person to a box that shows nothing. Replay shows the session as it was, reads too.
+  const working = () => replay ? events : events.filter(event => event.operation !== "read");
   // Replay: the retained calls of the bound session, walked one step at a time. While it is on, `events` is the calls up to the current step and the live poll stands aside.
   let replay: { data: Replay; index: number; playing: boolean; speed: number; next: number } | undefined;
   let byElement = new Map<string, ActivityEvent[]>();
@@ -171,8 +175,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const pauseFollow = () => { if (followCamera && !followPaused && !followSelecting) { followPaused = true; message = "Follow paused · a to resume"; } };
   // Which key family moves the selection; the other family pans. `v` swaps them.
   let vimTraverses = true;
-  // Whether the user has selected something or asked once: until then the question field offers the first question (`how does … work?`).
-  let engaged = false;
   // The highest tier of keys pressed this session: `?` puts its accent there (everyone starts by understanding the codebase).
   let tier: Tier = 1;
   const showHelp = () => {
@@ -196,7 +198,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const flashes = nodeFlashes;
   const noteCalls = () => {
     const stamp = Date.now() + 600;
-    for (const event of events) {
+    for (const event of working()) {
       if (seenCalls.has(event.call)) continue;
       seenCalls.add(event.call);
       if (!calmLoaded) continue;
@@ -209,8 +211,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const indexEvents = () => {
     byElement = new Map();
     byPath = new Map();
-    for (const event of events) for (const path of event.paths) if (!byPath.has(path) || event.time > (byPath.get(path)?.time ?? 0)) byPath.set(path, event);
-    for (const event of events) {
+    const live = working();
+    for (const event of live) for (const path of event.paths) if (!byPath.has(path) || event.time > (byPath.get(path)?.time ?? 0)) byPath.set(path, event);
+    for (const event of live) {
       for (const element of new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element))) {
         byElement.set(element, [...byElement.get(element) ?? [], event]);
       }
@@ -224,8 +227,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // the viewer has not read yet waits for the next reading of the flows.
   let pointFlow = false, pointWaiting: Point | undefined;
   const pointed = () => pointMark !== undefined && String(state.selected?.modelRef ?? "") === pointMark;
-  const headingContent = () => new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id)),
-    ...(pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : [])]);
+  const headingContent = () => {
+    const active = flowMode.active, element = active ? stepElement(active, flowMode.step) : undefined;
+    return new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id)),
+      ...(active ? journeyHeading({ title: active.title, step: flowMode.step, steps: active.steps.length, box: element ? elementTitle(element) : undefined, pointed: pointFlow && pointMark !== undefined })
+        : pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : [])]);
+  };
   // Right-hand: the live session when there is one (a spinner replaces the dot while a tool runs), otherwise nothing.
   // The last `pathlight check` (the Stop hook runs one at the end of each turn): shown only when the model and the code disagree, with how old that check is.
   let stale: Stale | undefined;
@@ -250,11 +257,12 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let flowItems: ReturnType<typeof flowsThrough> = [];
   const inPlan = (ref: string) => (plan?.elements ?? []).some(id => ref === id || ref.startsWith(`${id}.`) || id.startsWith(`${ref}.`));
   const badgeContent = () => headerBadge({ width: renderer.width, replay: Boolean(replay), live: liveLabel(), bound: Boolean(binding), watching: Boolean(binding || following),
-    busy: events.some(isActive), open: pending(reviewItems(diff, decisions)).length, stale, now: Date.now() });
+    busy: working().some(isActive), open: pending(reviewItems(diff, decisions)).length, stale, now: Date.now() });
   let activityError = "";
   // The talk's width: two fifths of the terminal between 44 and 64 columns, or, widened with `z`, all but a strip of diagram.
   const talkWidth = () => dialog.wide ? Math.max(44, Math.min(renderer.width - 8, 120)) : Math.min(64, Math.max(44, Math.round(renderer.width * 0.4)));
   const layout = () => {
+    if (`${renderer.width}x${renderer.height}` !== sized) { sized = `${renderer.width}x${renderer.height}`; readZoom(); }
     const side = renderer.width >= 120;
     listMode = renderer.width < 80;
     // A narrow, tall screen (the pane beside Claude Code's transcript, a tall tmux split) puts the inspector under the diagram rather than over it.
@@ -305,6 +313,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     body.sizes = mount === "docked" ? [Math.max(1, total - panelSize - 1), panelSize] : [total];
   };
   let message = "", lastToast = "";
+  // Whether tmux has zoomed the viewer's window (the person made it full screen, hiding the conversation beside it): read on each resize, which a
+  // zoom causes, and only beside a parent pane in tmux. Zoomed, `t`, `m` and `d` open the talk column; otherwise the modal.
+  let zoomed = false, sized = "";
+  const readZoom = () => {
+    const pane = process.env.TMUX_PANE;
+    if (!options.parent || !process.env.TMUX || !pane) return;
+    runTask(run("tmux", ["display-message", "-p", "-t", pane, "#{window_zoomed_flag}"]).pipe(
+      Effect.tap(out => Effect.sync(() => { const next = out.trim() === "1"; if (next !== zoomed) { zoomed = next; dialog.reflow(); update(); } })), Effect.ignore));
+  };
   // One border per node: a leaf is a rounded outline whose inside is painted in the canvas colour (so grid dots do not show through);
   // a group is an outline with a title and no fill.
   const mountNodes = () => diagram.nodes.map(node => {
@@ -350,7 +367,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const autoFolded = new Set<SectionKey>();
   const isOpen = (key: SectionKey) => sections[key].open && !autoFolded.has(key);
   // Files stay out of sight until asked for (`e`, or its number): the actions line says how many there are.
-  // "Now" says nothing when there is no session to watch.
+  // "Work" says nothing when there is no session to watch.
   const shownSections = () => sectionOrder.filter(key => key === "files" ? fileMode || state.focusSection === "files" : key === "activity" ? Boolean(binding || following)
     : key === "steps" ? Boolean(flowMode.active) : key === "connections" ? !flowMode.active : !flowMode.active && flowsThrough(flowMode.flows, String(state.selected?.modelRef ?? "")).length > 0);
   const layoutSections = () => {
@@ -371,9 +388,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (rows <= 0) return;
     if (line < box.scrollTop) box.scrollTo(line); else if (line >= box.scrollTop + rows) box.scrollTo(line - rows + 1);
   };
-  // "Now", the session summary and the header's activity line are written in viewer/activity-view.ts from what the journal retained.
+  // "Work", the session summary and the header's activity line are written in viewer/activity-view.ts from what the journal retained.
   const activityContent = () => {
-    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events, element: String(state.selected?.modelRef ?? ""), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
+    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events: working(), element: String(state.selected?.modelRef ?? ""), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
     contentRows.activity = card.lines;
     return new StyledText(card.chunks);
   };
@@ -417,9 +434,15 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }).pipe(Effect.catch(error => Effect.sync(() => { message = error.message; })),
       Effect.ensuring(Effect.sync(() => { if (summary.visible) summary.content.content = summaryContent(); if (!editorActive) update(); }))));
   };
-  const tickerContent = () => ticker(binding ? config : undefined, events, elementTitle, Date.now());
+  const tickerContent = () => ticker(binding ? config : undefined, working(), elementTitle, Date.now());
   // Whether the bound session's turn is open (its pointer's `ended` is null): only then is the newest work offered as `working in … w go and follow`.
   let turnOpen = false;
+  // Where follow last took the selection, named on the news line while follow is on.
+  let followedTitle = "";
+  // The work the person (or follow) already went to from the offer: it is not offered again after Back. A later call in a different box is, and a
+  // new turn starts afresh.
+  let wentTo: { call: string; element: string } | undefined;
+  const offered = (work: ReturnType<typeof newestWork>) => work && "view" in work && !(wentTo && (work.call === wentTo.call || work.element === wentTo.element)) ? work : undefined;
   // A faint grid fixed to the diagram's coordinates: panning and zooming read as camera motion.
   const paintGrid = () => {
     let step = 32;
@@ -455,7 +478,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     canvas.visible = !listMode; nodeList.visible = listMode;
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
-    crumbPlain = `${view.project}/${diagram.id} · ${diagram.nodes.length} nodes${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${state.history.length ? ` · back ${state.history.length}` : ""}${diffText(diff)}${plan ? ` · plan ${plan.elements.length}` : ""}`;
+    crumbPlain = `${diagram.nodes.length} ${diagram.nodes.length === 1 ? "box" : "boxes"}${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${state.history.length ? ` · back ${state.history.length}` : ""}${diffText(diff)}${plan ? ` · plan ${plan.elements.length}` : ""}`;
     breadcrumb.content = crumbPlain;
     crumbHint.visible = true;
     camera.sync();
@@ -532,7 +555,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const linked = selected?.navigateTo && String(selected.navigateTo) !== String(diagram.id);
     const both = linked && selected.children.some(child => diagram.nodes.some(node => node.id === child));
     const opens = [both ? opensLine(String(target?.title ?? selected.navigateTo)) : "", linked ? hiddenLine(describe(target?.description)) : ""].filter(Boolean).join("\n");
-    const head = headContent({ title: selected?.title, kind: selected?.kind ? String(selected.kind) : "", technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
+    const head = headContent({ title: selected?.title, technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
       tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
       by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length, app: selected ? undefined : appNote() });
     // A reply that came while the node face showed: one word where the talk's state line stands, and nothing else.
@@ -601,7 +624,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       entry.content.verticalScrollBar.visible = focused && entry.content.scrollHeight > entry.content.viewport.height;
     }
     const pinned = pinnedLines({ width: Math.max(10, inspector.width - (mounted === "overlay" ? 3 : 2)), files: paths.length, session: Boolean(binding), replay: Boolean(binding && events.length),
-      title: selected?.title, canAsk: Boolean(sendToAgent), background: hot, first: !engaged });
+      title: selected?.title, canAsk: Boolean(sendToAgent), background: hot });
     inspectorActions.content = pinned.actions;
     inspectorAsk.content = pinned.ask;
     // The column's two faces: the node (its head, cards, actions and question line) or the talk.
@@ -611,19 +634,21 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (summary.visible) summary.content.content = summaryContent();
     if (goto.visible) gotoPicker.render();
     body.gutterOptions = { color: fileMode ? palette.outgoing : palette.border };
-    const mode = replay ? "replay" : fileMode ? "files" : dialog.focus !== "none" ? "talk" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "flow" : "diagram";
-    const work = (binding || following) && turnOpen ? newestWork() : undefined;
+    const mode = replay ? "replay" : fileMode ? "files" : dialog.focus !== "none" ? "talk" : state.focusSection ? sections[state.focusSection].name.toLowerCase() : flowMode.active ? "journey" : "diagram";
+    const work = (binding || following) && turnOpen ? offered(newestWork()) : undefined;
     if (message !== lastToast) {
       lastToast = message;
       if (message) { const shown = message; setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, /^(Asked|Drawn:) /.test(shown) ? 3500 : 2000); }
     }
     const footing = footerContent({ mode, selected: String(state.selected?.id ?? ""), message, hidden, scale: camera.scale, width: renderer.width, hints: room => modeHints({ room,
       replay: replay && { playing: replay.playing, index: replay.index, steps: replay.data.steps.length, turn: replayTurn(), turns: replay.data.turns.length, speed: replay.speed },
-      section: !fileMode ? state.focusSection : undefined, flow: flowMode.active && !fileMode ? { title: flowMode.active.title, step: flowMode.step, steps: flowMode.active.steps.length } : undefined,
+      section: !fileMode ? state.focusSection : undefined, flow: Boolean(flowMode.active) && !fileMode,
       files: fileMode ? { cursor: state.fileCursor, count: paths.length } : undefined }) });
     statusLeft.content = footing.left; statusRight.content = footing.right;
-    // One activity line, top right: an offer while the turn is open and the work is in another view, else the call running now. It is dropped when it would not fit.
-    crumbHint.content = crumbActivity(work && "view" in work ? workOffer(work.title) : tickerContent(), renderer.width - 2 - crumbPlain.length - 3);
+    // The news line, top right, the one place for what the agent and the session are doing now: follow while it is on (where it took you), else an
+    // offer while the turn is open and the work is in another view, else the call running now. Nothing the agent did reaches the footer.
+    const news = (binding || following) && followCamera && !followPaused ? followNews(followedTitle || "the work") : work && "view" in work ? workOffer(work.title) : tickerContent();
+    crumbHint.content = crumbActivity(news, renderer.width - 2 - crumbPlain.length - 3);
     dirty = true; renderer.requestRender();
   };
   // Fit takes in the connectors too, so one that goes round the outermost card is not cut at the canvas edge.
@@ -639,19 +664,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // but is in another goes there (the view `w` would choose, remembered so `b` returns); one no view has falls back to the nearest ancestor here.
   // The user's own selection or camera movement pauses it.
   const followActivity = () => {
-    const latest = events[0];
+    const latest = working()[0];
     if (!followCamera || followPaused || !latest || latest.call === focusedCall || latest.time < followSince || state.pendingVisit) return;
     focusedCall = latest.call;
     const work = newestIn([latest], rules, diagram, diagrams);
     if (work && "view" in work) {
       if (help.visible || summary.visible || goto.visible || picker.visible || dialog.naming) { focusedCall = ""; return; }
       remember(state, visit());
-      camera.animating = false; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: `Went to ${work.title} · following (a to stop)` };
+      camera.animating = false; followedTitle = elementTitle(work.element); wentTo = { call: work.call, element: work.element };
+      state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: "" };
       return;
     }
     const target = work?.node ?? [...elementsOf(rules, latest)].map(element => nodeOrAncestor(diagram, element)).filter((node): node is Node => Boolean(node)).sort((a, b) => a.children.length - b.children.length)[0];
     if (!target) return;
-    followSelecting = true;
+    followSelecting = true; followedTitle = target.title;
     try { message = ""; selectNode(target, true); } finally { followSelecting = false; }
   };
   type Direction = "left" | "right" | "up" | "down";
@@ -681,7 +707,6 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   const selectNode = (node: typeof state.selected, show: boolean) => {
     if (!node) return;
-    if (!followSelecting) engaged = true;
     pauseFollow();
     choose(state, node); resetInspectorScroll();
     if (show) reveal();
@@ -698,7 +723,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (!editorActive && !closing) update();
     })), Effect.catch(() => Effect.void)));
   };
-  const newestWork = () => newestIn(events, rules, diagram, diagrams);
+  const newestWork = () => newestIn(working(), rules, diagram, diagrams);
   const replayTurn = () => { let turn = 0; replay?.data.turns.forEach((start, index) => { if (start <= replay!.index) turn = index; }); return turn; };
   // Show the session as it stood after step `index`: the calls so far, the newest one flashing, and the camera on its component (switching view when it lives elsewhere).
   const showStep = (index: number) => {
@@ -835,9 +860,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const talkConversation = () => ({ messages: conversation.messages, state: talkState(),
     empty: !binding ? `no session bound yet · ${lands}` : conversation.error ? "cannot read the conversation"
       : !pointer?.transcript ? `nothing recorded from this session's conversation yet · ${lands}` : "no messages yet" });
-  const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, send: sendToAgent, selected: () => state.selected, context: askContext, relevant: requestFiles,
-    live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { engaged = true; if (drawing) flowMode.expect(); },
-    modal: () => Boolean(host) && renderer.width < 120 });
+  const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns, nameBounds }, workspace: view.workspace, send: sendToAgent, selected: () => state.selected, context: askContext, relevant: requestFiles,
+    into: target => { const edge = diagram.edges.find(entry => entry.target === target.id); return edge ? diagram.nodes.find(node => node.id === edge.source)?.title : undefined; },
+    live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { if (drawing) flowMode.expect(); },
+    modal: () => Boolean(host) || (Boolean(options.parent) && !zoomed) });
   nameInput.onContentChange = () => { fitName(); dialog.typedAsk(); };
   talk.input.onContentChange = () => dialog.typed();
   help.dismiss = () => help.close();
@@ -864,7 +890,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   inspectorAsk.onMouseDown = event => {
     event.preventDefault(); event.stopPropagation();
     if (fileMode || help.visible || summary.visible || goto.visible || picker.visible || dialog.naming || state.pendingVisit) return;
-    dialog.ask(!engaged && state.selected ? firstQuestion(state.selected.title) : "");
+    dialog.ask();
   };
   let clickedFile = -1;
   const endFiles = () => { clickedFile = -1; fileMode = false; state.focusSection = undefined; searchInput.blur(); searchRow.visible = false; heading.visible = true; };
@@ -945,6 +971,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "talkLeave": dialog.blur(); return;
       case "talkTab": dialog.tab(action.by); return;
       case "talkSend": dialog.send(); return;
+      case "talkTake": dialog.take(); return;
       case "talkScroll": dialog.scroll(action.by); return;
       case "talkBack": dialog.back(); return;
       case "talkWiden": dialog.widen(); return;
@@ -1036,7 +1063,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       }
       case "views": gotoPicker.begin("views"); return;
       case "themes": themePicker.begin(); return;
-      case "ask": dialog.ask(!engaged && state.selected ? firstQuestion(state.selected.title) : ""); return;
+      case "ask": dialog.ask(); return;
       case "map": dialog.map(); return;
       case "trace": dialog.trace(); return;
       case "name": dialog.beginName(); return;
@@ -1046,14 +1073,14 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const work = newestWork();
         // Going to the work is asking to watch it, so follow turns on with the jump (`a` stops it); a viewer with no session has nothing to follow.
         const startFollow = () => { if (binding || following) { followCamera = true; followPaused = false; focusedCall = ""; followSince = Date.now(); } };
-        if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); if (followCamera) message = "Following the work (a to stop)"; update(); }
+        if (work && "node" in work) { message = ""; followSelecting = true; try { selectNode(work.node, true); } finally { followSelecting = false; } startFollow(); followedTitle = work.node.title; update(); }
         else if (work) {
           remember(state, visit());
-          camera.animating = false; startFollow(); state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: followCamera ? `Went to ${work.title} · following (a to stop)` : "" }; update();
+          camera.animating = false; startFollow(); followedTitle = elementTitle(work.element); wentTo = { call: work.call, element: work.element }; state.pendingVisit = { diagram: getDiagram(work.view), select: work.element, notice: "" }; update();
         } else { message = binding || following ? "No recent activity maps to a node" : "Camera jump needs a bound session"; update(); }
         return;
       }
-      case "swap": vimTraverses = !vimTraverses; message = vimTraverses ? "hjkl select nodes, arrows pan" : "Arrows select nodes, hjkl pan"; update(); return;
+      case "swap": vimTraverses = !vimTraverses; message = vimTraverses ? "hjkl select boxes, arrows pan" : "Arrows select boxes, hjkl pan"; update(); return;
       case "listMove": {
         const index = diagram.nodes.findIndex(node => node.id === state.selected?.id), count = diagram.nodes.length;
         selectNode(diagram.nodes[(index + action.by + count) % count], false); return;
@@ -1126,7 +1153,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (editorActive) return;
     if (pointMark !== undefined) { pointMark = undefined; update(); }
     const layer = state.pendingVisit ? "visit" : dialog.naming ? "ask" : picker.visible ? "picker" : goto.visible ? "goto" : summary.visible ? "summary" : help.visible ? "help" : dialog.focus !== "none" ? "talk" : "main";
-    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, askKinds: dialog.asking, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses, pane: Boolean(host),
+    const action = keyAction(key, { layer, talk: { showing: dialog.showing, fresh: dialog.fresh }, askKinds: dialog.asking, takes: dialog.takes, replay: Boolean(replay), fileMode, focusSection: state.focusSection, flow: Boolean(flowMode.active), listMode, cards: numberedCards(shownSections()), vim: vimTraverses, pane: Boolean(host),
       overlay: mounted === "overlay" && inspector.visible && !dialog.showing });
     if (!action) return;
     if (layer === "main") tier = Math.max(tier, tierOf(action) ?? 1) as Tier;
@@ -1300,7 +1327,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (following) binding = (yield* latestBinding(view.workspace)) ?? binding;
     allEvents = binding ? yield* readActivity(view.workspace, binding) : [];
     events = visibleEvents(allEvents);
+    const wasOpen = turnOpen;
     turnOpen = binding ? (yield* readSession(view.workspace, binding))?.ended === null : false;
+    if (turnOpen && !wasOpen) wentTo = undefined;
     const signature = `${binding?.session}/${turnOpen}/${events.map(event => `${event.call}${event.phase}`).join()}`;
     const changed = signature !== lastSignature;
     lastSignature = signature;

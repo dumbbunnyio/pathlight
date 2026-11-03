@@ -16,40 +16,41 @@ export const splitDescription = (description: string, note: string | undefined) 
 };
 
 /**
- * The scan's counts as the head shows them, counting the same files `e` lists: `14 files, 419 lines`, or `14 files · 6 read, 419 lines` when the
- * scan read fewer of them, or `7 files · 5 Go, …` when they are in a language it does not read. A package's name before the counts is left out
- * (beside another package's title it read as that package's counts).
+ * The one line of the scan's counts the head keeps: a caveat, when the scan read fewer of the box's files than `e` lists (`6 of 14 files read by the
+ * scan`) or read none of them because of their language (`5 Go files not read by the scan`). File and line counts are not shown: `e files N` says
+ * the count, and lines of code tell a reader nothing about a box. A package's name before the counts is left out.
  */
-export const countsLine = (counts: string, mapped: number) => {
+export const caveatLine = (counts: string, mapped: number) => {
   const text = counts.replace(/^[^\s:]+: (?=\d)/, "");
-  const plain = /^(\d[\d,]*) files?, (.*)$/.exec(text);
-  if (plain && mapped) { const read = Number(plain[1]!.replace(/,/g, "")); return read === mapped ? `${mapped} ${mapped === 1 ? "file" : "files"}, ${plain[2]}` : `${mapped} files · ${plain[1]} read, ${plain[2]}`; }
-  const language = /^(\d[\d,]*) ([A-Z][\w#+-]*) files?, (.*)$/.exec(text);
-  if (language && mapped && Number(language[1]!.replace(/,/g, "")) !== mapped) return `${mapped} files · ${language[1]} ${language[2]}, ${language[3]}`;
-  return text;
+  const plain = /^(\d[\d,]*) files?, /.exec(text);
+  if (plain) { const read = Number(plain[1]!.replace(/,/g, "")); return mapped && read < mapped ? `${plain[1]} of ${mapped} files read by the scan` : ""; }
+  const language = /^(\d[\d,]*) ([A-Z][\w#+-]*) files?, .*not read by the scan/.exec(text);
+  return language ? `${language[1]} ${language[2]} ${language[1] === "1" ? "file" : "files"} not read by the scan` : "";
 };
 
 /**
- * The inspector's head for a selection: its name and kind on one row (with `· agent` when the agent wrote its name and note), then the words about
- * it in the body colour, then the scan's counts on their own dim line, never joined with a `·`. Wrapped on words. With nothing selected it says what
- * the app is (`app`: the note of the box the view is about, else the model's first top-level box) under `No selection`.
+ * The inspector's head for a selection: its name on one row (with `agent` on the right when the agent wrote its name and note), then the words
+ * about it in the body colour, then at most one dim caveat line from the scan, then what `o` opens drawn as an action. No kind word and no counts.
+ * Wrapped on words. With nothing selected it says what the app is (`app`: the note of the box the view is about, else the model's first top-level
+ * box) under `No selection`.
  */
-export const headContent = (options: { title: string | undefined; kind: string; by?: "agent" | "human"; technology?: string | null; planned: boolean; tags: readonly string[];
+export const headContent = (options: { title: string | undefined; by?: "agent" | "human"; technology?: string | null; planned: boolean; tags: readonly string[];
   description: unknown; note?: string; mapped: number; opens: string; width: number; app?: string }) => {
   const { width, opens } = options;
-  const kind = options.kind && options.by === "agent" ? `${options.kind} · agent` : options.kind;
   const titleText = options.title ?? "No selection";
-  // A long title keeps the room: the kind goes before the title is cut, and before the agent's mark (which says whose reading the words are).
-  const fits = (text: string) => titleText.length + text.length + 2 <= width;
-  const showKind = fits(kind) ? kind : options.by === "agent" && fits("agent") ? "agent" : "";
+  // A long title keeps the room: the agent's mark (whose reading the words are) goes before the title is cut.
+  const mark = options.by === "agent" && titleText.length + "agent".length + 2 <= width ? "agent" : "";
   const titleShown = clip(titleText, width);
-  const title = new StyledText([fg(palette.text)(titleShown), fg(palette.muted)(showKind ? `${" ".repeat(Math.max(1, width - titleShown.length - showKind.length))}${showKind}` : "")]);
+  const title = new StyledText([fg(palette.text)(titleShown), fg(palette.muted)(mark ? `${" ".repeat(Math.max(1, width - titleShown.length - mark.length))}${mark}` : "")]);
   const what = [options.technology, options.planned ? "planned: no files yet" : "", ...options.tags.filter(tag => tag === "bug" || tag === "fixed")].filter(Boolean).join(" · ");
   const { words, counts } = options.title === undefined ? { words: options.app ?? "", counts: "" } : splitDescription(describe(options.description), options.note);
-  const lines = [...(words ? wrapWords(words, width).map(line => ({ line, color: palette.body })) : []),
-    ...(counts ? wrapWords(countsLine(counts, options.mapped), width).map(line => ({ line, color: palette.muted })) : []),
-    ...opens.split("\n").filter(Boolean).flatMap(text => wrapWords(text, width).map(line => ({ line, color: palette.muted })))];
-  const about = new StyledText(lines.flatMap((entry, index) => [...(index ? [nl] : []), fg(entry.color)(entry.line)]));
+  const caveat = counts ? caveatLine(counts, options.mapped) : "";
+  // `o opens X` is an action, drawn as `e files 3` is: the key in the body colour.
+  const action = (line: string): TextChunk[] => line.startsWith("o opens ") ? [fg(palette.body)("o"), fg(palette.muted)(line.slice(1))] : [fg(palette.muted)(line)];
+  const lines: TextChunk[][] = [...(words ? wrapWords(words, width).map(line => [fg(palette.body)(line)]) : []),
+    ...(caveat ? wrapWords(caveat, width).map(line => [fg(palette.muted)(line)]) : []),
+    ...opens.split("\n").filter(Boolean).flatMap(text => wrapWords(text, width).map((line, index) => index ? [fg(palette.muted)(line)] : action(line)))];
+  const about = new StyledText(lines.flatMap((entry, index) => [...(index ? [nl] : []), ...entry]));
   return { title, what: new StyledText([fg(palette.muted)(what || " ")]), hasWhat: what !== "", about, hasAbout: lines.length > 0,
     rows: 1 + (what ? 1 : 0) + lines.length };
 };
@@ -128,17 +129,18 @@ export const sectionHeader = (options: { open: boolean; focused: boolean; number
  * Under the cards, always the same two lines: what is one key away, then the question field. Until the user has selected something or asked once
  * (`first`), the field offers the first question itself: `how does <title> work?`, which `t` opens already typed.
  */
-export const pinnedLines = (options: { width: number; files: number; session: boolean; replay: boolean; title: string | undefined; canAsk: boolean; background: RGBA; first?: boolean }) => {
+export const pinnedLines = (options: { width: number; files: number; session: boolean; replay: boolean; title: string | undefined; canAsk: boolean; background: RGBA }) => {
   const { width } = options;
   const action = (key: string, text: string) => [fg(palette.body)(key), fg(palette.muted)(` ${text}   `)];
   const actions = new StyledText([fg(palette.rule)("─".repeat(width)), nl,
     ...(options.files ? action("e", `files ${options.files}`) : []), ...(options.session ? action("c", "session") : []), ...(options.replay ? action("p", "replay") : [])]);
-  const askLabel = clip(options.title === undefined ? "ask…" : options.first ? firstQuestion(options.title) : `ask about ${options.title}…`, width - 6);
+  // The question `t` offers, the same the talk's field shows as ghost text, so the line and the field agree.
+  const askLabel = clip(options.title === undefined ? "ask…" : firstQuestion(options.title), width - 6);
   const ask = new StyledText([fg(palette.accent)("› "), fg(options.canAsk ? palette.muted : palette.border)(askLabel.padEnd(width - 3)), fg(palette.body)("t")].map(chunk => ({ ...chunk, bg: options.background })));
   return { actions, ask };
 };
 
-/** The question a first-time reader is offered about the box a view opens on. */
+/** The question offered about a box: the pinned line under the cards and the talk's ghost text (see `suggestion` in talk-view.ts). */
 export const firstQuestion = (title: string) => `how does ${title} work?`;
 
 /** Under 80 columns the diagram does not fit: a plain list of nodes, indented by level, with the observed state or the kind on the right. */

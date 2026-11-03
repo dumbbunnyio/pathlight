@@ -17,6 +17,8 @@ export interface KeyMode {
   vim: boolean;
   /** The modal is a request to the agent (`t`, `m`, `d` in the narrow pane): Tab changes its kind. */
   askKinds?: boolean;
+  /** The field with the keys is empty and shows a suggested question: `→` takes it. */
+  takes?: boolean;
   /** The node face is shown over the diagram (under 120 columns): Esc closes it, as `i` does. */
   overlay?: boolean;
   /**
@@ -38,7 +40,7 @@ export type Action =
   | { type: "stop" } | { type: "swallow" } | { type: "idle" } | { type: "pass" }
   | { type: "askCancel" } | { type: "askSend" }
   | { type: "talkLeave" } | { type: "talkTab"; by: -1 | 1 }
-  | { type: "talkSend" } | { type: "talkScroll"; by: -1 | 1 } | { type: "talkBack" } | { type: "talkWiden" }
+  | { type: "talkSend" } | { type: "talkTake" } | { type: "talkScroll"; by: -1 | 1 } | { type: "talkBack" } | { type: "talkWiden" }
   | { type: "themeCancel" } | { type: "themeKeep" } | { type: "themeMove"; to: "up" | "down" | "pageup" | "pagedown" | "home" | "end" }
   | { type: "gotoClose" } | { type: "gotoGo" } | { type: "gotoMove"; by: -1 | 1 } | { type: "gotoPage"; by: -1 | 1 } | { type: "gotoHome" } | { type: "gotoEnd" }
   | { type: "gotoClear" } | { type: "gotoErase" } | { type: "gotoType"; text: string } | { type: "gotoKind"; by: -1 | 1 }
@@ -75,6 +77,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "escape") return { type: "askCancel" };
     if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "askSend" };
     if (key.name === "tab" && mode.askKinds) return { type: "talkTab", by: key.shift ? -1 : 1 };
+    if (key.name === "right" && mode.takes) return { type: "talkTake" };
     return undefined;
   }
   // The talk's field has the keys: Esc hands them to the diagram, Tab changes the kind of request until it is sent.
@@ -83,6 +86,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
     if (key.name === "tab") return mode.talk?.fresh ? { type: "talkTab", by: key.shift ? -1 : 1 } : { type: "swallow" };
     if (key.name === "pageup" || key.name === "pagedown") return { type: "talkScroll", by: key.name === "pageup" ? -1 : 1 };
     if (key.name === "return" && !key.meta && !key.option && !key.shift) return { type: "talkSend" };
+    if (key.name === "right" && mode.takes) return { type: "talkTake" };
     return undefined;
   }
   if (mode.layer === "picker") {
@@ -205,18 +209,18 @@ export type Tier = 1 | 2 | 3;
  * agent, then shapes the map. `t` is listed once, in the first (asking and telling are one key). `vim` says which family selects (the other pans).
  */
 export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" | "Shape the map"; tier: Tier; rows: HelpRow[] }[] => {
-  const arrows = "← ↑ ↓ →", leave = paneMode ? "q" : "esc";
+  const arrows = "←↑↓→", leave = paneMode ? "q" : "esc";
   return [
-    { name: "Understand it", tier: 1, rows: [[`click, ${vim ? "h j k l" : arrows}`, "select a box, a neighbour", ["traverse", "listMove"]],
-      ["tab", "through the inspector, in a flow: next step", ["sectionTab"]], ["enter", "into a box", ["open"]], ["o", "the view a box opens", ["openView"]], ["b, backspace", "back where you were, else up", ["back", "parent"]], ["t", "ask how it works, or tell it what to change", ["ask"]],
-      ["F", "step through a flow", ["cycleFlow"]], ["[ ]", `steps, ${leave} leaves`, ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
-    { name: "Direct it", tier: 2, rows: [["c", "what it did this session, and the review", ["session"]],
-      ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a flow: its code)", ["files"]],
+    { name: "Understand it", tier: 1, rows: [[`click ${vim ? "hjkl" : arrows}`, "select a box, a neighbor", ["traverse", "listMove"]],
+      ["tab", "cards, or next journey step", ["sectionTab"]], ["enter", "into a box", ["open"]], ["o", "the view a box opens", ["openView"]], ["b bksp", "back where you were, else up", ["back", "parent"]], ["t", "ask or tell the agent", ["ask"]],
+      ["F", "step through a journey", ["cycleFlow"]], ["[ ]", `steps, ${leave} leaves`, ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
+    { name: "Direct it", tier: 2, rows: [["c", "this session, and the review", ["session"]],
+      ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a journey: its code)", ["files"]],
       ["/", "search everything, tab a kind", ["search"]], ["g", "go to any view", ["views"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
-      ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "centre the selection", ["centre"]], [vim ? arrows : "h j k l", "pan", ["pan"]]] },
-    { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a flow", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
+      ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "center the selection", ["centre"]], [vim ? arrows : "hjkl", "pan", ["pan"]]] },
+    { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a journey", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
       ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],
-      ["1–4", `focus a card, ${leave} or tab leaves`, ["focus", "sectionLeave"]], ["j k", "move in the card", ["sectionMove"]], ["space", "fold the card", ["sectionFold"]],
+      ["1–4", `focus a card; ${leave}, tab leave`, ["focus", "sectionLeave"]], ["j k", "move in the card", ["sectionMove"]], ["space", "fold the card", ["sectionFold"]],
       ["PgUp PgDn", "scroll the inspector", ["scrollInspector"]], ["v", "swap hjkl and arrows", ["swap"]], ["q", paneMode ? "leave a mode" : "quit", ["stop"]]] },
   ];
 };
@@ -237,7 +241,7 @@ export const hints = {
     activity: [["↑↓", "scroll"], ["tab", "next"], ["1–4", "card"], ["space", "fold"], ["esc", "diagram"]],
   } satisfies Record<SectionKey, Hint[]>,
   replay: (playing: boolean, speed: number): Hint[] => [["space", playing ? "pause" : "play"], ["←→", "step"], ["[ ]", "turn"], ["s", `${speed}x`], ["esc", "exit"]],
-  flow: [["[ ]", "step"], ["F", "next flow"], ["esc", "exit"]] as Hint[],
+  flow: [["[ ]", "step"], ["F", "next journey"], ["esc", "exit"]] as Hint[],
   files: [["enter", "open"], ["ctrl+r", "refresh"], ["esc", "back"]] as Hint[],
   help: [["esc", "close"], ["v", "swap hjkl and arrows"]] as Hint[],
   review: [["j k", "move"], ["e", "read it"], ["y", "accept"], ["n", "reject"], ["esc", "close"]] as Hint[],

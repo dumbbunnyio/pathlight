@@ -37,14 +37,14 @@ test("editing the model reloads the diagram in place, keeps selection and zoom, 
     const added = await until(text => text.includes("+ Billing service"), "reload notice for the new node");
     expect(added).toContain("Selected: plugin");
     expect(added).toContain("zoom 125%");
-    await until(text => text.includes("7 nodes"), "new node counted");
+    await until(text => text.includes("7 boxes"), "new node counted");
 
     await writeFile(model, "model { this is not valid");
     await until(text => text.includes("model has errors"), "error notice");
-    expect(await screen()).toContain("7 nodes");
+    expect(await screen()).toContain("7 boxes");
 
     await writeFile(model, original);
-    await until(text => text.includes("6 nodes"), "recovery");
+    await until(text => text.includes("6 boxes"), "recovery");
     expect(await screen()).toContain("Selected: plugin");
 
     // The activity mapping reloads too: a new glob changes the selected node's file list.
@@ -81,7 +81,7 @@ test("b after a reload that removed the view it would return to says there is no
       }
       throw new Error(`Missing ${label}:\n${output}`);
     };
-    await until(text => text.includes("viewer/extra"), "the extra view");
+    await until(text => text.includes("pathlight / Extra view"), "the extra view");
     await delay(500);
     // Go to the other view, so the extra view is in the history, then take it out of the model.
     await tmux("send-keys", "-t", pane, "g");
@@ -89,13 +89,13 @@ test("b after a reload that removed the view it would return to says there is no
     await tmux("send-keys", "-t", pane, "-l", "Pathlight implementation");
     await delay(300);
     await tmux("send-keys", "-t", pane, "Enter");
-    await until(text => text.includes("viewer/live") && text.includes("back 1"), "the live view, one visit back");
+    await until(text => text.includes("pathlight / Pathlight implementation") && text.includes("back 1"), "the live view, one visit back");
     await writeFile(model, original);
-    await until(text => text.includes("viewer/live") && !text.includes("back 1"), "the reload, with the gone view out of the history");
+    await until(text => text.includes("pathlight / Pathlight implementation") && !text.includes("back 1"), "the reload, with the gone view out of the history");
     await tmux("send-keys", "-t", pane, "b");
     const after = await until(text => text.includes("No previous view"), "the notice");
     expect(after).not.toMatch(/at .*\.ts:\d+|Unknown linked view/);
-    expect(after).toContain("viewer/live");
+    expect(after).toContain("pathlight / Pathlight implementation");
   } finally {
     await tmux("kill-server").catch(() => {});
     await rm(directory, { recursive: true, force: true });

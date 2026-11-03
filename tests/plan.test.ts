@@ -41,7 +41,7 @@ test("the viewer outlines the plan in its breadcrumb and marks activity on an el
   try {
     await cli("plan", "a", "--workspace", directory);
     const binding = { source: "claude" as const, session: "plan-session" };
-    const touch = (file: string, call: string) => writeActivity(directory, toolActivity(directory, binding, call, "Read", { file_path: file }, "completed"));
+    const touch = (file: string, call: string) => writeActivity(directory, toolActivity(directory, binding, call, "Edit", { file_path: file }, "completed"));
     await touch("src/a.ts", "one"); await touch("src/c.ts", "two");
     const pane = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "plan", "-x", "160", "-y", "40", "-P", "-F", "#{pane_id}",
       process.execPath, resolve("src/cli.ts"), "view", "index", "--workspace", directory, "--session", binding.session, "--source", "claude");
@@ -65,7 +65,7 @@ test("a plan left from days ago is not shown, so it never marks today's work off
     await mkdir(join(directory, ".cache/pathlight"), { recursive: true });
     await writeFile(join(directory, ".cache/pathlight/plan.json"), JSON.stringify({ version: 1, time: Date.now() - 3 * 86_400_000, elements: ["a"] }));
     const binding = { source: "claude" as const, session: "today" };
-    await writeActivity(directory, toolActivity(directory, binding, "one", "Read", { file_path: "src/c.ts" }, "completed"));
+    await writeActivity(directory, toolActivity(directory, binding, "one", "Edit", { file_path: "src/c.ts" }, "completed"));
     const screen = await cli("see", "index", "--workspace", directory, "--cols", "160", "--rows", "40", "--follow");
     expect(screen).toContain("Gamma");
     expect(screen).not.toContain("plan 1");

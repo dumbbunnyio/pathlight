@@ -79,14 +79,14 @@ test("tab moves through what is on screen: into the inspector and through its ca
   // Esc still leaves a card; the file filter keeps tab for its rows.
   expect(keyAction(press("escape", ""), { ...main, focusSection: "connections" })).toEqual({ type: "sectionLeave" });
   expect(keyAction(tab, { ...main, fileMode: true })).toEqual({ type: "fileMove", by: 1, page: false });
-  expect(helpGroups(true)[0]!.rows.slice(0, 2).map(row => `${row[0]}  ${row[1]}`)).toEqual(["click, h j k l  select a box, a neighbour", "tab  through the inspector, in a flow: next step"]);
-  expect(helpGroups(false)[0]!.rows[0]![0]).toBe("click, ← ↑ ↓ →");
+  expect(helpGroups(true)[0]!.rows.slice(0, 2).map(row => `${row[0]}  ${row[1]}`)).toEqual(["click hjkl  select a box, a neighbor", "tab  cards, or next journey step"]);
+  expect(helpGroups(false)[0]!.rows[0]![0]).toBe("click ←↑↓→");
 });
 
 test("h j k l stay on their side: in a focused card left and right do nothing, and only esc, tab and the numbers leave", () => {
   for (const name of ["h", "l", "left", "right"]) expect(keyAction(press(name), { ...main, focusSection: "connections" }), name).toEqual({ type: "swallow" });
   expect(keyAction(press("1"), { ...main, focusSection: "connections" })).toEqual({ type: "focus", section: "activity" });
-  expect(helpGroups(true).flatMap(group => group.rows).find(row => row[0] === "1–4")?.[1]).toBe("focus a card, esc or tab leaves");
+  expect(helpGroups(true).flatMap(group => group.rows).find(row => row[0] === "1–4")?.[1]).toBe("focus a card; esc, tab leave");
 });
 
 test("? explains the connector colours above the tiers, in the colours themselves, three to a row in the tiers' columns, a rule under them, and the diff's pair only when a diff is loaded", () => {
@@ -96,7 +96,7 @@ test("? explains the connector colours above the tiers, in the colours themselve
   // Each item starts where its tier's column starts.
   const heads = rows.find(line => line.startsWith("Understand it"))!;
   expect([rows[0]!.indexOf("── into it"), rows[0]!.indexOf("┈┈ other")]).toEqual([heads.indexOf("Direct it"), heads.indexOf("Shape the map")]);
-  expect(rows[1]!.trimEnd()).toBe("── the agent's reading (a flow)");
+  expect(rows[1]!.trimEnd()).toBe("── the agent's reading (a journey)");
   expect(rows[2]).toMatch(/^─+$/);
   expect(rows[2]!.length).toBe(heads.length);
   expect(rows[3]!.trim()).toBe("");
@@ -105,7 +105,7 @@ test("? explains the connector colours above the tiers, in the colours themselve
   const colour = (content: typeof plain.content, glyphAt: number) => content.chunks.filter(chunk => /^[─┈]{2}$/.test(chunk.text))[glyphAt]!.fg!;
   const hex = [palette.outgoing, palette.incoming, palette.edgeDim, palette.purple, palette.green, palette.failure];
   const diff = helpContent({ tier: 1, vim: true, screenWidth: 140, version: "0", diff: true });
-  expect(text(diff.content).split("\n")[1]!.trimEnd()).toMatch(/^── the agent's reading \(a flow\) +── added since the base +┈┈ lost$/);
+  expect(text(diff.content).split("\n")[1]!.trimEnd()).toMatch(/^── the agent's reading \(a journey\) +── added since the base +┈┈ lost$/);
   hex.forEach((value, index) => expect(colour(diff.content, index).equals(RGBA.fromHex(value)), value).toBe(true));
   // Narrow, one item to a row, every line as wide as the tiers.
   const narrow = helpContent({ tier: 1, vim: true, screenWidth: 60, version: "0", diff: true });
@@ -114,4 +114,14 @@ test("? explains the connector colours above the tiers, in the colours themselve
   expect(legend).toHaveLength(6);
   for (const line of legend) { expect(line.length).toBe(lines[legend.length + 2]!.length); expect(line).toMatch(/^(──|┈┈) /); }
   expect(narrow.height).toBe(lines.length);
+});
+
+// Every label fits its tier's column at 140 × 36, in both key families: the help's rows are one line each, none wraps under itself.
+test("no help row wraps at 140 columns", () => {
+  for (const vim of [true, false]) {
+    const lines = text(helpContent({ tier: 1, vim, screenWidth: 140, version: "0" }).content).split("\n");
+    const rows = helpGroups(vim).reduce((most, group) => Math.max(most, group.rows.length + 1), 0);
+    // The legend's rows and its rule and blank line, then one line per tier heading and row: no more.
+    expect(lines.length).toBe(2 + 2 + rows);
+  }
 });

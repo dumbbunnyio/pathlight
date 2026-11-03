@@ -1,30 +1,30 @@
  ◆ pathlight / Pathlight implementation                                                             
- viewer/live · 6 nodes                                                                              
+ 6 boxes                                                                                            
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-                                                        │ Talk · Agent adapters        ○ no session 
-                                                        │                                           
-                                                        │ no session bound yet · the reply lands    
-  ·      ·       ·      ·       ·      ·       ·      · │ in the agent pane                         
-                                                        │                                           
-                                                        │                                           
-  ·      ·       ·      ·       ·      ·       ·      · │                                           
-                           ╭──────────────────╮         │                                           
-                         ╭▶│ Activity metada… │─┈┈┈┈┈┈┈┈│                                           
-                         │ ╰──────────────────╯         │                                           
-  ·      ·       ·      ·│      ·      ·       ·      · │                                           
-                         │                              │                                           
-  ╭──────────────────╮   │ ╭──────────────────╮         │                                           
-  │ Agent adapters   │───┴▶│ tmux launcher    │─┈┈┬┈┈┈┈┈│                                           
-  ╰──────────────────╯  ·  ╰──────────────────╯·  ┊   · │                                           
-                                                  ┊     │                                           
-  ╭──────────────────╮                            ┊  ╭──│                                           
-  │ LikeC4 catalog   │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┴┈▶│ P│                                           
-  ╰──────────────────╯  ·       ·      ·       ·     ╰──│ ───────────────────────────────────────── 
-                                                        │ Ask   Improve the map   Trace a flow      
-                                                        │ about Agent adapters · records a journey  
-  ·      ·       ·      ·       ·      ·       ·      · │ ───────────────────────────────────────── 
-                                                        │  › how does Agent adapters work?          
-                                                        │                                           
-                                                        │                                           
-  ·      ·       ·      ·       ·      ·       ·      · │ enter send   alt+enter line   tab kind    
- talk   Selected: plugin                                                        zoom 94%  │  ? help 
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·
+                                                                                                    
+                                                                                                    
+  ·      ·   ┌─ Ask ───────────────────────────────────────────────────── no session ─┐     ·      ·
+             │ Ask   Improve the map   Trace a journey                                │             
+             │ ────────────────────────────────────────────────────────────────────── │             
+             │ ▸ about Agent adapters · records a journey                             │             
+  ·      ·   │                                                                        │     ·      ·
+             │  → how does Agent adapters work?                                       │             
+  ╭──────────│                                                                        │──────────╮  
+  │ Agent ada│                                                                        │ent view… │  
+  ╰──────────│                                                                        │──────────╯ ·
+             │                                                                        │             
+  ╭──────────└─ enter send  tab kind  esc close ──────────────────────────────────────┘             
+  │ LikeC4 catalog   │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┴┈▶│ PNG export       │─┈╯                        
+  ╰──────────────────╯  ·       ·      ·       ·     ╰──────────────────╯    ·      ·       ·      ·
+                                                                                                    
+                                                                                                    
+  ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·
+                                                                                                    
+                                                                                                    
+                                                                                                    
+  ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·       ·      ·
+ diagram   Selected: plugin                                                     zoom 94%  │  ? help 

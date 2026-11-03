@@ -1,24 +1,24 @@
  ◆ pathlight / Pathlight implementation                               
- viewer/live · 6 nodes                                                
+ 6 boxes                                                              
 ──────────────────────────────────────────────────────────────────────
- Talk · Agent adapters                                   ○ no session 
-                                                                      
- no session bound yet · the reply lands in the agent pane             
-                                                                      
-                                                                      
-                                                                      
-                                                                      
-                                                                      
-                                                                      
-                                                                      
-                                                                      
-                                                                      
- ──────────────────────────────────────────────────────────────────── 
- Ask   Improve the map   Trace a flow                                 
- about Agent adapters · records a journey                             
- ──────────────────────────────────────────────────────────────────── 
-  › how does Agent adapters work?                                     
+ › Agent adapters                                          component  
+   LikeC4 catalog                                          component  
+   Activity metadata                                       component  
+   ┌─ Ask ─────────────────────────────────────────── no session ─┐t  
+   │ Ask   Improve the map   Trace a journey                      │t  
+   │ ──────────────────────────────────────────────────────────── │t  
+   │ ▸ about Agent adapters · records a journey                   │   
+   │                                                              │   
+   │  → how does Agent adapters work?                             │   
+   │                                                              │   
+   │                                                              │   
+   │                                                              │   
+   │                                                              │   
+   └─ enter send  tab kind  esc close ────────────────────────────┘   
                                                                       
                                                                       
- enter send   alt+enter line   tab kind   esc diagram                 
- talk   Selected: plugin                          zoom 65%  │  ? help 
+                                                                      
+                                                                      
+                                                                      
+                                                                      
+ diagram   Selected: plugin                       zoom 65%  │  ? help 

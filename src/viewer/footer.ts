@@ -7,12 +7,13 @@ import type { SectionKey } from "./widgets";
 
 /** The keys a mode names in the footer: replay's position and controls, a focused card's, flow mode's, or the file filter's. Nothing in the diagram. */
 export const modeHints = (options: { room: number; replay?: { playing: boolean; index: number; steps: number; turn: number; turns: number; speed: number }; section?: SectionKey;
-  flow?: { title: string; step: number; steps: number }; files?: { cursor: number; count: number } }): TextChunk[] => {
+  flow?: boolean; files?: { cursor: number; count: number } }): TextChunk[] => {
   const { room, replay, flow, files } = options;
   if (replay) return [fg(palette.accent)(`${replay.playing ? "▶" : "⏸"} ${replay.index + 1}/${replay.steps}`), fg(palette.muted)(`  turn ${replay.turn + 1}/${replay.turns}  `),
     ...hintChunks(hints.replay(replay.playing, replay.speed), room - 24)];
   if (options.section) return hintChunks(hints.section[options.section] as Hint[], room);
-  if (flow) return [fg(palette.purple)(`◇ ${clip(flow.title, 24)} · ${flow.step + 1}/${flow.steps}  `), ...hintChunks(hints.flow, room - 40)];
+  // Which journey and step is the header's first line; the footer names only the keys.
+  if (flow) return hintChunks(hints.flow, room);
   if (files) return [fg(palette.accent)(`Files ${files.count ? files.cursor + 1 : 0}/${files.count}`), fg(palette.muted)("  type to filter  "), ...hintChunks(hints.files, room - 30, true)];
   return [];
 };
@@ -46,6 +47,9 @@ export const crumbActivity = (activity: readonly TextChunk[] | undefined, availa
   }
   return new StyledText(fitted);
 };
+
+/** The news line while follow is on: where it last took you, for as long as it lasts, and the key that stops it. */
+export const followNews = (box: string): TextChunk[] => [fg(palette.muted)("following "), fg(palette.text)(box), fg(palette.muted)("  "), pill("a", palette.accent), fg(palette.muted)(" stop")];
 
 /** An offer when the work is in another view. */
 export const workOffer = (title: string): TextChunk[] => [fg(palette.accent)("● "), fg(palette.text)(`working in ${title}`), fg(palette.muted)("  "), pill("w", palette.accent), fg(palette.muted)(" go and follow")];
