@@ -4,17 +4,17 @@
  › Agent adapters                                          component  
    LikeC4 catalog                                          component  
    Activity metadata                                       component  
-   tmux launcher                                           component  
-   PNG export                                              component  
    ┌─ Ask ─────────────────────────────────────────── no session ─┐t  
-   │ Ask   Improve the map   Trace a journey                      │   
+   │ Ask   Improve the map   Trace a journey                      │t  
+   │ ──────────────────────────────────────────────────────────── │t  
    │ ▸ about Agent adapters · records a journey                   │   
    │                                                              │   
    │  → how does Agent adapters work?                             │   
    │                                                              │   
    │                                                              │   
+   │                                                              │   
+   │                                                              │   
    └─ enter send  tab kind  esc close ────────────────────────────┘   
-                                                                      
                                                                       
                                                                       
                                                                       

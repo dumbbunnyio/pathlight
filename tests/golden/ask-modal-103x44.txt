@@ -14,17 +14,17 @@
  ·│                  │   │  │                  │·       ·       ┊      ·       · │                  │ ·
   │ Agent adapters   │───┴─▶│ tmux launcher    │─┈┈┈┬┈┈┈┈┈┈┈┈┈┈┈┴┈┈┈┈┈┈┈┈┈┈┈┈┈┬┈▶│ Persistent view… │
   ╰──────────────────╯      ╰──────────────────╯    ┊                         ┊  ╰──────────────────╯
-                                                    ┊                         ┊
- ·╭──────────────────╮   ·       ·      ·       ·   ┊ ╭──────────────────╮    ┊·       ·       ·      ·
-  │           ┌─ Ask ──────────────────────────────────────────────── claude:pane-mod ─┐
-  │ LikeC4 cat│ Ask   Improve the map   Trace a journey                                │
-  ╰───────────│ ▸ about Agent adapters · records a journey                             │
- ·       ·    │                                                                        │       ·      ·
-              │  → how does Agent adapters work?                                       │
+              ┌─ Ask ──────────────────────────────────────────────── claude:pane-mod ─┐
+ ·╭───────────│ Ask   Improve the map   Trace a journey                                │       ·      ·
+  │           │ ────────────────────────────────────────────────────────────────────── │
+  │ LikeC4 cat│ ▸ about Agent adapters · records a journey                             │
+  ╰───────────│                                                                        │
+ ·       ·    │  → how does Agent adapters work?                                       │       ·      ·
+              │                                                                        │
               │                                                                        │
 ──────────────│                                                                        │───────────────
- Agent adapter└─ enter send  tab kind  esc close ──────────────────────────────────────┘
-
+ Agent adapter│                                                                        │
+              └─ enter send  tab kind  esc close ──────────────────────────────────────┘
  ▾ 1 Work ──────────────────────────────────────────────────────────────────────────────────────────
  nothing observed here yet
 

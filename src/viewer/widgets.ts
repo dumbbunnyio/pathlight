@@ -139,8 +139,11 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   const goto = makeModal([fg(palette.text)("Go to view")]);
   // No backdrop dimming: the diagram behind is the preview.
   const picker = makeModal([fg(palette.accent)("◆ "), fg(palette.text)("Theme")], 0);
-  // The field: one step darker than the modal, three rows, growing to six, then scrolling. Enter goes on, Alt+Enter adds a line.
-  const nameRows = () => Math.min(6, Math.max(3, nameInput.virtualLineCount));
+  // The field: one step darker than the modal; `n` gives it three rows growing to six, a request (`t`, `m`, `d`) five growing to eight, then it
+  // scrolls. `lead` is the dialog's rows above the field (its lines and the blank), so the frame follows the field as it grows. Enter goes on,
+  // Alt+Enter adds a line.
+  const nameBounds = { floor: 3, cap: 6, lead: 3 };
+  const nameRows = () => Math.min(nameBounds.cap, Math.max(nameBounds.floor, nameInput.virtualLineCount));
   const nameInput = new TextareaRenderable(renderer, { flexGrow: 1, height: 3, wrapMode: "word", placeholder: "Name", placeholderColor: palette.border,
     backgroundColor: palette.background, textColor: palette.text, focusedBackgroundColor: palette.background, focusedTextColor: palette.text,
     cursorColor: palette.accent, cursorStyle: { style: "block", blinking: false },
@@ -156,7 +159,7 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
     const rows = nameRows();
     if (nameInput.height === rows) return;
     nameInput.height = rows; nameRow.height = rows;
-    if (naming.visible) naming.place(nameColumns(), rows + 3);
+    if (naming.visible) naming.place(nameColumns(), rows + nameBounds.lead);
     renderer.requestRender();
   };
   // The narrow-terminal view: every node as a row (indented by depth), the selection marked; it replaces the diagram.
@@ -168,5 +171,5 @@ export function createWidgets(renderer: Awaited<ReturnType<typeof createCliRende
   nodeList.add(nodeListText);
   viewport.add(canvas); viewport.add(nodeList); body.addPane(viewport, Math.max(1, renderer.width - 39), 36); body.addPane(inspector, 38, 28);
   for (const child of [topBar, body, footer, help.scrim, help.panel, summary.scrim, summary.panel, naming.scrim, naming.panel, goto.scrim, goto.panel, picker.scrim, picker.panel]) renderer.root.add(child);
-  return { topBar, headingText, badgeText, heading, breadcrumb, crumbHint, breadcrumbRow, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, talk, statusLeft, statusRight, footer, help, summary, naming, goto, picker, nameInput, namePrompt, nameRow, nameColumns, fitName, nodeList, nodeListText };
+  return { topBar, headingText, badgeText, heading, breadcrumb, crumbHint, breadcrumbRow, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, talk, statusLeft, statusRight, footer, help, summary, naming, goto, picker, nameInput, namePrompt, nameRow, nameColumns, nameBounds, fitName, nodeList, nodeListText };
 }

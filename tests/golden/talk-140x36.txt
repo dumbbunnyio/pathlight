@@ -10,17 +10,17 @@
  ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
                                                                                                  │                                          
                                                                                                  │                                          
-                                                                                                 │                                          
- ·       ·      ·      ·   ╭─────────────────╮       ·      ·      ·      ·       ·      ·      ·│                                          
-                        ╭─▶│ Acti┌─ Ask ───────────────────────────────────────────────────── no session ─┐                                 
-                        │  ╰─────│ Ask   Improve the map   Trace a journey                                │                                 
- ·       ·      ·      ·│      · │ ▸ about Agent adapters · records a journey                             │                                 
-                        │        │                                                                        │                                 
-  ╭─────────────────╮   │  ╭─────│  → how does Agent adapters work?                                       │                                 
+                                 ┌─ Ask ───────────────────────────────────────────────────── no session ─┐                                 
+ ·       ·      ·      ·   ╭─────│ Ask   Improve the map   Trace a journey                                │                                 
+                        ╭─▶│ Acti│ ────────────────────────────────────────────────────────────────────── │                                 
+                        │  ╰─────│ ▸ about Agent adapters · records a journey                             │                                 
+ ·       ·      ·      ·│      · │                                                                        │                                 
+                        │        │  → how does Agent adapters work?                                       │                                 
+  ╭─────────────────╮   │  ╭─────│                                                                        │                                 
   │ Agent adapters  │───┴─▶│ tmux│                                                                        │                                 
  ·╰─────────────────╯  ·   ╰─────│                                                                        │                                 
-                                 └─ enter send  tab kind  esc close ──────────────────────────────────────┘                                 
-  ╭─────────────────╮                            ┊ ╭─────────────────╮   ┊                       │                                          
+                                 │                                                                        │                                 
+  ╭─────────────────╮            └─ enter send  tab kind  esc close ──────────────────────────────────────┘                                 
   │ LikeC4 catalog  │─┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┴▶│ PNG export      │─┈┈╯                       │                                          
  ·╰─────────────────╯  ·       ·      ·      ·     ╰─────────────────╯    ·       ·      ·      ·│                                          
                                                                                                  │                                          

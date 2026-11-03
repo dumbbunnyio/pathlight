@@ -25,7 +25,7 @@ export interface TalkConversation { messages: readonly Message[]; empty: string;
  * `pathlight draft` records; a hand-written model has none.
  */
 export function createAskDialog<Target extends AskTarget>(options: {
-  renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "talk" | "naming" | "nameInput" | "namePrompt" | "nameRow" | "nameColumns">; workspace: string;
+  renderer: Awaited<ReturnType<typeof createCliRenderer>>; widgets: Pick<Widgets, "talk" | "naming" | "nameInput" | "namePrompt" | "nameRow" | "nameColumns" | "nameBounds">; workspace: string;
   /** Sends a request as the person's prompt (typed into the agent's tmux pane, or handed to the host the viewer is drawn in); absent with no agent to
    * reach. It answers what to tell the person instead of the usual line, or nothing. */
   send: ((text: string) => Effect.Effect<string | undefined, Error>) | undefined;
@@ -43,7 +43,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
    */
   modal?: () => boolean;
 }) {
-  const { renderer, workspace } = options, { talk, naming, nameInput, namePrompt, nameRow, nameColumns } = options.widgets;
+  const { renderer, workspace } = options, { talk, naming, nameInput, namePrompt, nameRow, nameColumns, nameBounds } = options.widgets;
   const tell = (message: string) => { options.say(message); options.update(); };
   // A talk exists from `t`, `m` or `d` until Esc closes it; `fresh` until its first request is sent (the tabs show until then).
   let current: { tab: TalkTab; fresh: boolean } | undefined;
@@ -118,13 +118,16 @@ export function createAskDialog<Target extends AskTarget>(options: {
     const offer = suggested(asking.tab, asking.target);
     const line = talkIncludeLine({ tab: asking.tab, subject: asking.target.title, drawing: asking.tab === "ask" && isHowQuestion(typed || offer || ""), mapReady, width });
     naming.title.content = new StyledText([fg(palette.muted)(" "), fg(palette.text)(askTitles[asking.tab]), fg(palette.muted)(" ")]);
-    naming.content.content = new StyledText([...tabs.content.chunks, nl, ...line.content.chunks]);
+    // The tabs as a tab bar, a rule under them, then whom it is about; a blank row and the field follow (David, 2026-11-02: the two rows read as one
+    // without the rule, and the field was too small).
+    naming.content.content = new StyledText([...tabs.content.chunks, nl, fg(palette.rule)("─".repeat(Math.max(1, width))), nl, ...line.content.chunks]);
     nameInput.placeholder = offer ?? placeholders[asking.tab];
     namePrompt.fg = palette.accent; namePrompt.content = promptGlyph(!nameInput.plainText && Boolean(offer));
     naming.foot.content = new StyledText(borderHints([["enter", "send"], ["tab", "kind"], ["esc", "close"]], true));
     const live = options.live();
     naming.meta.content = new StyledText([fg(palette.muted)(` ${live.bound ? live.label : "no session"} `)]);
-    naming.place(width, 1 + line.rows + 1 + nameInput.height);
+    nameBounds.lead = 1 + 1 + line.rows + 1;
+    naming.place(width, nameBounds.lead + nameInput.height);
     renderer.requestRender();
   };
   const beginAsk = (tab: TalkTab) => {
@@ -132,8 +135,9 @@ export function createAskDialog<Target extends AskTarget>(options: {
     if (!target) return;
     asking = { tab, target };
     options.opening(); options.say("");
-    nameInput.setText(""); nameInput.height = 3; nameRow.height = 3;
-    naming.open(nameColumns(), 6); nameInput.focus(); renderAsk(); options.update();
+    nameBounds.floor = 5; nameBounds.cap = 8;
+    nameInput.setText(""); nameInput.height = 5; nameRow.height = 5;
+    naming.open(nameColumns(), 9); nameInput.focus(); renderAsk(); options.update();
     options.run(readKeys(workspace).pipe(Effect.tap(found => Effect.sync(() => { keys = found; renderAsk(); })), Effect.catch(() => Effect.void)));
   };
   /** Enter in the modal: the request with the box's files and connections, as the column's first one, sent as the prompt; the modal closes. */
@@ -290,6 +294,7 @@ export function createAskDialog<Target extends AskTarget>(options: {
         return readEntry(workspace, key).pipe(Effect.flatMap(entry => Effect.sync(() => {
           naming_ = { key, target, step: "name", title: target.title, note: entry?.note ?? "" };
           options.opening();
+          nameBounds.floor = 3; nameBounds.cap = 6; nameBounds.lead = 3;
           nameInput.placeholder = "Name"; nameInput.setText(entry?.title ?? target.title); nameInput.gotoBufferEnd(); nameInput.height = 3; nameRow.height = 3;
           naming.open(nameColumns(), 6); nameInput.focus(); renderName(); options.say(""); options.update();
         })));

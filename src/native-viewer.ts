@@ -128,7 +128,7 @@ yield* Effect.addFinalizer(() => io("Native.graphics.close", async () => {
   for (const resource of resources) resource.dispose();
 }).pipe(Effect.orDie));
 const runTask = yield* FiberSet.makeRuntime<never>();
-  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, talk, statusLeft, statusRight, footer, help, summary, naming, goto, picker, nameInput, namePrompt, nameRow, nameColumns, fitName, nodeList, nodeListText } = createWidgets(renderer);
+  const { headingText, badgeText, heading, breadcrumb, crumbHint, searchInput, searchPrompt, searchRow, body, viewport, canvas, inspector, inspectorScroll, inspectorTitle, inspectorHead, inspectorId, relations, filesText, activityText, stepsText, flowsText, sections, inspectorActions, inspectorAsk, talk, statusLeft, statusRight, footer, help, summary, naming, goto, picker, nameInput, namePrompt, nameRow, nameColumns, nameBounds, fitName, nodeList, nodeListText } = createWidgets(renderer);
   if (!binding && !following) { sections.activity.box.visible = false; sections.activity.box.height = 0; }
   let connectionItems: string[] = [];
   let fileLines: number[] = [];
@@ -860,7 +860,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const talkConversation = () => ({ messages: conversation.messages, state: talkState(),
     empty: !binding ? `no session bound yet · ${lands}` : conversation.error ? "cannot read the conversation"
       : !pointer?.transcript ? `nothing recorded from this session's conversation yet · ${lands}` : "no messages yet" });
-  const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns }, workspace: view.workspace, send: sendToAgent, selected: () => state.selected, context: askContext, relevant: requestFiles,
+  const dialog = createAskDialog<Node>({ renderer, widgets: { talk, naming, nameInput, namePrompt, nameRow, nameColumns, nameBounds }, workspace: view.workspace, send: sendToAgent, selected: () => state.selected, context: askContext, relevant: requestFiles,
     into: target => { const edge = diagram.edges.find(entry => entry.target === target.id); return edge ? diagram.nodes.find(node => node.id === edge.source)?.title : undefined; },
     live: () => ({ bound: Boolean(binding), label: liveLabel() }), conversation: talkConversation, say: text => { message = text; }, update: () => update(), run: effect => runTask(effect), opening: () => { camera.animating = false; runTask(Effect.asVoid(readImports)); }, asked: drawing => { if (drawing) flowMode.expect(); },
     modal: () => Boolean(host) || (Boolean(options.parent) && !zoomed) });
