@@ -39,7 +39,16 @@ model {
     description 'Colour themes in OpenCode format (bundled, yours, or taken from the terminal), resolved to the palette the viewer draws with and applied live.'
   }
 
+  browser = component 'Browser page' {
+    technology 'Rune (Rust, WebGPU), Bun.serve'
+    description 'pathlight web: the map in a browser window. The page only draws and takes input; the server keeps each window\'s selection and Back with the viewer\'s own rules and words, on 127.0.0.1 behind a per-run token.'
+  }
+
   viewer -> ask 'Hands a question over'
+  launcher -> browser 'Starts pathlight web'
+  browser -> viewer 'Uses its rules and words'
+  browser -> themes 'Takes the palette'
+  browser -> catalog 'Reads the views'
   viewer -> themes 'Applies the palette'
   plugin -> activity 'Records tool lifecycle'
   plugin -> launcher 'Opens a view'
