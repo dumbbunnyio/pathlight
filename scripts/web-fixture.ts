@@ -11,8 +11,8 @@ const [workspace, out, flag] = process.argv.slice(2);
 if (!workspace || !out) throw new Error("Usage: bun scripts/web-fixture.ts WORKSPACE OUT [--largest]");
 const json = await Effect.runPromise(Effect.gen(function* () {
   const view = yield* selectView(workspace, yield* overviewId(workspace), undefined);
-  const { layouted, colors, palettes } = yield* loadWebWorld(view);
-  let views = viewOrder([...layouted.values()].map(entry => sceneOf(entry, colors, palettes.dark)), view.id);
+  const { layouted, palettes } = yield* loadWebWorld(view);
+  let views = viewOrder([...layouted.values()].map(sceneOf), view.id);
   if (flag === "--largest") views = [views.reduce((a, b) => b.nodes.length > a.nodes.length ? b : a)];
   return JSON.stringify({ project: view.project, palette: palettes.dark, views });
 }));

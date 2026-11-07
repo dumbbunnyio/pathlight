@@ -28,11 +28,10 @@ export const loadWorld = (view: View, options: { watching: boolean; reload: bool
     const source = yield* acquireModel(view.workspace);
     if (options.reload && source.hasErrors()) return yield* Effect.fail(failure("Reload.model", "The model has errors; showing the last good version"));
     const model = yield* io("LikeC4.layout", () => source.layoutedModel(view.project));
-    return { views: new Map([...model.views()].map(entry => [String(entry.id), entry.$view])), styles: model.$styles };
+    return new Map([...model.views()].map(entry => [String(entry.id), entry.$view]));
   }).pipe(Effect.scoped);
   if (config && options.reload) yield* validateActivityMapping(view, config);
-  // `styles` resolves a LikeC4 color name to its values; the browser page uses it, the terminal does not.
-  return { config, files, fileError, diagrams: diagrams.views, styles: diagrams.styles };
+  return { config, files, fileError, diagrams };
 });
 
 /**

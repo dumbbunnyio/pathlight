@@ -72,21 +72,22 @@ test("the server answers only its own host and origin, and nothing but the page'
   expect((await fetch(`${base()}/missing.js`)).status).toBe(404);
 });
 
-test("the scene is every view in LikeC4's layout, the overview first, colored for the mode asked", async () => {
+test("the scene is every view's structure and words in LikeC4's layout, the overview first, and none of LikeC4's drawing", async () => {
   const dark = await (await fetch(api("/api/scene", "&mode=dark"))).json() as any;
   const light = await (await fetch(api("/api/scene", "&mode=light"))).json() as any;
   expect(dark.project).toBe("parcel");
   expect(dark.views.map((v: any) => v.id)).toEqual(["index", "checkout", "services"]);
   const services = dark.views.find((v: any) => v.id === "services");
-  const api_ = services.nodes.find((n: any) => n.id === "parcel.commerce.api");
-  expect(api_).toMatchObject({ title: "Checkout API", technology: "TypeScript / HTTP", group: false, shape: "component" });
-  expect(services.nodes.find((n: any) => n.id === "parcel.commerce.orders").shape).toBe("storage");
-  expect(services.nodes.find((n: any) => n.id === "parcel.commerce").group).toBe(true);
+  const node = (id: string) => services.nodes.find((n: any) => n.id === id);
+  expect(node("parcel.commerce.api")).toEqual({ id: "parcel.commerce.api", title: "Checkout API", technology: "TypeScript / HTTP", role: "", group: false, opens: null, rect: expect.any(Array), depth: 0 });
+  // What the model says a box is travels as a word; LikeC4's shape for it does not.
+  expect([node("parcel.commerce.orders").role, node("customer").role, node("parcel.fulfillment.events").role, node("parcel.storefront").role]).toEqual(["store", "person", "queue", "app"]);
+  expect(node("parcel.commerce").group).toBe(true);
   const edge = services.edges.find((e: any) => e.source === "parcel.commerce.api" && e.target === "parcel.commerce.inventory");
-  expect(edge).toMatchObject({ label: "Reserves stock", line: "dashed", head: "normal", tail: "none" });
+  expect(Object.keys(edge).sort()).toEqual(["id", "label", "labelAt", "opens", "points", "source", "target", "technology"]);
+  expect(edge.label).toBe("Reserves stock");
   expect(edge.points.length % 3).toBe(1);
   expect(dark.palette.background).not.toBe(light.palette.background);
-  expect(light.views.find((v: any) => v.id === "services").nodes[0].fill).not.toBe(services.nodes[0].fill);
 });
 
 test("a window opens on the view and selection it asks for, and its acts come back as frames", async () => {

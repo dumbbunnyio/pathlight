@@ -6,7 +6,7 @@ import { loadThemes, type Mode, paletteOf, savedTheme, themeFromEnvironment } fr
 import { type Palette, palette, setPalette } from "../ui";
 import { loadWorld, readChecks } from "../viewer/world";
 import { loadPage, type Page } from "./page";
-import { type ColorsOf, type LayoutedView, sceneOf, viewOrder } from "./scene";
+import { type LayoutedView, sceneOf, viewOrder } from "./scene";
 import { type Act, act, frameOf, startWindow, type WindowState, type World, type WorldView } from "./session";
 
 /**
@@ -51,14 +51,13 @@ export const loadWebWorld = (view: View, theme?: string) => Effect.gen(function*
   const loaded = yield* loadWorld(view, { watching: false, reload: false });
   const checks = yield* readChecks(view.workspace, undefined);
   const world: World = { views: loaded.diagrams as unknown as ReadonlyMap<string, WorldView>, files: loaded.files, planned: loaded.config?.planned ?? [], words: checks.words };
-  const colors: ColorsOf = color => loaded.styles.colors(color) as ReturnType<ColorsOf>;
   const themes = yield* loadThemes(view.workspace);
   const environment = yield* themeFromEnvironment();
   const wanted = theme || environment.name || (yield* savedTheme().pipe(Effect.catch(() => Effect.succeed(undefined)))) || "pathlight";
   const paletteFor = (mode: Mode): Palette => {
     try { return paletteOf(themes.get(wanted) ?? themes.get("pathlight")!, mode); } catch { return paletteOf(themes.get("pathlight")!, mode); }
   };
-  return { world, layouted: loaded.diagrams as unknown as ReadonlyMap<string, LayoutedView>, colors, palettes: { dark: paletteFor("dark"), light: paletteFor("light") } };
+  return { world, layouted: loaded.diagrams as unknown as ReadonlyMap<string, LayoutedView>, palettes: { dark: paletteFor("dark"), light: paletteFor("light") } };
 });
 
 /**
@@ -66,7 +65,7 @@ export const loadWebWorld = (view: View, theme?: string) => Effect.gen(function*
  * selection and Back; the stream carries its frames, and `/api/act` with its id changes them.
  */
 export const startWebServer = (view: View, options: { port?: number; select?: string | undefined; page?: Page | null; theme?: string }) => Effect.gen(function* () {
-  const { world, layouted, colors, palettes } = yield* loadWebWorld(view, options.theme);
+  const { world, layouted, palettes } = yield* loadWebWorld(view, options.theme);
   // `page: null` serves without one, as a copy built without Rust does; left out, the embedded or built page is used.
   const page = options.page === undefined ? yield* io("Web.page", () => loadPage()) : options.page ?? undefined;
   const token = randomBytes(18).toString("base64url");
@@ -74,7 +73,7 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
   const sceneJson = (mode: Mode) => {
     const cached = scenes.get(mode);
     if (cached) return cached;
-    const all = viewOrder([...layouted.values()].map(entry => sceneOf(entry, colors, palettes[mode])), view.id);
+    const all = viewOrder([...layouted.values()].map(sceneOf), view.id);
     const made = JSON.stringify({ project: view.project, palette: palettes[mode], views: all });
     scenes.set(mode, made);
     return made;
