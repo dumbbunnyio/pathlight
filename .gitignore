@@ -6,3 +6,7 @@ docs/internal/
 
 # Written by Claude Code when it loads the plugin as a mod: extends the generated, self-ignored .claude-plugin/types/.
 plugins/claude/tsconfig.json
+
+# The browser page's build (scripts/build-web.sh).
+web/target/
+web/dist/
