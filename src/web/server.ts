@@ -65,9 +65,10 @@ export const loadWebWorld = (view: View) => Effect.gen(function* () {
  * Starts the server for one workspace's views. `port` 0 takes a free one. Each page that connects to `/api/events` is a window with its own
  * selection and Back; the stream carries its frames, and `/api/act` with its id changes them.
  */
-export const startWebServer = (view: View, options: { port?: number; select?: string | undefined; page?: Page | undefined }) => Effect.gen(function* () {
+export const startWebServer = (view: View, options: { port?: number; select?: string | undefined; page?: Page | null }) => Effect.gen(function* () {
   const { world, layouted, colors, palettes } = yield* loadWebWorld(view);
-  const page = options.page ?? (yield* io("Web.page", () => loadPage()));
+  // `page: null` serves without one, as a copy built without Rust does; left out, the embedded or built page is used.
+  const page = options.page === undefined ? yield* io("Web.page", () => loadPage()) : options.page ?? undefined;
   const token = randomBytes(18).toString("base64url");
   const scenes = new Map<Mode, string>();
   const sceneJson = (mode: Mode) => {
