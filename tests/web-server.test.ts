@@ -11,20 +11,17 @@ import { selectView } from "./effects";
 // frames and acts. The page itself is Rust (web/, `cargo test`), and the page in a browser is tests/web-page.test.ts.
 
 let web: WebServer;
-const savedTheme = process.env.PATHLIGHT_THEME;
 const base = () => `http://127.0.0.1:${web.port}`;
 const api = (path: string, extra = "") => `${base()}${path}?t=${web.token}${extra}`;
 
 beforeAll(async () => {
-  // A theme with both modes, named here so the person's own saved theme does not decide the test.
-  process.env.PATHLIGHT_THEME = "github";
   const view = await selectView("examples/parcel", "index");
   const page = unpack(new Uint8Array(pack([{ path: "index.html", gzipped: Bun.gzipSync(new TextEncoder().encode("<!doctype html><p>page")) }])));
-  web = await Effect.runPromise(startWebServer(view, { page }));
+  // A theme with both modes, named here so the person's own saved theme does not decide the test.
+  web = await Effect.runPromise(startWebServer(view, { page, theme: "github" }));
 });
 afterAll(async () => {
   await web.stop();
-  if (savedTheme === undefined) delete process.env.PATHLIGHT_THEME; else process.env.PATHLIGHT_THEME = savedTheme;
 });
 
 /** A raw request, so the Host and Origin headers are exactly what a test sets (fetch fills its own Host). */

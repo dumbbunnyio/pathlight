@@ -18,13 +18,11 @@ if (why) console.warn(`web-page: skipped, ${why}`);
 let web: WebServer;
 beforeAll(async () => {
   if (why) return;
-  process.env.PATHLIGHT_THEME = "pathlight";
-  web = await Effect.runPromise(startWebServer(await selectView("examples/parcel", "services"), {}));
+  web = await Effect.runPromise(startWebServer(await selectView("examples/parcel", "services"), { theme: "pathlight" }));
 });
 afterAll(async () => {
   await browser?.close();
   await web?.stop();
-  delete process.env.PATHLIGHT_THEME;
 });
 
 type Page = NonNullable<Awaited<ReturnType<NonNullable<typeof browser>["newPage"]>>>;
