@@ -35,7 +35,7 @@ import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, followNews, footerContent, modeHints, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, diffText, edgeMarks, journeyHeading } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
-import { allotSections, headContent, nodeListContent, hiddenLine, opensLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
+import { allotSections, appNoteOf, headContent, isWaiting, nodeListContent, opensOf, pinnedLines, sectionHeader } from "./viewer/inspector-view";
 import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
 import { createThemePicker } from "./viewer/theme-picker";
@@ -146,9 +146,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let redrawAfterResize = false;
   let fileMode = false, editorActive = false;
   let fileQuery = "";
-  // An element the mapping names as planned and that has no files yet (nor does anything inside it): designed, not built.
-  const waiting = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`))
-    && !(files.get(ref)?.length) && ![...files].some(([element, paths]) => element.startsWith(`${ref}.`) && paths.length);
+  const waiting = (ref: string) => isWaiting(config?.planned ?? [], files, ref);
   const selectedPaths = () => {
     const dirOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
     const paths = [...files.get(String(state.selected?.modelRef ?? "")) ?? []].sort((a, b) => dirOf(a).localeCompare(dirOf(b)) || a.localeCompare(b));
@@ -183,15 +181,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     help.foot.content = new StyledText(borderHints(hints.help));
     if (help.visible) help.place(guide.width, guide.height, helpCap); else help.open(guide.width, guide.height, helpCap);
   };
-  // With nothing selected the head says what the app is: the note of the box the view is about, else of the model's first top-level box.
-  const appNote = () => {
-    const all = [...diagrams.values()].flatMap(scene => scene.nodes);
-    const about = (diagram as { viewOf?: unknown }).viewOf;
-    const subject = about !== undefined ? String(about) : all.map(node => String(node.modelRef ?? "")).find(ref => ref && !ref.includes("."));
-    if (!subject) return "";
-    const node = all.find(entry => String(entry.modelRef) === subject);
-    return words.get(subject)?.note ?? (node ? splitDescription(describe(node.description), undefined).words : "");
-  };
+  const appNote = () => appNoteOf([...diagrams.values()].flatMap(scene => scene.nodes), (diagram as { viewOf?: unknown }).viewOf, words);
   // A call seen for the first time flashes: its node's border and its activity row take the accent for a moment.
   const nodeFlashes = new Map<string, number>(), rowFlashes = new Map<string, number>(), seenCalls = new Set<string>();
   let calmLoaded = false, wasFlashing = false;
@@ -552,9 +542,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const selected = state.selected;
     const target = selected?.navigateTo ? diagrams.get(String(selected.navigateTo)) : undefined;
     // A box whose children are drawn here and that opens a view: Enter goes into the children, so the line says what `o` opens.
-    const linked = selected?.navigateTo && String(selected.navigateTo) !== String(diagram.id);
-    const both = linked && selected.children.some(child => diagram.nodes.some(node => node.id === child));
-    const opens = [both ? opensLine(String(target?.title ?? selected.navigateTo)) : "", linked ? hiddenLine(describe(target?.description)) : ""].filter(Boolean).join("\n");
+    const opens = opensOf(selected, diagram, target);
     const head = headContent({ title: selected?.title, technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
       tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
       by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length, app: selected ? undefined : appNote() });

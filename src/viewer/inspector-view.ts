@@ -65,6 +65,30 @@ export const opensLine = (title: string) => `o opens ${title}`;
  * The muted line under a box that opens a view: how many smaller boxes that view leaves out, when the draft's description of it says so (`7 smaller
  * ones are not shown here; …`), since a view's own description is never shown. Nothing when it leaves none out.
  */
+/** An element the mapping names as planned and that has no files yet (nor does anything inside it): designed, not built. */
+export const isWaiting = (planned: readonly string[], files: ReadonlyMap<string, readonly string[]>, ref: string) =>
+  planned.some(id => ref === id || ref.startsWith(`${id}.`))
+    && !(files.get(ref)?.length) && ![...files].some(([element, paths]) => element.startsWith(`${ref}.`) && paths.length);
+
+/** With nothing selected the head says what the app is: the note of the box the view is about, else of the model's first top-level box. */
+export const appNoteOf = (all: readonly { modelRef?: unknown; description?: unknown }[], viewOf: unknown, notes: ReadonlyMap<string, { note?: string | undefined }>) => {
+  const subject = viewOf !== undefined ? String(viewOf) : all.map(node => String(node.modelRef ?? "")).find(ref => ref && !ref.includes("."));
+  if (!subject) return "";
+  const node = all.find(entry => String(entry.modelRef) === subject);
+  return notes.get(subject)?.note ?? (node ? splitDescription(describe(node.description), undefined).words : "");
+};
+
+/**
+ * What the head says a selected box opens: `o opens X` when its children are drawn here and it also opens a view, then how many boxes that view
+ * leaves out. Nothing for a box that opens no view, or only this one.
+ */
+export const opensOf = (selected: { navigateTo?: unknown; children: readonly unknown[] } | undefined, diagram: { id: unknown; nodes: readonly { id: unknown }[] },
+  target: { title?: unknown; description?: unknown } | undefined) => {
+  const linked = selected?.navigateTo && String(selected.navigateTo) !== String(diagram.id);
+  const both = linked && selected.children.some(child => diagram.nodes.some(node => node.id === child));
+  return [both ? opensLine(String(target?.title ?? selected.navigateTo)) : "", linked ? hiddenLine(describe(target?.description)) : ""].filter(Boolean).join("\n");
+};
+
 export const hiddenLine = (viewDescription: string) => {
   const hidden = /\b(\d[\d,]*) smaller ones? (?:is|are) not shown\b/.exec(viewDescription)?.[1];
   return hidden ? `${hidden} smaller ${hidden === "1" ? "box is" : "boxes are"} not drawn in its view` : "";
