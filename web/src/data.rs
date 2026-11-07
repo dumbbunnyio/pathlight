@@ -1,5 +1,5 @@
 //! What the server sends (`src/web/scene.ts` and `src/web/session.ts`), and the page's one change to it: the compact fit, which tightens the
-//! empty space between cards and keeps everything else LikeC4 laid out.
+//! empty space between cards and keeps everything else LikeC4 laid out. Only structure and words arrive; how it looks is the page's.
 
 use rune::Color;
 use serde::Deserialize;
@@ -14,16 +14,11 @@ pub struct RawNode {
     pub id: String,
     pub title: String,
     pub technology: String,
-    pub shape: String,
+    pub role: String,
     pub group: bool,
     pub opens: Option<String>,
     pub rect: [f32; 4],
     pub depth: f32,
-    pub border: String,
-    pub multiple: bool,
-    pub fill: String,
-    pub stroke: String,
-    pub ink: String,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -36,10 +31,6 @@ pub struct RawEdge {
     pub technology: String,
     pub points: Vec<[f32; 2]>,
     pub label_at: Option<[f32; 2]>,
-    pub line: String,
-    pub head: String,
-    pub tail: String,
-    pub color: String,
     pub opens: Option<String>,
 }
 
@@ -59,39 +50,17 @@ pub struct RawModel {
     pub views: Vec<RawView>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Line {
-    Solid,
-    Dashed,
-    Dotted,
-}
-
-impl Line {
-    fn of(s: &str) -> Line {
-        match s {
-            "solid" | "none" => Line::Solid,
-            "dotted" => Line::Dotted,
-            _ => Line::Dashed,
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Node {
     pub id: String,
     pub title: String,
     pub technology: String,
-    pub shape: String,
+    /// What the model says the box is (person, store, queue, app, document, agent), or nothing.
+    pub role: String,
     pub group: bool,
     pub opens: Option<String>,
     pub rect: [f32; 4],
     pub depth: f32,
-    /// `None` for no border.
-    pub border: Option<Line>,
-    pub multiple: bool,
-    pub fill: Color,
-    pub stroke: Color,
-    pub ink: Color,
 }
 
 #[derive(Clone, Debug)]
@@ -103,10 +72,6 @@ pub struct Edge {
     pub technology: String,
     pub points: Vec<[f32; 2]>,
     pub label_at: Option<[f32; 2]>,
-    pub line: Line,
-    pub head: String,
-    pub tail: String,
-    pub color: Color,
 }
 
 #[derive(Clone, Debug)]
@@ -228,16 +193,11 @@ pub fn compact(raw: RawView) -> View {
                 id: n.id.clone(),
                 title: n.title.clone(),
                 technology: n.technology.clone(),
-                shape: n.shape.clone(),
+                role: n.role.clone(),
                 group: n.group,
                 opens: n.opens.clone(),
                 rect: [a[0], a[1], b[0] - a[0], b[1] - a[1]],
                 depth: n.depth,
-                border: if n.border == "none" { None } else { Some(Line::of(&n.border)) },
-                multiple: n.multiple,
-                fill: color(&n.fill),
-                stroke: color(&n.stroke),
-                ink: color(&n.ink),
             }
         })
         .collect();
@@ -257,10 +217,6 @@ pub fn compact(raw: RawView) -> View {
                 technology: e.technology.clone(),
                 points,
                 label_at: e.label_at.map(map),
-                line: Line::of(&e.line),
-                head: e.head.clone(),
-                tail: e.tail.clone(),
-                color: color(&e.color),
             }
         })
         .collect();

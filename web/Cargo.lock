@@ -2155,11 +2155,13 @@ version = "0.0.1"
 dependencies = [
  "js-sys",
  "rune",
+ "rune-light",
  "serde",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "wgpu",
 ]
 
 [[package]]
@@ -2602,6 +2604,16 @@ dependencies = [
  "xkbcommon",
  "zbus 6.2.1",
  "zeroize",
+]
+
+[[package]]
+name = "rune-light"
+version = "0.0.1"
+source = "git+https://github.com/anomalyco/rune?rev=99c123d6b2127d1226c72dec37919e51019142ff#99c123d6b2127d1226c72dec37919e51019142ff"
+dependencies = [
+ "bytemuck",
+ "rune-staging",
+ "wgpu",
 ]
 
 [[package]]

@@ -4,14 +4,15 @@
 
 pub mod data;
 pub mod geom;
+pub mod light;
 #[cfg(target_arch = "wasm32")]
 mod net;
 
-use data::{Camera, Edge, Frame, Ink, Line, Model, Node, Span, View};
-use geom::{Pen, figure, marker};
+use data::{Camera, Edge, Frame, Ink, Model, Node, Span, View};
+use geom::Pen;
 use rune::tok::motion;
 use rune::{
-    AppSpec, Color, Cursor, Cx, Drag, El, Key, KeyEvent, Live, MagnifyEvent, Phase, ScrollSpec, Shape, TextStyle, Tx, WheelEvent, canvas, col, el, rich,
+    AppSpec, Color, Cursor, Cx, Drag, El, Key, KeyEvent, Live, MagnifyEvent, Phase, ScrollSpec, Shadow, Shape, TextStyle, Tx, WheelEvent, canvas, col, el, rich,
     row, text,
 };
 use std::sync::{Arc, OnceLock};
@@ -191,61 +192,47 @@ impl App {
 
 // ---- The diagram ----------------------------------------------------------------------------
 
-/// The outline, fill and details of one box, in the box's own coordinates.
-fn shape_of(node: &Node, outline: Color, width: f32, ink: &Ink) -> Shape {
-    let [_, _, w, h] = node.rect;
-    let k = (h / 180.0).clamp(0.25, 1.0).max(w / 320.0 * 0.8).min(1.0);
-    let f = figure(&node.shape, w, h, k);
-    let detail = node.fill.mix(node.stroke, 0.5);
-    let mut s = Shape::new();
-    if node.multiple && !node.group {
-        let back = f.body.clone().offset(5.0, 5.0);
-        s = back.fill(s, node.fill.mix(ink.background, 0.3));
-        s = back.stroke(s, 1.0, node.stroke, Some(Line::Solid));
-    }
-    s = f.detail.fill(s, detail);
-    s = f.body.fill(s, node.fill);
-    s = f.inset.fill(s, node.fill);
-    s = f.lid.fill(s, detail);
-    s = f.over.fill(s, detail);
-    let line = node.border.or(Some(Line::Solid));
-    s = f.body.stroke(s, width, outline, line);
-    s = f.lid.stroke(s, width * 0.9, outline, Some(Line::Solid));
-    if f.body.subs.is_empty() {
-        s = f.detail.stroke(s, width, outline, line);
-    }
-    s
-}
-
+/// A group is a well sunk into the table: darker than the floor, with an inner shadow along its rim, its name engraved at the top left.
 fn group_box(node: &Node, selected: bool, ink: &Ink) -> Vec<El> {
     let [x, y, w, h] = node.rect;
     let id = node.id.clone();
-    let outline = if selected { ink.accent } else { node.stroke };
-    let frame = Pen::new().rect(0.0, 0.0, w, h, 10.0);
-    let mut s = frame.fill(Shape::new(), node.fill);
-    s = frame.stroke(s, if selected { 1.4 } else { 1.0 }, outline, node.border.or(Some(Line::Dashed)));
-    let body = canvas(s.view_box(w, h)).size(w, h).pin(Some(x), Some(y), None, None).inert();
+    let depth = node.depth.min(3.0);
+    let well = el()
+        .key(format!("well/{id}"))
+        .pin(Some(x), Some(y), None, None)
+        .size(w, h)
+        .radius(16.0)
+        // Each nested well is a step lighter than the one it sits in, so a well inside a well still reads.
+        .fill(ink.background.mix(Color::BLACK, 0.3).mix(ink.text, 0.025 * depth.min(2.0).max(0.0) + 0.02))
+        .border(1.0, ink.text.alpha(0.07))
+        .box_shadow(Shadow { x: 0.0, y: 3.0, blur: 16.0, spread: 0.0, color: Color::BLACK.alpha(0.6), inset: true })
+        .mark(light::mark(light::mat::FLAT))
+        .inert();
     let title = row()
         .key(format!("group/{id}"))
         .role("button")
         .label(node.title.clone())
-        .pin(Some(x + 10.0), Some(y + 7.0), None, None)
+        .pin(Some(x + 14.0), Some(y + 10.0), None, None)
         .cursor(Cursor::Pointer)
-        .child(text(node.title.to_uppercase()).font(SECTION).color(if selected { ink.accent } else { ink.muted }))
+        .child(text(node.title.to_uppercase()).font(SECTION).color(if selected { ink.accent } else { ink.muted.alpha(0.85) }))
         .on_press(move |s: &mut App| s.select(Some(id.clone())));
-    vec![body, title]
+    vec![well, title]
 }
 
+/// A box is a slab standing on the table: one material for every kind, lit by the room and, when selected, by the lamp. What the model says it
+/// is (a person, a store, a queue) is a word on it, never a shape.
 fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
     let [x, y, w, h] = node.rect;
     let id = node.id.clone();
     let selected = s.selected.as_deref() == Some(id.as_str());
-    let outline = if selected { ink.accent } else { node.stroke };
-    let drawing = canvas(shape_of(node, outline, if selected { 1.6 } else { 1.0 }, ink).view_box(w, h)).size(w, h).pin(Some(0.0), Some(0.0), None, None).inert();
-    let mut words = col().w_full().h_full().px(10.0).justify_center().items_center().gap(2.0).min_w(0.0).inert();
-    words = words.child(text(node.title.clone()).font(NAME).color(node.ink).truncate());
-    if !node.technology.is_empty() && h >= 40.0 {
-        words = words.child(text(node.technology.clone()).font(SMALL).color(ink.muted).truncate());
+    // Boxes away from the selection recede by color, not by opacity: an opacity layer would not survive the light's split of shapes and text.
+    let slab = ink.background.mix(ink.text, if selected { 0.14 } else if near { 0.09 } else { 0.05 });
+    let (title, quiet) = if near { (ink.text, ink.body) } else { (ink.text.mix(ink.background, 0.35), ink.body.mix(ink.background, 0.4)) };
+    let mut words = col().w_full().h_full().px(12.0).justify_center().gap(3.0).min_w(0.0).inert();
+    words = words.child(text(node.title.clone()).font(NAME).color(title).truncate());
+    let about: Vec<String> = [node.role.to_uppercase(), node.technology.clone()].into_iter().filter(|w| !w.is_empty()).collect();
+    if !about.is_empty() && h >= 40.0 {
+        words = words.child(text(about.join("  ·  ")).font(SMALL).color(quiet).truncate());
     }
     let mut card = el()
         .key(format!("node/{id}"))
@@ -254,10 +241,14 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
         .focusable(true)
         .pin(Some(x), Some(y), None, None)
         .size(w, h)
-        .opacity(if near { 1.0 } else { 0.55 })
+        .radius(12.0)
+        .fill(slab)
+        .gradient(ink.text.alpha(0.035), Color::TRANSPARENT)
+        .border(1.0, if selected { ink.accent.alpha(0.55) } else { ink.text.alpha(0.06) })
+        .shadow(4.0, 14.0, Color::BLACK.alpha(0.35))
+        .mark(light::mark(if selected { light::mat::LIFTED } else { light::mat::CARD }))
         .cursor(Cursor::Pointer)
         .motion(motion::SNAPPY)
-        .child(drawing)
         .child(words);
     let pick = id.clone();
     card = card.on_press(move |s: &mut App| s.select(Some(pick.clone())));
@@ -267,7 +258,8 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
     card
 }
 
-fn edge_shape(into: Shape, edge: &Edge, width: f32, color: Color, hollow: Color) -> Shape {
+/// A relationship: a fine line along LikeC4's route that lands on its target in a small bead, so the direction reads without an arrowhead.
+fn edge_shape(into: Shape, edge: &Edge, width: f32, color: Color) -> Shape {
     let p = &edge.points;
     let Some(first) = p.first() else { return into };
     let mut pen = Pen::new().move_to(*first);
@@ -280,22 +272,11 @@ fn edge_shape(into: Shape, edge: &Edge, width: f32, color: Color, hollow: Color)
             pen = pen.line_to(*q);
         }
     }
-    let mut s = pen.stroke(into, width, color, Some(edge.line));
-    let flat = &pen.subs[0].0;
-    let end = |from_end: bool| -> Option<([f32; 2], [f32; 2])> {
-        let tip = if from_end { *flat.last()? } else { *flat.first()? };
-        let mut it: Box<dyn Iterator<Item = &[f32; 2]>> = if from_end { Box::new(flat.iter().rev()) } else { Box::new(flat.iter()) };
-        let from = it.find(|q| geom::dist(**q, tip) > 2.0).copied()?;
-        let len = geom::dist(from, tip).max(0.001);
-        Some((tip, [(tip[0] - from[0]) / len, (tip[1] - from[1]) / len]))
-    };
-    if let Some((tip, u)) = end(true) {
-        s = marker(s, &edge.head, tip, u, color, hollow);
+    let s = pen.stroke(into, width, color, None);
+    match pen.subs[0].0.last() {
+        Some(tip) => Pen::new().ellipse(*tip, width + 1.6, width + 1.6).fill(s, color),
+        None => s,
     }
-    if let Some((tip, u)) = end(false) {
-        s = marker(s, &edge.tail, tip, u, color, hollow);
-    }
-    s
 }
 
 /// A label goes on the diagram only where its edge has the room; Connects always has it.
@@ -332,14 +313,15 @@ fn diagram(s: &App, view: &View, ink: &Ink) -> El {
 
     let dim = sel.is_some();
     let (quiet, lit): (Vec<&Edge>, Vec<&Edge>) = view.edges.iter().partition(|e| !touching(e));
+    let line = ink.text.alpha(if dim { 0.14 } else { 0.24 });
     let mut quiet_shape = Shape::new();
     for e in &quiet {
-        quiet_shape = edge_shape(quiet_shape, e, 1.1, if dim { e.color.alpha(0.55) } else { e.color }, ink.background);
+        quiet_shape = edge_shape(quiet_shape, e, 1.1, line);
     }
     world = world.child(canvas(quiet_shape.view_box(vw, vh)).size(vw, vh).pin(Some(0.0), Some(0.0), None, None).inert());
     let mut lit_shape = Shape::new();
     for e in &lit {
-        lit_shape = edge_shape(lit_shape, e, 1.5, ink.accent.mix(e.color, 0.25), ink.background);
+        lit_shape = edge_shape(lit_shape, e, 1.6, ink.accent);
     }
     world = world.child(canvas(lit_shape.view_box(vw, vh)).size(vw, vh).pin(Some(0.0), Some(0.0), None, None).inert());
 
@@ -362,6 +344,8 @@ fn diagram(s: &App, view: &View, ink: &Ink) -> El {
         .grow(1.0)
         .h_full()
         .min_w(0.0)
+        // The table: a wide, faint pool of light at its middle, falling off to the panel's own color at the edges.
+        .radial_gradient([0.5, 0.42], [900.0, 650.0], [(0.0, ink.text.alpha(0.045)), (1.0, Color::TRANSPARENT)])
         .clip_soft(0.0)
         .cursor(Cursor::Grab)
         .child(world)

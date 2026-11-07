@@ -78,7 +78,8 @@ pub fn start() {
             Err(e) => (Model::parse(r#"{"project":"","palette":{},"views":[]}"#).expect("empty"), Some(format!("Could not load the map: {e}"))),
         };
         let _ = START.set((Arc::new(model), Frame::default()));
-        let app = rune::App::new(crate::spec());
+        // Linear light: rune-light takes the frame as linear albedo and encodes the lit result for the window itself.
+        let app = rune::App::new(crate::spec()).srgb_blend(false).compositor(crate::light::Lighting::default());
         let handle = app.handle();
         if let Some(problem) = problem {
             handle.update(move |s: &mut App, _tx| s.problem = Some(problem.clone()));
