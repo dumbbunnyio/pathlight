@@ -45,16 +45,10 @@ text above):
 Copyright (c) 2026 Anomaly
 ```
 
-## LikeC4 shapes and arrowheads
+## Rune's lighting
 
-`web/src/geom.rs` ports the geometry of LikeC4's element shapes and relationship arrowheads
-(<https://github.com/likec4/likec4> v1.60.0, `packages/diagram/src/base-primitives/element/ElementShape.tsx` and `edge/EdgeMarkers.tsx`),
-used under the MIT license (the license text above):
-
-```
-Copyright (c) 2023-2026 Denis Davydkov
-Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-```
+`web/src/light.rs` lights the page with `rune-light` (part of Rune, the license above), following the compositor in Rune's
+`examples/cursed-settings/src/gfx.rs`.
 
 ## Inter and IBM Plex Mono
 
