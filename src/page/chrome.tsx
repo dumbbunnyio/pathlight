@@ -16,7 +16,7 @@ export const Header = (props: { frame: Frame }) => (
 
 export const Footer = (props: { frame: Frame }) => (
   <footer class="footer line split">
-    <span><Spans spans={[{ text: " " }, ...props.frame.footer.left]} /></span>
+    <span><Spans spans={props.frame.footer.left} /></span>
     <span><Spans spans={[...props.frame.footer.right, { text: " " }]} /></span>
   </footer>
 );

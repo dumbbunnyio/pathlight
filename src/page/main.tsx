@@ -76,6 +76,8 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
       if (card) camera.ensureVisible(card.rect);
     }
     reveal = false;
+    // When the first frame is on screen, for the speed measured in tests/web-page.test.ts.
+    if (!before) requestAnimationFrame(() => performance.mark("pathlight:drawn"));
     // The view and the selection go in the address, so a reload opens there.
     const address = new URLSearchParams({ t: token, view: next.view, ...(next.selected ? { select: next.selected } : {}) });
     history.replaceState(null, "", `?${address}`);
@@ -150,12 +152,13 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
   const down = (event: PointerEvent) => {
     if (event.button !== 0) return;
     drag = { x: event.clientX, y: event.clientY, moved: false }; dragged = false;
-    (event.currentTarget as Element).setPointerCapture(event.pointerId);
   };
   const move = (event: PointerEvent) => {
-    if (!drag) return;
+    if (!drag || !(event.buttons & 1)) { drag = undefined; return; }
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+    // Captured only once it is a drag: a capture from the press would make the click land on the diagram instead of the card under it.
+    if (!drag.moved) (event.currentTarget as Element).setPointerCapture(event.pointerId);
     drag.moved = true; dragged = true;
     camera.pan(dx, dy);
     drag.x = event.clientX; drag.y = event.clientY;

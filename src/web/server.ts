@@ -98,7 +98,10 @@ export const loadWebWorld = (view: View, theme?: string, mode?: Mode) => Effect.
  */
 export const startWebServer = (view: View, options: { port?: number; select?: string | undefined; page?: Page | null; kind?: PageKind; theme?: string; mode?: Mode }) => Effect.gen(function* () {
   const kind = options.kind ?? "page";
-  const { world, layouted, palette: colors, mode, paletteFor } = yield* loadWebWorld(view, options.theme, options.mode);
+  const { world, layouted, palette: chosen, mode, paletteFor } = yield* loadWebWorld(view, options.theme, options.mode);
+  // The palette as the terminal installs it (setPalette makes every entry distinct), so the page's variables are the frames' colors exactly.
+  const installed = (next: Palette): Palette => { const saved = { ...palette }; setPalette(next, false); const made = { ...palette }; setPalette(saved, false); return made; };
+  const colors = installed(chosen);
   // `page: null` serves without one, as a copy built without its page does; left out, the embedded or built page is used.
   const page = options.page === undefined ? yield* io("Web.page", () => loadPage(kind)) : options.page ?? undefined;
   const token = randomBytes(18).toString("base64url");
@@ -111,7 +114,7 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
   const runeScene = (asked: Mode) => {
     const known = runeScenes.get(asked);
     if (known) return known;
-    const made = JSON.stringify({ project: view.project, palette: paletteFor(asked), views: viewOrder([...layouted.values()].filter(raw => raw.nodes.length).map(raw => runeSceneOf(raw as unknown as RuneLayoutedView)), view.id) });
+    const made = JSON.stringify({ project: view.project, palette: installed(paletteFor(asked)), views: viewOrder([...layouted.values()].filter(raw => raw.nodes.length).map(raw => runeSceneOf(raw as unknown as RuneLayoutedView)), view.id) });
     runeScenes.set(asked, made);
     return made;
   };
