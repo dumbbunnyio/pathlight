@@ -17,7 +17,8 @@
     { "glob": "src/themes/**", "element": "themes" },
     { "glob": "src/web/**", "element": "browser" },
     { "glob": "web/**", "element": "browser" },
-    { "glob": "scripts/{pack-web,web-fixture}.ts", "element": "browser" }
+    { "glob": "src/page/**", "element": "browser" },
+    { "glob": "scripts/{pack-web,web-fixture,build-page}.ts", "element": "browser" }
   ],
   "ignore": ["tests/**", "src/effects.ts", "src/assets.d.ts", "scripts/ansi2png.py"]
 }
