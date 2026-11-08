@@ -10,7 +10,7 @@
   "scripts": {
     "pathlight": "bun src/cli.ts",
     "build": "./scripts/build.sh",
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc --noEmit -p src/page",
     "test": "bun test tests"
   },
   "dependencies": {
@@ -25,9 +25,14 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7.29.7",
+    "@types/babel__core": "7.20.5",
     "@types/bun": "1.4.3",
     "@types/three": "0.177.0",
+    "babel-preset-solid": "1.9.16",
     "oxc-resolver": "11.24.2",
+    "solid-js": "1.9.17",
     "typescript": "7.0.2"
   }
 }

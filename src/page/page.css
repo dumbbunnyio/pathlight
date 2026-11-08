@@ -1,0 +1,47 @@
+/* The terminal's look in pixels (plan 4d, "The look"): one monospace face on a measured cell, the palette as variables (set from the theme
+   by main.tsx), text on the background, one-pixel rules. Motion only on color, about 120 ms; nothing moves but the camera. */
+:root {
+  --background: #0e1116; --panel: #11151b; --text: #eef1f5; --body: #c9d0da; --muted: #7d8796; --border: #4f5866; --rule: #2b3441;
+  --accent: #e8b45a; --incoming: #6fcad6; --outgoing: #e8b45a; --hot: #1a212b; --edgeDim: #3a4352; --cardEdge: #2b3441; --scrim: #080b10;
+  --cw: 8.4px; --ch: 16.8px; --font: ui-monospace, monospace; --font-size: 14px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body { background: var(--background); color: var(--text); font: var(--font-size) / var(--ch) var(--font); -webkit-font-smoothing: antialiased; user-select: none; }
+.line { height: var(--ch); line-height: var(--ch); white-space: pre; overflow: hidden; }
+.split { display: flex; justify-content: space-between; }
+.split > span { white-space: pre; overflow: hidden; }
+.header { position: absolute; left: 0; right: 0; top: 0; }
+.footer { position: absolute; left: 0; right: 0; bottom: 0; }
+.rule { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--rule); transform: translateY(calc(var(--ch) / 2)); }
+.divider { position: absolute; width: 0; border-left: 1px solid var(--border); }
+.diagram { position: absolute; display: block; cursor: default; touch-action: none; }
+.diagram .edge, .diagram polyline { fill: none; stroke-width: 1px; vector-effect: non-scaling-stroke; shape-rendering: crispEdges; transition: stroke 120ms; }
+.diagram .leaf .edge { fill: var(--background); }
+.diagram .hit { fill: none; stroke: transparent; stroke-width: 9px; vector-effect: non-scaling-stroke; pointer-events: stroke; }
+.diagram .behind { fill: var(--background); }
+.diagram .card { cursor: pointer; }
+.diagram .group { pointer-events: visiblePainted; }
+.diagram .group .edge { pointer-events: none; }
+.diagram .group .title, .diagram .group .behind { pointer-events: all; }
+.diagram .route { pointer-events: none; }
+.diagram .route path { transition: fill 120ms; }
+.diagram .card:not(.selected):hover .edge { stroke: var(--border); }
+.diagram text { user-select: none; }
+.inspector { position: absolute; background: var(--panel); padding: 0 var(--cw); overflow: hidden auto; scrollbar-width: thin; scrollbar-color: var(--edgeDim) var(--panel); }
+.inspector.overlay { border-left: 1px solid var(--border); z-index: 2; }
+.inspector .row, .node-list .row, .rail .row { cursor: pointer; transition: background 120ms; }
+.inspector .row:hover, .node-list .row:hover, .rail .row:hover { background: var(--hot); }
+.rail-box { position: absolute; left: 0; overflow: hidden auto; scrollbar-width: thin; scrollbar-color: var(--edgeDim) var(--background); }
+.rail .row { display: flex; padding-right: var(--cw); }
+.rail .mark { color: var(--accent); flex: none; }
+.rail .name { color: var(--body); flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.rail .here .name { color: var(--text); }
+.rail .detail { color: var(--muted); flex: none; padding-left: var(--cw); }
+.list-box { position: absolute; left: 0; right: 0; overflow: hidden auto; padding: 0 var(--cw); }
+.scrim { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 5; }
+.help { background: var(--panel); border: 1px solid var(--border); max-width: calc(100vw - 4 * var(--cw)); max-height: calc(100vh - 2 * var(--ch)); display: flex; flex-direction: column; }
+.help .frame-top, .help .frame-foot { padding: 0 var(--cw); color: var(--muted); }
+.help .frame-top > span:first-child { color: var(--text); }
+.help .frame-foot .key { color: var(--body); }
+.help-body { padding: 0 calc(var(--cw) * 2); overflow: auto; }
