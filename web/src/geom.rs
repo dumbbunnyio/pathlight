@@ -128,6 +128,33 @@ pub fn dist(a: Pt, b: Pt) -> f32 {
     (b[0] - a[0]).hypot(b[1] - a[1])
 }
 
+/// The first `u` (0 to 1) of a polyline's length; a negative `u` takes the same share from its end instead.
+pub fn cut(points: &[Pt], u: f32) -> Vec<Pt> {
+    if u < 0.0 {
+        let mut rev: Vec<Pt> = points.iter().rev().copied().collect();
+        rev = cut(&rev, -u);
+        rev.reverse();
+        return rev;
+    }
+    let total: f32 = points.windows(2).map(|w| dist(w[0], w[1])).sum();
+    let mut left = total * u.min(1.0);
+    let mut out = Vec::with_capacity(points.len());
+    if let Some(first) = points.first() {
+        out.push(*first);
+    }
+    for w in points.windows(2) {
+        let seg = dist(w[0], w[1]);
+        if seg >= left {
+            let t = if seg > 0.0 { left / seg } else { 0.0 };
+            out.push([w[0][0] + (w[1][0] - w[0][0]) * t, w[0][1] + (w[1][1] - w[0][1]) * t]);
+            return out;
+        }
+        left -= seg;
+        out.push(w[1]);
+    }
+    out
+}
+
 /// Splits a polyline into dashes `on` long with `off` between them.
 pub fn dash(points: &[Pt], on: f32, off: f32) -> Vec<Vec<Pt>> {
     let mut out = Vec::new();

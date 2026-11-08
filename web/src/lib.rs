@@ -1,6 +1,12 @@
 //! Pathlight's browser page, drawn with Rune. It draws; the server decides (plan 4d, decision 9). The model and its layout come from
 //! `GET /api/scene`, what is selected and the inspector's words from `frame` events, and every choice the person makes goes back to the server as
 //! an act (`POST /api/act`). The camera, the compact fit and the drawing are the page's.
+//!
+//! The look (plan 4d, "The look"): one room, one lamp, a map cut into stone. The whole window is one dark table (`light.rs` paints it);
+//! the rail, the title and the inspector stand on it as slabs rather than panels beside it. Boxes are slabs whose height is attention: the
+//! selection stands tallest, its neighbors stand, the rest settle nearly flush into the stone. Lines are grooves cut into the table; the
+//! ones touching the selection are filaments of white light. What the model says a box is (a person, a store, a queue) is a word on it in
+//! the mono face, never a shape.
 
 pub mod data;
 pub mod geom;
@@ -10,6 +16,7 @@ mod net;
 
 use data::{Camera, Edge, Frame, Ink, Model, Node, Span, View};
 use geom::Pen;
+use light::{mark, mat};
 use rune::tok::motion;
 use rune::{
     AppSpec, Color, Cursor, Cx, Drag, El, Key, KeyEvent, Live, MagnifyEvent, Phase, ScrollSpec, Shadow, Shape, TextStyle, Tx, WheelEvent, canvas, col, el, rich,
@@ -17,14 +24,22 @@ use rune::{
 };
 use std::sync::{Arc, OnceLock};
 
-const NAME: TextStyle = TextStyle::new(13.5, 600.0);
-const SMALL: TextStyle = TextStyle::new(11.5, 400.0);
+const NAME: TextStyle = TextStyle::new(14.0, 600.0);
+/// The mono face for what the model says: roles, technologies, counts.
+const SMALL: TextStyle = TextStyle::new(10.5, 450.0).mono().tracking(0.3);
 const BODY: TextStyle = TextStyle::new(13.0, 400.0).lh(19.0);
 const NAV: TextStyle = TextStyle::new(13.0, 450.0);
-const SECTION: TextStyle = TextStyle::new(11.0, 600.0).tracking(0.3);
+const SECTION: TextStyle = TextStyle::new(10.5, 600.0).mono().tracking(1.4);
 const HEAD: TextStyle = TextStyle::new(18.0, 600.0);
-const EDGE_LABEL: TextStyle = TextStyle::new(10.5, 450.0);
+const TITLE: TextStyle = TextStyle::new(22.0, 650.0).tracking(-0.2);
+const EDGE_LABEL: TextStyle = TextStyle::new(10.0, 450.0).mono();
 const MIN_ZOOM: f32 = 0.05;
+
+/// How high a box stands on the table, in points: the selection, its neighbors, the rest, and the lift under the pointer.
+const HEIGHT_SELECTED: f32 = 22.0;
+const HEIGHT_NEAR: f32 = 11.0;
+const HEIGHT_FAR: f32 = 2.5;
+const HEIGHT_HOVER: f32 = 4.0;
 
 /// What the page asks of the server. The page never decides these itself.
 #[derive(Clone, Debug, PartialEq)]
@@ -60,10 +75,15 @@ pub struct App {
     pub window: String,
     /// The selection as drawn: the person's click shows at once, and the server's frame confirms it.
     pub selected: Option<String>,
+    /// The box under the pointer.
+    pub hover: Option<String>,
     /// The box whose glow shows: the selection, once the light travelling to it has arrived (`light.rs` sets it).
     pub glow: Option<String>,
-    /// Where the pin prick of light travelling a line to the new selection is, in the view's points (`light.rs` sets it).
+    /// Where the ball of light travelling a line to the new selection is, in the view's points (`light.rs` sets it).
     pub pin: Option<[f32; 2]>,
+    /// The line the ball travels and how far along it is charged: a share of its length from its source, or from its target when negative
+    /// (`light.rs` sets it).
+    pub trail: Option<(String, f32)>,
     /// Acts waiting to be sent; the wasm side sends them, the tests read them.
     pub outbox: Vec<Act>,
     pub problem: Option<String>,
@@ -101,7 +121,9 @@ impl App {
             frame,
             window: String::new(),
             glow: selected.clone(),
+            hover: None,
             pin: None,
+            trail: None,
             selected,
             outbox: Vec::new(),
             problem: None,
@@ -182,7 +204,7 @@ impl App {
             return;
         }
         let [vw, vh] = view.size;
-        let margin = 36.0_f32.min(w / 8.0).min(h / 8.0);
+        let margin = 48.0_f32.min(w / 8.0).min(h / 8.0);
         let zoom = ((w - 2.0 * margin) / vw.max(1.0)).min((h - 2.0 * margin) / vh.max(1.0)).min(1.6);
         self.refit = false;
         self.camera([(w - vw * zoom) / 2.0, (h - vh * zoom) / 2.0], zoom.max(MIN_ZOOM));
@@ -198,43 +220,50 @@ impl App {
 
 // ---- The diagram ----------------------------------------------------------------------------
 
-/// A group is a well sunk into the table: darker than the floor, with an inner shadow along its rim, its name engraved at the top left.
+/// A group is a well sunk into the table: darker than the floor, its upper walls in shadow and its lower lip catching the lamp, its name
+/// cut into the stone at the top left.
 fn group_box(node: &Node, selected: bool, ink: &Ink) -> Vec<El> {
     let [x, y, w, h] = node.rect;
     let id = node.id.clone();
     let depth = node.depth.min(3.0);
+    let dark = ink.dark();
     let well = el()
         .key(format!("well/{id}"))
         .pin(Some(x), Some(y), None, None)
         .size(w, h)
-        .radius(16.0)
+        .radius(18.0)
         // Each nested well is a step lighter than the one it sits in, so a well inside a well still reads.
-        .fill(ink.background.mix(Color::BLACK, 0.3).mix(ink.text, 0.025 * depth.min(2.0).max(0.0) + 0.02))
-        .border(1.0, ink.text.alpha(0.07))
-        .box_shadow(Shadow { x: 0.0, y: 3.0, blur: 16.0, spread: 0.0, color: Color::BLACK.alpha(0.6), inset: true })
-        .mark(light::mark(light::mat::FLAT))
+        .fill(ink.background.mix(Color::BLACK, if dark { 0.35 } else { 0.05 }).mix(ink.text, 0.02 * depth.min(2.0).max(0.0) + 0.012))
+        .border(1.0, Color::BLACK.alpha(if dark { 0.35 } else { 0.08 }))
+        .box_shadow(Shadow { x: 2.0, y: 5.0, blur: 18.0, spread: 0.0, color: Color::BLACK.alpha(if dark { 0.55 } else { 0.16 }), inset: true })
+        .box_shadow(Shadow { x: -1.0, y: -1.0, blur: 1.0, spread: 0.0, color: ink.text.alpha(0.07), inset: true })
+        .mark(mark(mat::FLAT, 0.0))
         .inert();
     let title = row()
         .key(format!("group/{id}"))
         .role("button")
         .label(node.title.clone())
-        .pin(Some(x + 14.0), Some(y + 10.0), None, None)
+        .pin(Some(x + 16.0), Some(y + 12.0), None, None)
         .cursor(Cursor::Pointer)
-        .child(text(node.title.to_uppercase()).font(SECTION).color(if selected { ink.accent } else { ink.muted.alpha(0.85) }))
+        .child(text(node.title.to_uppercase()).font(SECTION).color(if selected { ink.accent } else { ink.muted.alpha(0.8) }))
         .on_press(move |s: &mut App| s.select(Some(id.clone())));
     vec![well, title]
 }
 
-/// A box is a slab standing on the table: one material for every kind, lit by the room, and glowing around its edges when selected. What the model says it
-/// is (a person, a store, a queue) is a word on it, never a shape.
+/// A box is a slab standing on the table, lit by the room; how high it stands is how near it is to the selection, and it lifts a little under
+/// the pointer. When selected it glows around its edges. What the model says it is (a person, a store, a queue) is a word on it, never a shape.
 fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
     let [x, y, w, h] = node.rect;
     let id = node.id.clone();
     let selected = s.selected.as_deref() == Some(id.as_str());
-    // Boxes away from the selection recede by color, not by opacity: an opacity layer would not survive the light's split of shapes and text.
-    let slab = ink.background.mix(ink.text, if selected { 0.14 } else if near { 0.09 } else { 0.05 });
-    let (title, quiet) = if near { (ink.text, ink.body) } else { (ink.text.mix(ink.background, 0.35), ink.body.mix(ink.background, 0.4)) };
-    let mut words = col().w_full().h_full().px(12.0).justify_center().gap(3.0).min_w(0.0).inert();
+    let hovered = s.hover.as_deref() == Some(id.as_str());
+    let height = if selected { HEIGHT_SELECTED } else if near { HEIGHT_NEAR } else { HEIGHT_FAR } + if hovered { HEIGHT_HOVER } else { 0.0 };
+    // Boxes away from the selection recede by color and by height, never by opacity: an opacity layer would not survive the light's split
+    // of shapes and text. A slab rises toward the light: toward the text's white in a dark room, toward white in a light one.
+    let lift = if ink.dark() { ink.text } else { Color::WHITE };
+    let slab = ink.background.mix(lift, if selected { 0.16 } else if near { 0.105 } else { 0.045 }).mix(ink.text, if ink.dark() || near { 0.0 } else { 0.03 });
+    let (title, quiet) = if near { (ink.text, ink.body) } else { (ink.text.mix(ink.background, 0.5), ink.body.mix(ink.background, 0.55)) };
+    let mut words = col().w_full().h_full().px(13.0).justify_center().gap(4.0).min_w(0.0).inert();
     words = words.child(text(node.title.clone()).font(NAME).color(title).truncate());
     let about: Vec<String> = [node.role.to_uppercase(), node.technology.clone()].into_iter().filter(|w| !w.is_empty()).collect();
     if !about.is_empty() && h >= 40.0 {
@@ -249,20 +278,28 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
         .size(w, h)
         .radius(12.0)
         .fill(slab)
-        .gradient(ink.text.alpha(0.035), Color::TRANSPARENT)
-        .border(1.0, if selected { Color::WHITE.alpha(0.5) } else { ink.text.alpha(0.06) });
+        .gradient(ink.text.alpha(if near { 0.04 } else { 0.015 }), Color::TRANSPARENT)
+        .border(1.0, if selected { Color::WHITE.alpha(0.5) } else { ink.text.alpha(if near { 0.08 } else { 0.035 }) });
     // The selected box is backlit: a white glow lies under the solid box, the same on every side, so the light shows only around its
     // edges and never through it. A tight bright rim and a wide soft spill. Its color springs, so it comes up and goes out.
     let glowing = s.glow.as_deref() == Some(id.as_str());
     // Faint and even: the directional backlight is the light's (light.rs); this only keeps the whole rim from going dark on the far side.
     let (rim, spill) = if glowing { (Color::WHITE.alpha(0.35), Color::WHITE.alpha(0.12)) } else { (Color::WHITE.alpha(0.0), Color::WHITE.alpha(0.0)) };
+    let watch = id.clone();
     let mut card = card
         .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 40.0, spread: 6.0, color: spill, inset: false })
         .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 7.0, spread: 1.0, color: rim, inset: false })
-        .shadow(3.0, 8.0, Color::BLACK.alpha(if glowing { 0.0 } else { 0.4 }))
-        .mark(light::mark(if selected { light::mat::LIFTED } else { light::mat::CARD }))
+        .shadow(3.0, 8.0, Color::BLACK.alpha(if glowing { 0.0 } else if ink.dark() { 0.4 } else { 0.2 }))
+        .mark(mark(mat::CARD, height))
         .cursor(Cursor::Pointer)
         .motion(motion::SNAPPY)
+        .on_hover_change(move |s: &mut App, on: bool, _tx: &mut Tx| {
+            if on {
+                s.hover = Some(watch.clone());
+            } else if s.hover.as_deref() == Some(watch.as_str()) {
+                s.hover = None;
+            }
+        })
         .child(words);
     let pick = id.clone();
     card = card.on_press(move |s: &mut App| s.select(Some(pick.clone())));
@@ -272,10 +309,10 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
     card
 }
 
-/// A relationship: a fine line along LikeC4's route that lands on its target in a small bead, so the direction reads without an arrowhead.
-fn edge_shape(into: Shape, edge: &Edge, width: f32, color: Color) -> Shape {
+/// A relationship's route as LikeC4 laid it, flattened: cubic Béziers when the points come in threes, straight runs otherwise.
+pub fn edge_pen(edge: &Edge) -> Pen {
     let p = &edge.points;
-    let Some(first) = p.first() else { return into };
+    let Some(first) = p.first() else { return Pen::new() };
     let mut pen = Pen::new().move_to(*first);
     if p.len() % 3 == 1 && p.len() > 1 {
         for t in p[1..].chunks(3) {
@@ -286,10 +323,36 @@ fn edge_shape(into: Shape, edge: &Edge, width: f32, color: Color) -> Shape {
             pen = pen.line_to(*q);
         }
     }
-    let s = pen.stroke(into, width, color, None);
-    match pen.subs[0].0.last() {
-        Some(tip) => Pen::new().ellipse(*tip, width + 1.6, width + 1.6).fill(s, color),
-        None => s,
+    pen
+}
+
+/// A relationship nobody is looking at: a groove cut into the table, its far wall catching the lamp as a hairline, ending in a small bead
+/// on its target so the direction reads without an arrowhead.
+fn groove(into: Shape, edge: &Edge, dim: bool, ink: &Ink) -> Shape {
+    let pen = edge_pen(edge);
+    let Some(tip) = pen.subs.first().and_then(|s| s.0.last().copied()) else { return into };
+    let cut = ink.background.mix(Color::BLACK, if ink.dark() { 0.5 } else { 0.12 });
+    let lit = ink.text.alpha(if dim { 0.11 } else { 0.18 });
+    let s = pen.stroke(into, 1.7, cut, None);
+    let s = pen.clone().offset(0.5, 0.9).stroke(s, 0.8, lit, None);
+    let s = Pen::new().ellipse(tip, 2.4, 2.4).fill(s, cut);
+    Pen::new().ellipse([tip[0] + 0.4, tip[1] + 0.7], 1.6, 1.6).fill(s, lit)
+}
+
+/// A relationship carrying the selection's light: a filament of white light along the route, with a soft halo, and a bright bead on its
+/// target. In a light room white would vanish, so the filament takes the theme's accent there.
+fn filament(into: Shape, points: Vec<[f32; 2]>, bead: bool, ink: &Ink) -> Shape {
+    if points.len() < 2 {
+        return into;
+    }
+    let light = if ink.dark() { Color::WHITE } else { ink.accent };
+    let pen = Pen { subs: vec![(points, false)] };
+    let s = pen.stroke(into, 7.0, light.alpha(0.06), None);
+    let s = pen.stroke(s, 2.8, light.alpha(0.2), None);
+    let s = pen.stroke(s, 1.2, light.alpha(0.85), None);
+    match (bead, pen.subs[0].0.last()) {
+        (true, Some(tip)) => Pen::new().ellipse(*tip, 2.6, 2.6).fill(s, light.alpha(0.95)),
+        _ => s,
     }
 }
 
@@ -299,7 +362,7 @@ fn label_fits(e: &Edge) -> bool {
     if e.label.is_empty() {
         return false;
     }
-    let wide = e.label.chars().count() as f32 * 5.6 + 14.0;
+    let wide = e.label.chars().count() as f32 * 6.2 + 14.0;
     let (dx, dy) = ((b[0] - a[0]).abs(), (b[1] - a[1]).abs());
     if dx >= dy { dx >= wide + 12.0 } else { dx < 12.0 && dy >= 42.0 }
 }
@@ -325,19 +388,26 @@ fn diagram(s: &App, view: &View, ink: &Ink) -> El {
         }
     }
 
+    // Lines: grooves, and filaments of light where the selection is. While the ball travels, only the line behind it is charged; the rest
+    // of the new box's lines light when it arrives.
     let dim = sel.is_some();
-    let (quiet, lit): (Vec<&Edge>, Vec<&Edge>) = view.edges.iter().partition(|e| !touching(e));
-    let line = ink.text.alpha(if dim { 0.14 } else { 0.24 });
-    let mut quiet_shape = Shape::new();
-    for e in &quiet {
-        quiet_shape = edge_shape(quiet_shape, e, 1.1, line);
+    let travelling = s.trail.as_ref().map(|t| t.0.as_str());
+    let mut grooves = Shape::new();
+    let mut lit = Shape::new();
+    for e in &view.edges {
+        if touching(e) && travelling.is_none() {
+            lit = filament(lit, edge_pen(e).subs.first().map(|s| s.0.clone()).unwrap_or_default(), true, ink);
+        } else if travelling == Some(e.id.as_str()) {
+            let u = s.trail.as_ref().map_or(0.0, |t| t.1);
+            let path = edge_pen(e).subs.first().map(|s| s.0.clone()).unwrap_or_default();
+            lit = filament(lit, geom::cut(&path, u), false, ink);
+            grooves = groove(grooves, e, dim, ink);
+        } else {
+            grooves = groove(grooves, e, dim, ink);
+        }
     }
-    world = world.child(canvas(quiet_shape.view_box(vw, vh)).size(vw, vh).pin(Some(0.0), Some(0.0), None, None).inert());
-    let mut lit_shape = Shape::new();
-    for e in &lit {
-        lit_shape = edge_shape(lit_shape, e, 1.6, ink.accent);
-    }
-    world = world.child(canvas(lit_shape.view_box(vw, vh)).size(vw, vh).pin(Some(0.0), Some(0.0), None, None).inert());
+    world = world.child(canvas(grooves.view_box(vw, vh)).size(vw, vh).pin(Some(0.0), Some(0.0), None, None).inert());
+    world = world.child(canvas(lit.view_box(vw, vh)).size(vw, vh).pin(Some(0.0), Some(0.0), None, None).inert());
 
     for node in view.nodes.iter().filter(|n| !n.group) {
         world = world.child(card(node, s, near(&node.id), ink));
@@ -355,31 +425,43 @@ fn diagram(s: &App, view: &View, ink: &Ink) -> El {
                 .fill(Color::WHITE)
                 .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 14.0 / z, spread: 1.0 / z, color: Color::WHITE.alpha(0.55), inset: false })
                 .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 5.0 / z, spread: 0.5 / z, color: Color::WHITE.alpha(0.9), inset: false })
-                .mark(light::mark(light::mat::FLAT))
+                .mark(mark(mat::FLAT, 0.0))
                 .inert(),
         );
     }
 
-    // Words on an edge only where they answer something: around the selected box, or everywhere when nothing is selected.
+    // Words on a line only where they answer something: around the selected box, or everywhere when nothing is selected. Cut into the
+    // table like the group names, on a small dark plate so the line does not run through them.
     for e in view.edges.iter().filter(|e| (!dim || touching(e)) && label_fits(e)) {
         if let Some([x, y]) = e.label_at {
-            let mut words = col().px(6.0).py(2.0).items_center().radius(5.0).fill(ink.panel).border(1.0, ink.rule).child(text(e.label.clone()).font(EDGE_LABEL).color(if dim { ink.text } else { ink.body }));
+            let plate = ink.background.mix(Color::BLACK, 0.3);
+            let mut words = col().px(7.0).py(3.0).items_center().radius(5.0).fill(plate).border(1.0, ink.text.alpha(0.07)).child(text(e.label.clone()).font(EDGE_LABEL).color(if dim { ink.text } else { ink.body }));
             if !e.technology.is_empty() {
-                words = words.child(text(format!("[{}]", e.technology)).font(TextStyle::new(9.5, 400.0)).color(ink.muted));
+                words = words.child(text(e.technology.clone()).font(TextStyle::new(9.5, 400.0).mono()).color(ink.muted));
             }
             world = world.child(row().key(format!("label/{}", e.id)).pin(Some(x - 100.0), Some(y - 10.0), None, None).w(200.0).center().inert().child(words));
         }
     }
 
+    // Where you are, cut into the table at the top left of the stage: the project, the view, the count.
+    let h = &s.frame.header;
+    let title = col()
+        .key("header")
+        .pin(Some(24.0), Some(20.0), None, None)
+        .gap(3.0)
+        .inert()
+        .child(text(h.project.to_uppercase()).font(SECTION).color(ink.muted))
+        .child(text(h.view.clone()).font(TITLE).color(ink.text))
+        .child(text(format!("{} boxes", h.boxes)).font(SMALL).color(ink.muted));
+
     el().key("stage")
         .grow(1.0)
         .h_full()
         .min_w(0.0)
-        // The table: a wide, faint pool of light at its middle, falling off to the panel's own color at the edges.
-        .radial_gradient([0.5, 0.42], [900.0, 650.0], [(0.0, ink.text.alpha(0.045)), (1.0, Color::TRANSPARENT)])
         .clip_soft(0.0)
         .cursor(Cursor::Grab)
         .child(world)
+        .child(title)
         .on_layout(|s: &mut App, r| {
             s.stage = [r[2], r[3]];
             if !s.moved || s.refit {
@@ -441,12 +523,21 @@ fn spans(lines: &[Span], fallback: Color, style: TextStyle) -> El {
 }
 
 fn section(title: &str, ink: &Ink) -> El {
-    text(title.to_string()).font(SECTION).color(ink.muted)
+    text(title.to_uppercase()).font(SECTION).color(ink.muted)
+}
+
+/// A slab standing on the table: the pane the inspector's words lie on, and the rail's current view.
+fn slab(ink: &Ink, height: f32) -> El {
+    el().fill(ink.background.mix(ink.text, 0.06))
+        .border(1.0, ink.text.alpha(0.07))
+        .gradient(ink.text.alpha(0.025), Color::TRANSPARENT)
+        .box_shadow(Shadow { x: 0.0, y: 14.0, blur: 36.0, spread: 0.0, color: Color::BLACK.alpha(0.45), inset: false })
+        .mark(mark(mat::CARD, height))
 }
 
 fn inspector(s: &App, ink: &Ink) -> El {
     let i = &s.frame.inspector;
-    let mut head = col().w_full().gap(6.0);
+    let mut head = col().w_full().gap(8.0);
     head = head.child(
         row()
             .w_full()
@@ -454,15 +545,15 @@ fn inspector(s: &App, ink: &Ink) -> El {
             .items_center()
             .gap(8.0)
             .child(text(i.title.clone()).font(HEAD).color(ink.text).truncate().min_w(0.0))
-            .child(if i.agent { text("agent").font(SMALL).color(ink.muted) } else { el() }),
+            .child(if i.agent { text("AGENT").font(SECTION).color(ink.muted) } else { el() }),
     );
     if !i.what.is_empty() {
-        head = head.child(spans(&i.what, ink.muted, TextStyle::new(12.0, 450.0)));
+        head = head.child(spans(&i.what, ink.muted, SMALL));
     }
     if !i.about.is_empty() {
         head = head.child(spans(&i.about, ink.body, BODY));
     }
-    let mut body = col().key("inspector-body").w_full().gap(20.0).child(head);
+    let mut body = col().key("inspector-body").w_full().gap(22.0).child(head);
 
     if !i.links.is_empty() {
         let mut links = col().w_full().gap(2.0);
@@ -484,13 +575,14 @@ fn inspector(s: &App, ink: &Ink) -> El {
                     .py(6.0)
                     .radius(7.0)
                     .hover(ink.hover)
+                    .mark(mark(mat::FLAT, 0.0))
                     .cursor(Cursor::Pointer)
                     .on_press(move |s: &mut App| s.select(Some(node.clone())))
                     .child(text(link.arrow.clone()).font(TextStyle::new(13.0, 500.0)).color(tone))
                     .child(lines),
             );
         }
-        body = body.child(col().w_full().gap(6.0).child(section("Connects", ink)).child(links));
+        body = body.child(col().w_full().gap(8.0).child(section("Connects", ink)).child(links));
     }
 
     if let Some(opens) = i.opens.clone() {
@@ -500,14 +592,16 @@ fn inspector(s: &App, ink: &Ink) -> El {
                 .key("open-view")
                 .role("button")
                 .label(format!("Open {}", opens.title))
-                .h(32.0)
+                .h(34.0)
                 .px(12.0)
                 .items_center()
                 .justify_between()
-                .radius(8.0)
-                .fill(ink.panel)
-                .border(1.0, ink.rule)
+                .radius(9.0)
+                .fill(ink.background.mix(ink.text, 0.1))
+                .border(1.0, ink.text.alpha(0.08))
                 .hover(ink.hover)
+                // A key standing on the pane.
+                .mark(mark(mat::CARD, 3.0))
                 .cursor(Cursor::Pointer)
                 .on_press(move |s: &mut App| s.open(view.clone(), None))
                 .child(text(format!("Open {}", opens.title)).font(TextStyle::new(12.5, 500.0)).color(ink.text))
@@ -517,66 +611,64 @@ fn inspector(s: &App, ink: &Ink) -> El {
 
     col()
         .key("inspector")
-        .w(340.0)
+        .w(356.0)
         .h_full()
         .min_h(0.0)
-        .child(col().key("inspector-scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(el().w_full().px(16.0).pt(18.0).pb(18.0).child(body)))
+        .pt(16.0)
+        .pb(16.0)
+        .pr(16.0)
+        .child(
+            slab(ink, 6.0)
+                .key("pane")
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .radius(16.0)
+                .child(col().key("inspector-scroll").w_full().h_full().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(el().w_full().px(18.0).pt(20.0).pb(20.0).child(body))),
+        )
 }
 
 // ---- The window -----------------------------------------------------------------------------
 
 fn rail(s: &App, ink: &Ink) -> El {
-    let mut items = col().w_full().gap(2.0);
+    let mut items = col().w_full().gap(3.0);
     for view in &s.model.views {
         let on = view.id == s.frame.view;
         let id = view.id.clone();
+        let item = if on { slab(ink, 3.0).key(format!("view/{}", view.id)) } else { el().key(format!("view/{}", view.id)).hover(ink.hover).mark(mark(mat::FLAT, 0.0)) };
         items = items.child(
-            row()
-                .key(format!("view/{}", view.id))
-                .role("tab")
+            item.role("tab")
                 .label(view.title.clone())
                 .w_full()
-                .h(30.0)
-                .px(10.0)
+                .h(32.0)
+                .px(12.0)
                 .items_center()
-                .radius(7.0)
-                .fill(if on { ink.text.alpha(0.08) } else { Color::TRANSPARENT })
-                .hover(ink.hover)
+                .radius(9.0)
                 .cursor(Cursor::Pointer)
                 .on_press(move |s: &mut App| s.open(id.clone(), None))
                 .child(text(view.title.clone()).font(NAV).color(if on { ink.text } else { ink.muted }).truncate()),
         );
     }
+    // The brand: a small lit stone in the theme's accent, and the project's name.
+    let gem = el().size(9.0, 9.0).radius(2.5).fill(ink.accent).box_shadow(Shadow { x: 0.0, y: 0.0, blur: 12.0, spread: 1.0, color: ink.accent.alpha(0.55), inset: false }).mark(mark(mat::FLAT, 0.0));
     col()
         .key("rail")
-        .w(224.0)
+        .w(236.0)
         .h_full()
         .min_h(0.0)
-        .pt(16.0)
-        .gap(16.0)
-        .child(row().px(16.0).gap(8.0).items_center().child(text("◆").font(TextStyle::new(12.0, 600.0)).color(ink.accent)).child(text(s.model.project.clone()).font(TextStyle::new(14.0, 550.0)).color(ink.text).truncate()))
-        .child(row().px(20.0).child(section("Views", ink)))
-        .child(col().key("rail-scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(el().w_full().px(10.0).pb(16.0).child(items)))
-}
-
-fn header(s: &App, ink: &Ink) -> El {
-    let h = &s.frame.header;
-    row()
-        .key("header")
-        .w_full()
-        .px(20.0)
-        .py(12.0)
-        .gap(7.0)
-        .items_center()
-        .child(text(h.project.clone()).font(TextStyle::new(14.0, 450.0)).color(ink.muted))
-        .child(text("/").font(TextStyle::new(14.0, 400.0)).color(ink.border))
-        .child(text(h.view.clone()).font(TextStyle::new(14.0, 600.0)).color(ink.text))
-        .child(text(format!("  {} boxes", h.boxes)).font(TextStyle::new(12.0, 400.0)).color(ink.muted))
+        .pt(22.0)
+        .pl(14.0)
+        .pr(8.0)
+        .gap(18.0)
+        .child(row().px(12.0).gap(10.0).items_center().child(gem).child(text(s.model.project.clone()).font(TextStyle::new(14.5, 600.0)).color(ink.text).truncate()))
+        .child(row().px(12.0).child(section("Views", ink)))
+        .child(col().key("rail-scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(el().w_full().pb(16.0).child(items)))
 }
 
 pub fn view(s: &App, _cx: &mut Cx<App>) -> El {
     let ink = &s.model.ink;
-    let mut root = row().key("root").w_full().h_full().fill(ink.background).on_layout(|s: &mut App, r| s.size = [r[2], r[3]]);
+    // The window is the table; the room paints it (light.rs), so nothing here fills it.
+    let root = row().key("root").w_full().h_full().on_layout(|s: &mut App, r| s.size = [r[2], r[3]]);
     if let Some(problem) = &s.problem {
         return root.center().child(text(problem.clone()).font(BODY).color(ink.text));
     }
@@ -584,21 +676,11 @@ pub fn view(s: &App, _cx: &mut Cx<App>) -> El {
         return root.center().child(text("Loading…").font(BODY).color(ink.muted));
     };
     let wide = s.size[0] >= 1100.0;
-    let rule = || el().w(1.0).h_full().fill(ink.rule);
-    let content = row().w_full().grow(1.0).min_h(0.0).child(diagram(s, current, ink)).child(rule()).child(inspector(s, ink));
-    let panel = col()
-        .key("panel")
-        .grow(1.0)
-        .h_full()
-        .min_w(0.0)
-        .fill(ink.panel)
-        .child(header(s, ink))
-        .child(el().w_full().h(1.0).fill(ink.rule))
-        .child(content);
+    let mut root = root;
     if wide {
-        root = root.child(rail(s, ink)).child(rule());
+        root = root.child(rail(s, ink));
     }
-    root.child(panel)
+    root.child(diagram(s, current, ink)).child(inspector(s, ink))
 }
 
 fn on_key(s: &mut App, e: &KeyEvent, _tx: &mut Tx) -> bool {

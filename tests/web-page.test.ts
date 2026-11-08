@@ -35,7 +35,10 @@ const boxAt = (p: Page, title: string) => p.evaluate(name => {
   return { x: r.x, y: r.y, width: r.width, height: r.height };
 }, title);
 
-/** How much of a screenshot's area is not the page's background, decoded by the browser itself. */
+/**
+ * How much of a screenshot's area is not the table it sits on, decoded by the browser itself. The table is painted (a pool of light, grain,
+ * a vignette), so "the table" is the clip's own top-left pixel, and a pixel counts as drawn when it is well away from that.
+ */
 const drawn = async (p: Page, clip: { x: number; y: number; width: number; height: number }) => {
   const png = (await p.screenshot({ clip })).toString("base64");
   return p.evaluate(async ({ png, w, h }) => {
@@ -46,9 +49,10 @@ const drawn = async (p: Page, clip: { x: number; y: number; width: number; heigh
     const context = canvas.getContext("2d")!;
     context.drawImage(image, 0, 0, w, h);
     const data = context.getImageData(0, 0, w, h).data;
+    const [r, g, b] = [data[0]!, data[1]!, data[2]!];
     let differ = 0, sum = 0;
     for (let i = 0; i < data.length; i += 4) {
-      if (Math.abs(data[i]! - 0x0e) + Math.abs(data[i + 1]! - 0x11) + Math.abs(data[i + 2]! - 0x16) > 24) differ++;
+      if (Math.abs(data[i]! - r) + Math.abs(data[i + 1]! - g) + Math.abs(data[i + 2]! - b) > 40) differ++;
       sum = (sum * 31 + data[i]! * 7 + data[i + 1]! * 3 + data[i + 2]!) % 1_000_000_007;
     }
     return { share: differ / (w * h), sum };

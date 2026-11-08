@@ -100,6 +100,11 @@ pub struct Ink {
 }
 
 impl Ink {
+    /// A dark room: the table is dark and light stands out white on it. In a light room the slabs rise toward white instead.
+    pub fn dark(&self) -> bool {
+        self.background.luminance() < 0.3
+    }
+
     fn of(p: &HashMap<String, String>) -> Ink {
         let get = |k: &str, fallback: &str| color(p.get(k).map_or(fallback, String::as_str));
         let text = get("text", "#eef1f5");
