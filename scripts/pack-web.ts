@@ -1,4 +1,4 @@
-// Packs the browser page built in DIR (index.html, boot.js, app.js, app_bg.wasm and wasm-bindgen's snippets) into OUT, each file gzipped,
+// Packs the Rune page built in DIR (index.html, boot.js, app.js, app_bg.wasm and wasm-bindgen's snippets) into OUT, each file gzipped,
 // as src/web/page.ts reads it. Run by scripts/build-web.sh.
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";

@@ -10,22 +10,9 @@ permissions:
   contents: write
 
 jobs:
-  # The browser page (web/, Rust on Rune, compiled to wasm) is the same on every platform: built once here and embedded by each build below.
-  page:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
-        with: { bun-version: "1.4.2" }
-      - run: bun install --frozen-lockfile
-      - name: wasm-bindgen at the version web/Cargo.lock pins
-        run: cargo install wasm-bindgen-cli --locked --version "$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' web/Cargo.lock)"
-      - run: sh scripts/build-web.sh
-      - uses: actions/upload-artifact@v6
-        with: { name: pathlight-page, path: web/dist/pathlight-page.gz }
-
+  # The browser page (src/page/, Solid) is built by scripts/build.sh with Bun alone. The experimental Rune page (web/) needs Rust and is not
+  # released; PATHLIGHT_RUNE=1 builds it into a local binary.
   build:
-    needs: page
     strategy:
       matrix:
         include:
@@ -40,9 +27,6 @@ jobs:
         with: { bun-version: "1.4.2" }
       - run: bun install --frozen-lockfile
       - run: bun run check
-      - uses: actions/download-artifact@v7
-        with: { name: pathlight-page, path: web/dist }
-      - run: test -f web/dist/pathlight-page.gz
       - run: sh scripts/build.sh
       - name: Smoke test
         run: |
