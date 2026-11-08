@@ -60,6 +60,8 @@ pub struct App {
     pub window: String,
     /// The selection as drawn: the person's click shows at once, and the server's frame confirms it.
     pub selected: Option<String>,
+    /// The box whose glow shows: the selection, once the light travelling to it has arrived (`light.rs` sets it).
+    pub glow: Option<String>,
     /// Acts waiting to be sent; the wasm side sends them, the tests read them.
     pub outbox: Vec<Act>,
     pub problem: Option<String>,
@@ -96,6 +98,7 @@ impl App {
             model,
             frame,
             window: String::new(),
+            glow: selected.clone(),
             selected,
             outbox: Vec::new(),
             problem: None,
@@ -234,7 +237,7 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
     if !about.is_empty() && h >= 40.0 {
         words = words.child(text(about.join("  ·  ")).font(SMALL).color(quiet).truncate());
     }
-    let mut card = el()
+    let card = el()
         .key(format!("node/{id}"))
         .role("button")
         .label(node.title.clone())
@@ -244,8 +247,15 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
         .radius(12.0)
         .fill(slab)
         .gradient(ink.text.alpha(0.035), Color::TRANSPARENT)
-        .border(1.0, if selected { ink.accent.alpha(0.55) } else { ink.text.alpha(0.06) })
-        .shadow(4.0, 14.0, Color::BLACK.alpha(0.35))
+        .border(1.0, if selected { ink.accent.alpha(0.55) } else { ink.text.alpha(0.06) });
+    // The selected box is backlit: a glow in the accent lies under the solid box, the same on every side, so the light shows only around its
+    // edges and never through it. A tight bright rim and a wide soft spill. Its color springs, so it comes up and goes out.
+    let glowing = s.glow.as_deref() == Some(id.as_str());
+    let (rim, spill) = if glowing { (ink.accent.alpha(0.9), ink.accent.alpha(0.6)) } else { (ink.accent.alpha(0.0), ink.accent.alpha(0.0)) };
+    let mut card = card
+        .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 40.0, spread: 6.0, color: spill, inset: false })
+        .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 7.0, spread: 1.0, color: rim, inset: false })
+        .shadow(4.0, 14.0, Color::BLACK.alpha(if glowing { 0.0 } else { 0.35 }))
         .mark(light::mark(if selected { light::mat::LIFTED } else { light::mat::CARD }))
         .cursor(Cursor::Pointer)
         .motion(motion::SNAPPY)

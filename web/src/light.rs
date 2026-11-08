@@ -1,12 +1,13 @@
 //! The page's light (plan 4d, "The look"). Rune lays out and draws the page as usual; this compositor then lights it with `rune-light`: every
-//! element marked as a card becomes a raised slab with a bevelled edge, a soft key light from above gives the table its depth, and the
-//! selection is a lamp in the theme's accent that hangs over the selected box and glides to the next one. The recipe is Rune's own
+//! element marked as a card becomes a raised slab with a bevelled edge, a soft key light and a cool fill give the table its depth, and when
+//! the selection moves along a line, a tight point of light runs along it. The selected box's glow is not light here: the page draws it under
+//! the solid box (`lib.rs`), so it can only show around the edges; this tells the page when the light has arrived. The recipe is Rune's own
 //! (`examples/cursed-settings/src/gfx.rs`): the frame without text is the albedo, the glyphs are lit on their own, and `rune-light` writes the
 //! lit frame to the window, encoding it for an 8-bit target itself.
 
 use crate::App;
 use rune::compose::{Compositor, Frame, is_glyph};
-use rune::render::{Instance, KIND_LAYER, KIND_LAYER_END, KIND_RECT};
+use rune::render::{Instance, KIND_GRADIENT, KIND_LAYER, KIND_LAYER_END, KIND_RECT};
 use rune_light::{Light, LightRenderer, Prim, Scene, Settings};
 
 const HDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -17,7 +18,7 @@ pub mod mat {
     pub const FLAT: u8 = 0;
     /// A box: a slab that casts a shadow and catches the light on its bevel.
     pub const CARD: u8 = 1;
-    /// The selected box: the same slab, lifted toward the lamp.
+    /// The selected box: the same slab, lifted a little higher.
     pub const LIFTED: u8 = 2;
 }
 
@@ -37,7 +38,6 @@ fn prim(ins: &Instance, material: u8, s: f32) -> Option<Prim> {
     let p = Prim::from_rune(ins.rect, ins.radii).albedo([ins.fill[0] / a, ins.fill[1] / a, ins.fill[2] / a]);
     match material {
         mat::CARD => Some(p.raised(6.0 * s).bevel(5.0 * s, 1.6 * s).gloss(0.42, 0.5)),
-        // Lifted high enough to stand between the table and the lamp behind it.
         mat::LIFTED => Some(p.raised(16.0 * s).bevel(5.0 * s, 1.8 * s).gloss(0.5, 0.42)),
         _ => None,
     }
@@ -109,14 +109,11 @@ impl Travel {
     }
 }
 
-/// The selection's light. Behind the selected box it is a backlight; when the selection moves to a box joined to the last one, it leaves
-/// the old box as a tight point of light running along that line and slips behind the new box, becoming its backlight. Between boxes no
-/// line joins, it glides. It fades in and out rather than cutting.
+/// The selection's light. When the selection moves to a box joined to the last one by a line, a tight point of light runs quickly along
+/// that line; the new box's glow (drawn by the page under the box) comes up when it arrives.
 #[derive(Default)]
 pub struct Lighting {
     res: Option<Res>,
-    lamp: Option<[f32; 2]>,
-    on: f32,
     animating: bool,
     last: Option<String>,
     travel: Option<Travel>,
@@ -140,6 +137,13 @@ impl Compositor<App> for Lighting {
         }
         let res = self.res.as_mut().expect("made above");
         let rt = &mut *f.rt;
+        // Rune's desktop and headless platforms record each instance's mark when a compositor is attached; its web platform does not (at
+        // the pin), so the browser would see no slabs at all. Ask for them, and draw the frame again with them.
+        if !rt.track_marks {
+            rt.track_marks = true;
+            rt.invalidate();
+            self.animating = true;
+        }
         let s = rt.env.scale;
         let dark = rt.env.system_dark;
         let (w, h) = (f.size.0 as f32, f.size.1 as f32);
@@ -160,8 +164,10 @@ impl Compositor<App> for Lighting {
                 continue;
             }
             base.push(*ins);
-            if kind == KIND_RECT
-                && let Some(p) = prim(ins, material(rt.marks.get(i).copied().unwrap_or(0)), s)
+            let m = material(rt.marks.get(i).copied().unwrap_or(0));
+            // A box with a sheen is drawn as a gradient, not a plain rect; both are its slab.
+            if (kind == KIND_RECT || kind == KIND_GRADIENT)
+                && let Some(p) = prim(ins, m, s)
             {
                 prims.push(p);
             }
@@ -198,9 +204,7 @@ impl Compositor<App> for Lighting {
                     along.push(along.last().unwrap() + crate::geom::dist(w[0], w[1]));
                 }
                 let length = *along.last().unwrap() * zoom;
-                self.travel = Some(Travel { path, along, start: rt.t, seconds: (length as f64 / 480.0).clamp(0.45, 1.1) });
-                // The old box's backlight goes out as the light leaves it; the new one's is lit when it arrives.
-                self.lamp = None;
+                self.travel = Some(Travel { path, along, start: rt.t, seconds: (length as f64 / 1100.0).clamp(0.18, 0.42) });
             } else {
                 self.travel = None;
             }
@@ -211,24 +215,14 @@ impl Compositor<App> for Lighting {
             self.travel = None;
         }
 
-        // The backlight: behind the selected box's centre, gliding there when no line was travelled.
-        let target = selected.as_ref().and_then(|id| rt.presented(&format!("node/{id}"))).filter(|(r, a)| r[2] > 0.0 && *a > 0.05).map(|(r, _)| [(r[0] + r[2] / 2.0) * s, (r[1] + r[3] / 2.0) * s]);
-        let k = 1.0 - (-(f.dt as f32).min(0.1) * 9.0).exp();
-        let wanted = if target.is_some() && travelling.is_none() { 1.0 } else { 0.0 };
-        // Out fast as the light leaves on a line, in at the normal pace when it arrives.
-        self.on += (wanted - self.on) * if travelling.is_some() { (k * 2.5).min(1.0) } else { k };
-        if let Some(t) = target
-            && travelling.is_none()
-        {
-            let at = self.lamp.get_or_insert(t);
-            at[0] += (t[0] - at[0]) * k;
-            at[1] += (t[1] - at[1]) * k;
+        // The selected box's glow is the page's own (a glow under the solid box, so it shows only around the edges): the light tells the page
+        // when to show it, which is once the light has arrived along the line, or at once when there was no line to travel.
+        let glow = if travelling.is_some() { None } else { selected.clone() };
+        if rt.state.glow != glow {
+            rt.state.glow = glow;
+            rt.invalidate();
         }
-        let gliding = match (target, self.lamp) {
-            (Some(t), Some(at)) => (t[0] - at[0]).hypot(t[1] - at[1]) > 0.5,
-            _ => false,
-        };
-        self.animating = travelling.is_some() || gliding || (self.on > 0.01 && self.on < 0.99);
+        self.animating = travelling.is_some();
 
         // Rune's colors are sRGB; light is linear.
         let lin = |c: rune::Color| [c.r, c.g, c.b].map(|v| v.max(0.0).powf(2.2));
@@ -240,31 +234,12 @@ impl Compositor<App> for Lighting {
             // The fill: low and far at the bottom right, cool, so the shadow side is never black.
             Light::point(w * 1.05, h * 1.1, 900.0 * s).color([0.55, 0.65, 1.0]).intensity(0.35).radius(240.0 * s).range(9000.0 * s).specular(0.4),
         ];
-        if let Some(at) = self.lamp
-            && self.on > 0.01
-        {
-            // The lamp is behind the selected box: just above the table, under the slab's top, so the slab hides it and its light bleeds out
-            // around the edges as a halo with soft rays, while the box's face stays as it is (rune-light's backlight, `examples/live.rs`).
-            // A small source low under the slab: a larger one would reach above the slab's top and light its face.
-            lights.push(
-                Light::point(at[0], at[1], 3.0 * s)
-                    .color(accent)
-                    .intensity(if dark { 3.6 } else { 1.2 })
-                    .radius(3.0 * s)
-                    // A tight reach: the halo hugs the box instead of tinting the room.
-                    .range(if dark { 380.0 } else { 260.0 } * s)
-                    // With shafts on, rune-light treats the light as standing behind the UI: it lights no face from the front, only the
-                    // rims facing it and the air in the gaps (composite.wgsl). That is the backlight.
-                    .shafts(1.0)
-                    .softness(2.2)
-                    .scaled(self.on),
-            );
-        }
         // The light on its way: a tight, bright point riding the line, eased so it leaves and arrives gently.
         if let (Some(u), Some(travel)) = (travelling, self.travel.as_ref()) {
             let e = u * u * (3.0 - 2.0 * u);
             let p = screen(travel.at(e));
-            lights.push(Light::point(p[0], p[1], 3.0 * s).color(accent).intensity(if dark { 5.0 } else { 2.0 }).radius(2.0 * s).range(90.0 * s).bulb(1.6));
+            // A tight point: a small source with a small bloom, reaching only the line around it.
+            lights.push(Light::point(p[0], p[1], 2.0 * s).color(accent).intensity(if dark { 3.0 } else { 1.4 }).radius(1.0 * s).range(36.0 * s).bulb(0.7));
         }
         let settings = Settings {
             ambient: if dark { [0.3, 0.31, 0.34] } else { [0.62, 0.62, 0.64] },
@@ -274,7 +249,7 @@ impl Compositor<App> for Lighting {
             // A matte table: the key light should not paint a sheen across the floor and the panels.
             background_gloss: 0.08,
             background_roughness: 0.85,
-            // Rays only in the gaps around a box, never across a box's face: the selected box stays dark against its halo.
+            // No light across a box's face, ever: the boxes stay solid.
             shafts_over: 0.0,
             time: rt.t as f32,
             ..Settings::default()
