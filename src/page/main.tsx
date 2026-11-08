@@ -83,15 +83,22 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
     history.replaceState(null, "", `?${address}`);
   };
 
-  // The stream of frames: one window on the server, opened at the address's view and selection, at this window's size.
-  const opened = size();
-  const events = new EventSource(api("/api/events", `&cols=${opened.cols}&rows=${opened.rows}${params.get("view") ? `&view=${encodeURIComponent(params.get("view")!)}` : ""}${params.get("select") ? `&select=${encodeURIComponent(params.get("select")!)}` : ""}`));
-  events.onmessage = event => {
-    const data = JSON.parse(event.data) as { window: string; frame: Frame };
-    windowId = data.window;
-    apply(data.frame);
+  // The stream of frames: one window on the server, opened at the address's view and selection, at this window's size. EventSource would
+  // reconnect to the address it was first given; after a restarted server the window opens again where the address says now.
+  let events: EventSource | undefined, retry = 0;
+  const connect = () => {
+    const now = new URLSearchParams(location.search), at = size();
+    const view = now.get("view"), chosen = now.get("select");
+    events = new EventSource(api("/api/events", `&cols=${at.cols}&rows=${at.rows}${view ? `&view=${encodeURIComponent(view)}` : ""}${chosen ? `&select=${encodeURIComponent(chosen)}` : ""}`));
+    events.onmessage = event => {
+      const data = JSON.parse(event.data) as { window: string; frame: Frame };
+      windowId = data.window;
+      apply(data.frame);
+    };
+    events.onerror = () => { events?.close(); windowId = ""; clearTimeout(retry); retry = window.setTimeout(connect, 1000); };
   };
-  onCleanup(() => events.close());
+  connect();
+  onCleanup(() => { clearTimeout(retry); events?.close(); });
 
   // A resize refits while the view is fitted, and tells the server the new size in cells: the inspector's place and its words follow it.
   let sizeTimer = 0;
