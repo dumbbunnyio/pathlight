@@ -254,7 +254,8 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
     // The selected box is backlit: a white glow lies under the solid box, the same on every side, so the light shows only around its
     // edges and never through it. A tight bright rim and a wide soft spill. Its color springs, so it comes up and goes out.
     let glowing = s.glow.as_deref() == Some(id.as_str());
-    let (rim, spill) = if glowing { (Color::WHITE.alpha(0.85), Color::WHITE.alpha(0.42)) } else { (Color::WHITE.alpha(0.0), Color::WHITE.alpha(0.0)) };
+    // Faint and even: the directional backlight is the light's (light.rs); this only keeps the whole rim from going dark on the far side.
+    let (rim, spill) = if glowing { (Color::WHITE.alpha(0.35), Color::WHITE.alpha(0.12)) } else { (Color::WHITE.alpha(0.0), Color::WHITE.alpha(0.0)) };
     let mut card = card
         .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 40.0, spread: 6.0, color: spill, inset: false })
         .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 7.0, spread: 1.0, color: rim, inset: false })
@@ -342,16 +343,18 @@ fn diagram(s: &App, view: &View, ink: &Ink) -> El {
         world = world.child(card(node, s, near(&node.id), ink));
     }
 
-    // The pin prick: white, one point wider than the selected line on screen, with a faint glow of its own.
+    // The ball of energy travelling the line: a white core a little wider than the line, with a bright halo, so the eye can follow it.
     if let Some([x, y]) = s.pin {
-        let d = 1.6 + 1.0 / s.zoom.max(0.05);
+        let z = s.zoom.max(0.05);
+        let d = 1.6 + 3.0 / z;
         world = world.child(
             el().key("pin")
                 .pin(Some(x - d / 2.0), Some(y - d / 2.0), None, None)
                 .size(d, d)
                 .radius(d / 2.0)
                 .fill(Color::WHITE)
-                .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 3.0 / s.zoom.max(0.05), spread: 0.0, color: Color::WHITE.alpha(0.6), inset: false })
+                .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 14.0 / z, spread: 1.0 / z, color: Color::WHITE.alpha(0.55), inset: false })
+                .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 5.0 / z, spread: 0.5 / z, color: Color::WHITE.alpha(0.9), inset: false })
                 .mark(light::mark(light::mat::FLAT))
                 .inert(),
         );

@@ -110,14 +110,28 @@ impl Travel {
     }
 }
 
-/// The selection's light. When the selection moves to a box joined to the last one by a line, a tight point of light runs quickly along
-/// that line; the new box's glow (drawn by the page under the box) comes up when it arrives.
+/// Where the energy sits behind the selected box once it has arrived: the point where its line entered the box (in the view's points), or
+/// none when it came by no line and rises from the box's centre.
+struct Rest {
+    id: String,
+    entry: Option<[f32; 2]>,
+    since: f64,
+}
+
+/// The selection's light, as energy. When the selection moves to a box joined to the last one by a line, a ball of energy travels that
+/// line (the page draws it, `App::pin`); where the line enters the new box it goes behind it and becomes a light under the solid box, so
+/// the whole box is backlit, brightest on the side it came in from, with soft rays through the gaps. With no line it rises behind the
+/// box's centre. It stays while the box is selected and fades with the selection.
 #[derive(Default)]
 pub struct Lighting {
     res: Option<Res>,
     animating: bool,
     last: Option<String>,
     travel: Option<Travel>,
+    /// For whom the travel is, so its arrival can hand over to the backlight.
+    to: Option<String>,
+    rest: Option<Rest>,
+    on: f32,
 }
 
 impl Compositor<App> for Lighting {
@@ -174,7 +188,10 @@ impl Compositor<App> for Lighting {
             }
         }
 
-        let zoom = rt.state.zoom;
+        // Where a point of the view lands on the window, in device pixels: the stage's place, then the camera.
+        let stage = rt.presented("stage").map_or([0.0, 0.0], |(r, _)| [r[0], r[1]]);
+        let (pan, zoom) = (rt.state.pan, rt.state.zoom);
+        let screen = |p: [f32; 2]| [(stage[0] + pan[0] + p[0] * zoom) * s, (stage[1] + pan[1] + p[1] * zoom) * s];
 
         // A new selection joined to the last by a line: the light travels that line, from the old box to the new one.
         let selected = rt.state.selected.clone();
@@ -202,15 +219,27 @@ impl Compositor<App> for Lighting {
                     along.push(along.last().unwrap() + crate::geom::dist(w[0], w[1]));
                 }
                 let length = *along.last().unwrap() * zoom;
-                self.travel = Some(Travel { path, along, start: rt.t, seconds: (length as f64 / 1100.0).clamp(0.18, 0.42) });
+                // Quick, but slow enough to follow with the eye.
+                self.travel = Some(Travel { path, along, start: rt.t, seconds: (length as f64 / 700.0).clamp(0.3, 0.65) });
+                self.to = selected.clone();
+                self.rest = None;
             } else {
                 self.travel = None;
+                // No line: the energy rises behind the new box's centre.
+                self.rest = selected.clone().map(|id| Rest { id, entry: None, since: rt.t });
             }
+            self.on = 0.0;
             self.last = selected.clone();
         }
         let travelling = self.travel.as_ref().map(|t| ((rt.t - t.start) / t.seconds) as f32).filter(|u| *u < 1.0);
-        if travelling.is_none() {
-            self.travel = None;
+        if travelling.is_none()
+            && let Some(travel) = self.travel.take()
+        {
+            // Arrived: the energy goes behind the box where the line meets it.
+            self.rest = self.to.take().map(|id| Rest { id, entry: travel.path.last().copied(), since: rt.t });
+        }
+        if self.rest.as_ref().is_some_and(|r| Some(&r.id) != selected.as_ref()) {
+            self.rest = None;
         }
 
         // The selected box's glow is the page's own (a glow under the solid box, so it shows only around the edges): the light tells the page
@@ -230,15 +259,45 @@ impl Compositor<App> for Lighting {
             rt.state.pin = pin;
             rt.invalidate();
         }
-        self.animating = travelling.is_some();
+        // Behind the box: born at the entry point, it settles a little way in toward the centre as it grows, so the whole box is backlit and
+        // the entry side brightest.
+        let k = 1.0 - (-(f.dt as f32).min(0.1) * 10.0).exp();
+        self.on += ((if self.rest.is_some() { 1.0 } else { 0.0 }) - self.on) * k;
+        let behind = self.rest.as_ref().and_then(|r| {
+            let (rect, _) = rt.presented(&format!("node/{}", r.id)).filter(|(b, a)| b[2] > 0.0 && *a > 0.05)?;
+            let c = [(rect[0] + rect[2] / 2.0) * s, (rect[1] + rect[3] / 2.0) * s];
+            let grow = (((rt.t - r.since) / 0.7) as f32).clamp(0.0, 1.0);
+            let ease = 1.0 - (1.0 - grow).powi(3);
+            let at = r.entry.map_or(c, |e| {
+                let e = screen(e);
+                let m = 0.38 * ease;
+                [e[0] + (c[0] - e[0]) * m, e[1] + (c[1] - e[1]) * m]
+            });
+            Some((at, 0.35 + 0.65 * ease, grow < 1.0))
+        });
+        self.animating = travelling.is_some() || behind.is_some_and(|b| b.2) || (self.on > 0.01 && self.on < 0.99);
 
         // Calibrated on Rune's own lit demos (rune-light's `raised` scene): a dim room, one key light, a faint cool fill.
-        let lights = vec![
+        let mut lights = vec![
             // The key light: above the top left of the window, so every slab has a lit edge toward it and a soft shadow away from it.
             Light::point(w * 0.22, h * 0.12, 520.0 * s).color([1.0, 0.94, 0.86]).intensity(if dark { 2.6 } else { 2.2 }).radius(90.0 * s).range(6000.0 * s).specular(1.4),
             // The fill: low and far at the bottom right, cool, so the shadow side is never black.
             Light::point(w * 1.05, h * 1.1, 900.0 * s).color([0.55, 0.65, 1.0]).intensity(0.35).radius(240.0 * s).range(9000.0 * s).specular(0.4),
         ];
+        // The energy behind the box: a small white source on the table under the slab. With `shafts` on, rune-light treats it as standing
+        // behind the UI: it lights no face from the front, only the rims and the air in the gaps, as soft rays (composite.wgsl).
+        if let Some((at, strength, _)) = behind {
+            lights.push(
+                Light::point(at[0], at[1], 3.0 * s)
+                    .color([1.0, 0.98, 0.95])
+                    .intensity(if dark { 4.5 } else { 1.6 })
+                    .radius(4.0 * s)
+                    .range(if dark { 340.0 } else { 240.0 } * s)
+                    .shafts(if dark { 1.4 } else { 0.7 })
+                    .softness(2.0)
+                    .scaled(strength * self.on),
+            );
+        }
         let settings = Settings {
             ambient: if dark { [0.3, 0.31, 0.34] } else { [0.62, 0.62, 0.64] },
             rim: 1.0,
