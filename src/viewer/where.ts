@@ -61,3 +61,30 @@ export const newestWork = <Node extends WhereNode, View extends WhereView<Node>>
   }
   return undefined;
 };
+
+export type Direction = "left" | "right" | "up" | "down";
+interface Placed { id: unknown; parent?: unknown; children: readonly unknown[]; x: number; y: number; width: number; height: number }
+
+/**
+ * The arrow keys' neighbor: the nearest box in a direction, by the centers of their boxes, within a cone if any is; siblings win ties. Ancestors
+ * and descendants are reached with Backspace and Enter, so they are not neighbors. Undefined when there is none.
+ */
+export const neighborIn = <N extends Placed>(nodes: readonly N[], current: N, direction: Direction): N | undefined => {
+  const lineage = new Set<string>([String(current.id)]);
+  for (let parent = nodes.find(node => node.id === current.parent); parent; parent = nodes.find(node => node.id === parent?.parent)) lineage.add(String(parent.id));
+  const descend = (id: string) => { for (const child of nodes.find(node => String(node.id) === id)?.children ?? []) { lineage.add(String(child)); descend(String(child)); } };
+  descend(String(current.id));
+  const cx = current.x + current.width / 2, cy = current.y + current.height / 2;
+  const scored = nodes.filter(node => !lineage.has(String(node.id))).flatMap(node => {
+    const dx = node.x + node.width / 2 - cx, dy = node.y + node.height / 2 - cy;
+    const along = direction === "right" ? dx : direction === "left" ? -dx : direction === "down" ? dy : -dy;
+    const across = Math.abs(direction === "left" || direction === "right" ? dy : dx);
+    if (along <= 1) return [];
+    return [{ node, cone: across <= along * 1.5, score: (along + across * 2) * (node.parent === current.parent ? 0.6 : 1) }];
+  });
+  const pool = scored.some(entry => entry.cone) ? scored.filter(entry => entry.cone) : scored;
+  return pool.sort((a, b) => a.score - b.score)[0]?.node;
+};
+
+/** What the footer says when there is no neighbor that way. */
+export const nothingThere = (direction: Direction, title: string) => `Nothing ${direction === "up" ? "above" : direction === "down" ? "below" : `to the ${direction} of`} ${title}`;

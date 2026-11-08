@@ -49,7 +49,7 @@ import { createFlowMode, flowView, stepElement } from "./viewer/flow-mode";
 import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
-import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
+import { type Direction, elementsOf, neighborIn, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, nothingThere, viewHaving as viewIn } from "./viewer/where";
 
 /**
  * Who draws the viewer when it is not the terminal's own process: `pathlight pane` hands it a headless renderer and takes the frames, says when the
@@ -662,27 +662,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     followSelecting = true; followedTitle = target.title;
     try { message = ""; selectNode(target, true); } finally { followSelecting = false; }
   };
-  type Direction = "left" | "right" | "up" | "down";
-  // Nearest node in a direction, by the centres of their boxes; siblings win ties. Ancestors and descendants are
-  // reached with Backspace/Enter, so they are not neighbours.
+  // Nearest node in a direction (viewer/where.ts).
   const traverse = (direction: Direction) => {
     if (!state.selected) return;
-    const current = state.selected;
-    const lineage = new Set<string>([String(current.id)]);
-    for (let parent = diagram.nodes.find(node => node.id === current.parent); parent; parent = diagram.nodes.find(node => node.id === parent?.parent)) lineage.add(String(parent.id));
-    const descend = (id: string) => { for (const child of diagram.nodes.find(node => String(node.id) === id)?.children ?? []) { lineage.add(String(child)); descend(String(child)); } };
-    descend(String(current.id));
-    const cx = current.x + current.width / 2, cy = current.y + current.height / 2;
-    const scored = diagram.nodes.filter(node => !lineage.has(String(node.id))).flatMap(node => {
-      const dx = node.x + node.width / 2 - cx, dy = node.y + node.height / 2 - cy;
-      const along = direction === "right" ? dx : direction === "left" ? -dx : direction === "down" ? dy : -dy;
-      const across = Math.abs(direction === "left" || direction === "right" ? dy : dx);
-      if (along <= 1) return [];
-      return [{ node, cone: across <= along * 1.5, score: (along + across * 2) * (node.parent === current.parent ? 0.6 : 1) }];
-    });
-    const pool = scored.some(entry => entry.cone) ? scored.filter(entry => entry.cone) : scored;
-    const best = pool.sort((a, b) => a.score - b.score)[0]?.node;
-    if (!best) { message = `Nothing ${direction === "up" ? "above" : direction === "down" ? "below" : `to the ${direction} of`} ${current.title}`; update(); return; }
+    const best = neighborIn(diagram.nodes, state.selected, direction);
+    if (!best) { message = nothingThere(direction, state.selected.title); update(); return; }
     message = "";
     selectNode(best, false);
     camera.ensureVisible(best);
