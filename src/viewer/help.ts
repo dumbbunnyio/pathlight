@@ -16,8 +16,12 @@ const legendItems = (diff: boolean): [glyph: string, color: string, label: strin
  * side by side from 100 columns and stacked below. The tier the user is in (the highest one they have pressed a key of this session) is in the
  * accent colour; the rest are dim. The rows are viewer/keys.ts's table.
  */
-export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: number; version: string; diff?: boolean }) {
-  const groups = helpGroups(options.vim).map(group => ({ ...group, active: group.tier === options.tier }));
+export function helpContent(options: { tier: Tier; vim: boolean; screenWidth: number; version: string; diff?: boolean;
+  /** Only the rows whose actions a surface has (the browser page lists its own keys and no others); every row when left out. */
+  only?: (does: readonly string[]) => boolean }) {
+  const only = options.only;
+  const groups = helpGroups(options.vim).map(group => ({ ...group, rows: only ? group.rows.filter(row => only(row[2])) : group.rows, active: group.tier === options.tier }))
+    .filter(group => group.rows.length);
   const wide = options.screenWidth >= 100;
   // The frame is at most `helpCap` columns wide (100 below 100 columns), four of them its border and padding: the content is its inside.
   const inner = Math.min((wide ? helpCap : 100) - 4, options.screenWidth - 8), gap = 3;

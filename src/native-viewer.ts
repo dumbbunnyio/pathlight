@@ -20,6 +20,7 @@ import pkg from "../package.json" with { type: "json" };
 import { borderHints, palette, setPalette } from "./ui";
 import { type Mode, loadThemes, paletteOf, savedTheme, themeFromEnvironment } from "./theme";
 import { cellAt, rasterize, routeEdges, type Route } from "./routes";
+import { toneColor } from "./ui";
 import { checkFlows } from "./flows";
 import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges, type FlowMap } from "./flow-view";
 import { attempt, failure, io } from "./effects";
@@ -29,11 +30,12 @@ import { readSession, type SessionPointer } from "./sessions";
 import { declarationsFor } from "./languages";
 import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
 import { createCamera } from "./viewer/camera";
-import { boundsOf, compact, kindsVary } from "./viewer/compact";
-import { cardLook, insideWords } from "./viewer/card-view";
+import { boundsOf } from "./viewer/compact";
+import { shapeView } from "./viewer/shape";
+import { cardLook } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, followNews, footerContent, modeHints, workOffer } from "./viewer/footer";
-import { badgeContent as headerBadge, diffText, edgeMarks, journeyHeading } from "./viewer/header";
+import { badgeContent as headerBadge, boxesText, edgeMarks, journeyHeading, viewHeading } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
 import { allotSections, appNoteOf, headContent, isWaiting, nodeListContent, opensOf, pinnedLines, sectionHeader } from "./viewer/inspector-view";
 import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
@@ -77,18 +79,10 @@ const wordRows = new WeakMap<Layout, { words: ReadonlyMap<string, string>; row: 
 const shape = (raw: Layout): Layout => {
   const known = shaped.get(raw);
   if (known) return known;
-  // A planned element with no files yet keeps its `[planned]` row; the word row is drawn when a card in the view has a word, or its kinds vary (the row
-  // it always had, see kindsVary). Watching a session, every card keeps that row, so the activity counts that appear there never move the layout.
-  const planned = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`)) && ![...files].some(([element, paths]) => (element === ref || element.startsWith(`${ref}.`)) && paths.length);
-  const input = raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
-    x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined, status: planned(String(node.modelRef)) }));
-  const words = insideWords(raw, new Set([...diagrams.values()].flatMap(other => other.nodes.map(node => String(node.modelRef)))));
-  const row = words.size > 0 || kindsVary(raw.nodes) || watching;
-  const rects = compact(input, { aspect: 0.5, wordRow: row });
-  const nodes = raw.nodes.map((node, index) => ({ ...node, x: rects[index]!.x, y: rects[index]!.y, width: rects[index]!.width, height: rects[index]!.height }));
-  const next = { ...raw, nodes, bounds: boundsOf(nodes) } as Layout;
+  const fitted = shapeView(raw, { all: diagrams.values(), planned: config?.planned ?? [], files, watching });
+  const next = { ...raw, nodes: fitted.nodes, bounds: fitted.bounds } as Layout;
   shaped.set(raw, next);
-  wordRows.set(next, { words, row: row || input.some(node => !node.children.length && node.status) });
+  wordRows.set(next, { words: fitted.words, row: fitted.row });
   return next;
 };
 const getDiagram = (id: string) => {
@@ -219,9 +213,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const pointed = () => pointMark !== undefined && String(state.selected?.modelRef ?? "") === pointMark;
   const headingContent = () => {
     const active = flowMode.active, element = active ? stepElement(active, flowMode.step) : undefined;
-    return new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id)),
-      ...(active ? journeyHeading({ title: active.title, step: flowMode.step, steps: active.steps.length, box: element ? elementTitle(element) : undefined, pointed: pointFlow && pointMark !== undefined })
-        : pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : [])]);
+    return viewHeading(diagram.title ?? String(diagram.id),
+      active ? journeyHeading({ title: active.title, step: flowMode.step, steps: active.steps.length, box: element ? elementTitle(element) : undefined, pointed: pointFlow && pointMark !== undefined })
+        : pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : []);
   };
   // Right-hand: the live session when there is one (a spinner replaces the dot while a tool runs), otherwise nothing.
   // The last `pathlight check` (the Stop hook runs one at the end of each turn): shown only when the model and the code disagree, with how old that check is.
@@ -468,7 +462,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     canvas.visible = !listMode; nodeList.visible = listMode;
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
-    crumbPlain = `${diagram.nodes.length} ${diagram.nodes.length === 1 ? "box" : "boxes"}${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${state.history.length ? ` · back ${state.history.length}` : ""}${diffText(diff)}${plan ? ` · plan ${plan.elements.length}` : ""}`;
+    crumbPlain = boxesText({ boxes: diagram.nodes.length, planned: diagram.nodes.filter(node => waiting(String(node.modelRef))).length, back: state.history.length, diff, plan: plan?.elements.length });
     breadcrumb.content = crumbPlain;
     crumbHint.visible = true;
     camera.sync();
@@ -1234,8 +1228,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       for (const cell of rasterize([...routes, ...gaps], point => camera.projected(point.x, point.y), isCovered, state.selected ? String(state.selected.id) : undefined, edgeMarks(diff, diagram.nodes, diagram.edges, flowPath), id => drawnCards.get(id))) {
         // A connector stops a cell short of the inspector's divider, so it never reads as a line into the panel.
         if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width - 1 || cell.y >= viewport.height) continue;
-        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : cell.tone === "path" || cell.tone === "gap" ? palette.purple : palette.edgeDim;
-        canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(fg), bg);
+        canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(toneColor(cell.tone)), bg);
       }
     })();
     await drawing;
