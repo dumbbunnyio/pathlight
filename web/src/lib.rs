@@ -222,7 +222,7 @@ fn group_box(node: &Node, selected: bool, ink: &Ink) -> Vec<El> {
     vec![well, title]
 }
 
-/// A box is a slab standing on the table: one material for every kind, lit by the room and, when selected, by the lamp. What the model says it
+/// A box is a slab standing on the table: one material for every kind, lit by the room, and glowing around its edges when selected. What the model says it
 /// is (a person, a store, a queue) is a word on it, never a shape.
 fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
     let [x, y, w, h] = node.rect;
