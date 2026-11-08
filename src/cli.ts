@@ -48,7 +48,7 @@ pathlight view VIEW [--workspace PATH] [--project NAME] [--select ELEMENT]
 pathlight see VIEW [--workspace PATH] [--project NAME] [--cols N] [--rows N] [--select ELEMENT] [--keys KEY,KEY] [--ansi] [--follow] [--agent] [--zoom]
 pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--pane %ID] [--socket PATH]
 pathlight pane [VIEW] [--workspace PATH] [--project NAME] --cols N --rows N [--session ID --source claude] [--select ELEMENT] [--socket PATH]
-pathlight web [VIEW] [--workspace PATH] [--project NAME] [--select ELEMENT] [--port N]
+pathlight web [VIEW] [--workspace PATH] [--project NAME] [--select ELEMENT] [--port N] [--rune]
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
 pathlight config get claude | pathlight config set claude pane|tmux
@@ -69,7 +69,7 @@ setup is the first run: it checks the machine and the workspace, says what it wo
 init wires Claude Code hooks, the pathlight skills and the OpenCode plugin into a workspace. init --global registers the OpenCode plugin for every project instead (in OpenCode's own opencode.json); it records only in projects with a mapping.
 show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
 see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. --agent puts a pane running cat in that private server as the agent's pane, so t, m and d can be drawn and sent; nothing leaves it. Beside it they open a modal, as they do beside your agent; --zoom puts the viewer in a split beside that pane and zooms it, the full screen where the conversation is hidden, so they open the talk column. For agents and tests.
-web serves the map to a browser on 127.0.0.1 and prints its address, which carries a token for this run only; Ctrl-C stops it. The page is drawn with WebGPU (Rune), which on Linux often needs browser flags; it is experimental. VIEW is the view it opens on, the overview if none.
+web serves the map to a browser on 127.0.0.1 and prints its address, which carries a token for this run only; Ctrl-C stops it. The page is the terminal viewer drawn by the browser: the same header, diagram, inspector and footer, the same words and keys, in the theme the terminal would use. VIEW is the view it opens on, the overview if none. --rune serves the experimental Rune page instead (WebGPU; built only with sh scripts/build-web.sh).
 pane draws the viewer for a host that shows it in its own window (the Claude Code plugin's pane beside the conversation): frames on standard output, keys over a Unix socket, the talk's requests handed back to the host to send as your prompt. It is bound to the session named (the plugin always names its own), never follows, and ends when its output closes.
 open follows the most recent session and shows VIEW if given, else the view named index, else the first view.
 Typed at a shell prompt in tmux it turns that pane into the viewer; run by an agent it splits a pane beside it.
@@ -104,7 +104,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, "first-day": { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" }, zoom: { type: "boolean" }, view: { type: "string" }, journey: { type: "string" }, port: { type: "string" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, "first-day": { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" }, zoom: { type: "boolean" }, view: { type: "string" }, journey: { type: "string" }, port: { type: "string" }, rune: { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -249,7 +249,7 @@ try {
       const project = values.project ?? (mappedProject && (!id || (yield* listViews(values.workspace)).views.some(entry => entry.id === id && entry.project === mappedProject)) ? mappedProject : undefined);
       const view = yield* selectView(values.workspace, id ?? (yield* overviewId(values.workspace, project)), project);
       const { serveWeb } = yield* io("CLI.web", () => import("./web/server"));
-      yield* serveWeb(view, { port, select: values.select, signal: abort.signal, print: line => process.stdout.write(line) });
+      yield* serveWeb(view, { port, select: values.select, kind: values.rune ? "rune" : "page", signal: abort.signal, print: line => process.stdout.write(line) });
     } else if (command === "show" || command === "view" || command === "open") {
       if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));
