@@ -38,8 +38,9 @@ fn prim(ins: &Instance, material: u8, s: f32) -> Option<Prim> {
     let a = ins.fill[3].max(1e-4);
     let p = Prim::from_rune(ins.rect, ins.radii).albedo([ins.fill[0] / a, ins.fill[1] / a, ins.fill[2] / a]);
     match material {
-        mat::CARD => Some(p.raised(6.0 * s).bevel(5.0 * s, 1.6 * s).gloss(0.42, 0.5)),
-        mat::LIFTED => Some(p.raised(16.0 * s).bevel(5.0 * s, 1.8 * s).gloss(0.5, 0.42)),
+        // Machined slabs (rune-light's `machine` in examples/live.rs): a tight bevel with a thin bright edge, tall enough for clear elevation.
+        mat::CARD => Some(p.raised(9.0 * s).bevel(2.2 * s, 1.6 * s).gloss(0.55, 0.3)),
+        mat::LIFTED => Some(p.raised(24.0 * s).bevel(2.2 * s, 1.8 * s).gloss(0.62, 0.26)),
         _ => None,
     }
 }
@@ -220,7 +221,7 @@ impl Compositor<App> for Lighting {
                 }
                 let length = *along.last().unwrap() * zoom;
                 // Quick, but slow enough to follow with the eye.
-                self.travel = Some(Travel { path, along, start: rt.t, seconds: (length as f64 / 700.0).clamp(0.3, 0.65) });
+                self.travel = Some(Travel { path, along, start: rt.t, seconds: (length as f64 / 1000.0).clamp(0.2, 0.45) });
                 self.to = selected.clone();
                 self.rest = None;
             } else {
@@ -266,7 +267,7 @@ impl Compositor<App> for Lighting {
         let behind = self.rest.as_ref().and_then(|r| {
             let (rect, _) = rt.presented(&format!("node/{}", r.id)).filter(|(b, a)| b[2] > 0.0 && *a > 0.05)?;
             let c = [(rect[0] + rect[2] / 2.0) * s, (rect[1] + rect[3] / 2.0) * s];
-            let grow = (((rt.t - r.since) / 0.7) as f32).clamp(0.0, 1.0);
+            let grow = (((rt.t - r.since) / 0.5) as f32).clamp(0.0, 1.0);
             let ease = 1.0 - (1.0 - grow).powi(3);
             let at = r.entry.map_or(c, |e| {
                 let e = screen(e);
@@ -280,7 +281,7 @@ impl Compositor<App> for Lighting {
         // Calibrated on Rune's own lit demos (rune-light's `raised` scene): a dim room, one key light, a faint cool fill.
         let mut lights = vec![
             // The key light: above the top left of the window, so every slab has a lit edge toward it and a soft shadow away from it.
-            Light::point(w * 0.22, h * 0.12, 520.0 * s).color([1.0, 0.94, 0.86]).intensity(if dark { 2.6 } else { 2.2 }).radius(90.0 * s).range(6000.0 * s).specular(1.4),
+            Light::point(w * 0.22, h * 0.12, 520.0 * s).color([1.0, 0.94, 0.86]).intensity(if dark { 2.6 } else { 2.2 }).radius(40.0 * s).range(6000.0 * s).specular(1.4),
             // The fill: low and far at the bottom right, cool, so the shadow side is never black.
             Light::point(w * 1.05, h * 1.1, 900.0 * s).color([0.55, 0.65, 1.0]).intensity(0.35).radius(240.0 * s).range(9000.0 * s).specular(0.4),
         ];
@@ -300,8 +301,8 @@ impl Compositor<App> for Lighting {
         }
         let settings = Settings {
             ambient: if dark { [0.3, 0.31, 0.34] } else { [0.62, 0.62, 0.64] },
-            rim: 1.0,
-            contact_ao: 0.5,
+            rim: 1.8,
+            contact_ao: 0.6,
             albedo_floor: if dark { 0.04 } else { 0.0 },
             // A matte table: the key light should not paint a sheen across the floor and the panels.
             background_gloss: 0.08,

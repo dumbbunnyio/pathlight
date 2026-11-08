@@ -259,7 +259,7 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
     let mut card = card
         .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 40.0, spread: 6.0, color: spill, inset: false })
         .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 7.0, spread: 1.0, color: rim, inset: false })
-        .shadow(4.0, 14.0, Color::BLACK.alpha(if glowing { 0.0 } else { 0.35 }))
+        .shadow(3.0, 8.0, Color::BLACK.alpha(if glowing { 0.0 } else { 0.4 }))
         .mark(light::mark(if selected { light::mat::LIFTED } else { light::mat::CARD }))
         .cursor(Cursor::Pointer)
         .motion(motion::SNAPPY)
