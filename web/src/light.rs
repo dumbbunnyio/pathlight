@@ -1,7 +1,8 @@
 //! The page's light (plan 4d, "The look"). Rune lays out and draws the page as usual; this compositor then lights it with `rune-light`: every
 //! element marked as a card becomes a raised slab with a bevelled edge, a soft key light and a cool fill give the table its depth, and when
 //! the selection moves along a line, a tight point of light runs along it. The selected box's glow is not light here: the page draws it under
-//! the solid box (`lib.rs`), so it can only show around the edges; this tells the page when the light has arrived. The recipe is Rune's own
+//! the solid box (`lib.rs`), so it can only show around the edges; this tells the page when the light has arrived, and where the pin prick
+//! travelling the line is (`App::pin`), which the page draws at an exact size. The recipe is Rune's own
 //! (`examples/cursed-settings/src/gfx.rs`): the frame without text is the albedo, the glyphs are lit on their own, and `rune-light` writes the
 //! lit frame to the window, encoding it for an 8-bit target itself.
 
@@ -173,10 +174,7 @@ impl Compositor<App> for Lighting {
             }
         }
 
-        // Where a point of the view lands on the window, in device pixels: the stage's place, then the camera.
-        let stage = rt.presented("stage").map_or([0.0, 0.0], |(r, _)| [r[0], r[1]]);
-        let (pan, zoom) = (rt.state.pan, rt.state.zoom);
-        let screen = |p: [f32; 2]| [(stage[0] + pan[0] + p[0] * zoom) * s, (stage[1] + pan[1] + p[1] * zoom) * s];
+        let zoom = rt.state.zoom;
 
         // A new selection joined to the last by a line: the light travels that line, from the old box to the new one.
         let selected = rt.state.selected.clone();
@@ -222,25 +220,25 @@ impl Compositor<App> for Lighting {
             rt.state.glow = glow;
             rt.invalidate();
         }
+        // The pin prick on its way along the line, in the view's own points, eased so it leaves and arrives gently. The page draws it, so
+        // its size is exact: a pixel wider than the line.
+        let pin = match (travelling, self.travel.as_ref()) {
+            (Some(u), Some(travel)) => Some(travel.at(u * u * (3.0 - 2.0 * u))),
+            _ => None,
+        };
+        if rt.state.pin != pin {
+            rt.state.pin = pin;
+            rt.invalidate();
+        }
         self.animating = travelling.is_some();
 
-        // Rune's colors are sRGB; light is linear.
-        let lin = |c: rune::Color| [c.r, c.g, c.b].map(|v| v.max(0.0).powf(2.2));
-        let accent = lin(rt.state.model.ink.accent);
         // Calibrated on Rune's own lit demos (rune-light's `raised` scene): a dim room, one key light, a faint cool fill.
-        let mut lights = vec![
+        let lights = vec![
             // The key light: above the top left of the window, so every slab has a lit edge toward it and a soft shadow away from it.
             Light::point(w * 0.22, h * 0.12, 520.0 * s).color([1.0, 0.94, 0.86]).intensity(if dark { 2.6 } else { 2.2 }).radius(90.0 * s).range(6000.0 * s).specular(1.4),
             // The fill: low and far at the bottom right, cool, so the shadow side is never black.
             Light::point(w * 1.05, h * 1.1, 900.0 * s).color([0.55, 0.65, 1.0]).intensity(0.35).radius(240.0 * s).range(9000.0 * s).specular(0.4),
         ];
-        // The light on its way: a tight, bright point riding the line, eased so it leaves and arrives gently.
-        if let (Some(u), Some(travel)) = (travelling, self.travel.as_ref()) {
-            let e = u * u * (3.0 - 2.0 * u);
-            let p = screen(travel.at(e));
-            // A tight point: a small source with a small bloom, reaching only the line around it.
-            lights.push(Light::point(p[0], p[1], 2.0 * s).color(accent).intensity(if dark { 3.0 } else { 1.4 }).radius(1.0 * s).range(36.0 * s).bulb(0.7));
-        }
         let settings = Settings {
             ambient: if dark { [0.3, 0.31, 0.34] } else { [0.62, 0.62, 0.64] },
             rim: 1.0,

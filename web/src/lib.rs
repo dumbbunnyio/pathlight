@@ -62,6 +62,8 @@ pub struct App {
     pub selected: Option<String>,
     /// The box whose glow shows: the selection, once the light travelling to it has arrived (`light.rs` sets it).
     pub glow: Option<String>,
+    /// Where the pin prick of light travelling a line to the new selection is, in the view's points (`light.rs` sets it).
+    pub pin: Option<[f32; 2]>,
     /// Acts waiting to be sent; the wasm side sends them, the tests read them.
     pub outbox: Vec<Act>,
     pub problem: Option<String>,
@@ -99,6 +101,7 @@ impl App {
             frame,
             window: String::new(),
             glow: selected.clone(),
+            pin: None,
             selected,
             outbox: Vec::new(),
             problem: None,
@@ -247,11 +250,11 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
         .radius(12.0)
         .fill(slab)
         .gradient(ink.text.alpha(0.035), Color::TRANSPARENT)
-        .border(1.0, if selected { ink.accent.alpha(0.55) } else { ink.text.alpha(0.06) });
-    // The selected box is backlit: a glow in the accent lies under the solid box, the same on every side, so the light shows only around its
+        .border(1.0, if selected { Color::WHITE.alpha(0.5) } else { ink.text.alpha(0.06) });
+    // The selected box is backlit: a white glow lies under the solid box, the same on every side, so the light shows only around its
     // edges and never through it. A tight bright rim and a wide soft spill. Its color springs, so it comes up and goes out.
     let glowing = s.glow.as_deref() == Some(id.as_str());
-    let (rim, spill) = if glowing { (ink.accent.alpha(0.9), ink.accent.alpha(0.6)) } else { (ink.accent.alpha(0.0), ink.accent.alpha(0.0)) };
+    let (rim, spill) = if glowing { (Color::WHITE.alpha(0.85), Color::WHITE.alpha(0.42)) } else { (Color::WHITE.alpha(0.0), Color::WHITE.alpha(0.0)) };
     let mut card = card
         .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 40.0, spread: 6.0, color: spill, inset: false })
         .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 7.0, spread: 1.0, color: rim, inset: false })
@@ -337,6 +340,21 @@ fn diagram(s: &App, view: &View, ink: &Ink) -> El {
 
     for node in view.nodes.iter().filter(|n| !n.group) {
         world = world.child(card(node, s, near(&node.id), ink));
+    }
+
+    // The pin prick: white, one point wider than the selected line on screen, with a faint glow of its own.
+    if let Some([x, y]) = s.pin {
+        let d = 1.6 + 1.0 / s.zoom.max(0.05);
+        world = world.child(
+            el().key("pin")
+                .pin(Some(x - d / 2.0), Some(y - d / 2.0), None, None)
+                .size(d, d)
+                .radius(d / 2.0)
+                .fill(Color::WHITE)
+                .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 3.0 / s.zoom.max(0.05), spread: 0.0, color: Color::WHITE.alpha(0.6), inset: false })
+                .mark(light::mark(light::mat::FLAT))
+                .inert(),
+        );
     }
 
     // Words on an edge only where they answer something: around the selected box, or everywhere when nothing is selected.
