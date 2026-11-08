@@ -4,7 +4,8 @@
 //!
 //! What stands how high is attention. Every element marked as a card carries the height it wants (`mark`); the compositor eases each slab
 //! toward it, so the selection rises, its neighbors stand and the rest settle into the stone, and a view's boxes stand up as it opens. The
-//! lamp drifts toward the selection, so the shadows swing with it. When the selection moves along a line, a ball of energy runs the line
+//! lamp leans a little toward the selection, so the shadows turn with it. Everything here is quick (a tenth of a second or two) and quiet:
+//! the room is felt, not watched. When the selection moves along a line, a ball of energy runs the line
 //! (the page draws it, `App::pin`, and lights the line behind it, `App::trail`); where the line enters the new box it goes behind the solid
 //! box and backlights it from that side. The recipe for lighting is Rune's own (`examples/cursed-settings/src/gfx.rs`): the frame without
 //! text is the albedo, the glyphs are lit on their own.
@@ -206,8 +207,6 @@ pub struct Lighting {
     heights: HashMap<(i32, i32), (f32, bool)>,
     /// The lamp's place on the window, as it drifts toward the selection.
     lamp: Option<[f32; 2]>,
-    hover_on: f32,
-    hover_at: [f32; 2],
 }
 
 impl Compositor<App> for Lighting {
@@ -282,7 +281,8 @@ impl Compositor<App> for Lighting {
                 let want = wanted(m);
                 let (height, seen) = self.heights.entry(key).or_insert((0.0, false));
                 if !*seen {
-                    ease_to(height, want, dt, 9.0);
+                    // Quick: a slab is where it should be within a tenth of a second, but it still glides there.
+                    ease_to(height, want, dt, 24.0);
                     if (want - *height).abs() > 0.05 {
                         settling = true;
                     } else {
@@ -313,8 +313,8 @@ impl Compositor<App> for Lighting {
                     along.push(along.last().unwrap() + crate::geom::dist(w[0], w[1]));
                 }
                 let length = *along.last().unwrap() * zoom;
-                // Quick, but slow enough to follow with the eye.
-                self.travel = Some(Travel { edge: edge.id.clone(), path, along, start: rt.t, seconds: (length as f64 / 1000.0).clamp(0.2, 0.45) });
+                // Quick: a flash along the line that the eye still catches.
+                self.travel = Some(Travel { edge: edge.id.clone(), path, along, start: rt.t, seconds: (length as f64 / 1800.0).clamp(0.1, 0.22) });
                 self.to = selected.clone();
                 self.rest = None;
             } else {
@@ -361,11 +361,11 @@ impl Compositor<App> for Lighting {
         }
         // Behind the box: born at the entry point, it settles a little way in toward the center as it grows, so the whole box is backlit and
         // the entry side brightest.
-        ease_to(&mut self.on, if self.rest.is_some() { 1.0 } else { 0.0 }, dt, 10.0);
+        ease_to(&mut self.on, if self.rest.is_some() { 1.0 } else { 0.0 }, dt, 18.0);
         let behind = self.rest.as_ref().and_then(|r| {
             let (rect, _) = rt.presented(&format!("node/{}", r.id)).filter(|(b, a)| b[2] > 0.0 && *a > 0.05)?;
             let c = [(rect[0] + rect[2] / 2.0) * s, (rect[1] + rect[3] / 2.0) * s];
-            let grow = (((rt.t - r.since) / 0.5) as f32).clamp(0.0, 1.0);
+            let grow = (((rt.t - r.since) / 0.22) as f32).clamp(0.0, 1.0);
             let ease = 1.0 - (1.0 - grow).powi(3);
             let at = r.entry.map_or(c, |e| {
                 let e = screen(e);
@@ -375,34 +375,26 @@ impl Compositor<App> for Lighting {
             Some((at, 0.35 + 0.65 * ease, grow < 1.0))
         });
 
-        // The lamp hangs high over the top left of the table and leans toward what is selected, so the shadows swing with the choice.
+        // The lamp hangs high over the top left of the table and leans a little toward what is selected, so the shadows turn with the choice.
         let rest_lamp = [w * 0.22, h * 0.1];
         let want_lamp = selected
             .as_deref()
             .and_then(|id| rt.presented(&format!("node/{id}")))
             .map_or(rest_lamp, |(r, _)| {
                 let c = [(r[0] + r[2] / 2.0) * s, (r[1] + r[3] / 2.0) * s];
-                [rest_lamp[0] + (c[0] - rest_lamp[0]) * 0.45, rest_lamp[1] + (c[1] - rest_lamp[1]) * 0.35]
+                [rest_lamp[0] + (c[0] - rest_lamp[0]) * 0.2, rest_lamp[1] + (c[1] - rest_lamp[1]) * 0.15]
             });
         let lamp = self.lamp.get_or_insert(want_lamp);
         let mut lamp_moving = false;
         for k in 0..2 {
-            ease_to(&mut lamp[k], want_lamp[k], dt, 3.5);
+            ease_to(&mut lamp[k], want_lamp[k], dt, 9.0);
             if (lamp[k] - want_lamp[k]).abs() > 0.5 {
                 lamp_moving = true;
             }
         }
         let lamp = *lamp;
 
-        // A small light rises over the box under the pointer.
-        let hovered = rt.state.hover.as_deref().and_then(|id| rt.presented(&format!("node/{id}"))).filter(|(r, a)| r[2] > 0.0 && *a > 0.05).map(|(r, _)| [(r[0] + r[2] / 2.0) * s, (r[1] + r[3] / 2.0) * s]);
-        if let Some(at) = hovered {
-            self.hover_at = at;
-        }
-        ease_to(&mut self.hover_on, if hovered.is_some() { 1.0 } else { 0.0 }, dt, 8.0);
-        let hover_moving = self.hover_on > 0.01 && self.hover_on < 0.99;
-
-        self.animating = travelling.is_some() || behind.is_some_and(|b| b.2) || (self.on > 0.01 && self.on < 0.99) || settling || lamp_moving || hover_moving;
+        self.animating = travelling.is_some() || behind.is_some_and(|b| b.2) || (self.on > 0.01 && self.on < 0.99) || settling || lamp_moving;
 
         // Calibrated on Rune's own lit demos (rune-light's `raised` scene): a dim room, one key light, a faint cool fill.
         let mut lights = vec![
@@ -411,19 +403,17 @@ impl Compositor<App> for Lighting {
             // The fill: low and far at the bottom right, cool, so the shadow side is never black.
             Light::point(w * 1.05, h * 1.1, 900.0 * s).color([0.55, 0.65, 1.0]).intensity(0.35).radius(240.0 * s).range(9000.0 * s).specular(0.4),
         ];
-        if self.hover_on > 0.01 {
-            lights.push(Light::point(self.hover_at[0], self.hover_at[1] - 30.0 * s, 160.0 * s).color([1.0, 0.97, 0.9]).intensity(if dark { 0.55 } else { 0.3 }).radius(60.0 * s).range(700.0 * s).specular(0.8).scaled(self.hover_on));
-        }
         // The energy behind the box: a small white source on the table under the slab. With `shafts` on, rune-light treats it as standing
-        // behind the UI: it lights no face from the front, only the rims and the air in the gaps, as soft rays (composite.wgsl).
+        // behind the UI: it lights no face from the front, only the rims and the air in the gaps, as soft rays (composite.wgsl). Quiet:
+        // a glow around the box, not a flood over the table.
         if let Some((at, strength, _)) = behind {
             lights.push(
                 Light::point(at[0], at[1], 3.0 * s)
                     .color([1.0, 0.98, 0.95])
-                    .intensity(if dark { 4.5 } else { 1.6 })
+                    .intensity(if dark { 2.4 } else { 1.0 })
                     .radius(4.0 * s)
-                    .range(if dark { 340.0 } else { 240.0 } * s)
-                    .shafts(if dark { 1.4 } else { 0.7 })
+                    .range(if dark { 220.0 } else { 170.0 } * s)
+                    .shafts(if dark { 0.7 } else { 0.4 })
                     .softness(2.0)
                     .scaled(strength * self.on),
             );
@@ -449,11 +439,12 @@ impl Compositor<App> for Lighting {
         let pool = [ink.accent.r, ink.accent.g, ink.accent.b];
         let uniform: [f32; 20] = [
             w, h, s, if dark { 1.0 } else { 0.0 },
-            lamp[0], lamp[1], (w.max(h)) * 0.55, if dark { 0.02 } else { 0.014 },
-            floor[0], floor[1], floor[2], if dark { 0.14 } else { 0.05 },
+            lamp[0], lamp[1], (w.max(h)) * 0.55, if dark { 0.011 } else { 0.008 },
+            floor[0], floor[1], floor[2], if dark { 0.05 } else { 0.02 },
             // The pool is the lamp's own warmth, barely tinted toward the theme's accent.
             0.9 + 0.1 * pool[0], 0.85 + 0.1 * pool[1], 0.76 + 0.1 * pool[2], 0.0,
-            if dark { 0.55 } else { 0.22 }, if dark { 0.013 } else { 0.005 }, if f.format.is_srgb() { 0.0 } else { 1.0 }, 1.0,
+            // The film is felt, not seen: a gentle fall toward the corners and a grain under the threshold of notice.
+            if dark { 0.3 } else { 0.14 }, if dark { 0.004 } else { 0.002 }, if f.format.is_srgb() { 0.0 } else { 1.0 }, 1.0,
         ];
         let mut bytes = Vec::with_capacity(80);
         for v in uniform {

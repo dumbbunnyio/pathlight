@@ -5,8 +5,8 @@
 //! The look (plan 4d, "The look"): one room, one lamp, a map cut into stone. The whole window is one dark table (`light.rs` paints it);
 //! the rail, the title and the inspector stand on it as slabs rather than panels beside it. Boxes are slabs whose height is attention: the
 //! selection stands tallest, its neighbors stand, the rest settle nearly flush into the stone. Lines are grooves cut into the table; the
-//! ones touching the selection are filaments of white light. What the model says a box is (a person, a store, a queue) is a word on it in
-//! the mono face, never a shape.
+//! ones touching the selection are quietly lit. What the model says a box is (a person, a store, a queue) is a word on it in the mono
+//! face, never a shape. The rule for all of it (David, 2026-11-07): elegant, simple, subdued, and instant.
 
 pub mod data;
 pub mod geom;
@@ -36,10 +36,10 @@ const EDGE_LABEL: TextStyle = TextStyle::new(10.0, 450.0).mono();
 const MIN_ZOOM: f32 = 0.05;
 
 /// How high a box stands on the table, in points: the selection, its neighbors, the rest, and the lift under the pointer.
-const HEIGHT_SELECTED: f32 = 22.0;
-const HEIGHT_NEAR: f32 = 11.0;
-const HEIGHT_FAR: f32 = 2.5;
-const HEIGHT_HOVER: f32 = 4.0;
+const HEIGHT_SELECTED: f32 = 16.0;
+const HEIGHT_NEAR: f32 = 9.0;
+const HEIGHT_FAR: f32 = 3.0;
+const HEIGHT_HOVER: f32 = 2.0;
 
 /// What the page asks of the server. The page never decides these itself.
 #[derive(Clone, Debug, PartialEq)]
@@ -250,8 +250,9 @@ fn group_box(node: &Node, selected: bool, ink: &Ink) -> Vec<El> {
     vec![well, title]
 }
 
-/// A box is a slab standing on the table, lit by the room; how high it stands is how near it is to the selection, and it lifts a little under
-/// the pointer. When selected it glows around its edges. What the model says it is (a person, a store, a queue) is a word on it, never a shape.
+/// A box is a slab standing on the table, lit by the room; how high it stands is how near it is to the selection. Under the pointer its edge
+/// catches the lamp: a warm glow along the border, no light shone on it. When selected it glows around its edges. What the model says it is
+/// (a person, a store, a queue) is a word on it, never a shape.
 fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
     let [x, y, w, h] = node.rect;
     let id = node.id.clone();
@@ -278,17 +279,33 @@ fn card(node: &Node, s: &App, near: bool, ink: &Ink) -> El {
         .size(w, h)
         .radius(12.0)
         .fill(slab)
-        .gradient(ink.text.alpha(if near { 0.04 } else { 0.015 }), Color::TRANSPARENT)
-        .border(1.0, if selected { Color::WHITE.alpha(0.5) } else { ink.text.alpha(if near { 0.08 } else { 0.035 }) });
+        .gradient(ink.text.alpha(if near { 0.04 } else { 0.015 }), Color::TRANSPARENT);
+    // The lamp's warmth, for the edge under the pointer.
+    let warm = Color { r: 1.0, g: 0.93, b: 0.82, a: 1.0 };
+    let border = if selected {
+        Color::WHITE.alpha(0.4)
+    } else if hovered {
+        warm.alpha(0.3)
+    } else {
+        ink.text.alpha(if near { 0.08 } else { 0.035 })
+    };
+    let card = card.border(1.0, border);
     // The selected box is backlit: a white glow lies under the solid box, the same on every side, so the light shows only around its
-    // edges and never through it. A tight bright rim and a wide soft spill. Its color springs, so it comes up and goes out.
+    // edges and never through it. A tight rim and a soft spill, both faint: the directional backlight is the light's (light.rs); this only
+    // keeps the whole rim from going dark on the far side. Under the pointer the rim is the lamp's warmth. The colors spring, so the glow
+    // comes up and goes out.
     let glowing = s.glow.as_deref() == Some(id.as_str());
-    // Faint and even: the directional backlight is the light's (light.rs); this only keeps the whole rim from going dark on the far side.
-    let (rim, spill) = if glowing { (Color::WHITE.alpha(0.35), Color::WHITE.alpha(0.12)) } else { (Color::WHITE.alpha(0.0), Color::WHITE.alpha(0.0)) };
+    let (rim, spill) = if glowing {
+        (Color::WHITE.alpha(0.22), Color::WHITE.alpha(0.06))
+    } else if hovered {
+        (warm.alpha(0.14), warm.alpha(0.0))
+    } else {
+        (Color::WHITE.alpha(0.0), Color::WHITE.alpha(0.0))
+    };
     let watch = id.clone();
     let mut card = card
-        .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 40.0, spread: 6.0, color: spill, inset: false })
-        .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 7.0, spread: 1.0, color: rim, inset: false })
+        .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 32.0, spread: 4.0, color: spill, inset: false })
+        .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 6.0, spread: 0.5, color: rim, inset: false })
         .shadow(3.0, 8.0, Color::BLACK.alpha(if glowing { 0.0 } else if ink.dark() { 0.4 } else { 0.2 }))
         .mark(mark(mat::CARD, height))
         .cursor(Cursor::Pointer)
@@ -332,26 +349,25 @@ fn groove(into: Shape, edge: &Edge, dim: bool, ink: &Ink) -> Shape {
     let pen = edge_pen(edge);
     let Some(tip) = pen.subs.first().and_then(|s| s.0.last().copied()) else { return into };
     let cut = ink.background.mix(Color::BLACK, if ink.dark() { 0.5 } else { 0.12 });
-    let lit = ink.text.alpha(if dim { 0.11 } else { 0.18 });
+    let lit = ink.text.alpha(if dim { 0.09 } else { 0.15 });
     let s = pen.stroke(into, 1.7, cut, None);
     let s = pen.clone().offset(0.5, 0.9).stroke(s, 0.8, lit, None);
     let s = Pen::new().ellipse(tip, 2.4, 2.4).fill(s, cut);
     Pen::new().ellipse([tip[0] + 0.4, tip[1] + 0.7], 1.6, 1.6).fill(s, lit)
 }
 
-/// A relationship carrying the selection's light: a filament of white light along the route, with a soft halo, and a bright bead on its
-/// target. In a light room white would vanish, so the filament takes the theme's accent there.
+/// A relationship carrying the selection's light: a fine, quietly lit line along the route with the faintest halo, and a small bead on its
+/// target. In a light room white would vanish, so it takes the theme's accent there.
 fn filament(into: Shape, points: Vec<[f32; 2]>, bead: bool, ink: &Ink) -> Shape {
     if points.len() < 2 {
         return into;
     }
     let light = if ink.dark() { Color::WHITE } else { ink.accent };
     let pen = Pen { subs: vec![(points, false)] };
-    let s = pen.stroke(into, 7.0, light.alpha(0.06), None);
-    let s = pen.stroke(s, 2.8, light.alpha(0.2), None);
-    let s = pen.stroke(s, 1.2, light.alpha(0.85), None);
+    let s = pen.stroke(into, 3.0, light.alpha(0.05), None);
+    let s = pen.stroke(s, 1.2, light.alpha(0.5), None);
     match (bead, pen.subs[0].0.last()) {
-        (true, Some(tip)) => Pen::new().ellipse(*tip, 2.6, 2.6).fill(s, light.alpha(0.95)),
+        (true, Some(tip)) => Pen::new().ellipse(*tip, 2.1, 2.1).fill(s, light.alpha(0.6)),
         _ => s,
     }
 }
@@ -413,18 +429,17 @@ fn diagram(s: &App, view: &View, ink: &Ink) -> El {
         world = world.child(card(node, s, near(&node.id), ink));
     }
 
-    // The ball of energy travelling the line: a white core a little wider than the line, with a bright halo, so the eye can follow it.
+    // The ball of energy travelling the line: a white core a little wider than the line, with a soft halo, so the eye can follow it.
     if let Some([x, y]) = s.pin {
         let z = s.zoom.max(0.05);
-        let d = 1.6 + 3.0 / z;
+        let d = 1.6 + 2.0 / z;
         world = world.child(
             el().key("pin")
                 .pin(Some(x - d / 2.0), Some(y - d / 2.0), None, None)
                 .size(d, d)
                 .radius(d / 2.0)
-                .fill(Color::WHITE)
-                .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 14.0 / z, spread: 1.0 / z, color: Color::WHITE.alpha(0.55), inset: false })
-                .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 5.0 / z, spread: 0.5 / z, color: Color::WHITE.alpha(0.9), inset: false })
+                .fill(Color::WHITE.alpha(0.9))
+                .box_shadow(Shadow { x: 0.0, y: 0.0, blur: 10.0 / z, spread: 0.5 / z, color: Color::WHITE.alpha(0.35), inset: false })
                 .mark(mark(mat::FLAT, 0.0))
                 .inert(),
         );
@@ -531,7 +546,7 @@ fn slab(ink: &Ink, height: f32) -> El {
     el().fill(ink.background.mix(ink.text, 0.06))
         .border(1.0, ink.text.alpha(0.07))
         .gradient(ink.text.alpha(0.025), Color::TRANSPARENT)
-        .box_shadow(Shadow { x: 0.0, y: 14.0, blur: 36.0, spread: 0.0, color: Color::BLACK.alpha(0.45), inset: false })
+        .box_shadow(Shadow { x: 0.0, y: 10.0, blur: 30.0, spread: 0.0, color: Color::BLACK.alpha(0.3), inset: false })
         .mark(mark(mat::CARD, height))
 }
 
