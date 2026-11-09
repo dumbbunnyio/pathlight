@@ -58,6 +58,19 @@ are Pathlight's (compact fit). Navigation
 between views follows explicit links. File attribution comes from explicit
 workspace mappings, not agent guesses or title matching.
 
+What the code talks to that is not code (databases, caches, queues, object
+stores, search, mail, identity providers, monitoring, AI providers, named
+third-party APIs) is drawn from evidence only: a resource exists where a file
+imports a package that one table of data (`src/resources/imports.json`) leads
+to it, with an arrow from each component that does (implemented 2026-11-09,
+plan `phase-r-resources`, step 1). Type-only imports and tests are no
+evidence; HTTP clients lead nowhere. A resource's mapped files are its schema
+(`*.sql`, `*.prisma`), never the code that calls it, so an edit lights the
+code it was made in. The map says what the code expects, never what anyone
+has access to. Infrastructure files (compose, `.env.example`, Helm,
+Terraform) naming and adding resources are the plan's later steps, not built
+yet.
+
 ### The primary experience is genuinely interactive terminal UI
 
 OpenTUI renders nodes, groups, labels and an inspector. Three supplies the eased
