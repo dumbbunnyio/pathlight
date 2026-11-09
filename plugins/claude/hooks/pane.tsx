@@ -51,10 +51,10 @@ let layout: { isFullscreen: boolean; columns: number; rows?: number } | undefine
  */
 let blank = ' ', drawn = '', shown = ''
 
-/** The words after `/pathlight:open`: `tmux` or `pane` (where to draw it, for this run), then a plain view id; anything else is dropped. */
-export function argsOf(args: string): { where?: 'pane' | 'tmux'; view: string } {
+/** The words after `/pathlight:open`: `tmux`, `pane` or `web` (where to draw it, for this run), then a plain view id; anything else is dropped. */
+export function argsOf(args: string): { where?: Where; view: string } {
   const words = args.trim().split(/\s+/).filter(Boolean)
-  const where = words[0] === 'tmux' || words[0] === 'pane' ? words.shift() as 'pane' | 'tmux' : undefined
+  const where = words[0] === 'tmux' || words[0] === 'pane' || words[0] === 'web' ? words.shift() as Where : undefined
   const view = words.length === 1 && /^[A-Za-z0-9_.-]{1,64}$/.test(words[0]!) ? words[0]! : ''
   return { where, view }
 }
@@ -88,10 +88,13 @@ function send($: any, path: string, body: unknown) {
   current.keys = current.keys.then(() => $.http.fetch(`http://pathlight${path}`, { method: 'POST', body: JSON.stringify(body), socketPath: socket })).catch(() => undefined)
 }
 
-/** Where `/pathlight:open` draws when the command names neither: Pathlight's own setting (`pathlight config get claude`), else tmux. */
-async function preference($: any): Promise<'pane' | 'tmux'> {
+type Where = 'pane' | 'tmux' | 'web'
+
+/** Where `/pathlight:open` draws when the command names none: Pathlight's own setting (`pathlight config get claude`), else tmux. */
+async function preference($: any): Promise<Where> {
   const said = await $.process.run(['pathlight', 'config', 'get', 'claude']).catch(() => undefined)
-  return said?.exitCode === 0 && said.stdout.trim() === 'pane' ? 'pane' : 'tmux'
+  const value = said?.exitCode === 0 ? said.stdout.trim() : ''
+  return value === 'pane' || value === 'web' ? value : 'tmux'
 }
 
 /**
@@ -193,6 +196,8 @@ export const register: Register = on => {
     const { where, view } = argsOf(e.args)
     layout = { ...e.presentation, rows: layout?.rows }
     const small = !fits(layout), choice = where ?? await preference($)
+    // The browser window is `open-hook.sh`'s to open, with the word that says so.
+    if (choice === 'web') return next({ ...e, args: `web ${view}`.trim() })
     if (small && !layout.isFullscreen && choice === 'pane') $.ui.toast(SMALL_TMUX)
     if (choice === 'tmux' || small) {
       // One viewer at a time: a pane left open would be a second picture of the same map.
@@ -208,7 +213,7 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const asked = viewerCommand(String(e.command ?? ''), await $.session.root())
     // The band's width is the transcript's, not the terminal's, so in fullscreen the surface's own answer (placed or not) decides.
-    if (!asked || !layout || (!layout.isFullscreen && !fits(layout)) || await preference($) === 'tmux') return next(e)
+    if (!asked || !layout || (!layout.isFullscreen && !fits(layout)) || await preference($) !== 'pane') return next(e)
     if (!await openPane($, asked.view)) return next(e)
     return { result: { stdout: 'Pathlight is beside the conversation.', stderr: '', interrupted: false } }
   })
