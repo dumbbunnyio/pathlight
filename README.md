@@ -189,7 +189,7 @@ The map also opens in a browser window of its own: the terminal viewer drawn by 
 
 It uses the first Chromium-family browser it finds (Brave, Chrome, Chromium, Edge, Vivaldi) in an app window with Pathlight's own profile, so your browser's tabs and profile are untouched; `pathlight config set browser COMMAND` names another (any other browser opens it in a tab), and `pathlight doctor` says which one it found. There is one window per project: opening it again brings that window forward at the view you asked for. Its server runs in the background on `127.0.0.1` only, answers only its own window (a token in the address), and stops a few seconds after the window closes. `pathlight web [VIEW]` without `--open` serves it in the foreground and prints the address, for any browser; Ctrl-C stops it.
 
-What the browser has today: the map, selection, the inspector, the views list, Back, the arrow keys, fit and zoom, and the themes. The agent's live activity, journeys, the review and the talk come to the browser next; until then they are in the terminal viewer.
+What the browser has today: the map, selection, the inspector, the views list, Back, the arrow keys, fit and zoom, the themes, and the agent's live work as the terminal shows it: the tag in a box's border and its pulse while a call runs, the news line (`now`, the `w` offer, `following`), the Work card, follow (`a`, paused by your own move) and `w`. Opened from a conversation it shows that conversation's work; otherwise the newest recorded session's. An edit to the model redraws it where you were. Journeys, the review and the talk come next; until then they are in the terminal viewer.
 
 ## See the screen as text
 
