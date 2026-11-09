@@ -17,7 +17,7 @@ const Kind = Schema.Literals(["import", "type", "reexport", "dynamic", "require"
  * dates or absolute paths, so scanning the same tree twice gives the same text.
  */
 /** Bump when a change to the scanner can change its output for the same files: `pathlight diff` keeps the base commit's scan and trusts it only for the same revision. */
-export const scanRevision = 6;
+export const scanRevision = 7;
 
 export const Scan = Schema.Struct({
   version: Schema.Literal(1),
@@ -145,8 +145,10 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
       if ("files" in resolution) for (const { to, names } of resolution.files) { imports.push({ from: path, to, line, kind, specifier: raw }); taken.push({ names, reexport }); }
       else if ("unresolved" in resolution) unresolved.push({ from: path, specifier: raw, line, kind, reason: resolution.unresolved });
       else {
-        const key = `${path}\0${resolution.external}`;
-        if (!external.has(key)) external.set(key, { from: path, package: resolution.external, line, kind });
+        // Once per file, at its first import, unless that one only names types and a later one is used at run time (Python's `if TYPE_CHECKING:` import,
+        // then the same module imported inside a function): what a resource is judged by (src/resources.ts) is the import that runs.
+        const key = `${path}\0${resolution.external}`, seen = external.get(key);
+        if (!seen || (seen.kind === "type" && kind !== "type")) external.set(key, { from: path, package: resolution.external, line, kind });
       }
     }
   }
