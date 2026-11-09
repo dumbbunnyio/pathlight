@@ -71,7 +71,7 @@ has access to. Compose files and the example environment are read as names
 only (images, environment names; never a value): they confirm what the code
 reaches, name an ORM's database when they name one engine, and add a box only
 for a datastore they run with no code found, which it says (step 2,
-2026-11-09). Helm and Terraform are the plan's step 3, not built yet.
+2026-11-09). Helm charts (dependencies, values' images, secrets named by their kind) and Terraform (resource and module block headers by type) were added in step 3 the same day; prose (a README saying what a secret is for) is not read.
 
 ### The primary experience is genuinely interactive terminal UI
 
