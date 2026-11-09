@@ -17,8 +17,9 @@ if ! command -v pathlight >/dev/null 2>&1; then
 else
   [ -n "$where" ] || where=$(pathlight config get claude 2>/dev/null)
   if [ "$where" = web ]; then
-    # The browser page's own window (one per workspace); it shows the map, and the agent's activity reaches it in a later step.
-    output=$(pathlight web ${view:+"$view"} --open --workspace "${CLAUDE_PROJECT_DIR:-$PWD}" 2>&1)
+    # The browser page's own window (one per workspace), showing this conversation's work.
+    session=$(printf '%s' "$input" | sed -n 's/.*"session_id":"\([A-Za-z0-9_-]*\)".*/\1/p')
+    output=$(pathlight web ${view:+"$view"} --open --workspace "${CLAUDE_PROJECT_DIR:-$PWD}" ${session:+--session "$session" --source claude} 2>&1)
     reason=$(printf '%s' "$output" | tail -n 1 | tr -d '"\\' | cut -c1-300)
   else
     # Bind to this conversation (the hook input names it), not "the newest session", which before its first tool call is nothing or a stale one.

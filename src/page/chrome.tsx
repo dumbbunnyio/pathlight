@@ -10,7 +10,7 @@ import { Line, Lines, Spans } from "./spans";
 export const Header = (props: { frame: Frame }) => (
   <header class="header">
     <div class="line split"><span><Spans spans={[{ text: " " }, ...props.frame.header.line1]} /></span><span><Spans spans={props.frame.header.badge} /></span></div>
-    <Line spans={[{ text: " " }, ...props.frame.header.line2]} />
+    <div class="line split"><span><Spans spans={[{ text: " " }, ...props.frame.header.line2]} /></span><span><Spans spans={[...props.frame.header.news, { text: " " }]} /></span></div>
   </header>
 );
 

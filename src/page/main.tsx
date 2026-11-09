@@ -27,7 +27,10 @@ const railCols = 26;
 
 const App = (props: { scene: SceneData; cell: Cell }) => {
   const cell = props.cell;
-  const views = new Map(props.scene.views.map(view => [view.id, view]));
+  // The scene, fetched again when the model reloads (a frame's `scene` is newer than this one's revision).
+  const [data, setData] = createSignal(props.scene);
+  const viewsOf = createMemo(() => new Map(data().views.map(view => [view.id, view])));
+  const views = { get: (id: string) => viewsOf().get(id) };
   const [frame, setFrame] = createSignal<Frame>();
   const [pending, setPending] = createSignal<string | null>(null);
   const [help, setHelp] = createSignal(false);
@@ -39,7 +42,7 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
     if (!windowId) return;
     void fetch(api("/api/act", `&w=${encodeURIComponent(windowId)}`), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(act) });
   };
-  const scene = createMemo(() => views.get(frame()?.view ?? "") ?? props.scene.views[0]!);
+  const scene = createMemo(() => views.get(frame()?.view ?? "") ?? data().views[0]!);
 
   // Where everything sits, in pixels from the cells: the header's two lines and its rule, the body, the footer's line; in the body the diagram,
   // the inspector where the terminal puts it, and the rail beside a docked one.
@@ -71,7 +74,8 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
     const view = views.get(next.view);
     if (next.restore) camera.restore(next.restore);
     else if (changedView && view) { camera.resize({ width: layout().diagram.width, height: layout().diagram.height }, undefined); fitNow(false); }
-    if (reveal && next.selected && next.selected !== before?.selected) {
+    // The person's own move (a key) or the work's (follow, `w`, the server's `reveal`) brings the new selection into view.
+    if ((reveal || next.reveal) && next.selected && (next.reveal || next.selected !== before?.selected)) {
       const card = view?.cards.find(entry => entry.id === next.selected);
       if (card) camera.ensureVisible(card.rect);
     }
@@ -91,11 +95,14 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
     const view = now.get("view"), chosen = now.get("select");
     events = new EventSource(api("/api/events", `&cols=${at.cols}&rows=${at.rows}${view ? `&view=${encodeURIComponent(view)}` : ""}${chosen ? `&select=${encodeURIComponent(chosen)}` : ""}`));
     events.onmessage = event => {
-      const data = JSON.parse(event.data) as { window: string; frame: Frame; raise?: true };
-      windowId = data.window;
-      apply(data.frame);
+      const message = JSON.parse(event.data) as { window: string; frame: Frame; scene?: number; raise?: true };
+      windowId = message.window;
+      // The model reloaded: the new scene first, then the frame for it. The camera stays where it was unless the view changed.
+      if (message.scene !== undefined && message.scene !== data().revision) {
+        void fetch(api("/api/scene")).then(response => response.json() as Promise<SceneData>).then(next => { setData(next); apply(message.frame); });
+      } else apply(message.frame);
       // Opened again from the terminal or the agent (launch.ts): one window per workspace, brought forward instead of a second one.
-      if (data.raise) window.focus();
+      if (message.raise) window.focus();
     };
     events.onerror = () => { events?.close(); windowId = ""; clearTimeout(retry); retry = window.setTimeout(connect, 1000); };
   };
@@ -120,6 +127,9 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
   camera.onMove(target => { clearTimeout(zoomTimer); zoomTimer = window.setTimeout(() => post({ kind: "zoom", zoom: Math.round(target.zoom * 1000) / 1000 }), 150); });
 
   const select = (id: string) => { setPending(id); post({ kind: "select", id }); };
+  // The person moved the camera: follow pauses (the server ignores it when follow is off). Once per gesture is enough.
+  let movedAt = 0;
+  const moved = () => { const now = performance.now(); if (now - movedAt > 400) { movedAt = now; post({ kind: "moved" }); } };
   const into = (id: string) => { if (frame()?.selected !== id) post({ kind: "select", id }); post({ kind: "into", camera: camera.target() }); };
   const openView = (view: string) => { if (view !== frame()?.view) post({ kind: "open", view, camera: camera.target() }); };
 
@@ -140,10 +150,12 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
       case "help": setHelp(true); return;
       case "helpClose": setHelp(false); return;
       case "inspector": post({ kind: "inspector" }); return;
-      case "fit": fitNow(true); return;
-      case "actualSize": camera.actualSize(); return;
-      case "zoom": camera.zoomBy(action.by > 0 ? 1.25 : 1 / 1.25); return;
-      case "pan": camera.panCells(action.direction === "left" ? -6 : action.direction === "right" ? 6 : 0, action.direction === "up" ? -3 : action.direction === "down" ? 3 : 0); return;
+      case "follow": post({ kind: "follow" }); return;
+      case "work": post({ kind: "work", camera: camera.target() }); return;
+      case "fit": moved(); fitNow(true); return;
+      case "actualSize": moved(); camera.actualSize(); return;
+      case "zoom": moved(); camera.zoomBy(action.by > 0 ? 1.25 : 1 / 1.25); return;
+      case "pan": moved(); camera.panCells(action.direction === "left" ? -6 : action.direction === "right" ? 6 : 0, action.direction === "up" ? -3 : action.direction === "down" ? 3 : 0); return;
     }
   };
   const keydown = (event: KeyboardEvent) => {
@@ -169,6 +181,7 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
     // Captured only once it is a drag: a capture from the press would make the click land on the diagram instead of the card under it.
     if (!drag.moved) (event.currentTarget as Element).setPointerCapture(event.pointerId);
     drag.moved = true; dragged = true;
+    moved();
     camera.pan(dx, dy);
     drag.x = event.clientX; drag.y = event.clientY;
   };
@@ -177,6 +190,7 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
     event.preventDefault();
     const svg = event.currentTarget as SVGSVGElement;
     const scale = event.deltaMode === 1 ? cell.h : event.deltaMode === 2 ? layout().diagram.height : 1;
+    moved();
     if (event.ctrlKey || event.metaKey) camera.zoomBy(Math.exp(-event.deltaY * scale * 0.01), svgPoint(event, svg), false);
     else camera.pan(-event.deltaX * scale, -event.deltaY * scale);
   };
@@ -190,7 +204,7 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
         <div class="rule" style={{ top: `${cell.h * 2}px` }} />
         <Show when={layout().rail}>
           <div class="rail-box" style={{ top: `${layout().top}px`, width: `${layout().rail}px`, height: `${layout().body}px` }}>
-            <Rail rows={props.scene.rail} current={current().view} open={openView} />
+            <Rail rows={data().rail} current={current().view} open={openView} />
           </div>
           <div class="divider" style={{ left: `${layout().rail + cell.w / 2}px`, top: `${layout().top}px`, height: `${layout().body}px` }} />
         </Show>

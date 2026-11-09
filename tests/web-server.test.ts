@@ -298,7 +298,9 @@ test("? lists the terminal's help for the keys the page has, and no others", asy
   try {
     const help = (await win.next()).frame.help.lines.map(text).join("\n");
     for (const row of ["into a box", "the view a box opens", "back where you were, else up", "this help", "fit everything", "actual size, zoom", "inspector, or the talk and back"]) expect(help).toContain(row);
-    for (const row of ["ask or tell the agent", "follow the work", "step through a journey", "choose a theme", "replay the session"]) expect(help).not.toContain(row);
+    // Step 3 brought follow and the work; the journeys, the talk, the themes and replay come later.
+    for (const row of ["follow the work", "jump to the agent's work"]) expect(help).toContain(row);
+    for (const row of ["ask or tell the agent", "step through a journey", "choose a theme", "replay the session"]) expect(help).not.toContain(row);
   } finally { win.close(); }
 });
 

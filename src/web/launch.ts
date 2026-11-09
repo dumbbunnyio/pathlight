@@ -4,6 +4,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { Effect } from "effect";
+import type { ActivityBinding } from "../activity";
 import { failure, hasCode, io } from "../effects";
 import { savedBrowser } from "../theme";
 
@@ -74,7 +75,7 @@ export interface Served { url: string; record: WebRecord; windows: number; start
  * The workspace's server: the running one if its record answers, else a new one started in the background (`pathlight web --until-closed`),
  * which records itself, serves until its last window closes and gives up if no window comes within a minute.
  */
-export const ensureServer = Effect.fn("Web.ensureServer")(function* (options: { workspace: string; view: string; project: string; select?: string | undefined }) {
+export const ensureServer = Effect.fn("Web.ensureServer")(function* (options: { workspace: string; view: string; project: string; select?: string | undefined; activity?: ActivityBinding | undefined }) {
   const workspace = resolve(options.workspace);
   const known = yield* io("Web.readRecord", () => readRecordFile(workspace));
   if (known && alive(known.pid) && (!known.project || known.project === options.project)) {
@@ -82,7 +83,9 @@ export const ensureServer = Effect.fn("Web.ensureServer")(function* (options: { 
     if (windows !== undefined) return { url: known.url, record: known, windows, started: false } satisfies Served;
   }
   const command = selfCommand();
-  const args = [...command.slice(1), "web", options.view, "--workspace", workspace, "--project", options.project, "--until-closed"];
+  // The session it shows: the one named (the conversation that opened it), else the newest recorded one.
+  const session = options.activity ? ["--session", options.activity.session, "--source", options.activity.source] : [];
+  const args = [...command.slice(1), "web", options.view, "--workspace", workspace, "--project", options.project, ...session, "--until-closed"];
   const errorsFile = yield* io("Web.log", async () => { await mkdir(join(logPath(workspace), ".."), { recursive: true }); return openSync(logPath(workspace), "w"); });
   const child = yield* Effect.try({
     try: () => spawn(command[0]!, args, { detached: true, stdio: ["ignore", "ignore", errorsFile], cwd: workspace }),
@@ -177,7 +180,7 @@ export const addressOf = (url: string, view?: string, select?: string) => {
  * `pathlight web --open`, `B` and `/pathlight:open web`: the workspace's one window, at `view`. An open window is brought forward and shown the
  * view; otherwise one is opened. Answers one line for the person.
  */
-export const launchWeb = Effect.fn("Web.launch")(function* (options: { workspace: string; view: string; project: string; select?: string | undefined; browser?: string }) {
+export const launchWeb = Effect.fn("Web.launch")(function* (options: { workspace: string; view: string; project: string; select?: string | undefined; browser?: string; activity?: ActivityBinding | undefined }) {
   const browser = yield* findBrowser(options.browser);
   if (!browser) return yield* Effect.fail(failure("Web.browser", "No browser found. Set one with pathlight config set browser COMMAND, or run pathlight web and open its address."));
   const served = yield* ensureServer(options);

@@ -36,8 +36,11 @@ export interface Scene {
 /** A row of the views rail, in the words of the terminal's view picker (`g`): the view's name, what holds it, how many boxes. */
 export interface RailRow { view: string; name: string; holder: string; detail: string }
 
-/** `GET /api/scene`: every view, the overview first, the rail, and the palette of the theme and mode the terminal would use. */
-export interface SceneData { project: string; mode: "dark" | "light"; palette: Record<string, string>; views: Scene[]; rail: RailRow[] }
+/**
+ * `GET /api/scene`: every view, the overview first, the rail, and the palette of the theme and mode the terminal would use. `revision` counts the
+ * model's reloads; every frame carries it, and a window whose scene is older fetches it again.
+ */
+export interface SceneData { project: string; mode: "dark" | "light"; palette: Record<string, string>; views: Scene[]; rail: RailRow[]; revision: number }
 
 /** Where the page's camera stood: the world point at the middle of the diagram and the zoom (1 is 100%); `moved` is false while it fits. */
 export interface Camera { x: number; y: number; zoom: number; moved: boolean }
@@ -46,17 +49,19 @@ export interface Camera { x: number; y: number; zoom: number; moved: boolean }
 export interface Placement { mount: "docked" | "below" | "overlay" | "none"; list: boolean; width: number; height: number }
 
 /** A card as the terminal draws it at 100%: its border color and dashes, the text in its top border, and its label's lines. */
-export interface CardLook { border: string; dashed: boolean; title: Span[]; label: Span[][] }
+export interface CardLook { border: string; dashed: boolean; title: Span[]; label: Span[][]; pulse?: boolean }
 
 /** Everything the page draws besides the diagram's geometry, for the window's view, selection and size. */
 export interface Frame {
   view: string; selected: string | null; canBack: boolean;
   /** Set only on Back: the camera to put back. */
   restore: Camera | null;
+  /** The selection moved without the person (follow, `w`): bring it into view. */
+  reveal: boolean;
   size: { cols: number; rows: number };
   placement: Placement;
-  /** Header line 1 (where you are), its right-hand side, and line 2 (the box count). */
-  header: { line1: Span[]; badge: Span[]; line2: Span[] };
+  /** Header line 1 (where you are), its right-hand side, line 2 (the box count) and line 2's right: the news line (the agent's work now). */
+  header: { line1: Span[]; badge: Span[]; line2: Span[]; news: Span[] };
   footer: { left: Span[]; right: Span[] };
   /** Each card's look, by id. */
   cards: Record<string, CardLook>;
@@ -64,6 +69,8 @@ export interface Frame {
   routes: { color: string; dotted: boolean; lit: boolean }[];
   inspector: {
     title: Span[]; what: Span[][]; about: Span[][];
+    /** Work: the selected box's own recent edits and commands, while a session is watched. */
+    work: { header: Span[]; lines: Span[][] } | null;
     /** Connects: its header, its lines, and the box each line names (a wrapped line names none). */
     connects: { header: Span[]; lines: Span[][]; rows: (string | null)[] };
     opens: { view: string; title: string } | null;
@@ -87,4 +94,10 @@ export type Act =
   | { kind: "back"; up?: boolean; camera?: Camera }
   | { kind: "size"; cols: number; rows: number }
   | { kind: "zoom"; zoom: number }
-  | { kind: "inspector" };
+  | { kind: "inspector" }
+  /** `a`: follow the work, or stop; resumes a paused follow. */
+  | { kind: "follow" }
+  /** `w`: to the newest work, and follow it. */
+  | { kind: "work"; camera?: Camera }
+  /** The person moved the camera (drag, wheel, keys): pauses follow. */
+  | { kind: "moved" };

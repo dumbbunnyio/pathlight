@@ -49,7 +49,7 @@ export const Diagram = (props: {
           <g class="card group" classList={{ selected: selected(card) }} data-id={card.id}
             onClick={() => props.select(card.id)} onDblClick={() => props.into(card.id)}>
             <rect class="hit" x={x + half.x} y={y + half.y} width={width - world.x} height={height - world.y} rx={6} />
-            <rect class="edge" x={x + half.x} y={y + half.y} width={width - world.x} height={height - world.y} rx={6} stroke={border(card)}
+            <rect class="edge" classList={{ pulse: look(card).pulse === true }} x={x + half.x} y={y + half.y} width={width - world.x} height={height - world.y} rx={6} stroke={border(card)}
               stroke-dasharray={look(card).dashed ? "4 3" : undefined} />
             <Show when={look(card).title.length}>
               <rect class="behind" x={x + world.x * 2} y={y} width={length(look(card).title) * world.x} height={world.y} />
@@ -73,7 +73,7 @@ export const Diagram = (props: {
         return (
           <g class="card leaf" classList={{ selected: selected(card) }} data-id={card.id}
             onClick={() => props.select(card.id)} onDblClick={() => props.into(card.id)}>
-            <rect class="edge" x={x + half.x} y={y + half.y} width={width - world.x} height={height - world.y} rx={6} stroke={border(card)}
+            <rect class="edge" classList={{ pulse: look(card).pulse === true }} x={x + half.x} y={y + half.y} width={width - world.x} height={height - world.y} rx={6} stroke={border(card)}
               stroke-dasharray={look(card).dashed ? "4 3" : undefined} />
             <Show when={look(card).title.length}>
               <rect class="behind" x={x + width - world.x * 2 - length(look(card).title) * world.x} y={y} width={length(look(card).title) * world.x} height={world.y} />

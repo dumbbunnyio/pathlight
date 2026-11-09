@@ -1031,7 +1031,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       // `B`: this view and selection in the browser page's window (src/web/launch.ts), one per workspace; the footer gives its one line.
       case "browser": {
         if (process.env.PATHLIGHT_SEE) { message = "B opens the browser from a viewer you run, not from pathlight see"; update(); return; }
-        const at = { workspace: view.workspace, view: String(diagram.id), project: view.project, select: state.selected ? String(state.selected.id) : undefined };
+        const at = { workspace: view.workspace, view: String(diagram.id), project: view.project, select: state.selected ? String(state.selected.id) : undefined, activity: binding };
         message = "Opening the browser…"; update();
         runTask(Effect.gen(function* () {
           const { launchWeb } = yield* io("Native.launch", () => import("./web/launch"));

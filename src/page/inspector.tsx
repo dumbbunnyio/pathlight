@@ -1,4 +1,4 @@
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import type { Frame } from "../web/wire";
 import { Line, Lines } from "./spans";
 
@@ -15,6 +15,13 @@ export const Inspector = (props: { frame: Frame; select: (id: string) => void })
       <Lines lines={inspector().what} />
       <Lines lines={inspector().about} />
       <div class="line" />
+      <Show when={inspector().work}>{work => (
+        <>
+          <Line spans={work().header} />
+          <Lines lines={work().lines} />
+          <div class="line" />
+        </>
+      )}</Show>
       <Line spans={inspector().connects.header} />
       <For each={inspector().connects.lines}>{(line, index) => {
         const node = () => inspector().connects.rows[index()] ?? null;
