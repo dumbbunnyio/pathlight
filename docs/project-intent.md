@@ -67,9 +67,11 @@ plan `phase-r-resources`, step 1). Type-only imports and tests are no
 evidence; HTTP clients lead nowhere. A resource's mapped files are its schema
 (`*.sql`, `*.prisma`), never the code that calls it, so an edit lights the
 code it was made in. The map says what the code expects, never what anyone
-has access to. Infrastructure files (compose, `.env.example`, Helm,
-Terraform) naming and adding resources are the plan's later steps, not built
-yet.
+has access to. Compose files and the example environment are read as names
+only (images, environment names; never a value): they confirm what the code
+reaches, name an ORM's database when they name one engine, and add a box only
+for a datastore they run with no code found, which it says (step 2,
+2026-11-09). Helm and Terraform are the plan's step 3, not built yet.
 
 ### The primary experience is genuinely interactive terminal UI
 
