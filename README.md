@@ -179,6 +179,18 @@ The pane opens with the keys: type to drive it (`h j k l`, Enter, Backspace, `t 
 
 The talk's request is sent as your own prompt (the transcript labels it "Prompt from the pathlight plugin"), with exactly the text `pathlight show` would type into the agent's pane; sent while the agent is working, it waits for the turn to end and the talk says so. The reply shows in the talk as it does in tmux. Pathlight calls no model; the pane records nothing (the plugin's hooks still do) and is a `pathlight pane` process that ends when the pane closes or the session ends.
 
+## Open in a browser
+
+The map also opens in a browser window of its own: the terminal viewer drawn by the browser, with the same header, diagram, inspector, footer, words, colors and keys, laid out by the same code. Three ways to open it, all the same window:
+
+- `pathlight web --open [VIEW]` from a shell;
+- `B` in the viewer, at the view and box you are on;
+- `/pathlight:open web [VIEW]` in Claude Code, or `pathlight config set claude web` to make the browser what `/pathlight:open` opens (`tmux` puts the tmux pane back; the word in the command wins).
+
+It uses the first Chromium-family browser it finds (Brave, Chrome, Chromium, Edge, Vivaldi) in an app window with Pathlight's own profile, so your browser's tabs and profile are untouched; `pathlight config set browser COMMAND` names another (any other browser opens it in a tab), and `pathlight doctor` says which one it found. There is one window per project: opening it again brings that window forward at the view you asked for. Its server runs in the background on `127.0.0.1` only, answers only its own window (a token in the address), and stops a few seconds after the window closes. `pathlight web [VIEW]` without `--open` serves it in the foreground and prints the address, for any browser; Ctrl-C stops it.
+
+What the browser has today: the map, selection, the inspector, the views list, Back, the arrow keys, fit and zoom, and the themes. The agent's live activity, journeys, the review and the talk come to the browser next; until then they are in the terminal viewer.
+
 ## See the screen as text
 
 `pathlight see VIEW --workspace . --cols 120 --rows 36` prints what the viewer would show, as text. It runs the viewer in a private tmux server at that size, so it never touches your panes, and it prints once the picture has stopped changing. `--select ELEMENT` opens with that element selected (`pathlight view` takes it too), and `--keys Tab,i` sends tmux key names first; `--ansi` keeps the colors. An agent cannot look at the viewer, so this is how it checks the diagram it just wrote; the tests keep screens at several sizes as snapshots (`tests/golden/`).
