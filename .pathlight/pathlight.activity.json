@@ -14,7 +14,11 @@
     { "glob": "src/{scan,scan-imports,check,draft,brief,starts,stale,diff,plan,point,review,edit,flows,flow-write}.ts", "element": "scanner" },
     { "glob": "src/languages/**", "element": "scanner" },
     { "glob": "src/{theme,retheme}.ts", "element": "themes" },
-    { "glob": "src/themes/**", "element": "themes" }
+    { "glob": "src/themes/**", "element": "themes" },
+    { "glob": "src/web/**", "element": "browser" },
+    { "glob": "web/**", "element": "browser" },
+    { "glob": "src/page/**", "element": "browser" },
+    { "glob": "scripts/{pack-web,web-fixture,build-page}.ts", "element": "browser" }
   ],
   "ignore": ["tests/**", "src/effects.ts", "src/assets.d.ts", "scripts/ansi2png.py"]
 }

@@ -86,3 +86,7 @@ export function noticeStyle(message: string) {
   if (/^(no |nothing|unknown|not |needs |type a|view )|not in this view|gone|empty/i.test(message)) return { glyph: "▲", color: palette.outgoing };
   return { glyph: "●", color: palette.incoming };
 }
+
+/** A connector's color for its tone (routes.ts `routeTone`): out of the selection, into it, a diff's marks, a journey, else quiet. */
+export const toneColor = (tone: string) => tone === "out" ? palette.outgoing : tone === "in" ? palette.incoming : tone === "added" ? palette.green
+  : tone === "lost" ? palette.failure : tone === "path" || tone === "gap" ? palette.purple : palette.edgeDim;

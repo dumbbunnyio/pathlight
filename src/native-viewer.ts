@@ -20,6 +20,7 @@ import pkg from "../package.json" with { type: "json" };
 import { borderHints, palette, setPalette } from "./ui";
 import { type Mode, loadThemes, paletteOf, savedTheme, themeFromEnvironment } from "./theme";
 import { cellAt, rasterize, routeEdges, type Route } from "./routes";
+import { toneColor } from "./ui";
 import { checkFlows } from "./flows";
 import { badgeText as stepBadge, badgesOf, cardsFor, flowMaps, flowsThrough, gapHops, pathEdges, type FlowMap } from "./flow-view";
 import { attempt, failure, io } from "./effects";
@@ -29,13 +30,14 @@ import { readSession, type SessionPointer } from "./sessions";
 import { declarationsFor } from "./languages";
 import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
 import { createCamera } from "./viewer/camera";
-import { boundsOf, compact, kindsVary } from "./viewer/compact";
-import { cardLook, insideWords } from "./viewer/card-view";
+import { boundsOf } from "./viewer/compact";
+import { shapeView } from "./viewer/shape";
+import { cardLook } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
 import { crumbActivity, followNews, footerContent, modeHints, workOffer } from "./viewer/footer";
-import { badgeContent as headerBadge, diffText, edgeMarks, journeyHeading } from "./viewer/header";
+import { badgeContent as headerBadge, boxesText, edgeMarks, journeyHeading, viewHeading } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
-import { allotSections, headContent, nodeListContent, hiddenLine, opensLine, pinnedLines, sectionHeader, splitDescription } from "./viewer/inspector-view";
+import { allotSections, appNoteOf, headContent, isWaiting, nodeListContent, opensOf, pinnedLines, sectionHeader } from "./viewer/inspector-view";
 import { type Action, hints, keyAction, type Tier, tierOf } from "./viewer/keys";
 import { createGotoPicker, pickCandidates } from "./viewer/pickers";
 import { createThemePicker } from "./viewer/theme-picker";
@@ -47,7 +49,7 @@ import { createFlowMode, flowView, stepElement } from "./viewer/flow-mode";
 import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
-import { elementsOf, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, viewHaving as viewIn } from "./viewer/where";
+import { type Direction, elementsOf, neighborIn, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, nothingThere, viewHaving as viewIn } from "./viewer/where";
 
 /**
  * Who draws the viewer when it is not the terminal's own process: `pathlight pane` hands it a headless renderer and takes the frames, says when the
@@ -77,18 +79,10 @@ const wordRows = new WeakMap<Layout, { words: ReadonlyMap<string, string>; row: 
 const shape = (raw: Layout): Layout => {
   const known = shaped.get(raw);
   if (known) return known;
-  // A planned element with no files yet keeps its `[planned]` row; the word row is drawn when a card in the view has a word, or its kinds vary (the row
-  // it always had, see kindsVary). Watching a session, every card keeps that row, so the activity counts that appear there never move the layout.
-  const planned = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`)) && ![...files].some(([element, paths]) => (element === ref || element.startsWith(`${ref}.`)) && paths.length);
-  const input = raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
-    x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined, status: planned(String(node.modelRef)) }));
-  const words = insideWords(raw, new Set([...diagrams.values()].flatMap(other => other.nodes.map(node => String(node.modelRef)))));
-  const row = words.size > 0 || kindsVary(raw.nodes) || watching;
-  const rects = compact(input, { aspect: 0.5, wordRow: row });
-  const nodes = raw.nodes.map((node, index) => ({ ...node, x: rects[index]!.x, y: rects[index]!.y, width: rects[index]!.width, height: rects[index]!.height }));
-  const next = { ...raw, nodes, bounds: boundsOf(nodes) } as Layout;
+  const fitted = shapeView(raw, { all: diagrams.values(), planned: config?.planned ?? [], files, watching });
+  const next = { ...raw, nodes: fitted.nodes, bounds: fitted.bounds } as Layout;
   shaped.set(raw, next);
-  wordRows.set(next, { words, row: row || input.some(node => !node.children.length && node.status) });
+  wordRows.set(next, { words: fitted.words, row: fitted.row });
   return next;
 };
 const getDiagram = (id: string) => {
@@ -146,9 +140,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   let redrawAfterResize = false;
   let fileMode = false, editorActive = false;
   let fileQuery = "";
-  // An element the mapping names as planned and that has no files yet (nor does anything inside it): designed, not built.
-  const waiting = (ref: string) => (config?.planned ?? []).some(id => ref === id || ref.startsWith(`${id}.`))
-    && !(files.get(ref)?.length) && ![...files].some(([element, paths]) => element.startsWith(`${ref}.`) && paths.length);
+  const waiting = (ref: string) => isWaiting(config?.planned ?? [], files, ref);
   const selectedPaths = () => {
     const dirOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
     const paths = [...files.get(String(state.selected?.modelRef ?? "")) ?? []].sort((a, b) => dirOf(a).localeCompare(dirOf(b)) || a.localeCompare(b));
@@ -183,15 +175,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     help.foot.content = new StyledText(borderHints(hints.help));
     if (help.visible) help.place(guide.width, guide.height, helpCap); else help.open(guide.width, guide.height, helpCap);
   };
-  // With nothing selected the head says what the app is: the note of the box the view is about, else of the model's first top-level box.
-  const appNote = () => {
-    const all = [...diagrams.values()].flatMap(scene => scene.nodes);
-    const about = (diagram as { viewOf?: unknown }).viewOf;
-    const subject = about !== undefined ? String(about) : all.map(node => String(node.modelRef ?? "")).find(ref => ref && !ref.includes("."));
-    if (!subject) return "";
-    const node = all.find(entry => String(entry.modelRef) === subject);
-    return words.get(subject)?.note ?? (node ? splitDescription(describe(node.description), undefined).words : "");
-  };
+  const appNote = () => appNoteOf([...diagrams.values()].flatMap(scene => scene.nodes), (diagram as { viewOf?: unknown }).viewOf, words);
   // A call seen for the first time flashes: its node's border and its activity row take the accent for a moment.
   const nodeFlashes = new Map<string, number>(), rowFlashes = new Map<string, number>(), seenCalls = new Set<string>();
   let calmLoaded = false, wasFlashing = false;
@@ -229,9 +213,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const pointed = () => pointMark !== undefined && String(state.selected?.modelRef ?? "") === pointMark;
   const headingContent = () => {
     const active = flowMode.active, element = active ? stepElement(active, flowMode.step) : undefined;
-    return new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(diagram.title ?? String(diagram.id)),
-      ...(active ? journeyHeading({ title: active.title, step: flowMode.step, steps: active.steps.length, box: element ? elementTitle(element) : undefined, pointed: pointFlow && pointMark !== undefined })
-        : pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : [])]);
+    return viewHeading(diagram.title ?? String(diagram.id),
+      active ? journeyHeading({ title: active.title, step: flowMode.step, steps: active.steps.length, box: element ? elementTitle(element) : undefined, pointed: pointFlow && pointMark !== undefined })
+        : pointed() ? [fg(palette.purple)(`  ← agent: ${state.selected?.title ?? pointMark}`)] : []);
   };
   // Right-hand: the live session when there is one (a spinner replaces the dot while a tool runs), otherwise nothing.
   // The last `pathlight check` (the Stop hook runs one at the end of each turn): shown only when the model and the code disagree, with how old that check is.
@@ -478,7 +462,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     canvas.visible = !listMode; nodeList.visible = listMode;
     if (listMode) renderNodeList();
     headingText.content = headingContent(); badgeText.content = badgeContent();
-    crumbPlain = `${diagram.nodes.length} ${diagram.nodes.length === 1 ? "box" : "boxes"}${diagram.nodes.filter(node => waiting(String(node.modelRef))).length ? ` · ${diagram.nodes.filter(node => waiting(String(node.modelRef))).length} planned` : ""}${state.history.length ? ` · back ${state.history.length}` : ""}${diffText(diff)}${plan ? ` · plan ${plan.elements.length}` : ""}`;
+    crumbPlain = boxesText({ boxes: diagram.nodes.length, planned: diagram.nodes.filter(node => waiting(String(node.modelRef))).length, back: state.history.length, diff, plan: plan?.elements.length });
     breadcrumb.content = crumbPlain;
     crumbHint.visible = true;
     camera.sync();
@@ -552,9 +536,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const selected = state.selected;
     const target = selected?.navigateTo ? diagrams.get(String(selected.navigateTo)) : undefined;
     // A box whose children are drawn here and that opens a view: Enter goes into the children, so the line says what `o` opens.
-    const linked = selected?.navigateTo && String(selected.navigateTo) !== String(diagram.id);
-    const both = linked && selected.children.some(child => diagram.nodes.some(node => node.id === child));
-    const opens = [both ? opensLine(String(target?.title ?? selected.navigateTo)) : "", linked ? hiddenLine(describe(target?.description)) : ""].filter(Boolean).join("\n");
+    const opens = opensOf(selected, diagram, target);
     const head = headContent({ title: selected?.title, technology: selected?.technology, planned: Boolean(selected && waiting(String(selected.modelRef))),
       tags: (selected as { tags?: readonly string[] } | undefined)?.tags ?? [], description: selected?.description, opens, width: Math.max(10, inspector.width - 3),
       by: words.get(String(selected?.modelRef))?.by, note: words.get(String(selected?.modelRef))?.note, mapped: paths.length, app: selected ? undefined : appNote() });
@@ -680,27 +662,11 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     followSelecting = true; followedTitle = target.title;
     try { message = ""; selectNode(target, true); } finally { followSelecting = false; }
   };
-  type Direction = "left" | "right" | "up" | "down";
-  // Nearest node in a direction, by the centres of their boxes; siblings win ties. Ancestors and descendants are
-  // reached with Backspace/Enter, so they are not neighbours.
+  // Nearest node in a direction (viewer/where.ts).
   const traverse = (direction: Direction) => {
     if (!state.selected) return;
-    const current = state.selected;
-    const lineage = new Set<string>([String(current.id)]);
-    for (let parent = diagram.nodes.find(node => node.id === current.parent); parent; parent = diagram.nodes.find(node => node.id === parent?.parent)) lineage.add(String(parent.id));
-    const descend = (id: string) => { for (const child of diagram.nodes.find(node => String(node.id) === id)?.children ?? []) { lineage.add(String(child)); descend(String(child)); } };
-    descend(String(current.id));
-    const cx = current.x + current.width / 2, cy = current.y + current.height / 2;
-    const scored = diagram.nodes.filter(node => !lineage.has(String(node.id))).flatMap(node => {
-      const dx = node.x + node.width / 2 - cx, dy = node.y + node.height / 2 - cy;
-      const along = direction === "right" ? dx : direction === "left" ? -dx : direction === "down" ? dy : -dy;
-      const across = Math.abs(direction === "left" || direction === "right" ? dy : dx);
-      if (along <= 1) return [];
-      return [{ node, cone: across <= along * 1.5, score: (along + across * 2) * (node.parent === current.parent ? 0.6 : 1) }];
-    });
-    const pool = scored.some(entry => entry.cone) ? scored.filter(entry => entry.cone) : scored;
-    const best = pool.sort((a, b) => a.score - b.score)[0]?.node;
-    if (!best) { message = `Nothing ${direction === "up" ? "above" : direction === "down" ? "below" : `to the ${direction} of`} ${current.title}`; update(); return; }
+    const best = neighborIn(diagram.nodes, state.selected, direction);
+    if (!best) { message = nothingThere(direction, state.selected.title); update(); return; }
     message = "";
     selectNode(best, false);
     camera.ensureVisible(best);
@@ -1246,8 +1212,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       for (const cell of rasterize([...routes, ...gaps], point => camera.projected(point.x, point.y), isCovered, state.selected ? String(state.selected.id) : undefined, edgeMarks(diff, diagram.nodes, diagram.edges, flowPath), id => drawnCards.get(id))) {
         // A connector stops a cell short of the inspector's divider, so it never reads as a line into the panel.
         if (cell.t > drawn || cell.x < 0 || cell.y < 0 || cell.x >= viewport.width - 1 || cell.y >= viewport.height) continue;
-        const fg = cell.tone === "out" ? palette.outgoing : cell.tone === "in" ? palette.incoming : cell.tone === "added" ? palette.green : cell.tone === "lost" ? palette.failure : cell.tone === "path" || cell.tone === "gap" ? palette.purple : palette.edgeDim;
-        canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(fg), bg);
+        canvas.frameBuffer.setCell(cell.x, cell.y, cell.glyph, RGBA.fromHex(toneColor(cell.tone)), bg);
       }
     })();
     await drawing;

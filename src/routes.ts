@@ -186,6 +186,18 @@ export const cellAt = (value: number) => Math.round(Math.round(value * 1e6) / 1e
 
 export interface RasterCell { x: number; y: number; glyph: string; tone: "out" | "in" | "dim" | "added" | "lost" | "path" | "gap"; t: number }
 
+export type Tone = RasterCell["tone"];
+
+/** A connector's tone: out of the selected box, into it, a diff's or a journey's mark, else a quiet one. */
+export const routeTone = (route: { source: string; target: string; gap?: true }, selected: string | undefined, marks: ReadonlyMap<string, "added" | "lost" | "path"> = new Map()): Tone =>
+  route.gap ? "gap" : route.source === selected ? "out" : route.target === selected ? "in" : marks.get(`${route.source}\0${route.target}`) ?? "dim";
+
+/** Which tone wins where connectors share a cell, and which is drawn last: the selection's over a mark's over a quiet one. */
+export const rank = (tone: Tone) => tone === "dim" ? 0 : tone === "added" || tone === "lost" || tone === "path" || tone === "gap" ? 1 : 2;
+
+/** Whether a tone is drawn dotted where it runs straight. */
+export const dotted = (tone: Tone) => tone === "dim" || tone === "lost" || tone === "gap";
+
 const N = 1, E = 2, S = 4, W = 8;
 const solid: Record<number, string> = { [E | W]: "─", [N | S]: "│", [S | E]: "╭", [S | W]: "╮", [N | E]: "╰", [N | W]: "╯",
   [N | S | E]: "├", [N | S | W]: "┤", [E | W | S]: "┬", [E | W | N]: "┴", [N | S | E | W]: "┼", [E]: "─", [W]: "─", [N]: "│", [S]: "│" };
@@ -200,8 +212,7 @@ const arrows: Record<Side, string> = { E: "▶", W: "◀", S: "▼", N: "▲" };
  */
 export function rasterize(routes: readonly Route[], project: (point: Point) => Point, covered: (x: number, y: number) => boolean, selected: string | undefined, marks: ReadonlyMap<string, "added" | "lost" | "path"> = new Map(), cards?: (id: string) => { x: number; y: number; width: number; height: number } | undefined): RasterCell[] {
   const cells = new Map<string, { x: number; y: number; mask: number; tone: RasterCell["tone"]; t: number; arrow?: string }>();
-  const toneOf = (route: Route): RasterCell["tone"] => route.gap ? "gap" : route.source === selected ? "out" : route.target === selected ? "in" : marks.get(`${route.source}\0${route.target}`) ?? "dim";
-  const rank = (tone: RasterCell["tone"]) => tone === "dim" ? 0 : tone === "added" || tone === "lost" || tone === "path" || tone === "gap" ? 1 : 2;
+  const toneOf = (route: Route) => routeTone(route, selected, marks);
   const ordered = [...routes].sort((a, b) => rank(toneOf(a)) - rank(toneOf(b)));
   for (const route of ordered) {
     const tone = toneOf(route);
@@ -256,6 +267,6 @@ export function rasterize(routes: readonly Route[], project: (point: Point) => P
   }
   return [...cells.values()].map(cell => {
     const straight = cell.mask === (E | W) ? "┈" : cell.mask === (N | S) ? "┊" : undefined;
-    return { x: cell.x, y: cell.y, tone: cell.tone, t: cell.t, glyph: cell.arrow ?? ((cell.tone === "dim" || cell.tone === "lost" || cell.tone === "gap") && straight ? straight : solid[cell.mask] ?? "·") };
+    return { x: cell.x, y: cell.y, tone: cell.tone, t: cell.t, glyph: cell.arrow ?? (dotted(cell.tone) && straight ? straight : solid[cell.mask] ?? "·") };
   });
 }

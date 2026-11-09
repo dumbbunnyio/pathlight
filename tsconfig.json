@@ -16,5 +16,8 @@
     "src/**/*.ts",
     "plugins/**/*.ts",
     "tests/**/*.ts"
+  ],
+  "exclude": [
+    "src/page/**"
   ]
 }

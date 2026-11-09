@@ -60,6 +60,14 @@ export const badgeContent = (options: { width: number; replay: boolean; live: st
 export const journeyHeading = (options: { title: string; step: number; steps: number; box: string | undefined; pointed: boolean }): TextChunk[] =>
   [fg(palette.purple)(`  ◇ ${clip(options.title, 32)} · ${options.step + 1}/${options.steps}${options.box ? ` · ${clip(options.box, 28)}` : ""}`), ...(options.pointed ? [fg(palette.purple)("  ← agent")] : [])];
 
+/** Header line 1: where you are, `◆ pathlight / View title`, then what follows it (the journey and step, or the agent's pointer). */
+export const viewHeading = (title: string, after: readonly TextChunk[] = []) =>
+  new StyledText([fg(palette.accent)("◆ "), fg(palette.muted)("pathlight"), fg(palette.border)(" / "), fg(palette.text)(title), ...after]);
+
+/** Header line 2's left side, as plain text: the box count, then what is planned, how far Back goes, the diff and the agent's plan. */
+export const boxesText = (options: { boxes: number; planned: number; back: number; diff?: Diff | undefined; plan?: number | undefined }) =>
+  `${options.boxes} ${options.boxes === 1 ? "box" : "boxes"}${options.planned ? ` · ${options.planned} planned` : ""}${options.back ? ` · back ${options.back}` : ""}${diffText(options.diff)}${options.plan !== undefined ? ` · plan ${options.plan}` : ""}`;
+
 /** What the last `pathlight diff` found, for the breadcrumb. Nothing changed, nothing said; new dependencies are the header's review, not repeated here. */
 export const diffText = (diff: Diff | undefined) => {
   if (!diff) return "";

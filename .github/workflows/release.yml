@@ -10,6 +10,8 @@ permissions:
   contents: write
 
 jobs:
+  # The browser page (src/page/, Solid) is built by scripts/build.sh with Bun alone. The experimental Rune page (web/) needs Rust and is not
+  # released; PATHLIGHT_RUNE=1 builds it into a local binary.
   build:
     strategy:
       matrix:
