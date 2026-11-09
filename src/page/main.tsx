@@ -91,9 +91,11 @@ const App = (props: { scene: SceneData; cell: Cell }) => {
     const view = now.get("view"), chosen = now.get("select");
     events = new EventSource(api("/api/events", `&cols=${at.cols}&rows=${at.rows}${view ? `&view=${encodeURIComponent(view)}` : ""}${chosen ? `&select=${encodeURIComponent(chosen)}` : ""}`));
     events.onmessage = event => {
-      const data = JSON.parse(event.data) as { window: string; frame: Frame };
+      const data = JSON.parse(event.data) as { window: string; frame: Frame; raise?: true };
       windowId = data.window;
       apply(data.frame);
+      // Opened again from the terminal or the agent (launch.ts): one window per workspace, brought forward instead of a second one.
+      if (data.raise) window.focus();
     };
     events.onerror = () => { events?.close(); windowId = ""; clearTimeout(retry); retry = window.setTimeout(connect, 1000); };
   };

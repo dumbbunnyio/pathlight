@@ -21,7 +21,18 @@ test("config get claude prints nothing until set, set keeps the theme and any ot
     expect(JSON.parse(await readFile(join(home, "pathlight", "config.json"), "utf8"))).toEqual({ theme: "nord", later: 1, claude: "tmux" });
     expect((await config(home, "set", "claude", "pane")).code).toBe(0);
     expect((await config(home, "get", "claude")).out).toBe("pane\n");
-    for (const args of [["set", "claude", "browser"], ["get", "theme"], ["set", "claude"], ["drop", "claude"]]) expect((await config(home, ...args)).code).not.toBe(0);
+    expect((await config(home, "set", "claude", "web")).code).toBe(0);
+    expect((await config(home, "get", "claude")).out).toBe("web\n");
+    expect((await config(home, "set", "claude", "pane")).code).toBe(0);
+    // The browser is any command; an empty one goes back to the first browser found.
+    expect(await config(home, "get", "browser")).toMatchObject({ out: "", code: 0 });
+    expect((await config(home, "set", "browser", "sh")).out).toContain("in a tab");
+    expect((await config(home, "get", "browser")).out).toBe("sh\n");
+    expect((await config(home, "set", "browser", "no-such-browser-here")).out).toContain("was not found");
+    expect((await config(home, "set", "browser", "")).code).toBe(0);
+    expect((await config(home, "get", "browser")).out).toBe("");
+    expect(JSON.parse(await readFile(join(home, "pathlight", "config.json"), "utf8"))).toEqual({ theme: "nord", later: 1, claude: "pane" });
+    for (const args of [["set", "claude", "browser"], ["get", "theme"], ["set", "claude"], ["drop", "claude"], ["set", "browser"]]) expect((await config(home, ...args)).code).not.toBe(0);
     // A value it does not understand reads as unset.
     await writeFile(join(home, "pathlight", "config.json"), JSON.stringify({ theme: "nord", claude: "both" }));
     expect((await config(home, "get", "claude")).out).toBe("");

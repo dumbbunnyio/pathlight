@@ -8,6 +8,7 @@ import { loadWorld, readChecks } from "../viewer/world";
 import pkg from "../../package.json" with { type: "json" };
 import { splitTitle } from "../viewer/pickers";
 import { shapeView } from "../viewer/shape";
+import { removeRecord, writeRecord } from "./launch";
 import { buildHints, loadPage, type Page, type PageKind } from "./page";
 import { type RuneLayoutedView, runeFrameOf, runeSceneOf } from "./rune";
 import { type LayoutedView, type Scene, sceneOf, viewOrder } from "./scene";
@@ -40,7 +41,7 @@ const notBuilt = (kind: PageKind) => `<!doctype html><meta charset="utf-8"><titl
 <h1 style="font-size: 20px">The browser page is not built</h1><p>This copy of Pathlight was built without its ${kind === "rune" ? "Rune page" : "browser page"}. In a checkout, run
 <code>${buildHints[kind]}</code>, then start <code>pathlight web${kind === "rune" ? " --rune" : ""}</code> again.</p></body>`;
 
-export interface WebServer { url: string; port: number; token: string; stop: () => Promise<void> }
+export interface WebServer { url: string; port: number; token: string; stop: () => Promise<void>; windows: () => number }
 
 const number = (value: unknown) => typeof value === "number" && Number.isFinite(value);
 const cameraOf = (value: unknown) => {
@@ -96,7 +97,7 @@ export const loadWebWorld = (view: View, theme?: string, mode?: Mode) => Effect.
  * Starts the server for one workspace's views. `port` 0 takes a free one. Each page that connects to `/api/events` is a window with its own
  * selection and Back; the stream carries its frames, and `/api/act` with its id changes them.
  */
-export const startWebServer = (view: View, options: { port?: number; select?: string | undefined; page?: Page | null; kind?: PageKind; theme?: string; mode?: Mode }) => Effect.gen(function* () {
+export const startWebServer = (view: View, options: { port?: number; select?: string | undefined; page?: Page | null; kind?: PageKind; theme?: string; mode?: Mode; onWindows?: (count: number) => void }) => Effect.gen(function* () {
   const kind = options.kind ?? "page";
   const { world, layouted, palette: chosen, mode, paletteFor } = yield* loadWebWorld(view, options.theme, options.mode);
   // The palette as the terminal installs it (setPalette makes every entry distinct), so the page's variables are the frames' colors exactly.
@@ -120,12 +121,14 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
   };
   const windows = new Map<string, { state: WindowState; mode: Mode; send: (text: string) => void }>();
   // The terminal's functions read the palette module's colors: a frame is made in the page's palette, and the module's own is put back.
-  const framed = (id: string) => {
+  const framed = (id: string, raise = false) => {
     const entry = windows.get(id)!;
     const saved = { ...palette };
     setPalette(kind === "rune" ? paletteFor(entry.mode) : colors, false);
-    try { return JSON.stringify({ window: id, frame: kind === "rune" ? runeFrameOf(world, entry.state, view.project) : frameOf(world, entry.state) }); } finally { setPalette(saved, false); }
+    try { return JSON.stringify({ window: id, frame: kind === "rune" ? runeFrameOf(world, entry.state, view.project) : frameOf(world, entry.state), ...(raise ? { raise: true } : {}) }); } finally { setPalette(saved, false); }
   };
+  const counted = () => options.onWindows?.(windows.size);
+  const closeWindow = (id: string) => { if (windows.delete(id)) counted(); };
   const encoder = new TextEncoder();
   const csp = policies[kind];
 
@@ -156,11 +159,12 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
             const stream = new ReadableStream<Uint8Array>({
               start(controller) {
                 windows.set(id, { state: startWindow(world, start, url.searchParams.get("select") ?? (wanted ? undefined : options.select), size), mode: asked, send: text => controller.enqueue(encoder.encode(`data: ${text}\n\n`)) });
+                counted();
                 controller.enqueue(encoder.encode(`data: ${framed(id)}\n\n`));
               },
-              cancel() { windows.delete(id); },
+              cancel() { closeWindow(id); },
             });
-            request.signal.addEventListener("abort", () => windows.delete(id));
+            request.signal.addEventListener("abort", () => closeWindow(id));
             return new Response(stream, { headers: { ...headers, "content-type": "text/event-stream", connection: "keep-alive" } });
           }
           if (url.pathname === "/api/act" && request.method === "POST") {
@@ -175,6 +179,18 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
             if (action.kind === "zoom" && Math.round(before.zoom * 100) === Math.round(entry.state.zoom * 100)) return new Response(null, { status: 204, headers });
             entry.send(framed(url.searchParams.get("w")!));
             return new Response(null, { status: 204, headers });
+          }
+          // A second open of this workspace (launch.ts): every window shows the view asked for and comes forward; the answer says how many there are.
+          if (url.pathname === "/api/raise" && request.method === "POST") {
+            if (!(request.headers.get("content-type") ?? "").startsWith("application/json")) return new Response("Expected JSON", { status: 415, headers });
+            const body = await request.json().catch(() => ({})) as { view?: unknown; select?: unknown };
+            const target = typeof body.view === "string" && world.scenes.has(body.view) ? body.view : undefined, chosen = typeof body.select === "string" ? body.select : undefined;
+            for (const [id, entry] of windows) {
+              if (target && target !== entry.state.view) entry.state = act(world, entry.state, { kind: "open", view: target, select: chosen ?? null });
+              else if (chosen) entry.state = act(world, entry.state, { kind: "select", id: chosen });
+              entry.send(framed(id, true));
+            }
+            return new Response(JSON.stringify({ windows: windows.size }), { headers: { ...headers, "content-type": "application/json" } });
           }
           return new Response("Not found", { status: 404, headers });
         }
@@ -192,18 +208,34 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
   });
   port = server.port ?? 0;
   const url = `http://127.0.0.1:${port}/?t=${token}`;
-  return { url, port, token, built: page !== undefined, stop: () => server.stop(true) } as WebServer & { built: boolean };
+  return { url, port, token, built: page !== undefined, stop: () => server.stop(true), windows: () => windows.size } as WebServer & { built: boolean };
 });
 
-/** Serves until `signal` aborts, printing where. */
-export const serveWeb = (view: View, options: { port?: number; select?: string | undefined; kind?: PageKind; signal: AbortSignal; print: (line: string) => void }) => Effect.scoped(Effect.gen(function* () {
+/** How long a server started for a window waits: for its first window, and after its last one closes (a reload reconnects well within it). */
+export const lifetimes = { first: 60_000, last: 5_000 };
+
+/**
+ * Serves until `signal` aborts, printing where. `untilClosed` is the launcher's server (launch.ts): it records itself in the workspace's
+ * `.cache/pathlight/web.json` and stops once its last window has closed, or when no window comes at all.
+ */
+export const serveWeb = (view: View, options: { port?: number; select?: string | undefined; kind?: PageKind; signal: AbortSignal; print: (line: string) => void; untilClosed?: boolean }) => Effect.scoped(Effect.gen(function* () {
   const kind = options.kind ?? "page";
-  const web = yield* Effect.acquireRelease(startWebServer(view, options), web => Effect.promise(() => web.stop()));
+  const done = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wait = (ms: number) => { clearTimeout(timer); timer = setTimeout(() => done.abort(), ms); };
+  const onWindows = options.untilClosed ? (count: number) => { if (count > 0) clearTimeout(timer); else wait(lifetimes.last); } : undefined;
+  const web = yield* Effect.acquireRelease(startWebServer(view, { ...options, onWindows }), web => Effect.promise(async () => { clearTimeout(timer); await web.stop(); }));
+  if (options.untilClosed) {
+    yield* Effect.acquireRelease(writeRecord(view.workspace, { pid: process.pid, port: web.port, token: web.token, url: web.url, project: view.project }),
+      () => removeRecord(view.workspace).pipe(Effect.ignore));
+    wait(lifetimes.first);
+  }
   options.print(`${web.url}\n`);
   options.print(!web.built ? `The ${kind === "rune" ? "Rune page" : "browser page"} is not built in this copy: run ${buildHints[kind]}. Ctrl-C stops it.\n`
     : kind === "rune" ? "Open it in a browser with WebGPU (experimental). Ctrl-C stops it.\n" : "Open it in a browser. Ctrl-C stops it.\n");
   yield* Effect.callback<void>(resume => {
-    if (options.signal.aborted) return resume(Effect.void);
+    if (options.signal.aborted || done.signal.aborted) return resume(Effect.void);
     options.signal.addEventListener("abort", () => resume(Effect.void), { once: true });
+    done.signal.addEventListener("abort", () => resume(Effect.void), { once: true });
   });
 }));
