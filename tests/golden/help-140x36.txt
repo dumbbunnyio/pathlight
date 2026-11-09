@@ -18,14 +18,14 @@
     │ o           the view a box opens           e       files (in a journey: its code)     p          replay the session              │    
   ╭─│ b bksp      back where you were, else up   /       search everything, tab a kind      s          subagent calls                  │    
   │ │ t           ask or tell the agent          g       go to any view                     T          choose a theme                  │    
- ·╰─│ F           step through a journey         i       inspector, or the talk and back    1–4        focus a card; esc, tab leave    │    
-    │ [ ]         steps, esc leaves              z       widen the talk                     j k        move in the card                │    
-  ╭─│ ?           this help                      f       fit everything                     space      fold the card                   │    
-  │ │                                            0  + -  actual size, zoom                  PgUp PgDn  scroll the inspector            │    
- ·╰─│                                            r       center the selection               v          swap hjkl and arrows            │    
-    │                                            ←↑↓→    pan                                q          quit                            │    
-    └─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────────────────────────────────────┘    
- ·       ·      ·      ·       ·      ·      ·       ·      ·      ·      ·       ·      ·      ·│                                          
+ ·╰─│ F           step through a journey         B       open in the browser                1–4        focus a card; esc, tab leave    │    
+    │ [ ]         steps, esc leaves              i       inspector, or the talk and back    j k        move in the card                │    
+  ╭─│ ?           this help                      z       widen the talk                     space      fold the card                   │    
+  │ │                                            f       fit everything                     PgUp PgDn  scroll the inspector            │    
+ ·╰─│                                            0  + -  actual size, zoom                  v          swap hjkl and arrows            │    
+    │                                            r       center the selection               q          quit                            │    
+    │                                            ←↑↓→    pan                                                                           │    
+ ·  └─ esc close  v swap hjkl and arrows ──────────────────────────────────────────────────────────────────────────────────────────────┘    
                                                                                                  │                                          
                                                                                                  │                                          
                                                                                                  │                                          

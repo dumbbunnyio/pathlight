@@ -1028,6 +1028,18 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         return;
       }
       case "views": gotoPicker.begin("views"); return;
+      // `B`: this view and selection in the browser page's window (src/web/launch.ts), one per workspace; the footer gives its one line.
+      case "browser": {
+        if (process.env.PATHLIGHT_SEE) { message = "B opens the browser from a viewer you run, not from pathlight see"; update(); return; }
+        const at = { workspace: view.workspace, view: String(diagram.id), project: view.project, select: state.selected ? String(state.selected.id) : undefined };
+        message = "Opening the browser…"; update();
+        runTask(Effect.gen(function* () {
+          const { launchWeb } = yield* io("Native.launch", () => import("./web/launch"));
+          const said = yield* launchWeb(at);
+          message = said.replace(/\.$/, "");
+        }).pipe(Effect.catch(error => Effect.sync(() => { message = error.message; })), Effect.ensuring(Effect.sync(() => update()))));
+        return;
+      }
       case "themes": themePicker.begin(); return;
       case "ask": dialog.ask(); return;
       case "map": dialog.map(); return;

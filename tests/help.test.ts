@@ -19,7 +19,7 @@ test("every action a key has on the diagram, in a flow, in the node list or in a
     "endFiles", "fileMove", "refreshFiles", "fileOpen", "sectionEnter", "idle", "pass", "swallow"]);
   const names = ["tab", "return", "backspace", "escape", "space", "pageup", "pagedown", "left", "right", "up", "down", "+", "-", "=",
     ..."abcdefghijklmnopqrstuvwxyz".split(""), ..."0123456789".split("")];
-  const presses = [...names.map(name => press(name)), ...[..."FT?/[]"].map(sequence => press(sequence === "T" ? "t" : sequence, sequence, { shift: sequence === "T" || sequence === "F" })),
+  const presses = [...names.map(name => press(name)), ...[..."FTB?/[]"].map(sequence => press(sequence === "T" ? "t" : sequence === "B" ? "b" : sequence, sequence, { shift: sequence === "T" || sequence === "F" || sequence === "B" })),
     press("tab", "", { shift: true }), press("l", "L", { shift: true })];
   const modes: KeyMode[] = [main, { ...main, vim: false }, { ...main, flow: true }, { ...main, listMode: true }, { ...main, focusSection: "connections" }];
   const seen = new Set<Action["type"]>();

@@ -51,7 +51,7 @@ export type Action =
   | { type: "focus"; section: SectionKey }
   | { type: "sectionLeave" } | { type: "sectionTab"; by: -1 | 1 } | { type: "sectionFold" } | { type: "sectionMove"; by: -1 | 1 } | { type: "sectionEnter" }
   | { type: "cycleFlow" } | { type: "flowStep"; by: -1 | 1 } | { type: "exitFlow" }
-  | { type: "search" } | { type: "back" } | { type: "open" } | { type: "openView" } | { type: "parent" } | { type: "views" } | { type: "themes" }
+  | { type: "search" } | { type: "browser" } | { type: "back" } | { type: "open" } | { type: "openView" } | { type: "parent" } | { type: "views" } | { type: "themes" }
   | { type: "ask" } | { type: "map" } | { type: "trace" } | { type: "name" } | { type: "session" } | { type: "replay" } | { type: "work" } | { type: "swap" }
   | { type: "listMove"; by: -1 | 1 } | { type: "traverse"; direction: Direction }
   | { type: "endFiles" } | { type: "fileMove"; by: -1 | 1; page: boolean } | { type: "refreshFiles" } | { type: "fileOpen" }
@@ -165,6 +165,7 @@ export function keyAction(key: KeyPress, mode: KeyMode): Action | undefined {
   if (!files && mode.overlay && key.name === "escape") return { type: "inspector" };
   if (!files) {
     if (key.sequence === "/") return { type: "search" };
+    if (key.sequence === "B" && !key.ctrl && !key.meta) return { type: "browser" };
     if (key.name === "b") return { type: "back" };
     if (key.name === "return") return { type: "open" };
     if (key.name === "o" && !key.ctrl && !key.shift) return { type: "openView" };
@@ -216,7 +217,7 @@ export const helpGroups = (vim: boolean): { name: "Understand it" | "Direct it" 
       ["F", "step through a journey", ["cycleFlow"]], ["[ ]", `steps, ${leave} leaves`, ["flowStep", "exitFlow"]], ["?", "this help", ["help"]]] },
     { name: "Direct it", tier: 2, rows: [["c", "this session, and the review", ["session"]],
       ["a", "follow the work", ["follow"]], ["w", "jump to the agent's work", ["work"]], ["e", "files (in a journey: its code)", ["files"]],
-      ["/", "search everything, tab a kind", ["search"]], ["g", "go to any view", ["views"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
+      ["/", "search everything, tab a kind", ["search"]], ["g", "go to any view", ["views"]], ["B", "open in the browser", ["browser"]], ["i", "inspector, or the talk and back", ["inspector"]], ["z", "widen the talk", ["talkWiden"]],
       ["f", "fit everything", ["fit"]], ["0  + -", "actual size, zoom", ["actualSize", "zoom"]], ["r", "center the selection", ["centre"]], [vim ? arrows : "hjkl", "pan", ["pan"]]] },
     { name: "Shape the map", tier: 3, rows: [["d", "ask it to trace a journey", ["trace"]], ["m", "ask it to improve the map", ["map"]], ["n", "name and note it yourself", ["name"]],
       ["p", "replay the session", ["replay"]], ["s", "subagent calls", ["subagents"]], ["T", "choose a theme", ["themes"]],
