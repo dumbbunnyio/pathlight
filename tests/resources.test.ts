@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { checkWorkspace, formatCheck } from "../src/check";
 import { listViews } from "../src/catalog";
 import { draftWorkspace } from "../src/draft";
-import { composeFacts, entryFor, envNames, imageResource, isInfraFile, resourceKinds, resourcesOf, withInfra } from "../src/resources";
+import { chartFacts, composeFacts, entryFor, envNames, imageResource, isInfraFile, resourceKinds, resourcesOf, templateFacts, terraformFacts, valuesFacts, withInfra } from "../src/resources";
 import table from "../src/resources/imports.json";
 import { startWebServer } from "../src/web/server";
 import type { Frame, Span } from "../src/web/wire";
@@ -192,3 +192,27 @@ test("the draft cites the infrastructure, and check asks about a box only infras
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("Helm and Terraform are read as declarations: chart dependencies, secrets named by their kind, images in values, Terraform blocks by type", () => {
+  expect(chartFacts("apiVersion: v2\nname: shop\ndependencies:\n  - name: postgresql\n    version: 15.x\n  - name: redis\n  - name: common\n"))
+    .toEqual([{ resource: "sql", engine: "postgresql", by: "chart postgresql" }, { resource: "redis", by: "chart redis" }]);
+  const values = valuesFacts([
+    "image:\n  registry: docker.io\n  repository: bitnami/rabbitmq\n  tag: 3",
+    "secretNames:\n  cs_creds: ca-cs-credentials-secret\n  agentic_db_creds: ca-agentic-db-credentials-secret\n  external_redis_creds: ca-external-redis-credentials-secret\n  openidProxy_creds: x",
+    "tls:\n  secretName: frontdoor-tls-cert\nsearch:\n  existingSecret: opensearch-admin\nreplicas: 3\n",
+  ].join("\n"));
+  expect(values.images).toEqual(["docker.io/bitnami/rabbitmq"]);
+  expect(values.found.map(item => `${item.resource} ${item.by}`)).toEqual(["sql secret agentic_db_creds", "redis secret external_redis_creds", "oidc secret openidProxy_creds", "opensearch secret existingSecret"]);
+  expect(templateFacts("spec:\n  containers:\n    - image: \"{{ .Values.image }}\"\n    - image: redis:7\n      env:\n        - name: REDIS_URL\n        - name: {{ .Values.x }}\n")).toEqual({ images: ["redis:7"], env: ["REDIS_URL"] });
+  expect(terraformFacts([
+    'resource "aws_db_instance" "main" {\n  engine = "postgres"\n  tags = { a = "b" }\n}',
+    'resource "aws_s3_bucket" "uploads" {}', 'resource "aws_vpc" "net" {}', 'resource "aws_iam_role" "app" {}',
+    'module "cache" {\n  source = "terraform-aws-modules/elasticache/aws"\n}', 'resource "google_sql_database_instance" "db" {\n  database_version = "MYSQL_8_0"\n}',
+  ].join("\n"))).toEqual([
+    { resource: "sql", engine: "postgresql", by: "aws_db_instance main" }, { resource: "s3", by: "aws_s3_bucket uploads" },
+    { resource: "sql", engine: "mysql", by: "google_sql_database_instance db" }, { resource: "redis", by: "module cache" },
+  ]);
+  // Networking and IAM are never read; what is declared joins the code as an image does: two engines with no code are two databases.
+  const joined = withInfra([], [{ path: "main.tf", images: [], env: [], found: terraformFacts('resource "aws_db_instance" "a" {\n engine = "postgres"\n}\nresource "aws_sqs_queue" "jobs" {}') }]);
+  expect(joined.map(item => [item.id, item.title, item.declared.map(entry => entry.by)])).toEqual([["postgresql", "PostgreSQL", ["aws_db_instance a"]], ["sqs", "Amazon SQS", ["aws_sqs_queue jobs"]]]);
+});

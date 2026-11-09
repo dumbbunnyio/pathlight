@@ -337,6 +337,10 @@
   "keycloak": {
    "title": "Keycloak",
    "kind": "identity"
+  },
+  "cognito": {
+   "title": "Amazon Cognito",
+   "kind": "identity"
   }
  },
  "packages": [
@@ -1544,6 +1548,10 @@
   {
    "match": "keycloak",
    "resource": "keycloak"
+  },
+  {
+   "match": "@aws-sdk/client-cognito-identity-provider",
+   "resource": "cognito"
   }
  ]
 }

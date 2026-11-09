@@ -16,7 +16,7 @@ import { isUnscannedSource, listFiles, scanWorkspace } from "../../src/scan";
 const { values } = parseArgs({ options: { root: { type: "string" }, step: { type: "string", default: "1" }, json: { type: "boolean", default: false } } });
 const checkout = resolve(import.meta.dir, "..", "..");
 const reference = await Bun.file(join(import.meta.dir, "references", "resources.json")).json() as {
-  repos: Record<string, { workspace: string; resources: { id: string; kind: string; step: number; title: string }[]; absent: string[] }>;
+  repos: Record<string, { workspace: string; note?: string; resources: { id: string; kind: string; step: number; title: string }[]; absent: string[] }>;
 };
 const step = Number(values.step);
 const results: Record<string, unknown> = {};

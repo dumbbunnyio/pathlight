@@ -95,8 +95,14 @@ export function resourcesOf(external: readonly { readonly from: string; readonly
   }).sort((a, b) => byText(a.id, b.id));
 }
 
-/** One infrastructure file, as names only: the container images it runs and the environment names it lists. A value is never read. */
-export interface InfraFile { readonly path: string; readonly images: readonly string[]; readonly env: readonly string[] }
+/**
+ * One infrastructure file, as names only: the container images it runs, the environment names it lists, and what else declares a resource (step 3: a
+ * Helm chart's dependency, a Helm value naming a secret by its kind, a Terraform resource or module). A secret's or a setting's value is never read.
+ */
+export interface InfraFile {
+  readonly path: string; readonly images: readonly string[]; readonly env: readonly string[];
+  readonly found?: readonly { readonly resource: string; readonly engine?: string; readonly by: string }[];
+}
 
 const composeFile = /(^|\/)(docker-)?compose(\.[^/]+)?\.ya?ml$/i;
 const envExample = /(^|\/)(\.env\.(example|sample|template|dist|defaults)|(example|sample|template)\.env|\.env\.[^/]*\.(example|sample))$/i;
@@ -127,15 +133,103 @@ export const composeFacts = (text: string) => {
   return { images: [...images].sort(byText), env: [...env].sort(byText) };
 };
 
-/** Reads the infrastructure files among `paths` (each at most 1 MB). */
-export const readInfra = Effect.fn("Resources.infra")(function* (root: string, paths: readonly string[]) {
-  const found: InfraFile[] = [];
-  for (const path of paths.filter(isInfraFile)) {
-    const text = yield* Effect.tryPromise(async () => (await lstat(join(root, path))).size <= 1024 * 1024 ? await readFile(join(root, path), "utf8") : undefined).pipe(Effect.catch(() => Effect.succeed(undefined)));
-    if (text === undefined) continue;
-    found.push(posix.basename(path).toLowerCase().includes("compose") && /\.ya?ml$/i.test(path) ? { path, ...composeFacts(text) } : { path, images: [], env: envNames(text) });
+const charts = infra.charts as Record<string, string>, terraformTypes = infra.terraform as Record<string, string>, moduleWords = infra.modules as Record<string, string>;
+const engineWords = infra.engines as Record<string, string>, secretWords = infra.secrets as Record<string, string>;
+/** A table id that is a SQL engine becomes `sql` with that engine. */
+const asFound = (id: string, by: string) => engineNames[id] ? { resource: "sql", engine: id, by } : { resource: id, by };
+const words = (text: string) => text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+
+/** A Helm chart's `Chart.yaml`: its dependencies by chart name. */
+export const chartFacts = (text: string) => {
+  let parsed: unknown;
+  try { parsed = Bun.YAML.parse(text); } catch { return []; }
+  const dependencies = parsed && typeof parsed === "object" ? (parsed as { dependencies?: unknown }).dependencies : undefined;
+  return (Array.isArray(dependencies) ? dependencies : []).flatMap(item => {
+    const name = item && typeof item === "object" ? String((item as { name?: unknown }).name ?? "") : "", id = charts[name];
+    return id ? [asFound(id, `chart ${name}`)] : [];
+  });
+};
+
+/**
+ * A Helm values file: the images it names (`image: repo:tag`, or `repository` beside `registry`), and each value that names a secret or credentials
+ * (its key says `secret`, `creds` or `credentials`) by a kind word in its key or name: `agentic_db_creds` is a database, `external_redis_creds` Redis.
+ */
+export const valuesFacts = (text: string) => {
+  let parsed: unknown;
+  try { parsed = Bun.YAML.parse(text); } catch { return { images: [], found: [] }; }
+  const images = new Set<string>(), found: { resource: string; engine?: string; by: string }[] = [];
+  const walk = (value: unknown, path: string[], depth: number) => {
+    if (depth > 24 || value === null || value === undefined) return;
+    if (Array.isArray(value)) { value.forEach(item => walk(item, path, depth + 1)); return; }
+    if (typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      if (typeof record.repository === "string" && /image/i.test(path.at(-1) ?? "")) images.add([record.registry, record.repository].filter(part => typeof part === "string" && part).join("/"));
+      for (const [key, inner] of Object.entries(record)) walk(inner, [...path, key], depth + 1);
+      return;
+    }
+    const key = path.at(-1) ?? "";
+    if (key === "image" && typeof value === "string") { images.add(value); return; }
+    if (!/secret|creds|credential/i.test(path.slice(-2).join(" "))) return;
+    const id = [...words(key), ...words(typeof value === "string" ? value : "")].map(word => secretWords[word]).find(Boolean);
+    if (id) found.push(asFound(id, `secret ${key}`));
+  };
+  walk(parsed, [], 0);
+  return { images: [...images].sort(byText), found };
+};
+
+/** A Helm template is Go templating, not YAML: only its literal `image:` lines and the environment names it sets (`- name: REDIS_URL`) are read. */
+export const templateFacts = (text: string) => ({
+  images: [...new Set([...text.matchAll(/^\s*(?:-\s*)?image:\s*["']?([^"'\s{]+)["']?\s*$/gm)].map(match => match[1]!))].sort(byText),
+  env: [...new Set([...text.matchAll(/^\s*-?\s*name:\s*["']?([A-Z][A-Z0-9_]+)["']?\s*$/gm)].map(match => match[1]!))].sort(byText),
+});
+
+/**
+ * Terraform, as block headers: each `resource "TYPE" "NAME"` whose type the table knows (a database's `engine = "…"` inside its block names its engine),
+ * and each `module` whose `source` holds a known word (`terraform-aws-modules/rds/aws`). Nothing is evaluated: variables, counts and providers are not read.
+ */
+export const terraformFacts = (text: string) => {
+  const found: { resource: string; engine?: string; by: string }[] = [];
+  const body = (from: number) => {
+    let depth = 0, at = text.indexOf("{", from);
+    if (at < 0) return "";
+    const start = at;
+    for (; at < text.length; at++) { if (text[at] === "{") depth++; else if (text[at] === "}" && --depth === 0) break; }
+    return text.slice(start, at);
+  };
+  for (const match of text.matchAll(/^\s*resource\s+"([A-Za-z0-9_]+)"\s+"([^"]+)"/gm)) {
+    const id = terraformTypes[match[1]!];
+    if (!id) continue;
+    const engine = /^\s*engine\s*=\s*"([^"]+)"/m.exec(body(match.index!))?.[1] ?? /database_version\s*=\s*"([A-Z]+)/.exec(body(match.index!))?.[1];
+    const named = engine ? engineWords[engine] : undefined;
+    found.push(named ? { resource: "sql", engine: named, by: `${match[1]} ${match[2]}` } : asFound(id, `${match[1]} ${match[2]}`));
+  }
+  for (const match of text.matchAll(/^\s*module\s+"([^"]+)"/gm)) {
+    const source = /^\s*source\s*=\s*"([^"]+)"/m.exec(body(match.index!))?.[1] ?? "";
+    const id = source.split(/[/:]/).map(part => moduleWords[part]).find(Boolean);
+    if (id) found.push(asFound(id, `module ${match[1]}`));
   }
   return found;
+};
+
+const chartFile = /(^|\/)Chart\.ya?ml$/, valuesFile = /(^|\/)values([.-][^/]*)?\.ya?ml$/i, templateFile = /(^|\/)templates\/[^/]+\.ya?ml$/i;
+
+/** Reads the infrastructure files among `paths` (each at most 1 MB): compose, example environments, Helm charts and Terraform. */
+export const readInfra = Effect.fn("Resources.infra")(function* (root: string, paths: readonly string[]) {
+  const found: InfraFile[] = [];
+  // A Helm chart is a folder with a Chart.yaml: its values and templates are read as Helm's, never as compose.
+  const chartDirs = new Set(paths.filter(path => chartFile.test(path)).map(path => posix.dirname(path)));
+  const inChart = (path: string) => chartDirs.has(posix.dirname(path)) || chartDirs.has(posix.dirname(posix.dirname(path)));
+  const helm = (path: string) => chartFile.test(path) || (inChart(path) && (valuesFile.test(path) || templateFile.test(path)));
+  for (const path of paths.filter(path => (isInfraFile(path) || helm(path) || /\.tf$/.test(path)) && !/(^|\/)(tests?|__tests__|e2e|fixtures|\.terraform)\//.test(path))) {
+    const text = yield* Effect.tryPromise(async () => (await lstat(join(root, path))).size <= 1024 * 1024 ? await readFile(join(root, path), "utf8") : undefined).pipe(Effect.catch(() => Effect.succeed(undefined)));
+    if (text === undefined) continue;
+    if (chartFile.test(path)) found.push({ path, images: [], env: [], found: chartFacts(text) });
+    else if (helm(path) && valuesFile.test(path)) found.push({ path, env: [], ...valuesFacts(text) });
+    else if (helm(path)) found.push({ path, ...templateFacts(text) });
+    else if (path.endsWith(".tf")) found.push({ path, images: [], env: [], found: terraformFacts(text) });
+    else found.push(posix.basename(path).toLowerCase().includes("compose") && /\.ya?ml$/i.test(path) ? { path, ...composeFacts(text) } : { path, images: [], env: envNames(text) });
+  }
+  return found.filter(file => file.images.length || file.env.length || file.found?.length);
 });
 
 const images = infra.images as Record<string, string>;
@@ -147,6 +241,8 @@ export const imageResource = (image: string) => {
   const bare = image.replace(/@.*$/, "").replace(/:[^/:]*$/, "").replace(/^(docker\.io\/|index\.docker\.io\/)/, "").replace(/^library\//, "").toLowerCase();
   return images[bare] ?? images[bare.split("/").at(-1)!];
 };
+/** Evidence that a thing exists (an image, a chart, a secret, a Terraform block), as against an environment name, which is a setting. */
+const declaring = (item: { by: string }) => !/^[A-Z][A-Z0-9_]*$/.test(item.by);
 const envResource = (name: string) => envRules.find(rule => rule.name.endsWith("_") ? name.startsWith(rule.name) : name === rule.name);
 
 /**
@@ -168,6 +264,10 @@ export function withInfra(resources: readonly Resource[], files: readonly InfraF
       const id = imageResource(image);
       if (!id) continue;
       if (engineNames[id]) note(engines, id, file.path, `image ${image}`); else note(said, id, file.path, `image ${image}`);
+    }
+    // A chart dependency, a secret named by its kind, a Terraform resource: each says the thing exists, as an image does.
+    for (const item of file.found ?? []) {
+      if (item.engine) note(engines, item.engine, file.path, item.by); else note(said, item.resource, file.path, item.by);
     }
     for (const name of file.env) {
       const rule = envResource(name);
@@ -197,12 +297,14 @@ export function withInfra(resources: readonly Resource[], files: readonly InfraF
     const found = out.find(item => item.id === id);
     if (found) { found.declared.push(...list); continue; }
     const definition = definitions[id];
-    if (definition && declares.has(definition.kind) && list.some(item => item.by.startsWith("image "))) out.push({ id, key: `resource:${id}`, title: definition.title, kind: definition.kind, sql: false, engines: [], packages: [], files: [], declared: list });
+    if (definition && declares.has(definition.kind) && list.some(declaring)) out.push({ id, key: `resource:${id}`, title: definition.title, kind: definition.kind, sql: false, engines: [], packages: [], files: [], declared: list });
   }
-  // A database only the files run (an image of an engine) when the code reaches none.
-  if (!relational.length) for (const [id, list] of engines) {
-    if (!list.some(item => item.by.startsWith("image "))) continue;
-    out.push({ id, key: `resource:${id}`, title: engineNames[id]!, kind: "database", sql: true, engines: [], packages: [], files: [], declared: list });
+  // A database only the files declare (an engine's image, a Terraform database, a secret for one) when the code reaches none: one per engine, or one
+  // "SQL database" when they name none.
+  if (!relational.length) {
+    for (const [id, list] of engines) if (list.some(declaring)) out.push({ id, key: `resource:${id}`, title: engineNames[id]!, kind: "database", sql: true, engines: [], packages: [], files: [], declared: list });
+    const generic = said.get("sql") ?? [];
+    if (!engines.size && generic.some(declaring)) out.push({ id: "sql", key: "resource:sql", title: definitions.sql!.title, kind: "database", sql: true, engines: [], packages: [], files: [], declared: generic });
   }
   for (const item of out) item.declared.sort((a, b) => byText(a.path, b.path) || byText(a.by, b.by));
   return out.sort((a, b) => byText(a.id, b.id));
