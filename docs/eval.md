@@ -457,3 +457,19 @@ The two misses are honest: Outline's `start` script runs the built `build/server
 | messages, cost | 7, $1.67 | 5, $1.14 | 4, $0.88 | 5, $0.69 |
 
 The mark `← agent` was on screen after every point, with a `Went to …` and a Back entry when the box was in another view; the walk needed no viewer change. What it tripped over: `pathlight brief` takes a box key and the journeys name elements by id (four misses), and two of four agents trimmed the briefing instead of pasting it, dropping the fifteen `Where it starts` lines; both are carried to step 0b.
+
+## Resources (2026-11-09)
+
+What the code talks to that is not code (plan `phase-r-resources`, step 1): the draft draws a resource where a file imports a package the table `src/resources/imports.json` leads to it. `tests/eval/references/resources.json` lists, for Outline, Mealie, Miniflux and opencode, what a reader of the code would say each program talks to, with the evidence, and what must not become a box (HTTP clients, types-only packages, test mocks, build plugins). `bun tests/eval/resources.ts` drafts each in memory and scores found, missed, extra and forbidden.
+
+| | before step 1 | after step 1 |
+| --- | --- | --- |
+| Outline | 0 of 15 | 15 of 15 |
+| Mealie | 0 of 6 | 6 of 6 |
+| Miniflux | 0 of 4 | 4 of 4 |
+| opencode | 0 of 10 | 10 of 10 |
+| extra or forbidden | | 0 |
+
+**Read this score generously.** The references were written from the code before `src/resources.ts` existed, but by the same session that then wrote the table, so the table holds every package those references name. It shows the mechanism works end to end (type-only imports and tests left out, one box per SQL engine, an ORM joining its package's driver, Python's `if TYPE_CHECKING:` import no longer hiding the run-time one), not that the table generalizes. One reference entry changed after the first score: Outline's GitLab plugin (`@gitbeaker/rest`), which the draft found and the reference had missed; the entry says so. Step 2 should add a repository the table was not written against.
+
+The scan change behind it: a file's external import is recorded once, at its first import, unless that one only names types and a later one runs (Mealie imports `openai` under `TYPE_CHECKING` and again inside the functions that call it). `scanRevision` is 7.
