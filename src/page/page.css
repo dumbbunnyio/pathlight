@@ -45,3 +45,7 @@ body { background: var(--background); color: var(--text); font: var(--font-size)
 .help .frame-top > span:first-child { color: var(--text); }
 .help .frame-foot .key { color: var(--body); }
 .help-body { padding: 0 calc(var(--cw) * 2); overflow: auto; }
+/* A running call's card pulses in the accent, as the terminal's (card-view.ts: brightness 0.55 to 1, a beat of about 1.4 s). Only observed calls. */
+.diagram .edge.pulse { stroke: var(--accent) !important; animation: pulse 0.69s ease-in-out infinite alternate; }
+@keyframes pulse { from { stroke-opacity: 1; } to { stroke-opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .diagram .edge.pulse { animation: none; } }

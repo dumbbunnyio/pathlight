@@ -160,7 +160,8 @@ test.skipIf(Boolean(why))("the keys are the terminal's: arrows select a neighbor
     await p.waitForSelector(".help");
     const help = await p.$eval(".help", element => element.textContent ?? "");
     expect(help).toContain("into a box");
-    expect(help).not.toContain("follow the work");
+    expect(help).toContain("follow the work");
+    expect(help).not.toContain("step through a journey");
     await p.keyboard.press("Escape");
     await until(p, async () => !(await p.$(".help")));
     expect(await p.$(".help")).toBeNull();
@@ -232,4 +233,80 @@ test.skipIf(Boolean(runeWhy))("the Rune page still draws the map and selects thr
     expect(errors).toEqual([]);
     await p.close();
   } finally { await gpu.close(); await served.stop(); }
+}, 60_000);
+
+test.skipIf(Boolean(why) || !page)("the page draws the agent's work: the news line, the Work card, the tag and pulse, and a follows it", async () => {
+  const { cp, mkdir, mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join, resolve } = await import("node:path");
+  const { recordSession } = await import("../src/sessions");
+  const { mappingIn, toolActivity, writeActivity } = await import("./effects");
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-page-live-"));
+  const binding = { source: "claude", session: "page" } as const;
+  let live: WebServer | undefined;
+  try {
+    await cp(resolve("examples/parcel"), directory, { recursive: true });
+    await mkdir(join(directory, "src", "ship"), { recursive: true });
+    await writeFile(join(directory, "src", "ship", "label.ts"), "export {};\n");
+    await writeFile(mappingIn(directory), JSON.stringify({ version: 1, project: "parcel", mappings: [{ glob: "src/ship/**", element: "parcel.fulfillment.shipping" }] }));
+    await Effect.runPromise(recordSession(directory, binding, { ended: null }));
+    live = await Effect.runPromise(startWebServer(await selectView(directory, "services"), { theme: "pathlight", activity: binding, poll: 50 }));
+    const p = await browser!.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+      await p.goto(`${live.url}&view=services&select=parcel.commerce.api`);
+      await p.waitForSelector(".footer", { timeout: 15_000 });
+      const call = (id: string, phase: "started" | "completed") => writeActivity(directory, toolActivity(directory, binding, id, "Edit", { file_path: join(directory, "src/ship/label.ts") }, phase));
+      expect((await inspectorText(p)).map(line => line.trim())).toContain("nothing observed here yet");
+      await call("one", "started");
+      await p.waitForSelector('.diagram .card[data-id="parcel.fulfillment.shipping"] .edge.pulse', { timeout: 5000 });
+      expect(await p.$eval(".header", header => header.textContent)).toContain("now ■ edit in Shipping");
+      expect(await p.$eval('.diagram .card[data-id="parcel.fulfillment.shipping"]', card => card.textContent)).toContain("■ edit");
+      // Activity moves nothing by itself.
+      expect(await selectedCard(p)).toBe("parcel.commerce.api");
+      await call("one", "completed");
+      await until(p, async () => !(await p.$(".diagram .edge.pulse")));
+      expect(await p.$(".diagram .edge.pulse")).toBeNull();
+      // `a` turns follow on; the next call selects its box, and the news line says where it went.
+      await p.keyboard.press("a");
+      await until(p, async () => (await p.$eval(".footer", footer => footer.textContent ?? "")).includes("Following the work"));
+      await call("two", "started");
+      await until(p, async () => (await selectedCard(p)) === "parcel.fulfillment.shipping");
+      expect(await selectedCard(p)).toBe("parcel.fulfillment.shipping");
+      expect(await p.$eval(".header", header => header.textContent)).toContain("following Shipping");
+      expect((await inspectorText(p)).some(line => /edit\s+label\.ts/.test(line))).toBe(true);
+      await call("two", "completed");
+    } finally { await p.close(); }
+  } finally {
+    await live?.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test.skipIf(Boolean(why) || !page)("an edit to the model redraws the page where it was: the camera and the selection stay", async () => {
+  const { cp, mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join, resolve } = await import("node:path");
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-page-reload-"));
+  let served: WebServer | undefined;
+  try {
+    await cp(resolve("examples/parcel"), directory, { recursive: true });
+    served = await Effect.runPromise(startWebServer(await selectView(directory, "services"), { theme: "pathlight" }));
+    const p = await browser!.newPage({ viewport: { width: 1440, height: 900 } });
+    try {
+      await p.goto(`${served.url}&view=services&select=parcel.commerce.orders`);
+      await p.waitForSelector(".footer", { timeout: 15_000 });
+      await p.keyboard.press("l"); await p.keyboard.press("j");
+      await p.waitForTimeout(300);
+      const before = await transform(p);
+      const file = join(directory, "model.c4");
+      await writeFile(file, (await readFile(file, "utf8")).replace('"Checkout API"', '"Checkout service"'));
+      await until(p, async () => (await p.$eval('.diagram .card[data-id="parcel.commerce.api"]', card => card.textContent ?? "")).includes("Checkout service"));
+      expect(await p.$eval('.diagram .card[data-id="parcel.commerce.api"]', card => card.textContent ?? "")).toContain("Checkout service");
+      expect(await transform(p)).toBe(before);
+      expect(await selectedCard(p)).toBe("parcel.commerce.orders");
+    } finally { await p.close(); }
+  } finally {
+    await served?.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
 }, 60_000);

@@ -2,14 +2,16 @@ import type { Direction } from "../web/wire";
 
 /**
  * The keys, as the terminal's table means them (src/viewer/keys.ts, `keyAction` in the main layer with `h j k l` panning and the arrows
- * selecting), for the features the page has: select a neighbor, into a box, the view it opens, back, up, fit, zoom, pan, the inspector and `?`.
+ * selecting), for the features the page has: select a neighbor, into a box, the view it opens, back, up, fit, zoom, pan, the inspector, `?`, and
+ * follow (`a`) and the work (`w`).
  * The rest arrive with their features. `?` lists exactly these (session.ts `pageActions`).
  */
 export type PageAction =
   | { type: "traverse"; direction: Direction } | { type: "listMove"; by: -1 | 1 }
   | { type: "open" } | { type: "openView" } | { type: "back" } | { type: "parent" }
   | { type: "help" } | { type: "helpClose" } | { type: "inspector" }
-  | { type: "fit" } | { type: "actualSize" } | { type: "zoom"; by: -1 | 1 } | { type: "pan"; direction: Direction };
+  | { type: "fit" } | { type: "actualSize" } | { type: "zoom"; by: -1 | 1 } | { type: "pan"; direction: Direction }
+  | { type: "follow" } | { type: "work" };
 
 const arrows: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
 const vim: Record<string, Direction> = { h: "left", j: "down", k: "up", l: "right" };
@@ -27,6 +29,8 @@ export const pageKey = (event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
   if (arrows[key] && !event.shiftKey) return { type: "traverse", direction: arrows[key]! };
   if (key === "?") return { type: "help" };
   if (key === "i") return { type: "inspector" };
+  if (key === "a") return { type: "follow" };
+  if (key === "w") return { type: "work" };
   if (key === "+" || key === "=") return { type: "zoom", by: 1 };
   if (key === "-") return { type: "zoom", by: -1 };
   if (vim[key]) return { type: "pan", direction: vim[key]! };
