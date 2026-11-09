@@ -85,12 +85,12 @@ test("/pathlight:open is handled by a hook that blocks the prompt, so the model 
 
     // `web` opens the browser page's window, by the word or by the setting; `tmux` overrides the setting; the launcher's line is the reply.
     expect(JSON.parse((await hook("/pathlight:open web services")).out)).toEqual({ continue: false, stopReason: "Opened the map in Brave." });
-    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("web services --open --workspace /work/project");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("web services --open --workspace /work/project --session s --source claude");
     await hook("/pathlight:open", "web");
-    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("web --open --workspace /work/project");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("web --open --workspace /work/project --session s --source claude");
     await hook("/pathlight:open tmux checkout", "web");
     expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open checkout --workspace /work/project --session s --source claude");
     await hook("/pathlight:open web", "");
-    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("web --open --workspace /work/project");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("web --open --workspace /work/project --session s --source claude");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

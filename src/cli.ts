@@ -48,7 +48,7 @@ pathlight view VIEW [--workspace PATH] [--project NAME] [--select ELEMENT]
 pathlight see VIEW [--workspace PATH] [--project NAME] [--cols N] [--rows N] [--select ELEMENT] [--keys KEY,KEY] [--ansi] [--follow] [--agent] [--zoom]
 pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--pane %ID] [--socket PATH]
 pathlight pane [VIEW] [--workspace PATH] [--project NAME] --cols N --rows N [--session ID --source claude] [--select ELEMENT] [--socket PATH]
-pathlight web [VIEW] [--workspace PATH] [--project NAME] [--select ELEMENT] [--open | --port N] [--rune]
+pathlight web [VIEW] [--workspace PATH] [--project NAME] [--select ELEMENT] [--session ID --source claude] [--open | --port N] [--rune]
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
 pathlight config get claude|browser | pathlight config set claude pane|tmux|web | pathlight config set browser COMMAND
@@ -259,11 +259,11 @@ try {
       if (values.open) {
         if (values.rune || values.port !== undefined) return yield* invalid("--open chooses its own port and serves the default page; leave out --port and --rune.");
         const { launchWeb } = yield* io("CLI.launch", () => import("./web/launch"));
-        process.stdout.write(`${yield* launchWeb({ workspace: view.workspace, view: view.id, project: view.project, select: values.select })}\n`);
+        process.stdout.write(`${yield* launchWeb({ workspace: view.workspace, view: view.id, project: view.project, select: values.select, activity })}\n`);
         return;
       }
       const { serveWeb } = yield* io("CLI.web", () => import("./web/server"));
-      yield* serveWeb(view, { port, select: values.select, kind: values.rune ? "rune" : "page", signal: abort.signal, print: line => process.stdout.write(line), untilClosed: values["until-closed"] === true });
+      yield* serveWeb(view, { port, select: values.select, kind: values.rune ? "rune" : "page", signal: abort.signal, print: line => process.stdout.write(line), untilClosed: values["until-closed"] === true, activity });
     } else if (command === "show" || command === "view" || command === "open") {
       if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));
