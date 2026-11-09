@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { checkWorkspace, formatCheck } from "../src/check";
 import { listViews } from "../src/catalog";
 import { draftWorkspace } from "../src/draft";
-import { entryFor, resourceKinds, resourcesOf } from "../src/resources";
+import { composeFacts, entryFor, envNames, imageResource, isInfraFile, resourceKinds, resourcesOf, withInfra } from "../src/resources";
 import table from "../src/resources/imports.json";
 import { startWebServer } from "../src/web/server";
 import type { Frame, Span } from "../src/web/wire";
@@ -96,7 +96,7 @@ test("the draft draws what the code talks to: a box per resource with its kind, 
     const check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.relationships.filter(item => ["postgresql", "kafka", "s3"].includes(item.target)).map(item => `${item.source}>${item.target} ${item.status} ${item.imports}`).sort())
       .toEqual(["files>s3 supported 1", "orders>kafka supported 1", "orders>postgresql supported 1"]);
-    expect(check.resources).toEqual([{ element: "kafka", packages: ["kafkajs"], files: 1 }, { element: "postgresql", packages: ["pg"], files: 1 }, { element: "s3", packages: ["@aws-sdk/client-s3"], files: 1 }]);
+    expect(check.resources).toEqual([{ element: "kafka", packages: ["kafkajs"], files: 1, declared: [] }, { element: "postgresql", packages: ["pg"], files: 1, declared: [] }, { element: "s3", packages: ["@aws-sdk/client-s3"], files: 1, declared: [] }]);
     expect(check.summary).toMatchObject({ unusedResources: 0, unsupported: 0, undeclared: 0, unmappedFiles: 0 });
 
     // The code changes under the model: Kafka is no longer imported, and the web component starts using Postgres with no arrow to it.
@@ -147,3 +147,48 @@ test("the viewer names what a resource is on its card's first row", async () => 
     await rm(directory, { recursive: true, force: true });
   }
 }, 120_000);
+
+test("infrastructure files are read as names only: a compose file's images and environment names, an example environment's names", () => {
+  expect(composeFacts(`services:\n  db:\n    image: docker.io/library/postgres:16-alpine\n    environment:\n      - POSTGRES_PASSWORD=secret\n  app:\n    image: acme/app\n    environment:\n      REDIS_URL: redis://cache\n      TOKEN: \${STRIPE_KEY:-x}\n`))
+    .toEqual({ images: ["acme/app", "docker.io/library/postgres:16-alpine"], env: ["POSTGRES_PASSWORD", "REDIS_URL", "STRIPE_KEY", "TOKEN"] });
+  expect(envNames("# comment\nDATABASE_URL=postgres://user:pw@host/db\nexport SMTP_HOST=mail\n  lower=1\nNOT A LINE\n")).toEqual(["DATABASE_URL", "SMTP_HOST"]);
+  expect(["postgres:16", "bitnami/postgresql:15@sha256:abc", "ghcr.io/x/redis:7", "valkey/valkey", "acme/app"].map(imageResource)).toEqual(["postgresql", "postgresql", "redis", "redis", undefined]);
+  expect([".env.example", "docker/docker-compose.dev.yml", "compose.yaml", "frontend/template.env", "tests/e2e/docker-compose.yml", ".env", "src/env.ts"].map(isInfraFile))
+    .toEqual([true, true, true, true, false, false, false]);
+});
+
+test("infrastructure names what the code leaves open and adds only datastores it runs, each saying so", () => {
+  const code = resourcesOf([use("api/db.ts", "sequelize"), use("api/cache.ts", "ioredis")], () => "api");
+  const compose = { path: "docker-compose.yml", images: ["postgres:16", "redis:7", "getmeili/meilisearch:v1", "caronc/apprise:1.0"], env: ["SENTRY_DSN"] };
+  const joined = withInfra(code, [compose, { path: ".env.example", images: [], env: ["DATABASE_URL", "REDIS_URL", "MONGO_URL"] }]);
+  // The ORM's database takes the engine compose runs; Redis is confirmed by both files; Meilisearch runs with no code, so it is a box that says so.
+  expect(joined.map(item => [item.id, item.title, item.files.length, item.declared.map(entry => `${entry.path}: ${entry.by}`)])).toEqual([
+    ["meilisearch", "Meilisearch", 0, ["docker-compose.yml: image getmeili/meilisearch:v1"]],
+    ["redis", "Redis", 1, [".env.example: REDIS_URL", "docker-compose.yml: image redis:7"]],
+    ["sql", "PostgreSQL", 1, [".env.example: DATABASE_URL", "docker-compose.yml: image postgres:16"]],
+  ]);
+  // Apprise (a service), Sentry (monitoring) and MongoDB (an environment name only) add nothing. Code that names two engines keeps both.
+  const two = resourcesOf([use("a/db.py", "sqlalchemy"), use("a/pg.py", "psycopg2"), use("a/lite.py", "sqlite3")], () => "a");
+  expect(withInfra(two, [compose]).find(item => item.sql)!.title).toBe("SQL database");
+  // With no code that reaches a database, an engine's image is one.
+  expect(withInfra([], [compose]).map(item => item.id)).toEqual(["meilisearch", "postgresql", "redis"]);
+});
+
+test("the draft cites the infrastructure, and check asks about a box only infrastructure declares without counting it as a finding", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-resources-infra-"));
+  try {
+    await write(directory, { ...shop, "docker-compose.yml": "services:\n  db:\n    image: postgres:16\n  search:\n    image: getmeili/meilisearch:v1.8\n", ".env.example": "DATABASE_URL=\nKAFKA_BROKERS=\n" });
+    await Effect.runPromise(draftWorkspace(directory));
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect(model).toContain("  postgresql = resource 'PostgreSQL' {\n    #database\n    technology 'pg'\n    description 'Imported by 1 file. Declared in .env.example, docker-compose.yml.'\n  }");
+    expect(model).toContain("  meilisearch = resource 'Meilisearch' {\n    #search\n    technology 'image getmeili/meilisearch:v1.8'\n    description 'Declared in docker-compose.yml; no code found that uses it.'\n  }");
+    expect(model).toContain("description 'Imported by 1 file. Declared in .env.example.'");
+    const mapping = JSON.parse(await readFile(join(directory, ".pathlight", "pathlight.activity.json"), "utf8")) as { resources: unknown[] };
+    expect(mapping.resources).toContainEqual({ element: "meilisearch", packages: [], declared: ["docker-compose.yml"] });
+    const check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.summary).toMatchObject({ unusedResources: 0, unsupported: 0, undeclared: 0 });
+    expect(formatCheck(check)).toContain("· meilisearch  declared in docker-compose.yml; no code imports it");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);

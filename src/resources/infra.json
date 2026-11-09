@@ -1,0 +1,204 @@
+{
+ "note": "What infrastructure files say exists (plan phase-r-resources.md, step 2). `images` maps a container image (registry, `library/` and tag removed) to a resource of resources/imports.json; `env` maps an environment name (exact, or a prefix ending in `_`) to one, a SQL one with its engine. Names only: a value is never read. `declares` are the kinds a file alone may add a box for (with no code found); the others only confirm or name what the code imports.",
+ "declares": [
+  "database",
+  "cache",
+  "queue",
+  "storage",
+  "search",
+  "mail"
+ ],
+ "images": {
+  "postgres": "postgresql",
+  "postgis/postgis": "postgresql",
+  "bitnami/postgresql": "postgresql",
+  "timescale/timescaledb": "postgresql",
+  "pgvector/pgvector": "postgresql",
+  "supabase/postgres": "postgresql",
+  "mysql": "mysql",
+  "bitnami/mysql": "mysql",
+  "mariadb": "mysql",
+  "bitnami/mariadb": "mysql",
+  "mcr.microsoft.com/mssql/server": "sqlserver",
+  "mongo": "mongodb",
+  "bitnami/mongodb": "mongodb",
+  "mongodb/mongodb-community-server": "mongodb",
+  "redis": "redis",
+  "bitnami/redis": "redis",
+  "redis/redis-stack": "redis",
+  "redis/redis-stack-server": "redis",
+  "valkey/valkey": "redis",
+  "bitnami/valkey": "redis",
+  "eqalpha/keydb": "redis",
+  "docker.dragonflydb.io/dragonflydb/dragonfly": "redis",
+  "memcached": "memcached",
+  "bitnami/memcached": "memcached",
+  "rabbitmq": "rabbitmq",
+  "bitnami/rabbitmq": "rabbitmq",
+  "apache/kafka": "kafka",
+  "bitnami/kafka": "kafka",
+  "confluentinc/cp-kafka": "kafka",
+  "redpandadata/redpanda": "kafka",
+  "docker.redpanda.com/redpandadata/redpanda": "kafka",
+  "nats": "nats",
+  "minio/minio": "minio",
+  "bitnami/minio": "minio",
+  "quay.io/minio/minio": "minio",
+  "elasticsearch": "elasticsearch",
+  "docker.elastic.co/elasticsearch/elasticsearch": "elasticsearch",
+  "bitnami/elasticsearch": "elasticsearch",
+  "opensearchproject/opensearch": "opensearch",
+  "bitnami/opensearch": "opensearch",
+  "getmeili/meilisearch": "meilisearch",
+  "typesense/typesense": "typesense",
+  "clickhouse/clickhouse-server": "clickhouse",
+  "clickhouse": "clickhouse",
+  "mailhog/mailhog": "mail",
+  "axllent/mailpit": "mail",
+  "maildev/maildev": "mail",
+  "rnwood/smtp4dev": "mail",
+  "quay.io/keycloak/keycloak": "keycloak",
+  "bitnami/keycloak": "keycloak",
+  "localstack/localstack": "aws"
+ },
+ "env": [
+  {
+   "name": "DATABASE_URL",
+   "resource": "sql"
+  },
+  {
+   "name": "DB_URL",
+   "resource": "sql"
+  },
+  {
+   "name": "SQLALCHEMY_DATABASE_URI",
+   "resource": "sql"
+  },
+  {
+   "name": "POSTGRES_",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "name": "POSTGRESQL_",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "name": "PGHOST",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "name": "PGDATABASE",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "name": "MYSQL_",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "name": "MARIADB_",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "name": "MONGO_URL",
+   "resource": "mongodb"
+  },
+  {
+   "name": "MONGO_URI",
+   "resource": "mongodb"
+  },
+  {
+   "name": "MONGODB_",
+   "resource": "mongodb"
+  },
+  {
+   "name": "REDIS_",
+   "resource": "redis"
+  },
+  {
+   "name": "VALKEY_",
+   "resource": "redis"
+  },
+  {
+   "name": "MEMCACHED_",
+   "resource": "memcached"
+  },
+  {
+   "name": "AMQP_URL",
+   "resource": "rabbitmq"
+  },
+  {
+   "name": "RABBITMQ_",
+   "resource": "rabbitmq"
+  },
+  {
+   "name": "KAFKA_",
+   "resource": "kafka"
+  },
+  {
+   "name": "NATS_URL",
+   "resource": "nats"
+  },
+  {
+   "name": "S3_",
+   "resource": "s3"
+  },
+  {
+   "name": "AWS_S3_",
+   "resource": "s3"
+  },
+  {
+   "name": "MINIO_",
+   "resource": "minio"
+  },
+  {
+   "name": "ELASTICSEARCH_",
+   "resource": "elasticsearch"
+  },
+  {
+   "name": "OPENSEARCH_",
+   "resource": "opensearch"
+  },
+  {
+   "name": "MEILI_",
+   "resource": "meilisearch"
+  },
+  {
+   "name": "MEILISEARCH_",
+   "resource": "meilisearch"
+  },
+  {
+   "name": "SMTP_",
+   "resource": "mail"
+  },
+  {
+   "name": "LDAP_",
+   "resource": "ldap"
+  },
+  {
+   "name": "OIDC_",
+   "resource": "oidc"
+  },
+  {
+   "name": "SENTRY_DSN",
+   "resource": "sentry"
+  },
+  {
+   "name": "STRIPE_",
+   "resource": "stripe"
+  },
+  {
+   "name": "OPENAI_API_KEY",
+   "resource": "openai"
+  },
+  {
+   "name": "ANTHROPIC_API_KEY",
+   "resource": "anthropic"
+  }
+ ]
+}

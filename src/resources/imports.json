@@ -333,6 +333,10 @@
   "letsencrypt": {
    "title": "Let's Encrypt",
    "kind": "service"
+  },
+  "keycloak": {
+   "title": "Keycloak",
+   "kind": "identity"
   }
  },
  "packages": [
@@ -1532,6 +1536,14 @@
   {
    "match": "golang.org/x/crypto/acme/autocert",
    "resource": "letsencrypt"
+  },
+  {
+   "match": "keycloak-js",
+   "resource": "keycloak"
+  },
+  {
+   "match": "keycloak",
+   "resource": "keycloak"
   }
  ]
 }

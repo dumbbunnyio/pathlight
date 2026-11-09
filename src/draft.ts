@@ -6,7 +6,7 @@ import { configFile, home, mappingFile, modelFile, overlayFile } from "./layout"
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace, type Scan } from "./scan";
 import { scannedLanguages } from "./languages";
-import { resourcesOf, type Resource } from "./resources";
+import { readInfra, resourcesOf, withInfra, type InfraFile, type Resource } from "./resources";
 import { declaredStartsOf } from "./starts";
 
 /**
@@ -116,7 +116,7 @@ interface Holder {
  * `unread`: source files in languages the scan does not read (`isUnscannedSource`). They are drawn in the folders they live in, so the picture
  * leaves no part of the code out, but they bring no imports: an arrow to or from them is never drawn, and their description says so.
  */
-export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly external?: Scan["external"] }, manifests: readonly { directory: string; name: string }[], overlay?: Overlay, unread: readonly string[] = []): Draft {
+export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly external?: Scan["external"] }, manifests: readonly { directory: string; name: string }[], overlay?: Overlay, unread: readonly string[] = [], infra: readonly InfraFile[] = []): Draft {
   const problems: string[] = [];
   const splits = new Set((overlay?.splits ?? []).map(item => item.key));
   const splitSeen = new Set<string>(), splitOpened = new Set<string>();
@@ -311,7 +311,7 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
   // What the code talks to, by the packages its files import; a file the picture leaves out (a test) is no evidence. Each resource is a top-level box
   // with an id of its own, and a component uses it when one of its files imports one of its packages.
   const topLevel = new Set(flat ? packages.flatMap(item => [...item.components, ...item.folders, ...item.groups].map(entry => entry.id).filter(id => !id.includes("."))) : packages.map(item => item.id));
-  const found = resourcesOf(scan.external ?? [], path => ignoredBy(path) || !componentOf.has(path) ? undefined : ownerOf(path)?.directory ?? "");
+  const found = withInfra(resourcesOf(scan.external ?? [], path => ignoredBy(path) || !componentOf.has(path) ? undefined : ownerOf(path)?.directory ?? ""), infra);
   const resources = found.map(item => ({ ...item, element: unique(slug(item.id), topLevel) }));
   const uses = resources.flatMap(item => {
     const by = new Map<string, { files: number; packages: Set<string> }>();
@@ -589,8 +589,13 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   for (const item of draft.resources) {
     const engines = item.engines.length > 1 ? ` The drivers name ${item.engines.slice(0, -1).join(", ")} and ${item.engines.at(-1)}.` : "";
     // The packages are its technology, which the inspector shows under the name; the description says how much code reaches it.
-    out.push(`  ${item.element} = resource ${quote(item.title)} {`, `    #${item.kind}`, `    technology ${quote(item.packages.join(", "))}`,
-      `    description ${quote(said(item.note, `Imported by ${plural(item.files.length, "file")}.${engines}`))}`, "  }");
+    // What infrastructure files say of it, by file; a box only they declare says that no code was found.
+    const where = [...new Set(item.declared.map(entry => entry.path))];
+    const declared = where.length ? `Declared in ${where.slice(0, 3).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : "";
+    const facts = item.files.length ? `Imported by ${plural(item.files.length, "file")}.${engines}${declared ? ` ${declared}.` : ""}` : `${declared}; no code found that uses it.`;
+    const technology = item.packages.length ? item.packages : [...new Set(item.declared.map(entry => entry.by))];
+    out.push(`  ${item.element} = resource ${quote(item.title)} {`, `    #${item.kind}`, `    technology ${quote(technology.join(", "))}`,
+      `    description ${quote(said(item.note, facts))}`, "  }");
   }
   out.push("");
   for (const edge of draft.relationships) {
@@ -900,7 +905,7 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const committedText = overlay ? yield* run("git", ["-C", target, "show", `HEAD:./${overlayFile}`]).pipe(Effect.option) : undefined;
   const committed = committedText?._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay)(yield* json(committedText.value)).pipe(Effect.option) : undefined;
   const unread = paths.filter(isUnscannedSource);
-  const base = draftOf(scan, manifests, overlay, unread);
+  const base = draftOf(scan, manifests, overlay, unread, yield* readInfra(root, paths));
   const { draft, unknown } = overlay ? applyOverlay(base, overlay) : { draft: base, unknown: [] as string[] };
   // Boxes of unread code alone would be a picture with no arrows at all: the draft needs some code the scan reads.
   const unreadSet = new Set(unread);
@@ -929,7 +934,7 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const rendered = renderDraft(draft, lines, behaviorTexts.some(declaresBehavior), unreadSet, starts);
   const mappings = [...draft.packages.flatMap(item => item.components.flatMap(entry => entry.globs.map(glob => ({ glob, element: entry.id })))), ...schemaMappings(draft, paths)];
   // The evidence each resource rests on, for `check` to judge its arrows by (the packages, not imports between files).
-  const resources = draft.resources.map(item => ({ element: item.element, packages: item.packages }));
+  const resources = draft.resources.map(item => ({ element: item.element, packages: item.packages, ...(item.declared.length ? { declared: [...new Set(item.declared.map(entry => entry.path))] } : {}) }));
   yield* io("Draft.write", async () => {
     await mkdir(target, { recursive: true });
     await writeFile(join(target, modelFile), rendered.text);

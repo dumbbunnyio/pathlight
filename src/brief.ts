@@ -9,6 +9,7 @@ import { homeOf, modelFile, overlayFile } from "./layout";
 import { checkFlows } from "./flows";
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace } from "./scan";
+import { readInfra } from "./resources";
 import { declaredStartsOf, notEntry, notOurs } from "./starts";
 
 /**
@@ -358,7 +359,7 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
     inferred: inferredMark.test(box.name?.note ?? ""), named: Boolean(box.name?.title || box.name?.note), files: box.files.length, lines: box.lines }));
   const { paths } = yield* listFiles(root);
   const overlay = yield* readOverlay(root);
-  const talksTo = draftOf(scan, yield* readManifests(root, paths), overlay, paths.filter(isUnscannedSource)).resources
+  const talksTo = draftOf(scan, yield* readManifests(root, paths), overlay, paths.filter(isUnscannedSource), yield* readInfra(root, paths)).resources
     .map(item => ({ key: item.key, title: item.title, kind: item.kind, files: item.files.length })).sort((a, b) => b.files - a.files || (a.title < b.title ? -1 : 1));
   const drafted = yield* io("Brief.drafted", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
   const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));

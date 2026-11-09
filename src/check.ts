@@ -55,7 +55,7 @@ export const Check = Schema.Struct({
   // Imports between two mapped elements that no relationship at that level, or above it, declares (in either direction).
   undeclared: Schema.Array(Schema.Struct({ source: Schema.String, target: Schema.String, imports: Count, examples: Schema.Array(Example) })),
   // What the code talks to (the mapping's `resources`): how many files import each one's packages. None means its evidence is gone.
-  resources: Schema.Array(Schema.Struct({ element: Schema.String, packages: Schema.Array(Schema.String), files: Count })),
+  resources: Schema.Array(Schema.Struct({ element: Schema.String, packages: Schema.Array(Schema.String), files: Count, declared: Schema.Array(Schema.String) })),
   summary: Schema.Struct({ unusedResources: Count, unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count, largeElements: Count, wideGroups: Count, unlinkedViews: Count }),
 });
 export interface Check extends Schema.Schema.Type<typeof Check> {}
@@ -143,7 +143,7 @@ export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" 
       entry.edges.push({ from: use.from, to: use.package, line: use.line, kind: use.kind, specifier: use.package });
       pairs.set(key, entry);
     }
-    return { element: resource.element, packages: [...resource.packages], files: new Set(uses.map(use => use.from)).size };
+    return { element: resource.element, packages: [...resource.packages], files: new Set(uses.map(use => use.from)).size, declared: [...resource.declared ?? []] };
   });
   const undeclared = [...pairs.values()].sort((a, b) => order(a.source, b.source) || order(a.target, b.target))
     .map(({ source, target, edges }) => ({ source, target, imports: edges.length, examples: edges.slice(0, 3).map(example) }));
@@ -235,7 +235,7 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
     version: 1, basis: "static", project: config.project,
     mappings: { total: config.mappings.length, ignored: ignoredFiles.length, shared, sharedImports, unmatched, unmappedFiles },
     relationships, size, wide, plan, views: { total: viewLinks.size, entries }, undeclared, resources,
-    summary: { unusedResources: resources.filter(item => !item.files).length, unmatchedMappings: unmatched.length, unmappedFiles: unmappedFiles.length, unsupported: relationships.filter(item => item.status === "unsupported").length,
+    summary: { unusedResources: resources.filter(item => item.packages.length && !item.files).length, unmatchedMappings: unmatched.length, unmappedFiles: unmappedFiles.length, unsupported: relationships.filter(item => item.status === "unsupported").length,
       unverifiable: relationships.filter(item => item.status === "unverifiable").length, undeclared: undeclared.length,
       largeElements: size.filter(item => item.large).length, wideGroups: wide.length, unlinkedViews: Math.max(0, entries.length - 1) },
   });
@@ -270,9 +270,11 @@ export function formatCheck(check: Check) {
   }
   if (check.resources.length) {
     lines.push("", `Resources (${check.resources.length}: what the code talks to)`);
+    // One only infrastructure declares is a question for whoever knows the deployment, not a finding.
     for (const item of check.resources) lines.push(item.files
       ? `  ✓ ${item.element}  ${item.files} file${item.files === 1 ? "" : "s"} import ${item.packages.join(", ")}`
-      : `  ▲ ${item.element}  no file imports ${item.packages.join(", ")} any more: is it still used?`);
+      : item.packages.length ? `  ▲ ${item.element}  no file imports ${item.packages.join(", ")} any more: is it still used?`
+      : `  · ${item.element}  declared in ${item.declared.join(", ")}; no code imports it`);
   }
   lines.push("", "Imports with no relationship");
   if (!check.undeclared.length) lines.push("  ✓ none");
