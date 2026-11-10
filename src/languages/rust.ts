@@ -1,6 +1,6 @@
 import { posix } from "node:path";
 import { Effect } from "effect";
-import type { ExportRef, ImportRef } from "../scan-imports";
+import type { ExportRef, ImportNames, ImportRef } from "../scan-imports";
 import type { FrontEnd, Resolution, Workspace } from "./index";
 import file from "./grammars/tree-sitter-rust.wasm" with { type: "file" };
 import { grammar, type Node } from "./tree-sitter";
@@ -19,11 +19,14 @@ interface Scope {
   readonly mods: { name: string; inline: boolean; path?: string; test: boolean }[];
   /** Items declared in the scope, which a path's first segment names before any crate. */
   readonly items: Set<string>;
-  /** Names a `use` brings into the scope, with the path each stands for. */
-  readonly aliases: Map<string, string[]>;
+  /** Names a `use` brings into the scope, with the paths each stands for: more than one under platform `cfg` (`use unix as platform`, `use windows as platform`). */
+  readonly aliases: Map<string, string[][]>;
 }
-/** What the resolver needs from a file besides its imports: its scopes, its `extern crate` names, and whether the whole file is a test (`#![cfg(test)]`). */
-interface Shape { readonly scopes: Map<string, Scope>; readonly externs: Map<string, string>; test: boolean }
+/**
+ * What the resolver needs from a file besides its imports: its scopes, its `extern crate` names, the macros it exports (`#[macro_export]` puts them
+ * at the crate's root, whatever module declares them), and whether the whole file is a test (`#![cfg(test)]`).
+ */
+interface Shape { readonly scopes: Map<string, Scope>; readonly externs: Map<string, string>; readonly macros: Set<string>; test: boolean }
 interface RustImport extends ImportRef {
   readonly segments: readonly string[];
   /** The inline modules the import sits in, inside its file. */
@@ -55,7 +58,9 @@ function segmentsOf(text: string): string[] | undefined {
 const key = (segments: readonly string[]) => segments.join("::");
 
 function read(source: string): RustImport[] {
-  const shape: Shape = { scopes: new Map(), externs: new Map(), test: false };
+  const shape: Shape = { scopes: new Map(), externs: new Map(), macros: new Set(), test: false };
+  // Every name the file's code writes, for a glob: `use crate::assets::*` takes from the module only what the file goes on to name.
+  const used = new Set<string>();
   const scopeOf = (scope: readonly string[]) => {
     let found = shape.scopes.get(key(scope));
     if (!found) shape.scopes.set(key(scope), found = { mods: [], items: new Set(), aliases: new Map() });
@@ -64,6 +69,31 @@ function read(source: string): RustImport[] {
   scopeOf([]);
   const found: RustImport[] = [{ specifier: "", line: 1, kind: "import", segments: [], scope: [], use: false, glob: false, shape }];
   const seenPaths = new Set<string>();
+  const codePath = (parts: string[], line: number, scope: string[]) => {
+    // A path in code is an import only when it starts at a module or a crate: a type's `Self::`, `Vec::new` and a variant start with a capital.
+    if (parts.length < 2 || !(parts[0] === "::" || /^[a-z_]/.test(parts[0]!)) || seenPaths.has(`${key(scope)}\0${key(parts)}`)) return;
+    seenPaths.add(`${key(scope)}\0${key(parts)}`);
+    found.push({ specifier: key(parts), line, kind: "import", names: [{ imported: parts.at(-1)!, exported: parts.at(-1)! }], segments: parts, scope, use: false, glob: false });
+  };
+  /** The paths written inside a macro's arguments (`writeln!(out, "{}", crate::assets::list())`), read from its tokens; strings are left alone. */
+  const macroArguments = (tree: Node, scope: string[]) => {
+    const tokens: { text: string; line: number }[] = [];
+    const collect = (node: Node) => {
+      if (/string_literal|char_literal|comment/.test(node.type)) { tokens.push({ text: "", line: 0 }); return; }
+      if (node.childCount === 0) { tokens.push({ text: node.text, line: node.startPosition.row + 1 }); if (node.type === "identifier") used.add(node.text); return; }
+      for (const child of node.children) if (child) collect(child);
+    };
+    collect(tree);
+    for (let index = 0; index < tokens.length; index++) {
+      const start = tokens[index]!;
+      if (!segment.test(start.text) || tokens[index - 1]?.text === "::" || tokens[index - 1]?.text === "." || tokens[index - 1]?.text === "$") continue;
+      const parts = [start.text];
+      let at = index + 1;
+      while (tokens[at]?.text === "::" && segment.test(tokens[at + 1]?.text ?? "")) { parts.push(tokens[at + 1]!.text); at += 2; }
+      if (parts.length > 1) codePath(parts, start.line, scope);
+      index = at - 1;
+    }
+  };
   // The scopes open around the cursor: the depth of each scope's container (the file, or an inline module's body) and its path.
   const frames: { depth: number; scope: string[] }[] = [{ depth: 0, scope: [] }];
   // Attributes read so far before the next item, per depth: `#[cfg(test)]` and `#[path = "…"]` belong to the item that follows them.
@@ -107,6 +137,9 @@ function read(source: string): RustImport[] {
   /** Reads one node; true when its children are to be read too. */
   const visit = (node: Node, depth: number): boolean => {
     if (node.type === "line_comment" || node.type === "block_comment") return false;
+    if (node.type === "identifier" || node.type === "type_identifier") { used.add(node.text); return false; }
+    // `pub(in crate::service)` says who may see an item; it uses nothing.
+    if (node.type === "visibility_modifier") return false;
     if (node.type === "attribute_item") { (pending[depth] ??= []).push(node.text); return false; }
     if (node.type === "inner_attribute_item") {
       if (depth === 1 && /^#!\[\s*cfg\s*\(\s*test\s*\)\s*\]$/.test(node.text)) shape.test = true;
@@ -137,6 +170,13 @@ function read(source: string): RustImport[] {
       const name = node.childForFieldName("name")?.text;
       if (name) scope.items.add(name);
     }
+    if (node.type === "macro_definition") {
+      const name = node.childForFieldName("name")?.text;
+      if (name && attributes.some(text => /^#\[\s*macro_export\b/.test(text))) shape.macros.add(name);
+      // A macro's body is a pattern, not code of this module.
+      return false;
+    }
+    if (node.type === "token_tree" && node.parent?.type === "macro_invocation") { macroArguments(node, frame.scope); return false; }
     if (node.type === "use_declaration") {
       const argument = node.childForFieldName("argument");
       const reexport = node.namedChildren.some(child => child?.type === "visibility_modifier");
@@ -148,7 +188,7 @@ function read(source: string): RustImport[] {
         const names = leaf.glob ? "*" as const : [{ imported: last, exported: leaf.alias ?? last }];
         found.push({ specifier: `${key(leaf.segments)}${leaf.glob ? "::*" : ""}`, line, kind: "import", names, ...reexport ? { reexport: true as const } : {},
           segments: leaf.segments, scope: frame.scope, use: true, glob: leaf.glob, ...leaf.alias ? { alias: leaf.alias } : {} });
-        if (!leaf.glob && (leaf.alias ?? last) !== "_" && !["crate", "self", "super"].includes(leaf.alias ?? last)) scope.aliases.set(leaf.alias ?? last, leaf.segments);
+        if (!leaf.glob && (leaf.alias ?? last) !== "_" && !["crate", "self", "super"].includes(leaf.alias ?? last)) scope.aliases.set(leaf.alias ?? last, [...scope.aliases.get(leaf.alias ?? last) ?? [], leaf.segments]);
       }
       return false;
     }
@@ -162,22 +202,20 @@ function read(source: string): RustImport[] {
     }
     if (node.type === "scoped_identifier" || node.type === "scoped_type_identifier") {
       const parts = segmentsOf(node.text);
-      // A path in code is an import only when it starts at a module or a crate: a type's `Self::`, `Vec::new` and a variant start with a capital.
-      if (parts && parts.length > 1 && (parts[0] === "::" || /^[a-z_]/.test(parts[0]!)) && !seenPaths.has(`${key(frame.scope)}\0${key(parts)}`)) {
-        seenPaths.add(`${key(frame.scope)}\0${key(parts)}`);
-        found.push({ specifier: key(parts), line, kind: "import", names: [{ imported: parts.at(-1)!, exported: parts.at(-1)! }], segments: parts, scope: frame.scope, use: false, glob: false });
-      }
+      if (parts) codePath(parts, line, frame.scope);
       return false;
     }
     return true;
   };
 
+  // A glob that is not offered on (`pub use …::*`) takes the names the file writes, so each can be followed to the file that declares it.
+  const narrowed = () => found.map(ref => ref.glob && !ref.reexport ? { ...ref, names: [...used].sort().map(name => ({ imported: name, exported: name })) } : ref);
   const cursor = parser.parse(source).walk();
   try {
     for (let depth = 0; ;) {
       if (visit(cursor.currentNode, depth) && cursor.gotoFirstChild()) { depth++; continue; }
       for (;;) {
-        if (depth === 0) return found;
+        if (depth === 0) return narrowed();
         if (cursor.gotoNextSibling()) { while (frames.length > 1 && frames.at(-1)!.depth >= depth) frames.pop(); break; }
         cursor.gotoParent();
         pending[depth] = [];
@@ -260,8 +298,9 @@ interface Package {
   readonly dependencies: Map<string, Dependency[]>;
   readonly targets: { root: string; kind: TargetKind }[];
 }
-interface Module { readonly file: string; readonly test: boolean }
-interface Target { readonly kind: TargetKind; readonly package: Package; readonly modules: Map<string, Module> }
+/** A module: the file that holds it, the inline modules it is inside that file (`[]` for the file's own), and whether it is test code. */
+interface Module { readonly file: string; readonly scope: readonly string[]; readonly test: boolean }
+interface Target { readonly kind: TargetKind; readonly package: Package; readonly modules: Map<string, Module>; readonly macros: Map<string, string> }
 interface Context { readonly target: Target; readonly segments: readonly string[]; readonly test: boolean }
 
 const record = (value: unknown): Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -363,13 +402,14 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
   const libraries = new Map<string, Target>();
   const isModRs = (path: string, root: string) => path === root || ["mod.rs", "lib.rs", "main.rs"].includes(posix.basename(path));
   for (const pack of packages.values()) for (const { root, kind } of pack.targets) {
-    const target: Target = { kind, package: pack, modules: new Map() };
+    const target: Target = { kind, package: pack, modules: new Map(), macros: new Map() };
     if (kind === "lib") libraries.set(pack.directory, target);
     const visit = (path: string, segments: readonly string[], test: boolean, depth: number) => {
-      target.modules.set(key(segments), { file: path, test });
+      target.modules.set(key(segments), { file: path, scope: [], test });
       if (!contexts.has(path)) contexts.set(path, { target, segments, test });
       const shape = shapeOf(path);
       if (!shape || depth > 64) return;
+      for (const name of shape.macros) if (!target.macros.has(name)) target.macros.set(name, path);
       const fileTest = test || shape.test;
       const base = isModRs(path, root) ? directory(path) : join_(directory(path), posix.basename(path, ".rs"));
       const scopes = [...shape.scopes.keys()].sort((a, b) => a.length - b.length);
@@ -381,7 +421,7 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
           const child = [...segments, ...inner, mod.name];
           const childTest = scopeTest || mod.test;
           if (mod.inline) {
-            target.modules.set(key(child), { file: path, test: childTest });
+            target.modules.set(key(child), { file: path, scope: [...inner, mod.name], test: childTest });
             if (childTest) testScopes.add(key([...inner, mod.name]));
             continue;
           }
@@ -407,8 +447,35 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
   const allowed = (kind: TargetKind, dependency: Dependency) => dependency.kind === "normal" || (dependency.kind === "dev" && ["test", "example", "bench"].includes(kind)) || (dependency.kind === "build" && kind === "build");
   const externalName = (name: string, rest: readonly string[]) => std.has(name) ? name : rest[0] ? `${name}/${rest[0]}` : name;
 
-  /** The module a path reaches in a target, and the name taken from it. */
-  const walk = (target: Target, from: string, base: readonly string[], rest: readonly string[], ref: RustImport): Resolution => {
+  /** Every file several readings reach (each `cfg` alternative of an alias), or the first answer when none reaches a file. */
+  const merge = (results: Resolution[]): Resolution => {
+    const files = new Map<string, { to: string; names?: ImportNames }>();
+    for (const result of results) if (result && "files" in result) for (const entry of result.files) if (!files.has(entry.to)) files.set(entry.to, entry);
+    return files.size ? { files: [...files.values()] } : results.find(result => result !== undefined);
+  };
+
+  /**
+   * A glob from inside the module it names (`use super::*` in a child) also takes the module's private imports: each name the file writes that the
+   * module brought in with a `use`, or with a glob of its own whose module declares it, is followed to where that `use` leads. One level deep.
+   */
+  const privateImports = (module: Module, names: readonly string[], depth: number) => {
+    const files = new Map<string, string[]>();
+    const scope = shapeOf(module.file)?.scopes.get(key(module.scope));
+    const own = (refs.get(module.file) ?? []) as RustImport[];
+    const globs = own.filter(item => item.glob && key(item.scope) === key(module.scope) && !item.shape);
+    const globFiles = globs.flatMap(item => { const found = resolve(module.file, { ...item, names: "*" }, depth + 1); return found && "files" in found ? found.files.map(entry => entry.to) : []; });
+    for (const name of names) {
+      const aliases = scope?.aliases.get(name);
+      const found = aliases ? merge(aliases.map(alias => resolve(module.file, { specifier: key(alias), line: 1, kind: "import", segments: alias, scope: module.scope, use: true, glob: false, names: [{ imported: alias.at(-1)!, exported: name }] }, depth + 1)))
+        : undefined;
+      const reached = found && "files" in found ? found.files.map(entry => entry.to) : globFiles.filter(file => workspace.declared.get(file)?.has(name));
+      for (const file of reached) if (file !== module.file) files.set(file, [...files.get(file) ?? [], name]);
+    }
+    return [...files].map(([to, taken]) => ({ to, names: taken.map(name => ({ imported: name, exported: name })) }));
+  };
+
+  /** The module a path reaches in a target, and the name taken from it. `inside` is the importing module's path when it is in the same target. */
+  const walk = (target: Target, from: string, base: readonly string[], rest: readonly string[], ref: RustImport, inside?: readonly string[], depth = 0): Resolution => {
     const at = [...base];
     if (!target.modules.has(key(at))) return { unresolved: "not-found" };
     let index = 0;
@@ -417,25 +484,42 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
     if (module.test || module.file === from) return undefined;
     if (index < rest.length) {
       const name = rest[index]!;
+      // `crate::name!`: an exported macro sits at the crate's root, declared wherever its file is.
+      const macro = at.length === 0 ? target.macros.get(name) : undefined;
+      if (macro && macro !== from) return { files: [{ to: macro }] };
+      // A name the module brought in with a `use` (`use atuin_domain::api::ErrorResponse;` in the parent, then `crate::handlers::ErrorResponse` in a
+      // child; `pub use atuin_client::theme;`, then `client::theme::Meaning`): the path continues from where that `use` leads. Code that compiles
+      // names only what it can see, so the `use` is followed whatever its visibility.
+      const through = depth < 4 ? shapeOf(module.file)?.scopes.get(key(module.scope))?.aliases.get(name)?.filter(path => path.at(-1) !== name || path.length > 1) : undefined;
+      if (through?.length) {
+        const found = merge(through.map(path => resolve(module.file, { ...ref, segments: [...path, ...rest.slice(index + 1)], scope: module.scope, use: true, glob: false }, depth + 1)));
+        if (found && "files" in found) {
+          const files = found.files.filter(entry => entry.to !== from);
+          return files.length ? { files } : undefined;
+        }
+      }
       return { files: [{ to: module.file, names: [{ imported: name, exported: index === rest.length - 1 ? ref.alias ?? name : name }] }] };
     }
-    return { files: [{ to: module.file, ...ref.glob ? { names: "*" as const } : {} }] };
+    if (!ref.glob) return { files: [{ to: module.file }] };
+    const names = Array.isArray(ref.names) && !ref.reexport ? ref.names as { imported: string; exported: string }[] : undefined;
+    const extra = names && inside && depth < 2 && at.every((part, index) => inside[index] === part) ? privateImports(module, names.map(item => item.imported), depth) : [];
+    return { files: [{ to: module.file, names: names ?? "*" }, ...extra.filter(entry => entry.to !== from)] };
   };
 
   const crate = (context: Context, from: string, name: string, rest: readonly string[], ref: RustImport, depth: number): Resolution | "none" => {
     const { target } = context;
     const shape = shapeOf(target.modules.get("")?.file ?? from);
     const external = shape?.externs.get(name) ?? shapeOf(from)?.externs.get(name);
-    if (external && external !== name && depth < 4) return crate(context, from, external, rest, ref, depth + 1);
+    if (external && external !== name && depth < 6) return crate(context, from, external, rest, ref, depth + 1);
     if (std.has(name)) return { external: name };
     const dependency = (target.package.dependencies.get(name) ?? []).find(item => allowed(target.kind, item));
     if (dependency) {
       const library = dependency.directory !== undefined ? libraries.get(dependency.directory) : undefined;
-      return library ? walk(library, from, [], rest, ref) : { external: externalName(dependency.name, rest) };
+      return library ? walk(library, from, [], rest, ref, undefined, depth) : { external: externalName(dependency.name, rest) };
     }
     if (name === target.package.libName && target.kind !== "lib") {
       const library = libraries.get(target.package.directory);
-      if (library) return walk(library, from, [], rest, ref);
+      if (library) return walk(library, from, [], rest, ref, undefined, depth);
     }
     if (external) return { external: externalName(external, rest) };
     return "none";
@@ -450,31 +534,31 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
     if (context.test || shapeOf(from)?.test) return undefined;
     const { target } = context;
     const current = [...context.segments, ...ref.scope];
-    if (first === "crate") return walk(target, from, [], segments.slice(1), ref);
-    if (first === "self") return walk(target, from, current, segments.slice(1), ref);
+    if (first === "crate") return walk(target, from, [], segments.slice(1), ref, current, depth);
+    if (first === "self") return walk(target, from, current, segments.slice(1), ref, current, depth);
     if (first === "super") {
       let up = 0;
       while (segments[up] === "super") up++;
       if (up > current.length) return { unresolved: "not-found" };
-      return walk(target, from, current.slice(0, current.length - up), segments.slice(up), ref);
+      return walk(target, from, current.slice(0, current.length - up), segments.slice(up), ref, current, depth);
     }
     if (first === "::") {
-      const found = segments[1] ? crate(context, from, segments[1], segments.slice(2), ref, 0) : "none";
+      const found = segments[1] ? crate(context, from, segments[1], segments.slice(2), ref, depth) : "none";
       return found === "none" ? ref.use && segments[1] ? { external: externalName(segments[1], segments.slice(2)) } : undefined : found;
     }
     // From 2018 on, a path starts where the code is: a module declared here, then a name a `use` brought here, then an item of this module, then a crate.
-    if (target.modules.has(key([...current, first]))) return walk(target, from, current, segments, ref);
+    if (target.modules.has(key([...current, first]))) return walk(target, from, current, segments, ref, current, depth);
     const scope = shapeOf(from)?.scopes.get(key(ref.scope));
-    const alias = scope?.aliases.get(first);
-    if (alias && alias[0] !== first && depth < 4 && !(ref.use && segments.length === 1)) {
+    const aliases = (scope?.aliases.get(first) ?? []).filter(alias => alias[0] !== first);
+    if (aliases.length && depth < 4 && !(ref.use && segments.length === 1)) {
       // The name stands for the path its `use` wrote, which resolves as a `use` does (from the crate root in edition 2015).
-      return resolve(from, { ...ref, segments: [...alias, ...segments.slice(1)], use: true }, depth + 1);
+      return merge(aliases.map(alias => resolve(from, { ...ref, segments: [...alias, ...segments.slice(1)], use: true }, depth + 1)));
     }
     // `use a;` then `a::f()`: the path is the use's own.
-    if (alias && alias[0] === first && !ref.use && depth < 4) return resolve(from, { ...ref, use: true }, depth + 1);
+    if (scope?.aliases.get(first)?.some(alias => alias[0] === first) && !ref.use && depth < 4) return resolve(from, { ...ref, use: true }, depth + 1);
     if (scope?.items.has(first)) return undefined;
     if (target.package.edition < 2018 && ref.use && target.modules.has(key([first]))) return walk(target, from, [], segments, ref);
-    const found = crate(context, from, first, segments.slice(1), ref, 0);
+    const found = crate(context, from, first, segments.slice(1), ref, depth);
     if (found !== "none") return found;
     return ref.use ? { external: externalName(first, segments.slice(1)) } : undefined;
   };

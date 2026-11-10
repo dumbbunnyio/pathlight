@@ -1,3 +1,3 @@
 use crate::inline::helper;
 
-pub struct Rate;
+pub(in crate::money) struct Rate;

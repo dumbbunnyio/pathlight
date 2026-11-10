@@ -84,6 +84,36 @@ test("a name a use brought in starts a path, an extern crate alias names its cra
   expect(scan.external.map(item => `${item.from}:${item.line} ${item.package}`)).toEqual(["src/b.rs:7 regex/Regex", "src/b.rs:8 regex/escape", "src/lib.rs:1 regex"]);
 });
 
+test("macros, macro arguments, globs, platform aliases and re-exported modules are followed to the file that declares the name", async () => {
+  const scan = await scanFixture({
+    "Cargo.toml": '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n',
+    "src/lib.rs": "#[macro_use]\nmod macros;\npub mod error;\npub mod net;\npub mod assets;\npub mod ui;\n",
+    "src/macros.rs": "#[macro_export]\nmacro_rules! warn { ($e:expr) => {} }\n",
+    "src/error.rs": "pub type Result<T> = std::result::Result<T, ()>;\n",
+    // `use unix as platform` and `use windows as platform`: every `cfg` is read, so both are where `platform` leads.
+    "src/net/mod.rs": "#[cfg(unix)]\nmod unix;\n#[cfg(windows)]\nmod windows;\n#[cfg(unix)]\nuse unix as platform;\n#[cfg(windows)]\nuse windows as platform;\npub use platform::Address;\n",
+    "src/net/unix.rs": "pub struct Address;\n",
+    "src/net/windows.rs": "pub struct Address;\n",
+    // A child's `use super::*` also takes what its parent brought in privately (`Result` from error.rs).
+    "src/assets/mod.rs": "mod lazy;\nuse crate::error::*;\npub use lazy::Lazy;\n",
+    "src/assets/lazy.rs": "use super::*;\n\npub struct Lazy;\n\nfn load() -> Result<Lazy> { Ok(Lazy) }\n",
+    // `pub use crate::net;` re-exports a module: a path through it goes on to the file that declares the name.
+    "src/ui/mod.rs": "pub mod view;\npub use crate::net;\n",
+    "src/ui/view.rs": "use crate::ui::net::Address;\nuse crate::assets::*;\n\nfn show(_: Lazy) {\n    crate::warn!(\"x\");\n    println!(\"{}\", crate::error::describe());\n}\n",
+  });
+  const from = (file: string) => imports(scan).filter(line => line.startsWith(file));
+  expect(from("src/assets/lazy.rs")).toEqual(["src/assets/lazy.rs:1 super::* -> src/assets/mod.rs", "src/assets/lazy.rs:1 super::* -> src/error.rs"]);
+  expect(from("src/net/mod.rs")).toEqual(["src/net/mod.rs:6 unix -> src/net/unix.rs", "src/net/mod.rs:8 windows -> src/net/windows.rs",
+    "src/net/mod.rs:9 platform::Address -> src/net/unix.rs", "src/net/mod.rs:9 platform::Address -> src/net/windows.rs"]);
+  expect(from("src/ui/view.rs")).toEqual([
+    "src/ui/view.rs:1 crate::ui::net::Address -> src/net/unix.rs", "src/ui/view.rs:1 crate::ui::net::Address -> src/net/windows.rs",
+    // The glob takes `Lazy` through assets/mod.rs's `pub use` to lazy.rs.
+    "src/ui/view.rs:2 crate::assets::* -> src/assets/lazy.rs", "src/ui/view.rs:2 crate::assets::* -> src/assets/mod.rs",
+    // An exported macro is at the crate's root but declared in macros.rs; a path inside a macro's arguments is read.
+    "src/ui/view.rs:5 crate::warn -> src/macros.rs", "src/ui/view.rs:6 crate::error::describe -> src/error.rs",
+  ]);
+});
+
 test("a Rust declaration is its signature, attributes and doc comments left out, methods in impl blocks included", async () => {
   const source = "/// Docs.\n#[derive(Debug)]\npub struct Store {\n    items: Vec<u8>,\n}\n\nimpl Store {\n    pub async fn sync(\n        &self,\n        force: bool,\n    ) -> Result<()> {\n        Ok(())\n    }\n}\n\npub trait Saver { fn save(&self); }\n\nmacro_rules! log { () => {} }\n\npub const LIMIT: usize = 3;\n";
   expect(rust.declaration(source, "Store")).toBe("pub struct Store");
