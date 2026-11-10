@@ -341,3 +341,52 @@ test("a compose file's programs are one box beside the code, those running one i
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+// Who uses a resource (plan phase-r3-who-uses-this.md): Enter on a resource opens a view of it and the boxes that lead to it, nothing else.
+test("a resource opens the view of who uses it, in the terminal and the browser, with only the arrows into it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-who-uses-"));
+  try {
+    await write(directory, shop);
+    await Effect.runPromise(draftWorkspace(directory));
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect(model).toContain("  view kafka_users of kafka {\n    title 'Who uses Kafka'\n    description '1 component uses Kafka.'\n    include kafka\n    include orders\n    exclude * -> *\n    include orders -> kafka\n");
+    const views = (await Effect.runPromise(listViews(directory))).views.map(view => String(view.id));
+    expect(views).toEqual(expect.arrayContaining(["kafka_users", "postgresql_users", "s3_users"]));
+    const screen = await run(process.execPath, [resolve("src/cli.ts"), "see", "index", "--workspace", directory, "--cols", "140", "--rows", "40", "--select", "kafka", "--keys", "Enter"]);
+    expect(screen).toContain("pathlight / Who uses Kafka");
+    expect(screen).toContain("Selected: kafka");
+    expect(screen).toMatch(/│ orders +│/);
+    expect(screen).not.toMatch(/│ web +│/);
+
+    const web = await Effect.runPromise(startWebServer(await selectView(directory, "index"), { page: null, theme: "pathlight" }));
+    try {
+      const response = await fetch(`http://127.0.0.1:${web.port}/api/events?t=${web.token}&cols=140&rows=40&view=kafka_users`);
+      const reader = response.body!.getReader();
+      const { value } = await reader.read();
+      const frame = (JSON.parse(new TextDecoder().decode(value).slice(6)) as { frame: Frame }).frame;
+      expect(Object.keys(frame.cards).sort()).toEqual(["kafka", "orders"]);
+      await reader.cancel();
+    } finally { await web.stop(); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("past the cap the users of a resource are drawn by the image they run, and a resource nothing uses opens no view", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-who-uses-many-"));
+  try {
+    const service = (name: string, image: string) => [`  ${name}:`, `    image: ${image}`, "    depends_on: [cache]"];
+    const many = [...Array.from({ length: 10 }, (_, index) => service(`snuba-${index}`, "${SNUBA_IMAGE}")), ...Array.from({ length: 9 }, (_, index) => service(`web-${index}`, "${WEB_IMAGE}"))].flat();
+    await write(directory, { "tool.py": "import os\n", "docker-compose.yml": ["services:", "  cache:", "    image: redis:7", "  db:", "    image: postgres:16", ...many].join("\n") });
+    await Effect.runPromise(draftWorkspace(directory));
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect(model).toContain("  view redis_users of redis {\n    title 'Who uses Redis'\n    description '19 programs use Redis. Programs that run one image are drawn as one box to fit.'\n    include redis\n    include docker_compose\n    include docker_compose.snuba\n    include docker_compose.web\n");
+    expect(model).toContain("description 'Declared in docker-compose.yml; 19 programs name it.'");
+    // Postgres is declared and nothing names it: its card stays as it was and Enter opens nothing.
+    expect(model).not.toContain("postgresql_users");
+    const views = (await Effect.runPromise(listViews(directory))).views.map(view => String(view.id));
+    expect(views).toContain("redis_users");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);

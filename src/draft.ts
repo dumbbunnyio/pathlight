@@ -595,6 +595,7 @@ const componentsView = (id: string) => `${viewName(id)}_components`;
 const allView = (id: string) => `${viewName(id)}_all_components`;
 const nearView = (id: string) => `${viewName(id)}_near`;
 const cyclesView = (id: string) => `${viewName(id)}_cycles`;
+const usersView = (id: string) => `${viewName(id)}_users`;
 
 /** `behavior`: a `*.behavior.c4` file sits beside the draft, so the views that list every top-level element leave out what it tags `#behavior`. */
 export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = new Map(), behavior = false, unread: ReadonlySet<string> = new Set(), starts: ReadonlySet<string> = new Set()) {
@@ -648,13 +649,17 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     if (draft.flat) { out.push(...block(item, "  ", "")); continue; }
     out.push(`  ${item.id} = package ${quote(item.title)} {`, ...tagLine(item.id, "package", "    "), `    description ${quote(said(item.note, item.runs ? runsFacts(item) : `${item.name === item.title ? "" : `${item.name}: `}${facts(item.components.flatMap(entry => entry.files))}`))}`, ...block(item, "    ", item.id), "  }");
   }
+  const programOf = new Set(draft.packages.flatMap(item => item.components.filter(entry => entry.program).map(entry => entry.id)));
   for (const item of draft.resources) {
     const engines = item.engines.length > 1 ? ` The drivers name ${item.engines.slice(0, -1).join(", ")} and ${item.engines.at(-1)}.` : "";
     // The packages are its technology, which the inspector shows under the name; the description says how much code reaches it.
     // What infrastructure files say of it, by file; a box only they declare says that no code was found.
     const where = [...new Set(item.declared.map(entry => entry.path))];
     const declared = where.length ? `Declared in ${where.slice(0, 3).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : "";
-    const facts = item.files.length ? `Imported by ${plural(item.files.length, "file")}.${engines}${declared ? ` ${declared}.` : ""}` : draft.packages.length ? `${declared}; no code found that uses it.` : `${declared}.`;
+    // Programs that name it are its users when no code imports it.
+    const programs = new Set(draft.uses.filter(use => use.to === item.element && programOf.has(use.from)).map(use => use.from)).size;
+    const facts = item.files.length ? `Imported by ${plural(item.files.length, "file")}.${engines}${declared ? ` ${declared}.` : ""}`
+      : programs ? `${declared}; ${plural(programs, "program")} ${programs === 1 ? "names" : "name"} it.` : draft.packages.length ? `${declared}; no code found that uses it.` : `${declared}.`;
     const technology = item.packages.length ? item.packages : [...new Set(item.declared.map(entry => entry.by))];
     out.push(`  ${item.element} = resource ${quote(item.title)} {`, `    #${item.kind}`, `    technology ${quote(technology.join(", "))}`,
       `    description ${quote(said(item.note, facts))}`, "  }");
@@ -732,6 +737,27 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     // subject of such a view from its id, `<component>_near`.
     return ["", `  view ${nearView(entry.id)} {`, `    title ${title}`, ...describe(`What ${entry.title} uses and what uses it: the ${viewCap} strongest of ${neighbours.length} neighbours.`, thinNote(minimum)), `    include ${entry.id}`, ...kept.map(id => `    include ${id}`), ...hide(minimum), "    autoLayout LeftRight", "  }"];
   }));
+  // Who uses a resource (plan phase-r3-who-uses-this.md): the resource and every box whose code or infrastructure leads to it, each inside its
+  // package. Past the cap the users are drawn by the collection that holds them, then by package. A resource nothing uses has no such view.
+  const componentOf = new Map(draft.packages.flatMap(item => item.components.map(entry => [entry.id, entry] as const)));
+  const usersOf = (resource: DraftResource) => [...new Set(draft.uses.filter(use => use.to === resource.element).map(use => use.from))].sort(byText);
+  const usersViews = () => draft.resources.flatMap(resource => {
+    const users = usersOf(resource);
+    if (!users.length) return [];
+    const levels = [(id: string) => id, (id: string) => componentOf.get(id)?.group ?? id, ...(draft.flat ? [] : [(id: string) => packageOf.get(id) ?? id])];
+    const level = levels.findIndex(drawn => new Set(users.map(drawn)).size <= viewCap), chosen = level < 0 ? levels.length - 1 : level;
+    const boxes = [...new Set(users.map(levels[chosen]!))].sort(byText);
+    const frames = draft.flat || chosen === 2 ? [] : [...new Set(users.map(id => packageOf.get(id)!))].sort(byText);
+    const noun = users.every(id => componentOf.get(id)?.program) ? "program" : "component";
+    const folded = chosen === 0 ? "" : chosen === 2 ? " They are drawn by package to fit." : noun === "program" ? " Programs that run one image are drawn as one box to fit." : " Components in one collection are drawn as one box to fit.";
+    return ["", `  view ${usersView(resource.element)} of ${resource.element} {`, `    title ${quote(`Who uses ${resource.title}`)}`,
+      ...describe(`${plural(users.length, noun)} ${users.length === 1 ? "uses" : "use"} ${resource.title}.${folded}`), `    include ${resource.element}`,
+      ...frames.map(id => `    include ${id}`), ...boxes.map(id => `    include ${id}`),
+      // Only the arrows into the resource: what the users import from each other is one Enter away on each of them.
+      "    exclude * -> *", ...boxes.map(id => `    include ${id} -> ${resource.element}`), "    autoLayout LeftRight", "  }"];
+  });
+  const resourceInclude = (resource: DraftResource) => usersOf(resource).length
+    ? [`    include ${resource.element} with {`, `      navigateTo ${usersView(resource.element)}`, "    }"] : [`    include ${resource.element}`];
   const proofNote = (proof: readonly { complete: boolean }[]) => proof.some(item => !item.complete) ? "Each member is shown with the shortest way back to itself; only the strongest lines are drawn, the rest are in the model." : "Each member is shown with the shortest way back to itself.";
   const hidden = (count: number, all: string) => count ? `${plural(count, "smaller one")} ${count === 1 ? "is" : "are"} not shown here; ${all} lists everything.` : undefined;
   const places = placesOf(draft);
@@ -766,7 +792,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
 
   if (!draft.packages.length) {
     // Infrastructure only: no code to draw, so the one view is what it runs.
-    out.push("  view index {", "    title 'Resources'", ...describe("No code the scan reads: these are what the infrastructure files declare."), ...draft.resources.map(resource => `    include ${resource.element}`), "    autoLayout LeftRight", "  }");
+    out.push("  view index {", "    title 'Resources'", ...describe("No code the scan reads: these are what the infrastructure files declare."), ...draft.resources.flatMap(resourceInclude), "    autoLayout LeftRight", "  }");
   } else if (draft.flat) {
     const item = draft.packages[0]!;
     const drawn = places.drawnIn([]);
@@ -793,7 +819,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     const across = (ids: ReadonlySet<string>) => (n: number) => new Set(draft.relationships.filter(edge => edge.imports >= n).flatMap(edge => { const a = packageOf.get(edge.from), b = packageOf.get(edge.to); return a && b && a !== b && ids.has(a) && ids.has(b) ? [`${a}\0${b}`] : []; })).size;
     // The overview draws the packages, what they talk to, and what only the infrastructure declares (no package of its own would show it).
     const include = (items: readonly DraftPackage[]) => [...items.flatMap(item => [`    include ${item.id} with {`, `      navigateTo ${componentsView(item.id)}`, "    }"]),
-      ...draft.resources.filter(resource => !draft.uses.some(use => use.to === resource.element) || draft.uses.some(use => use.to === resource.element && items.some(item => packageOf.get(use.from) === item.id))).map(resource => `    include ${resource.element}`)];
+      ...draft.resources.filter(resource => !draft.uses.some(use => use.to === resource.element) || draft.uses.some(use => use.to === resource.element && items.some(item => packageOf.get(use.from) === item.id))).flatMap(resourceInclude)];
     const apart = thinning(shownPackages.length, across(new Set(shownPackages.map(item => item.id))));
     out.push("  view index {", "    title 'Packages'", ...describe(hidden(draft.packages.length - shownPackages.length, "all_packages"), thinNote(apart)), ...include(shownPackages), ...hide(apart), "    autoLayout LeftRight", "  }");
     if (shownPackages.length < draft.packages.length) {
@@ -835,7 +861,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
       }
     }
   }
-  out.push(...nearViews(), "}", "");
+  out.push(...nearViews(), ...usersViews(), "}", "");
   return { text: out.join("\n"), entries };
 }
 
