@@ -46,14 +46,22 @@ test("a SQL database is named by its engine when the code names one, stays one b
     use("web/types.ts", "stripe", "type"), use("test/redis.ts", "ioredis-mock"), use("test/db.ts", "pg"),
     use("legacy/db.py", "sqlalchemy"), use("legacy/pg.py", "psycopg2"), use("legacy/lite.py", "sqlite3"),
   ], scope);
+  // `api`'s SQLite joins `legacy`'s box, which already lists SQLite; PlanetScale, which no generic box lists, stays its own.
   expect(found.map(item => [item.id, item.title, item.kind, item.files.length])).toEqual([
-    ["planetscale", "PlanetScale", "database", 2], ["redis", "Redis", "cache", 1], ["sql", "SQL database", "database", 3], ["sqlite", "SQLite", "database", 2],
+    ["planetscale", "PlanetScale", "database", 2], ["redis", "Redis", "cache", 1], ["sql", "SQL database", "database", 5],
   ]);
   // The ORM's package and each driver's package lead to the same box; a file imports what it imports.
   expect(found.find(item => item.id === "sql")!.engines).toEqual(["PostgreSQL", "SQLite"]);
   expect(found.find(item => item.id === "redis")!.files).toEqual([{ path: "api/cache.ts", packages: ["bullmq", "ioredis"] }]);
   // Drivers with no ORM beside them are one database per engine.
   expect(resourcesOf([use("a/pg.ts", "pg"), use("a/lite.ts", "better-sqlite3")], () => "a").map(item => item.id)).toEqual(["postgresql", "sqlite"]);
+
+  // One database across packages where the evidence allows: a generic box and one engine in the whole workspace are that engine, and an engine
+  // box joins a generic box that already lists its engine (Infisical).
+  const scopeOf = (path: string) => path.split("/")[0]!;
+  expect(resourcesOf([use("go/db.go", "database/sql"), use("pg/db.go", "github.com/jackc/pgx/v5")], scopeOf).map(item => [item.id, item.files.length])).toEqual([["postgresql", 2]]);
+  const joined = resourcesOf([use("go/db.go", "github.com/jackc/pgx/v5"), use("api/db.ts", "knex"), use("api/pg.ts", "pg"), use("api/my.ts", "mysql2")], scopeOf);
+  expect(joined.map(item => [item.id, item.files.length, item.engines])).toEqual([["sql", 4, ["MySQL", "PostgreSQL"]]]);
 });
 
 const shop = {
@@ -150,7 +158,10 @@ test("the viewer names what a resource is on its card's first row", async () => 
 
 test("infrastructure files are read as names only: a compose file's images and environment names, an example environment's names", () => {
   expect(composeFacts(`services:\n  db:\n    image: docker.io/library/postgres:16-alpine\n    environment:\n      - POSTGRES_PASSWORD=secret\n  app:\n    image: acme/app\n    environment:\n      REDIS_URL: redis://cache\n      TOKEN: \${STRIPE_KEY:-x}\n`))
-    .toEqual({ images: ["acme/app", "docker.io/library/postgres:16-alpine"], env: ["POSTGRES_PASSWORD", "REDIS_URL", "STRIPE_KEY", "TOKEN"] });
+    .toEqual({ images: ["acme/app", "docker.io/library/postgres:16-alpine"], env: ["POSTGRES_PASSWORD", "REDIS_URL", "STRIPE_KEY", "TOKEN"], found: [] });
+  // A service built here is looked up by its name, and says so; a built service with a known image, or an unknown name, adds nothing.
+  expect(composeFacts("services:\n  clickhouse:\n    image: clickhouse-self-hosted-local\n    build:\n      context: ./clickhouse\n  web:\n    build: .\n  db:\n    image: postgres:16\n    build: ./db\n").found)
+    .toEqual([{ resource: "clickhouse", by: "service clickhouse, built here" }]);
   expect(envNames("# comment\nDATABASE_URL=postgres://user:pw@host/db\nexport SMTP_HOST=mail\n  lower=1\nNOT A LINE\n")).toEqual(["DATABASE_URL", "SMTP_HOST"]);
   expect(["postgres:16", "bitnami/postgresql:15@sha256:abc", "ghcr.io/x/redis:7", "valkey/valkey", "acme/app"].map(imageResource)).toEqual(["postgresql", "postgresql", "redis", "redis", undefined]);
   expect([".env.example", "docker/docker-compose.dev.yml", "compose.yaml", "frontend/template.env", "tests/e2e/docker-compose.yml", ".env", "src/env.ts"].map(isInfraFile))
@@ -216,3 +227,32 @@ test("Helm and Terraform are read as declarations: chart dependencies, secrets n
   const joined = withInfra([], [{ path: "main.tf", images: [], env: [], found: terraformFacts('resource "aws_db_instance" "a" {\n engine = "postgres"\n}\nresource "aws_sqs_queue" "jobs" {}') }]);
   expect(joined.map(item => [item.id, item.title, item.declared.map(entry => entry.by)])).toEqual([["postgresql", "PostgreSQL", ["aws_db_instance a"]], ["sqs", "Amazon SQS", ["aws_sqs_queue jobs"]]]);
 });
+
+test("a repository of only infrastructure is drawn as what it runs, and what only infrastructure declares is on the overview", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-resources-only-"));
+  try {
+    await write(directory, { "docker-compose.yml": "services:\n  db:\n    image: postgres:16\n  cache:\n    image: redis:7\n", "README.md": "# ops\n" });
+    const made = await Effect.runPromise(draftWorkspace(directory));
+    expect([made.elements, made.resources]).toEqual([0, 2]);
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect(model).toContain("  view index {\n    title 'Resources'\n    description 'No code the scan reads: these are what the infrastructure files declare.'\n    include postgresql\n    include redis\n");
+    expect(model).toContain("description 'Declared in docker-compose.yml.'");
+    expect((await Effect.runPromise(listViews(directory))).views.map(view => String(view.id))).toEqual(["index"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+  const packages = await mkdtemp(join(tmpdir(), "pathlight-resources-declared-"));
+  try {
+    const three = (folder: string, text: string) => Object.fromEntries(["a", "b", "c"].map(name => [`${folder}/src/${name}.ts`, text]));
+    await write(packages, {
+      "web/package.json": '{"name":"web"}', "api/package.json": '{"name":"api"}', ...three("web", "export const w = 1;\n"), ...three("api", 'import pg from "pg";\nexport const a = pg;\n'),
+      "docker-compose.yml": "services:\n  cache:\n    image: redis:7\n",
+    });
+    await Effect.runPromise(draftWorkspace(packages));
+    const index = (await readFile(join(packages, ".pathlight", "pathlight.model.c4"), "utf8")).split("  view index {")[1]!.split("\n  }\n")[0]!;
+    expect(index).toContain("include postgresql");
+    expect(index).toContain("include redis");
+  } finally {
+    await rm(packages, { recursive: true, force: true });
+  }
+}, 60_000);

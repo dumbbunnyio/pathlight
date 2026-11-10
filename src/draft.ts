@@ -592,7 +592,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     // What infrastructure files say of it, by file; a box only they declare says that no code was found.
     const where = [...new Set(item.declared.map(entry => entry.path))];
     const declared = where.length ? `Declared in ${where.slice(0, 3).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : "";
-    const facts = item.files.length ? `Imported by ${plural(item.files.length, "file")}.${engines}${declared ? ` ${declared}.` : ""}` : `${declared}; no code found that uses it.`;
+    const facts = item.files.length ? `Imported by ${plural(item.files.length, "file")}.${engines}${declared ? ` ${declared}.` : ""}` : draft.packages.length ? `${declared}; no code found that uses it.` : `${declared}.`;
     const technology = item.packages.length ? item.packages : [...new Set(item.declared.map(entry => entry.by))];
     out.push(`  ${item.element} = resource ${quote(item.title)} {`, `    #${item.kind}`, `    technology ${quote(technology.join(", "))}`,
       `    description ${quote(said(item.note, facts))}`, "  }");
@@ -701,7 +701,10 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     return result;
   };
 
-  if (draft.flat) {
+  if (!draft.packages.length) {
+    // Infrastructure only: no code to draw, so the one view is what it runs.
+    out.push("  view index {", "    title 'Resources'", ...describe("No code the scan reads: these are what the infrastructure files declare."), ...draft.resources.map(resource => `    include ${resource.element}`), "    autoLayout LeftRight", "  }");
+  } else if (draft.flat) {
     const item = draft.packages[0]!;
     const drawn = places.drawnIn([]);
     const { members: top, groups, folders } = childrenOf(item);
@@ -725,9 +728,9 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   } else {
     const shownPackages = draft.packages.filter(item => !minor.has(item.id));
     const across = (ids: ReadonlySet<string>) => (n: number) => new Set(draft.relationships.filter(edge => edge.imports >= n).flatMap(edge => { const a = packageOf.get(edge.from), b = packageOf.get(edge.to); return a && b && a !== b && ids.has(a) && ids.has(b) ? [`${a}\0${b}`] : []; })).size;
-    // The overview draws the packages and what they talk to.
+    // The overview draws the packages, what they talk to, and what only the infrastructure declares (no package of its own would show it).
     const include = (items: readonly DraftPackage[]) => [...items.flatMap(item => [`    include ${item.id} with {`, `      navigateTo ${componentsView(item.id)}`, "    }"]),
-      ...draft.resources.filter(resource => draft.uses.some(use => use.to === resource.element && items.some(item => packageOf.get(use.from) === item.id))).map(resource => `    include ${resource.element}`)];
+      ...draft.resources.filter(resource => !draft.uses.some(use => use.to === resource.element) || draft.uses.some(use => use.to === resource.element && items.some(item => packageOf.get(use.from) === item.id))).map(resource => `    include ${resource.element}`)];
     const apart = thinning(shownPackages.length, across(new Set(shownPackages.map(item => item.id))));
     out.push("  view index {", "    title 'Packages'", ...describe(hidden(draft.packages.length - shownPackages.length, "all_packages"), thinNote(apart)), ...include(shownPackages), ...hide(apart), "    autoLayout LeftRight", "  }");
     if (shownPackages.length < draft.packages.length) {
@@ -907,9 +910,10 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const unread = paths.filter(isUnscannedSource);
   const base = draftOf(scan, manifests, overlay, unread, yield* readInfra(root, paths));
   const { draft, unknown } = overlay ? applyOverlay(base, overlay) : { draft: base, unknown: [] as string[] };
-  // Boxes of unread code alone would be a picture with no arrows at all: the draft needs some code the scan reads.
+  // Boxes of unread code alone would be a picture with no arrows at all: the draft needs some code the scan reads, or resources the infrastructure
+  // declares (a repository of only charts or compose files is drawn as what it runs).
   const unreadSet = new Set(unread);
-  if (!draft.packages.some(item => item.components.some(entry => entry.files.some(path => !unreadSet.has(path))))) {
+  if (!draft.resources.length && !draft.packages.some(item => item.components.some(entry => entry.files.some(path => !unreadSet.has(path))))) {
     return yield* Effect.fail(failure("Draft.empty", `No source in a language the scan reads (${scannedLanguages}) was found to draw.`));
   }
 

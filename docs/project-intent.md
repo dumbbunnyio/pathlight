@@ -71,7 +71,7 @@ has access to. Compose files and the example environment are read as names
 only (images, environment names; never a value): they confirm what the code
 reaches, name an ORM's database when they name one engine, and add a box only
 for a datastore they run with no code found, which it says (step 2,
-2026-11-09). Helm charts (dependencies, values' images, secrets named by their kind) and Terraform (resource and module block headers by type) were added in step 3 the same day; prose (a README saying what a secret is for) is not read.
+2026-11-09). Helm charts (dependencies, values' images, secrets named by their kind) and Terraform (resource and module block headers by type) were added in step 3 the same day; prose (a README saying what a secret is for) is not read. A repository with no code the scan reads (only charts or compose files) is drafted as one view of the resources they declare rather than refused, and what only infrastructure declares is on the overview of any drafted repository.
 
 ### The primary experience is genuinely interactive terminal UI
 

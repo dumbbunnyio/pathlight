@@ -110,6 +110,10 @@
    "title": "MinIO",
    "kind": "storage"
   },
+  "seaweedfs": {
+   "title": "SeaweedFS",
+   "kind": "storage"
+  },
   "aws": {
    "title": "AWS",
    "kind": "service"

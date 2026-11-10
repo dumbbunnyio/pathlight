@@ -390,6 +390,192 @@
         }
       ],
       "absent": []
+    },
+    "sentry-self-hosted": {
+      "workspace": "pathlight-oss-test-repos/sentry-self-hosted",
+      "commit": "a489128",
+      "note": "Almost all infrastructure: one compose file and 11 code files. Written 2026-11-09 after the first draw (it found five of eight), so read it generously. Snuba, Relay, Symbolicator, Vroom and the taskbroker are Sentry's own services, not resources.",
+      "resources": [
+        {
+          "id": "sentry",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "Sentry",
+          "evidence": "@sentry/node in the integration test"
+        },
+        {
+          "id": "postgresql",
+          "kind": "database",
+          "step": 2,
+          "title": "PostgreSQL",
+          "evidence": "image postgres"
+        },
+        {
+          "id": "redis",
+          "kind": "cache",
+          "step": 2,
+          "title": "Redis",
+          "evidence": "image valkey/valkey"
+        },
+        {
+          "id": "memcached",
+          "kind": "cache",
+          "step": 2,
+          "title": "Memcached",
+          "evidence": "image memcached"
+        },
+        {
+          "id": "kafka",
+          "kind": "queue",
+          "step": 2,
+          "title": "Kafka",
+          "evidence": "image confluentinc/cp-kafka"
+        },
+        {
+          "id": "clickhouse",
+          "kind": "database",
+          "step": 2,
+          "title": "ClickHouse",
+          "evidence": "service clickhouse, built from ./clickhouse"
+        },
+        {
+          "id": "seaweedfs",
+          "kind": "storage",
+          "step": 2,
+          "title": "SeaweedFS",
+          "evidence": "image chrislusf/seaweedfs"
+        },
+        {
+          "id": "mail",
+          "kind": "mail",
+          "step": 2,
+          "title": "Mail server",
+          "evidence": "image registry.gitlab.com/egos-tech/smtp"
+        }
+      ],
+      "absent": []
+    },
+    "infisical": {
+      "workspace": "pathlight-oss-test-repos/infisical",
+      "commit": "ce416c9b",
+      "note": "A Node backend (knex with pg and mysql2) and a Go backend (pgx) reach one database: one box. Written 2026-11-09 after the first draw, so read it generously.",
+      "resources": [
+        {
+          "id": "sql",
+          "kind": "database",
+          "step": 1,
+          "title": "SQL database",
+          "evidence": "knex, pg, mysql2 (Node) and pgx (Go)"
+        },
+        {
+          "id": "redis",
+          "kind": "cache",
+          "step": 1,
+          "title": "Redis",
+          "evidence": "ioredis, bullmq, go-redis"
+        },
+        {
+          "id": "clickhouse",
+          "kind": "database",
+          "step": 1,
+          "title": "ClickHouse",
+          "evidence": "@clickhouse/client"
+        },
+        {
+          "id": "mongodb",
+          "kind": "database",
+          "step": 1,
+          "title": "MongoDB",
+          "evidence": "mongodb"
+        },
+        {
+          "id": "elasticsearch",
+          "kind": "search",
+          "step": 1,
+          "title": "Elasticsearch",
+          "evidence": "@elastic/elasticsearch"
+        },
+        {
+          "id": "s3",
+          "kind": "storage",
+          "step": 1,
+          "title": "Amazon S3",
+          "evidence": "@aws-sdk/client-s3"
+        },
+        {
+          "id": "mail",
+          "kind": "mail",
+          "step": 1,
+          "title": "Mail server",
+          "evidence": "nodemailer"
+        },
+        {
+          "id": "datadog",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "Datadog",
+          "evidence": "dd-trace"
+        },
+        {
+          "id": "posthog",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "PostHog",
+          "evidence": "posthog-node"
+        },
+        {
+          "id": "github",
+          "kind": "service",
+          "step": 1,
+          "title": "GitHub",
+          "evidence": "@octokit/rest"
+        },
+        {
+          "id": "gitlab",
+          "kind": "service",
+          "step": 1,
+          "title": "GitLab",
+          "evidence": "@gitbeaker/rest"
+        },
+        {
+          "id": "slack",
+          "kind": "service",
+          "step": 1,
+          "title": "Slack",
+          "evidence": "@slack/web-api"
+        },
+        {
+          "id": "google-identity",
+          "kind": "identity",
+          "step": 1,
+          "title": "Google sign-in",
+          "evidence": "passport-google-oauth20"
+        },
+        {
+          "id": "oauth",
+          "kind": "identity",
+          "step": 1,
+          "title": "OAuth provider",
+          "evidence": "passport-oauth2"
+        },
+        {
+          "id": "oidc",
+          "kind": "identity",
+          "step": 1,
+          "title": "OpenID Connect",
+          "evidence": "openid-client"
+        },
+        {
+          "id": "keycloak",
+          "kind": "identity",
+          "step": 2,
+          "title": "Keycloak",
+          "evidence": "image quay.io/keycloak/keycloak in docker-compose.dev.yml"
+        }
+      ],
+      "absent": [
+        "axios"
+      ]
     }
   }
 }
