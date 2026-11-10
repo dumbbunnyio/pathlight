@@ -37,7 +37,12 @@ export const ActivityConfig = Schema.Struct({
   // `pathlight check` judges a relationship to one by those packages' imports, not by imports between files.
   // `declared` lists the infrastructure files that say it exists (compose, the example environment); one with no packages is declared there only.
   resources: Schema.optionalKey(Schema.Array(Schema.Struct({ element: Label, packages: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))).check(Schema.isMaxLength(256)),
-    declared: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024))).check(Schema.isMaxLength(64))) })).check(Schema.isMaxLength(256))),
+    declared: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024))).check(Schema.isMaxLength(64))),
+    // The resource's id in src/resources (`sql`, `redis`), which a program's uses name.
+    resource: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))) })).check(Schema.isMaxLength(256))),
+  // Programs the infrastructure runs (Phase R2): each element with the chart folder or compose file that holds it and its name there. `pathlight check`
+  // re-reads those files and judges a program's arrows to resources by what it names now (a secret, `depends_on`, an environment name).
+  programs: Schema.optionalKey(Schema.Array(Schema.Struct({ element: Label, source: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)), name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)) })).check(Schema.isMaxLength(4096))),
 });
 export interface ActivityConfig extends Schema.Schema.Type<typeof ActivityConfig> {}
 

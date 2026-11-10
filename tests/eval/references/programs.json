@@ -1,0 +1,464 @@
+{
+  "note": "Phase R2 (plans/phase-r2-workloads.md), written 2026-11-09 from the files: Cognos from each workload template's .Values.secretNames references and environment names (litellm's DATABASE_URL) and environment names (litellm's DATABASE_URL) joined to the secrets values.yaml names by kind (grep, the table in the conversation), Sentry from docker-compose.yml's depends_on and environment names (a script outside src/). The same session then wrote the reader, so read the score generously.  are resource ids as the resources scorer names them (sql for a SQL database whatever its title). Sentry's  and the other Sentry services reach Postgres only through pgbouncer, a program: no program-to-program arrows in this phase.",
+  "repos": {
+    "cognos-chart": {
+      "workspace": ".cache/eval/charts/ibm-cacc-prod",
+      "programs": [
+        {
+          "name": "ca-agentic-ai",
+          "uses": [
+            "opensearch",
+            "redis",
+            "sql"
+          ]
+        },
+        {
+          "name": "ca-cpd-cm-primary",
+          "uses": [
+            "ldap",
+            "mail",
+            "oidc"
+          ]
+        },
+        {
+          "name": "ca-dss",
+          "uses": [
+            "mail"
+          ]
+        },
+        {
+          "name": "ca-embedding-service",
+          "uses": []
+        },
+        {
+          "name": "ca-mcp-server",
+          "uses": []
+        },
+        {
+          "name": "ca-reporting",
+          "uses": []
+        },
+        {
+          "name": "ca-rest",
+          "uses": [
+            "mail"
+          ]
+        },
+        {
+          "name": "ca-smarts",
+          "uses": [
+            "mail"
+          ]
+        },
+        {
+          "name": "ca-ui",
+          "uses": [
+            "mail"
+          ]
+        },
+        {
+          "name": "caproxy-frontdoor",
+          "uses": []
+        },
+        {
+          "name": "caproxy-frontdoor-altera",
+          "uses": []
+        },
+        {
+          "name": "litellm",
+          "uses": [
+            "sql"
+          ]
+        }
+      ]
+    },
+    "sentry-self-hosted": {
+      "workspace": "pathlight-oss-test-repos/sentry-self-hosted",
+      "commit": "a489128",
+      "programs": [
+        {
+          "name": "pgbouncer",
+          "uses": [
+            "postgresql"
+          ]
+        },
+        {
+          "name": "snuba-api",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-errors-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-outcomes-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-outcomes-accepted-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-outcomes-billing-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-group-attributes-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-replacer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-subscription-consumer-events",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-transactions-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-replays-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-issue-occurrence-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-metrics-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-subscription-consumer-transactions",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-subscription-consumer-metrics",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-profiling-profiles-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-profiling-functions-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-profiling-profile-chunks-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-eap-items-consumer",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "snuba-subscription-consumer-eap-items",
+          "uses": [
+            "clickhouse",
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "symbolicator",
+          "uses": []
+        },
+        {
+          "name": "symbolicator-cleanup",
+          "uses": []
+        },
+        {
+          "name": "web",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "events-consumer",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "attachments-consumer",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "post-process-forwarder-errors",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "transactions-consumer",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "metrics-consumer",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "ingest-occurrences",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "ingest-monitors",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "ingest-feedback-events",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "process-spans",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "monitors-clock-tick",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "monitors-clock-tasks",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "uptime-results",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "post-process-forwarder-transactions",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "post-process-forwarder-issue-platform",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "sentry-cleanup",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "nginx",
+          "uses": []
+        },
+        {
+          "name": "relay",
+          "uses": [
+            "kafka",
+            "redis"
+          ]
+        },
+        {
+          "name": "taskbroker",
+          "uses": [
+            "kafka"
+          ]
+        },
+        {
+          "name": "taskscheduler",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "taskworker",
+          "uses": [
+            "kafka",
+            "mail",
+            "memcached",
+            "redis",
+            "seaweedfs"
+          ]
+        },
+        {
+          "name": "launchpad-taskworker",
+          "uses": [
+            "kafka"
+          ]
+        },
+        {
+          "name": "vroom",
+          "uses": [
+            "kafka"
+          ]
+        },
+        {
+          "name": "uptime-checker",
+          "uses": [
+            "kafka",
+            "redis"
+          ]
+        }
+      ]
+    }
+  }
+}

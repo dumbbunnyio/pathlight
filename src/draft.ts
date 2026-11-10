@@ -6,7 +6,7 @@ import { configFile, home, mappingFile, modelFile, overlayFile } from "./layout"
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace, type Scan } from "./scan";
 import { scannedLanguages } from "./languages";
-import { readInfra, resourcesOf, withInfra, type InfraFile, type Resource } from "./resources";
+import { programsOf, readInfra, resourcesOf, withInfra, type InfraFile, type Program, type Resource } from "./resources";
 import { declaredStartsOf } from "./starts";
 
 /**
@@ -27,8 +27,10 @@ export interface DraftComponent {
   readonly group?: string;
   /** The opened folder this component sits in (directly, or in one of its collections), when it is not in its package's own top level. */
   readonly folder?: string;
+  /** A program the infrastructure runs (Phase R2), drawn as a `container`: its workload kind and image. */
+  readonly program?: { readonly kind: string; readonly image?: string; /** The chart folder or compose file that holds it. */ readonly source: string };
 }
-export interface DraftGroup { readonly id: string; readonly key: string; readonly note?: string; readonly title: string; readonly package: string; readonly kind: "small" | "loose"; /** The opened folder it sits in. */ readonly folder?: string }
+export interface DraftGroup { readonly id: string; readonly key: string; readonly note?: string; readonly title: string; readonly package: string; readonly kind: "small" | "loose" | "image"; /** The opened folder it sits in. */ readonly folder?: string }
 /**
  * A folder drawn the way a package is: a box with its own children. The draft opens a folder that holds more than half of the read files of what holds it
  * (and has subfolders), and a `split` in the overlay opens one by hand. `parent` is the opened folder it sits in; none means its package's top level.
@@ -38,6 +40,8 @@ export interface DraftPackage {
   readonly id: string; readonly key: string; readonly note?: string; readonly title: string; /** The package.json name in full (the title drops a scope when that leaves the names unique). */ readonly name: string; readonly directory: string;
   /** Every component of the package, at whatever depth; `group` and `folder` say where each sits. */
   readonly components: readonly DraftComponent[]; readonly groups: readonly DraftGroup[]; readonly folders: readonly DraftFolder[];
+  /** A Helm chart or a compose file whose programs are its components (Phase R2), not a code package. */
+  readonly runs?: "chart" | "compose";
 }
 /** A resource the code talks to (src/resources.ts), drawn at the top level with `element` as its id. */
 export interface DraftResource extends Resource { readonly element: string; readonly note?: string }
@@ -135,7 +139,12 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
     const key = ownerOf(path)?.directory ?? "";
     byPackage.set(key, [...byPackage.get(key) ?? [], path]);
   }
-  const flat = byPackage.size <= 1;
+  // The programs the infrastructure runs are drawn when there are more of them than files of code the scan reads: the repository is then mostly
+  // infrastructure (a Helm chart, Sentry's self-hosted compose). In a repository of code a compose service is usually that code or a developer's tool.
+  const allPrograms = programsOf(infra);
+  const programs = allPrograms.length > kept.filter(path => !unreadSet.has(path)).length ? allPrograms : [];
+  const runners = [...new Set(programs.map(item => item.source))].sort(byText);
+  const flat = byPackage.size + runners.length <= 1;
 
   const taken = new Set<string>();
   const componentOf = new Map<string, string>();
@@ -275,6 +284,37 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
     packages.push({ id: packageId, key: directory || ".", title, name, directory, components: out.components, groups: out.groups, folders: out.folders });
   }
 
+  // Each chart or compose file is drawn the way a package is, its programs its components; programs that run one image are a collection.
+  const programOf = new Map<DraftComponent, Program>();
+  for (const source of runners) {
+    const members = programs.filter(item => item.source === source), first = members[0]!;
+    const packageId = flat ? "" : unique(slug(first.title), taken);
+    const qualify = (id: string) => packageId ? `${packageId}.${id}` : id;
+    const localTaken = new Set<string>(), groupTaken = new Map<string, Set<string>>();
+    const byImage = new Map<string, Program[]>();
+    for (const item of members) if (item.image) byImage.set(item.image, [...byImage.get(item.image) ?? [], item]);
+    const groups: DraftGroup[] = [], groupOf = new Map<string, string>();
+    for (const [image, list] of [...byImage].sort(([a], [b]) => byText(a, b))) {
+      if (list.length < 2) continue;
+      const id = qualify(unique(slug(imageTitle(image)), localTaken));
+      groups.push({ id, key: `program:${source}#image:${image}`, title: imageTitle(image), package: packageId, kind: "image" });
+      groupOf.set(image, id);
+      groupTaken.set(id, new Set());
+    }
+    const components: DraftComponent[] = [];
+    for (const item of members) {
+      const group = item.image ? groupOf.get(item.image) : undefined;
+      const id = group ? `${group}.${unique(slug(item.name), groupTaken.get(group)!)}` : qualify(unique(slug(item.name), localTaken));
+      const entry: DraftComponent = { id, key: `program:${item.file ?? source}#${item.name}`, title: item.name, files: item.file ? [item.file] : [], globs: item.file ? [item.file.split("/").map(escapeGlob).join("/")] : [],
+        ...(group ? { group } : {}), program: { kind: item.kind, source: item.source, ...(item.image ? { image: item.image } : {}) } };
+      if (item.file) componentOf.set(item.file, id);
+      programOf.set(entry, item);
+      components.push(entry);
+    }
+    components.sort((a, b) => byText(a.id, b.id));
+    packages.push({ id: packageId, key: `program:${source}`, title: first.title, name: first.title, directory: first.file ? source : posix.dirname(source), components, groups, folders: [], runs: first.file ? "chart" : "compose" });
+  }
+
   // Imports can name files that are not source (a stylesheet, a JSON file): they belong to whichever component's globs claim them.
   const claims = packages.flatMap(item => item.components.map(entry => ({ id: entry.id, globs: entry.globs.map(glob => new Bun.Glob(glob)) })));
   const claimed = new Map<string, string | undefined>();
@@ -322,9 +362,27 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
       by.set(from, entry);
     }
     return [...by].map(([from, entry]) => ({ from, to: item.element, files: entry.files, packages: [...entry.packages].sort(byText) }));
-  }).sort((a, b) => byText(a.from, b.from) || byText(a.to, b.to));
+  });
+  // A program uses a resource its files name (a secret, `depends_on`, an environment name); an arrow is drawn only to a box that exists. A use of `sql`
+  // (any engine) is the one relational box, whatever the code named it.
+  for (const [entry, item] of programOf) {
+    const by = new Map<string, Set<string>>();
+    for (const use of item.uses) {
+      const target = resources.find(candidate => candidate.id === use.resource) ?? (use.resource === "sql" ? resources.filter(candidate => candidate.sql) : []).find((_, index, all) => all.length === 1);
+      if (target) by.set(target.element, (by.get(target.element) ?? new Set()).add(use.by));
+    }
+    for (const [to, names] of by) uses.push({ from: entry.id, to, files: 0, packages: [...names].sort(byText) });
+  }
+  uses.sort((a, b) => byText(a.from, b.from) || byText(a.to, b.to));
   return { packages, flat, relationships: labelled, resources, uses, problems, ignore, ignored: source.length - kept.length };
 }
+
+/** A collection of programs is named by the image they run: `$SNUBA_IMAGE` is `snuba`, `getsentry/relay:24.1` is `relay`. */
+const imageTitle = (image: string) => {
+  const variable = /^\$\{?([A-Za-z0-9_]+)/.exec(image)?.[1];
+  if (variable) return variable.toLowerCase().replace(/_image$/, "").replace(/_/g, "-");
+  return image.replace(/@.*$/, "").replace(/:[^/:]*$/, "").split("/").at(-1)!;
+};
 
 const quote = (text: string) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
@@ -546,7 +604,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   const inCycle = new Set([...analysis.componentCycles.values()].flatMap(found => found.flat()));
   const inPackageCycle = new Set(analysis.packageCycles.flat());
   const entries: string[] = [];
-  const out: string[] = [generatedMarker, "", "specification {", ...(draft.flat ? [] : ["  element package"]), ...(draft.packages.some(item => item.folders.length) ? ["  element folder"] : []), "  element collection", "  element component", ...tiers.map(tier => `  tag lt${tier}`), "  tag minor", "  tag cycle", "  tag pkgcycle", "}", "", "model {"];
+  const out: string[] = [generatedMarker, "", "specification {", ...(draft.flat ? [] : ["  element package"]), ...(draft.packages.some(item => item.folders.length) ? ["  element folder"] : []), "  element collection", "  element component", ...(draft.packages.some(item => item.runs) ? ["  element container"] : []), ...tiers.map(tier => `  tag lt${tier}`), "  tag minor", "  tag cycle", "  tag pkgcycle", "}", "", "model {"];
   // A resource is its own kind of element, its kind (database, cache …) a tag the viewers draw as the card's word.
   const kinds = [...new Set(draft.resources.map(item => item.kind))].sort(byText);
   if (draft.resources.length) out.splice(out.indexOf("  element component") + 1, 0, "  element resource", ...kinds.map(kind => `  tag ${kind}`));
@@ -563,28 +621,32 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     return `${plural(files.length, "file")}, ${total} (${languages(notRead)} not read by the scan)`;
   };
   const said = (note: string | undefined, text: string) => note ? `${note} · ${text}` : text;
+  // A program says what defines it; its image is its technology, which the inspector shows under the name.
+  const technologyLine = (entry: DraftComponent, indent: string) => entry.program?.image ? [`${indent}technology ${quote(entry.program.image)}`] : [];
+  const programFacts = (entry: DraftComponent) => `${entry.program!.kind === "service" ? "A compose service" : `A ${entry.program!.kind}`}${entry.files.length ? ` in ${entry.files[0]}` : ""}.`;
+  const runsFacts = (item: DraftPackage) => item.runs === "chart" ? `Helm chart in ${item.directory || "the workspace root"}: ${plural(item.components.length, "program")}.` : `Compose file: ${plural(item.components.length, "service")}.`;
   const local = (id: string, parent: string) => parent ? id.slice(parent.length + 1) : id;
   const tagsOf = (id: string, kind: "package" | "component") => [...(minor.has(id) ? ["#minor"] : []), ...(kind === "package" ? (inPackageCycle.has(id) ? ["#pkgcycle"] : []) : (inCycle.has(id) ? ["#cycle"] : []))];
   const tagLine = (id: string, kind: "package" | "component", indent: string) => { const tags = tagsOf(id, kind); return tags.length ? [`${indent}${tags.join(" ")}`] : []; };
   // What a package or an opened folder holds directly: its components, the folders it opened, then its collections.
   const block = (item: DraftPackage, indent: string, parent: string, folder?: DraftFolder) => {
     const result: string[] = [];
-    for (const entry of item.components.filter(candidate => !candidate.group && candidate.folder === folder?.id)) result.push(`${indent}${local(entry.id, parent)} = component ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}  `), `${indent}  description ${quote(said(entry.note, facts(entry.files)))}`, `${indent}}`);
+    for (const entry of item.components.filter(candidate => !candidate.group && candidate.folder === folder?.id)) result.push(`${indent}${local(entry.id, parent)} = ${entry.program ? "container" : "component"} ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}  `), ...technologyLine(entry, `${indent}  `), `${indent}  description ${quote(said(entry.note, entry.program ? programFacts(entry) : facts(entry.files)))}`, `${indent}}`);
     for (const inner of item.folders.filter(candidate => candidate.parent === folder?.id)) {
       result.push(`${indent}${local(inner.id, parent)} = folder ${quote(inner.title)} {`, ...tagLine(inner.id, "component", `${indent}  `), `${indent}  description ${quote(said(inner.note, facts(item.components.filter(entry => entry.id.startsWith(`${inner.id}.`)).flatMap(entry => entry.files))))}`, ...block(item, `${indent}  `, inner.id, inner), `${indent}}`);
     }
     // A collection of small folders says how many folders; one of loose files would only say its file count twice.
     for (const group of item.groups.filter(candidate => candidate.folder === folder?.id)) {
       const members = item.components.filter(candidate => candidate.group === group.id);
-      result.push(`${indent}${local(group.id, parent)} = collection ${quote(group.title)} {`, `${indent}  description ${quote(said(group.note, `${group.kind === "small" ? `${plural(members.length, "folder")}, ` : ""}${facts(members.flatMap(entry => entry.files))}`))}`);
-      for (const entry of members) result.push(`${indent}  ${local(entry.id, group.id)} = component ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}    `), `${indent}    description ${quote(said(entry.note, facts(entry.files)))}`, `${indent}  }`);
+      result.push(`${indent}${local(group.id, parent)} = collection ${quote(group.title)} {`, `${indent}  description ${quote(said(group.note, group.kind === "image" ? `${plural(members.length, "program")} that run the image ${members[0]!.program!.image}.` : `${group.kind === "small" ? `${plural(members.length, "folder")}, ` : ""}${facts(members.flatMap(entry => entry.files))}`))}`);
+      for (const entry of members) result.push(`${indent}  ${local(entry.id, group.id)} = ${entry.program ? "container" : "component"} ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}    `), ...technologyLine(entry, `${indent}    `), `${indent}    description ${quote(said(entry.note, entry.program ? programFacts(entry) : facts(entry.files)))}`, `${indent}  }`);
       result.push(`${indent}}`);
     }
     return result;
   };
   for (const item of draft.packages) {
     if (draft.flat) { out.push(...block(item, "  ", "")); continue; }
-    out.push(`  ${item.id} = package ${quote(item.title)} {`, ...tagLine(item.id, "package", "    "), `    description ${quote(said(item.note, `${item.name === item.title ? "" : `${item.name}: `}${facts(item.components.flatMap(entry => entry.files))}`))}`, ...block(item, "    ", item.id), "  }");
+    out.push(`  ${item.id} = package ${quote(item.title)} {`, ...tagLine(item.id, "package", "    "), `    description ${quote(said(item.note, item.runs ? runsFacts(item) : `${item.name === item.title ? "" : `${item.name}: `}${facts(item.components.flatMap(entry => entry.files))}`))}`, ...block(item, "    ", item.id), "  }");
   }
   for (const item of draft.resources) {
     const engines = item.engines.length > 1 ? ` The drivers name ${item.engines.slice(0, -1).join(", ")} and ${item.engines.at(-1)}.` : "";
@@ -604,7 +666,8 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     out.push(`  ${edge.from} -> ${edge.to} ${quote(edge.title ?? plural(edge.imports, "import"))}${inner.length ? ` {\n${inner.map(line => `    ${line}`).join("\n")}\n  }` : ""}`);
   }
   // A use of a resource carries no tier, so no view's thinning hides it.
-  for (const use of draft.uses) out.push(`  ${use.from} -> ${use.to} ${quote(use.packages.join(", "))} {`, `    description ${quote(plural(use.files, "file"))}`, "  }");
+  // A program's arrow is titled by what names the resource (`secret mailserver_creds`, `depends_on redis`); it has no import count.
+  for (const use of draft.uses) out.push(...(use.files ? [`  ${use.from} -> ${use.to} ${quote(use.packages.join(", "))} {`, `    description ${quote(plural(use.files, "file"))}`, "  }"] : [`  ${use.from} -> ${use.to} ${quote(use.packages.join(", "))}`]));
   out.push("}", "", "views {");
 
   const packageOf = new Map(draft.packages.flatMap(item => item.components.map(entry => [entry.id, item.id] as const)));
@@ -711,7 +774,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     const shown = top.filter(id => !minor.has(id)), hiddenHere = gone(drawn);
     const drawnShown = (id: string) => hiddenHere(id) ? undefined : drawn(id);
     const minimum = thinned(() => true, drawnShown, [...shown, ...groups]);
-    out.push("  view index {", "    title 'Components'", ...describe(hidden(top.length - shown.length, "all_components"), thinNote(minimum)), "    include *", ...links(shown, new Set(folders)), ...links(groups, new Set(groups)), ...(top.length > shown.length ? ["    exclude * where tag is #minor"] : []), ...notBehavior, ...hide(minimum), "    autoLayout LeftRight", "  }");
+    out.push("  view index {", `    title ${item.runs ? quote(item.title) : "'Components'"}`, ...describe(hidden(top.length - shown.length, "all_components"), thinNote(minimum)), "    include *", ...links(shown, new Set(folders)), ...links(groups, new Set(groups)), ...(top.length > shown.length ? ["    exclude * where tag is #minor"] : []), ...notBehavior, ...hide(minimum), "    autoLayout LeftRight", "  }");
     if (top.length > shown.length) {
       entries.push("all_components");
       const all = thinned(() => true, drawn, [...top, ...groups]);
@@ -938,18 +1001,23 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const rendered = renderDraft(draft, lines, behaviorTexts.some(declaresBehavior), unreadSet, starts);
   const mappings = [...draft.packages.flatMap(item => item.components.flatMap(entry => entry.globs.map(glob => ({ glob, element: entry.id })))), ...schemaMappings(draft, paths)];
   // The evidence each resource rests on, for `check` to judge its arrows by (the packages, not imports between files).
-  const resources = draft.resources.map(item => ({ element: item.element, packages: item.packages, ...(item.declared.length ? { declared: [...new Set(item.declared.map(entry => entry.path))] } : {}) }));
+  const resources = draft.resources.map(item => ({ element: item.element, resource: item.id, packages: item.packages, ...(item.declared.length ? { declared: [...new Set(item.declared.map(entry => entry.path))] } : {}) }));
+  const programs = draft.packages.filter(item => item.runs).flatMap(item => item.components.map(entry => ({ element: entry.id, source: entry.program!.source, name: entry.title })));
   yield* io("Draft.write", async () => {
     await mkdir(target, { recursive: true });
     await writeFile(join(target, modelFile), rendered.text);
-    await writeFile(join(target, mappingFile), `${JSON.stringify({ version: 1, project: name, mappings, ...(resources.length ? { resources } : {}), ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}) }, null, 2)}\n`);
+    await writeFile(join(target, mappingFile), `${JSON.stringify({ version: 1, project: name, mappings, ...(resources.length ? { resources } : {}), ...(programs.length ? { programs } : {}), ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}) }, null, 2)}\n`);
     await mkdir(join(state, ".cache", "pathlight"), { recursive: true });
     await writeFile(join(state, keysPath), `${JSON.stringify({ version: 1, keys: Object.fromEntries(draft.packages.flatMap(item => [...(draft.flat ? [] : [[item.id, item.key] as const]), ...item.folders.map(folder => [folder.id, folder.key] as const), ...draft.resources.map(resource => [resource.element, resource.key] as const), ...item.groups.map(group => [group.id, group.key] as const), ...item.components.map(entry => [entry.id, entry.key] as const)])) })}\n`);
     if (!existing.includes(configFile)) await writeFile(join(target, configFile), `${JSON.stringify({ $schema: "https://likec4.dev/schemas/config.json", name, title: label }, null, 2)}\n`);
   });
-  const components = draft.packages.reduce((sum, item) => sum + item.components.length, 0), collections = draft.packages.reduce((sum, item) => sum + item.groups.length, 0);
   const folders = draft.packages.reduce((sum, item) => sum + item.folders.length, 0);
-  return { target, project: name, packages: draft.flat ? 0 : draft.packages.length, components, collections, folders, elements: components + collections + folders + (draft.flat ? 0 : draft.packages.length),
+  // Programs the infrastructure runs are counted apart from the code (Phase R2); `components`, `packages` and `elements` are the code's.
+  const runners = draft.packages.filter(item => item.runs);
+  const code = (count: (item: DraftPackage) => number) => draft.packages.filter(item => !item.runs).reduce((sum, item) => sum + count(item), 0);
+  const codePackages = draft.flat ? 0 : draft.packages.length - runners.length;
+  return { target, project: name, packages: codePackages, components: code(item => item.components.length), collections: code(item => item.groups.length), folders, programs: programs.length,
+    elements: code(item => item.components.length + item.groups.length) + folders + codePackages,
     relationships: draft.relationships.length, resources: draft.resources.length, mappings: mappings.length, ignored: draft.ignored, unread: unreadSummary(draft, unreadSet), overlay: overlay ? Object.keys(overlay.elements).length - unknown.length : 0, unknown,
     problems: draft.problems, pins: overlay && committed?._tag === "Some" ? changedPins(committed.value, overlay) : [] };
 });

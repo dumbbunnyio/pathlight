@@ -131,7 +131,8 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
   const { paths } = yield* listFiles(root);
   const overlay = yield* readOverlay(root);
   const unread = paths.filter(isUnscannedSource);
-  const draft = draftOf(scan, yield* readManifests(root, paths), overlay, unread);
+  // With the infrastructure, so a repository that is mostly charts or compose lists its programs (Phase R2) as boxes to name.
+  const draft = draftOf(scan, yield* readManifests(root, paths), overlay, unread, yield* readInfra(root, paths));
   const lines = new Map([...scan.files.map(file => [file.path, file.lines] as const), ...yield* unreadLines(root, unread)]);
   const offered = new Map(scan.files.map(file => [file.path, file.exports ?? []] as const));
   const sizes = (files: readonly string[]) => files.map(path => ({ path, lines: lines.get(path) ?? 0 })).sort((a, b) => b.lines - a.lines || (a.path < b.path ? -1 : 1));

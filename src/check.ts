@@ -5,12 +5,12 @@ import { acquireModel, invalidModel } from "./catalog";
 import { crowdedAbove } from "./draft";
 import { failure, io } from "./effects";
 import { scannedLanguages } from "./languages";
-import { entryFor } from "./resources";
+import { entryFor, isSqlResource, programsOf, readInfra, type Program } from "./resources";
 import { listFiles, scanWorkspace, type Scan } from "./scan";
 
 const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
-const Line = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1));
-const Example = Schema.Struct({ from: Schema.String, line: Line, to: Schema.String, kind: Schema.String });
+// `line` 0: an infrastructure file names it (a secret, `depends_on`), which is read as names, not lines.
+const Example = Schema.Struct({ from: Schema.String, line: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)), to: Schema.String, kind: Schema.String });
 
 /**
  * How a LikeC4 model and its file mapping compare with the imports a static scan found. Every statement is about
@@ -41,6 +41,8 @@ export const Check = Schema.Struct({
     // is evidence: "same" runs source to target, "opposite" target to source.
     direction: Schema.Literals(["same", "opposite", "both", "none"]),
     imports: Count, examples: Schema.Array(Example),
+    // Judged by what infrastructure names (a program's arrow, Phase R2), not by imports.
+    infra: Schema.optionalKey(Schema.Boolean),
   })),
   // Files per element, largest first. `large` marks an element holding a quarter or more of the mapped files (at least 15),
   // with the folders inside it, as a hint that it may be several things.
@@ -68,7 +70,7 @@ const order = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
  * Compares a model's declared relationships and a file mapping with the imports of one tree of files (the working tree, or an older commit).
  * `check` runs it on the workspace; `diff` runs it on two trees and reports what changed.
  */
-export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" | "imports"> & { readonly external?: Scan["external"] }, paths: readonly string[], declared: readonly { source: string; target: string; title: string | null }[]) {
+export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" | "imports"> & { readonly external?: Scan["external"] }, paths: readonly string[], declared: readonly { source: string; target: string; title: string | null }[], programs: readonly Program[] = []) {
   const shared = config.shared ?? [];
   const planned = config.planned ?? [];
   const isPlanned = (element: string) => planned.some(id => within(element, id));
@@ -106,8 +108,17 @@ export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" 
   const runtime = (scan.external ?? []).filter(item => item.kind !== "type" && !ignoredPath(item.from));
   const usesOf = (resource: { packages: readonly string[] }) => runtime.filter(item => leadsTo(resource, item.package));
   const exampleUse = (item: NonNullable<typeof scan.external>[number]) => ({ from: item.from, line: item.line, to: item.package, kind: item.kind });
+  // A program's arrow to a resource (Phase R2) is judged by what its infrastructure names now: the program as read from its file today, and the uses that
+  // lead to the resource's id (any SQL use to a SQL database, whatever engine the box is named after).
+  const programAt = new Map((config.programs ?? []).map(item => [item.element, programs.find(found => found.source === item.source && found.name === item.name)] as const));
+  const reaches = (use: { resource: string }, resource: { resource?: string }) => resource.resource !== undefined && (use.resource === resource.resource || (use.resource === "sql" && isSqlResource(resource.resource)));
   const relationships = declared.map(({ source, target, title }) => {
     const resource = resourceOf.get(target) ?? resourceOf.get(source);
+    if (resource && programAt.has(source) && resourceOf.has(target)) {
+      const program = programAt.get(source), uses = (program?.uses ?? []).filter(use => reaches(use, resource));
+      return { source, target, title, infra: true, status: uses.length ? "supported" as const : "unsupported" as const, direction: uses.length ? "same" as const : "none" as const, imports: uses.length,
+        examples: uses.slice(0, 3).map(use => ({ from: program!.file ?? program!.source, line: 0, to: use.by, kind: "infra" })) };
+    }
     if (resource) {
       const user = filesWithin(resourceOf.has(target) ? source : target), uses = usesOf(resource).filter(item => user.has(item.from));
       if (!user.size) return { source, target, title, status: "unverifiable" as const, direction: "none" as const, imports: 0, examples: [] };
@@ -141,6 +152,13 @@ export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" 
       if (related(a, resource.element) || covered(a, resource.element)) continue;
       const key = `${a}\0${resource.element}`, entry = pairs.get(key) ?? { source: a, target: resource.element, edges: [] };
       entry.edges.push({ from: use.from, to: use.package, line: use.line, kind: use.kind, specifier: use.package });
+      pairs.set(key, entry);
+    }
+    // A program that names the resource now, with no arrow to it.
+    for (const [element, program] of programAt) for (const use of (program?.uses ?? []).filter(candidate => reaches(candidate, resource))) {
+      if (related(element, resource.element) || covered(element, resource.element)) continue;
+      const key = `${element}\0${resource.element}`, entry = pairs.get(key) ?? { source: element, target: resource.element, edges: [] };
+      entry.edges.push({ from: program!.file ?? program!.source, to: use.by, line: 0, kind: "import", specifier: use.by });
       pairs.set(key, entry);
     }
     return { element: resource.element, packages: [...resource.packages], files: new Set(uses.map(use => use.from)).size, declared: [...resource.declared ?? []] };
@@ -180,7 +198,11 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   for (const item of config.resources ?? []) {
     if (!elements.has(item.element)) return yield* Effect.fail(failure("Check.resources", `Unknown resource element '${item.element}'.`));
   }
-  const { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports, resources } = compareImports(config, scan, paths, declared);
+  for (const item of config.programs ?? []) {
+    if (!elements.has(item.element)) return yield* Effect.fail(failure("Check.programs", `Unknown program element '${item.element}'.`));
+  }
+  const programs = config.programs?.length ? programsOf(yield* readInfra(root, paths)) : [];
+  const { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports, resources } = compareImports(config, scan, paths, declared, programs);
 
   // How the mapped files are spread over the elements.
   const mappedCount = claimed.size;
@@ -246,7 +268,7 @@ export const hasFindings = (check: Check) => check.summary.unusedResources + che
 
 /** A readable report: what agrees with the code first, then what to look at, with the evidence it rests on. */
 export function formatCheck(check: Check) {
-  const where = (item: typeof check.undeclared[number]["examples"][number]) => `${item.from}:${item.line} → ${item.to}`;
+  const where = (item: typeof check.undeclared[number]["examples"][number]) => `${item.from}${item.line ? `:${item.line}` : ""} → ${item.to}`;
   const lines = [`pathlight check · project ${check.project} · static evidence: imports in ${scannedLanguages} only`, ""];
   lines.push("Mapping", `  ${check.mappings.total} mappings${check.mappings.ignored ? `, ${check.mappings.ignored} source files ignored on purpose` : ""}`);
   for (const item of check.mappings.unmatched) lines.push(`  ▲ ${item.glob} (${item.element}) matches no files`);
@@ -264,8 +286,8 @@ export function formatCheck(check: Check) {
   lines.push("", `Relationships (${check.relationships.length} in the model)`);
   const label = (item: typeof check.relationships[number]) => `${item.source} → ${item.target}${item.title ? `  “${item.title}”` : ""}`;
   for (const item of check.relationships) {
-    if (item.status === "supported") lines.push(`  ✓ ${label(item)}  ${item.imports} import${item.imports === 1 ? "" : "s"}${item.direction === "opposite" ? " (pointing from the target)" : item.direction === "both" ? " (both ways)" : ""}, e.g. ${where(item.examples[0]!)}`);
-    else if (item.status === "unsupported") lines.push(`  ▲ ${label(item)}  no import between the mapped files (it may run through a network call, an event or a file)`);
+    if (item.status === "supported") lines.push(`  ✓ ${label(item)}  ${item.imports} ${item.infra ? "name" : "import"}${item.imports === 1 ? "" : "s"}${item.direction === "opposite" ? " (pointing from the target)" : item.direction === "both" ? " (both ways)" : ""}, e.g. ${where(item.examples[0]!)}`);
+    else if (item.status === "unsupported") lines.push(item.infra ? `  ▲ ${label(item)}  its infrastructure no longer names it (a secret, depends_on, an environment name)` : `  ▲ ${label(item)}  no import between the mapped files (it may run through a network call, an event or a file)`);
     else lines.push(`  · ${label(item)}  not checkable: an end has no mapped files`);
   }
   if (check.resources.length) {

@@ -35,6 +35,8 @@ interface Entry { readonly match: string; readonly resource: string; readonly en
 const entries = new Map((table.packages as Entry[]).map(entry => [entry.match, entry]));
 const definitions = table.resources as Record<string, { title: string; kind: ResourceKind }>;
 const engineNames = table.engines as Record<string, string>;
+/** A resource id that is a SQL database: the generic box or one named after its engine. */
+export const isSqlResource = (id: string) => id === "sql" || engineNames[id] !== undefined;
 
 /** The table's entry for a package as the scan names it: the package itself, or the nearest of its parent paths (`github.com/jackc/pgx/v5/pgxpool`). */
 export const entryFor = (name: string): Entry | undefined => {
@@ -118,13 +120,28 @@ export function resourcesOf(external: readonly { readonly from: string; readonly
 export interface InfraFile {
   readonly path: string; readonly images: readonly string[]; readonly env: readonly string[];
   readonly found?: readonly { readonly resource: string; readonly engine?: string; readonly by: string }[];
+  /** A `Chart.yaml`'s chart name. */
+  readonly chart?: string;
+  /** The programs this file runs (Phase R2): a Helm template's workloads, a compose file's services that are not themselves a resource. */
+  readonly programs?: readonly RawProgram[];
 }
+
+type Found = { readonly resource: string; readonly engine?: string; readonly by: string };
+/** A program as one file says it: a template names the values it reads (`values` paths, joined to the chart's values later), a compose service its uses. */
+export interface RawProgram { readonly name?: string; readonly kind: string; readonly image?: string; readonly uses: readonly Found[]; readonly values?: readonly string[] }
+/**
+ * A program the infrastructure runs and what it uses, by the names its files give (Phase R2): `source` is the chart folder or the compose file that holds
+ * it, `title` that holder's name, `file` the template it is defined in (a compose service has none of its own).
+ */
+export interface Program { readonly source: string; readonly title: string; readonly name: string; readonly kind: string; readonly image?: string; readonly file?: string; readonly uses: readonly Found[] }
 
 const composeFile = /(^|\/)(docker-)?compose(\.[^/]+)?\.ya?ml$/i;
 const envExample = /(^|\/)(\.env\.(example|sample|template|dist|defaults)|(example|sample|template)\.env|\.env\.[^/]*\.(example|sample))$/i;
 /** The files the developer's own inventory is in (step 2): compose files and the example environment, not under a test folder. */
-export const isInfraFile = (path: string) => (composeFile.test(path) || envExample.test(path)) && !/(^|\/)(tests?|__tests__|e2e|fixtures)\//.test(path) && !path.startsWith(".pathlight/");
+export const isInfraFile = (path: string) => (composeFile.test(path) || envExample.test(path)) && !testFolder.test(path) && !path.startsWith(".pathlight/");
 
+/** Folders whose infrastructure is for tests: `test/`, `e2e/`, `fixtures/`, and Sentry's `_integration-test/`. */
+const testFolder = /(^|\/)(tests?|__tests__|e2e|fixtures|_?(integration|unit|e2e)[-_]tests?)\//;
 const envName = /^[A-Z][A-Z0-9_]*$/;
 /** The names an example environment file sets (`NAME=` lines, `export NAME=`), never their values. */
 export const envNames = (text: string) => [...new Set(text.split("\n").flatMap(line => {
@@ -134,9 +151,9 @@ export const envNames = (text: string) => [...new Set(text.split("\n").flatMap(l
 
 /** A compose file's images and environment names (list or map form, `${NAME}` references too). */
 export const composeFacts = (text: string) => {
-  const images = new Set<string>(), env = new Set<string>(), found: { resource: string; engine?: string; by: string }[] = [];
+  const images = new Set<string>(), env = new Set<string>(), found: { resource: string; engine?: string; by: string }[] = [], programs: RawProgram[] = [];
   let parsed: unknown;
-  try { parsed = Bun.YAML.parse(text); } catch { return { images: [], env: [], found }; }
+  try { parsed = Bun.YAML.parse(text); } catch { return { images: [], env: [], found, programs }; }
   const services = parsed && typeof parsed === "object" ? (parsed as { services?: unknown }).services : undefined;
   for (const [name, service] of services && typeof services === "object" ? Object.entries(services) : []) {
     if (!service || typeof service !== "object") continue;
@@ -149,8 +166,28 @@ export const composeFacts = (text: string) => {
     const names = Array.isArray(environment) ? environment.map(item => String(item).split("=")[0]!.trim()) : environment && typeof environment === "object" ? Object.keys(environment) : [];
     for (const name of names) if (envName.test(name)) env.add(name);
   }
+  // Every service that is not itself a resource is a program; it uses the resources among the services it depends on or links to, and those its
+  // environment names (`REDIS_HOST`). Which service is a resource is known only once every service is read.
+  const record = services && typeof services === "object" ? services as Record<string, unknown> : {};
+  const resourceOf = (name: string) => {
+    const service = record[name];
+    if (!service || typeof service !== "object") return undefined;
+    const { image, build } = service as { image?: unknown; build?: unknown };
+    return (typeof image === "string" ? imageResource(image) : undefined) ?? (build !== undefined ? imageResource(name) : undefined);
+  };
+  for (const [name, service] of Object.entries(record)) {
+    if (!service || typeof service !== "object" || resourceOf(name)) continue;
+    const { image, environment, depends_on: dependsOn, links } = service as { image?: unknown; environment?: unknown; depends_on?: unknown; links?: unknown };
+    const uses: Found[] = [];
+    const named = Array.isArray(dependsOn) ? dependsOn.map(String) : dependsOn && typeof dependsOn === "object" ? Object.keys(dependsOn) : [];
+    for (const other of named) { const id = resourceOf(other); if (id) uses.push(asFound(id, `depends_on ${other}`)); }
+    for (const link of Array.isArray(links) ? links.map(item => String(item).split(":")[0]!) : []) { const id = resourceOf(link); if (id) uses.push(asFound(id, `links ${link}`)); }
+    const envList = Array.isArray(environment) ? environment.map(item => String(item).split("=")[0]!.trim()) : environment && typeof environment === "object" ? Object.keys(environment) : [];
+    for (const variable of envList) { const rule = envName.test(variable) ? envResource(variable) : undefined; if (rule) uses.push({ resource: rule.resource, ...(rule.engine ? { engine: rule.engine } : {}), by: variable }); }
+    programs.push({ name, kind: "service", ...(typeof image === "string" ? { image: image.trim() } : {}), uses });
+  }
   for (const match of text.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)) env.add(match[1]!);
-  return { images: [...images].sort(byText), env: [...env].sort(byText), found };
+  return { images: [...images].sort(byText), env: [...env].sort(byText), found, programs };
 };
 
 const charts = infra.charts as Record<string, string>, terraformTypes = infra.terraform as Record<string, string>, moduleWords = infra.modules as Record<string, string>;
@@ -201,7 +238,70 @@ export const valuesFacts = (text: string) => {
 export const templateFacts = (text: string) => ({
   images: [...new Set([...text.matchAll(/^\s*(?:-\s*)?image:\s*["']?([^"'\s{]+)["']?\s*$/gm)].map(match => match[1]!))].sort(byText),
   env: [...new Set([...text.matchAll(/^\s*-?\s*name:\s*["']?([A-Z][A-Z0-9_]+)["']?\s*$/gm)].map(match => match[1]!))].sort(byText),
+  programs: workloads(text),
 });
+
+/**
+ * The workloads a Helm template defines (Phase R2): each document of a workload kind, its literal `metadata.name` (none when the name is templated), its
+ * literal images, the environment names it sets (`DATABASE_URL`) and the values it reads (`.Values.secretNames.mailserver_creds`), which the chart's own
+ * values lead to resources.
+ */
+const workloads = (text: string): RawProgram[] => text.split(/^---\s*$/m).flatMap(doc => {
+  const kind = /^kind:\s*(Deployment|StatefulSet|DaemonSet|Job|CronJob)\s*$/m.exec(doc)?.[1];
+  if (!kind) return [];
+  // Between `metadata:` and `spec:`, past the template lines (`{{ include … }}`) that sit at the start of a line.
+  const start = /^metadata:\s*$/m.exec(doc), end = /^spec:\s*$/m.exec(doc);
+  const metadata = start ? doc.slice(start.index, end && end.index > start.index ? end.index : undefined) : "";
+  const name = /^ {2}name:\s*["']?([A-Za-z0-9][A-Za-z0-9._-]*)["']?\s*$/m.exec(metadata)?.[1];
+  const uses: Found[] = [];
+  for (const image of new Set([...doc.matchAll(/^\s*(?:-\s*)?image:\s*["']?([^"'\s{]+)["']?\s*$/gm)].map(match => match[1]!))) { const id = imageResource(image); if (id) uses.push(asFound(id, `image ${image}`)); }
+  for (const variable of new Set([...doc.matchAll(/^\s*-?\s*name:\s*["']?([A-Z][A-Z0-9_]+)["']?\s*$/gm)].map(match => match[1]!))) {
+    const rule = envResource(variable);
+    if (rule) uses.push({ resource: rule.resource, ...(rule.engine ? { engine: rule.engine } : {}), by: variable });
+  }
+  const values = [...new Set([...doc.matchAll(/\.Values\.([A-Za-z0-9_.]+)/g)].map(match => match[1]!.replace(/\.$/, "")))].sort(byText);
+  return [{ ...(name ? { name } : {}), kind, uses, values }];
+});
+
+/**
+ * The programs the infrastructure runs (Phase R2). A chart's workloads read its values by path: a value path whose last key is a secret the chart's
+ * values lead to a resource (`secretNames.mailserver_creds` → mail), or whose first key is a chart dependency (`postgresql.auth`), is a use. A workload
+ * with a templated name is named by its file (`rest-deployment.yaml` → `rest`).
+ */
+export function programsOf(files: readonly InfraFile[]): Program[] {
+  const charts = files.filter(file => file.chart !== undefined).map(file => ({ dir: posix.dirname(file.path), title: file.chart!, found: file.found ?? [] }));
+  const chartOf = (path: string) => charts.filter(chart => chart.dir === "." || path.startsWith(`${chart.dir}/`)).sort((a, b) => b.dir.length - a.dir.length)[0];
+  const programs: Program[] = [];
+  for (const file of files) {
+    if (!file.programs?.length) continue;
+    const chart = file.programs.some(item => item.values) ? chartOf(file.path) : undefined;
+    if (file.programs.some(item => item.values) && !chart) continue;
+    const secrets = new Map<string, Found[]>(), dependencies = new Map<string, Found>();
+    if (chart) {
+      for (const other of files.filter(candidate => chartOf(candidate.path) === chart && valuesFile.test(candidate.path))) {
+        for (const item of other.found ?? []) if (item.by.startsWith("secret ")) secrets.set(item.by.slice(7), [...secrets.get(item.by.slice(7)) ?? [], item]);
+      }
+      for (const item of chart.found) if (item.by.startsWith("chart ")) dependencies.set(item.by.slice(6), item);
+    }
+    for (const item of file.programs) {
+      const uses = [...item.uses];
+      for (const path of item.values ?? []) {
+        const keys = path.split(".");
+        for (const found of secrets.get(keys.at(-1)!) ?? []) uses.push({ ...found, by: `secret ${keys.at(-1)}` });
+        const dependency = dependencies.get(keys[0]!);
+        if (dependency) uses.push({ ...dependency, by: `values ${keys[0]}` });
+      }
+      const name = item.name ?? posix.basename(file.path).replace(/\.ya?ml$/i, "").replace(/-(deployment|statefulset|daemonset|cronjob|job)$/i, "");
+      const seen = new Set<string>();
+      programs.push({
+        source: chart ? chart.dir : file.path, title: chart ? chart.title : file.path === posix.basename(file.path) ? posix.basename(file.path).replace(/\.ya?ml$/i, "") : posix.dirname(file.path).split("/").at(-1)!,
+        name, kind: item.kind, ...(item.image ? { image: item.image } : {}), ...(chart ? { file: file.path } : {}),
+        uses: uses.filter(use => { const key = `${use.resource}\0${use.engine ?? ""}\0${use.by}`; return !seen.has(key) && Boolean(seen.add(key)); }),
+      });
+    }
+  }
+  return programs.sort((a, b) => byText(a.source, b.source) || byText(a.name, b.name));
+}
 
 /**
  * Terraform, as block headers: each `resource "TYPE" "NAME"` whose type the table knows (a database's `engine = "…"` inside its block names its engine),
@@ -231,26 +331,31 @@ export const terraformFacts = (text: string) => {
   return found;
 };
 
-const chartFile = /(^|\/)Chart\.ya?ml$/, valuesFile = /(^|\/)values([.-][^/]*)?\.ya?ml$/i, templateFile = /(^|\/)templates\/[^/]+\.ya?ml$/i;
+const chartFile = /(^|\/)Chart\.ya?ml$/, valuesFile = /(^|\/)values([.-][^/]*)?\.ya?ml$/i, templateFile = /(^|\/)templates\/.+\.ya?ml$/i;
 
 /** Reads the infrastructure files among `paths` (each at most 1 MB): compose, example environments, Helm charts and Terraform. */
 export const readInfra = Effect.fn("Resources.infra")(function* (root: string, paths: readonly string[]) {
   const found: InfraFile[] = [];
   // A Helm chart is a folder with a Chart.yaml: its values and templates are read as Helm's, never as compose.
   const chartDirs = new Set(paths.filter(path => chartFile.test(path)).map(path => posix.dirname(path)));
-  const inChart = (path: string) => chartDirs.has(posix.dirname(path)) || chartDirs.has(posix.dirname(posix.dirname(path)));
+  // Values sit beside Chart.yaml; templates anywhere under its `templates/` (Cognos keeps them in `templates/deployments/`).
+  const inChart = (path: string) => chartDirs.has(posix.dirname(path)) || [...chartDirs].some(dir => path.startsWith(dir === "." ? "templates/" : `${dir}/templates/`));
   const helm = (path: string) => chartFile.test(path) || (inChart(path) && (valuesFile.test(path) || templateFile.test(path)));
-  for (const path of paths.filter(path => (isInfraFile(path) || helm(path) || /\.tf$/.test(path)) && !/(^|\/)(tests?|__tests__|e2e|fixtures|\.terraform)\//.test(path))) {
+  for (const path of paths.filter(path => (isInfraFile(path) || helm(path) || /\.tf$/.test(path)) && !testFolder.test(path) && !/(^|\/)\.terraform\//.test(path))) {
     const text = yield* Effect.tryPromise(async () => (await lstat(join(root, path))).size <= 1024 * 1024 ? await readFile(join(root, path), "utf8") : undefined).pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (text === undefined) continue;
-    if (chartFile.test(path)) found.push({ path, images: [], env: [], found: chartFacts(text) });
+    if (chartFile.test(path)) found.push({ path, images: [], env: [], found: chartFacts(text), chart: chartName(text) ?? posix.basename(posix.dirname(path)) });
     else if (helm(path) && valuesFile.test(path)) found.push({ path, env: [], ...valuesFacts(text) });
     else if (helm(path)) found.push({ path, ...templateFacts(text) });
     else if (path.endsWith(".tf")) found.push({ path, images: [], env: [], found: terraformFacts(text) });
     else found.push(posix.basename(path).toLowerCase().includes("compose") && /\.ya?ml$/i.test(path) ? { path, ...composeFacts(text) } : { path, images: [], env: envNames(text) });
   }
-  return found.filter(file => file.images.length || file.env.length || file.found?.length);
+  return found.filter(file => file.images.length || file.env.length || file.found?.length || file.chart !== undefined || file.programs?.length);
 });
+
+const chartName = (text: string) => {
+  try { const parsed = Bun.YAML.parse(text) as { name?: unknown } | null; return typeof parsed?.name === "string" && parsed.name ? parsed.name : undefined; } catch { return undefined; }
+};
 
 const images = infra.images as Record<string, string>;
 const envRules = infra.env as { name: string; resource: string; engine?: string }[];
