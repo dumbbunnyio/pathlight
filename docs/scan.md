@@ -1,6 +1,6 @@
 # Scan format
 
-`pathlight scan [--workspace PATH] [--out FILE]` reads a workspace's TypeScript, JavaScript, Python and Go source and writes one JSON document. It exists so that an agent drafting a LikeC4 model does not have to read the whole codebase, and so the same facts can feed several views. It does not write or change a model.
+`pathlight scan [--workspace PATH] [--out FILE]` reads a workspace's TypeScript, JavaScript, Python, Go and Rust source and writes one JSON document. It exists so that an agent drafting a LikeC4 model does not have to read the whole codebase, and so the same facts can feed several views. It does not write or change a model.
 
 Everything in it is a **static** reading of source text (`"basis": "static"`). It says what the code names, not what runs: a dynamic `import(name)`, a bundler alias or a framework convention is invisible to it, and an import is not proof of a call.
 
