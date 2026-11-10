@@ -9,6 +9,7 @@ import { homeOf, modelFile, overlayFile } from "./layout";
 import { checkFlows } from "./flows";
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace } from "./scan";
+import { readInfra } from "./resources";
 import { declaredStartsOf, notEntry, notOurs } from "./starts";
 
 /**
@@ -319,6 +320,8 @@ export interface FirstDay {
   /** The box that holds the whole app (`box`), or, when no box does (a flat map), the project's own words (`project`). */
   what: { source: "box"; key: string; title?: string; note?: string; inferred: boolean } | { source: "project"; text: string; from: string } | { source: "none" };
   built: { key: string; title: string; note?: string; inferred: boolean; named: boolean; files: number; lines: number }[];
+  /** What the code talks to that is not code (src/resources.ts), most used first. */
+  talksTo: { key: string; title: string; kind: string; files: number }[];
   numbers: { boxes: number; files: number; imports: number; languages: string[]; unread: { language: string; files: number }[] };
   starts: EntryPoint[];
   journeys: { id: string; title: string; kind: "journey" | "state diagram"; steps: number; findings: number }[];
@@ -354,6 +357,10 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
     .sort((a, b) => b.lines - a.lines || (a.key < b.key ? -1 : 1));
   const built = level.map(box => ({ key: shown(box.key), title: box.name?.title ?? box.generated, ...(box.name?.note ? { note: plainNote(box.name.note) } : {}),
     inferred: inferredMark.test(box.name?.note ?? ""), named: Boolean(box.name?.title || box.name?.note), files: box.files.length, lines: box.lines }));
+  const { paths } = yield* listFiles(root);
+  const overlay = yield* readOverlay(root);
+  const talksTo = draftOf(scan, yield* readManifests(root, paths), overlay, paths.filter(isUnscannedSource), yield* readInfra(root, paths)).resources
+    .map(item => ({ key: item.key, title: item.title, kind: item.kind, files: item.files.length })).sort((a, b) => b.files - a.files || (a.title < b.title ? -1 : 1));
   const drafted = yield* io("Brief.drafted", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
   const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
   const journeys = flows.found ? [...flows.found.journeys.map(item => ({ id: item.id, title: item.title, kind: "journey" as const, steps: item.steps.length, findings: item.findings.length })),
@@ -365,7 +372,7 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const tracked = named.filter(box => box.name?.by !== "human");
   return {
     project: context.name ?? posix.basename(root), drafted,
-    what, built,
+    what, built, talksTo,
     numbers: { boxes: all.length, files: scan.coverage.files, imports: scan.coverage.imports, languages: [...new Set(scan.files.map(file => languageNames[file.language] ?? file.language))].sort(),
       unread: scan.coverage.unscanned.map(entry => ({ language: languageOf(`x${entry.extension}`), files: entry.files })) },
     starts, journeys, ...(flows.error ? { journeysError: flows.error } : {}),
@@ -391,6 +398,8 @@ export function formatFirstDay(day: FirstDay) {
   for (const box of day.built) lines.push(`- ${box.title}${box.note ? ` — ${box.note}` : box.named ? "" : " — not named yet"}${mark(box.inferred)} [${box.key}]`);
   const { numbers } = day;
   lines.push(`${numbers.boxes.toLocaleString("en")} box${numbers.boxes === 1 ? "" : "es"} · ${count(numbers.files, "file")} read · ${count(numbers.imports, "import")} · read: ${numbers.languages.join(", ") || "none"}${numbers.unread.length ? ` · not read: ${numbers.unread.map(entry => `${entry.files.toLocaleString("en")} ${entry.language}`).join(", ")}` : ""}`);
+  // What it talks to, in one line, only when there is something: the resources the draft draws, by how much code reaches each.
+  if (day.talksTo.length) lines.push(`Talks to: ${day.talksTo.map(item => `${item.title} (${item.kind})`).join(", ")}`);
   lines.push("", "## Where it starts");
   if (!day.starts.length) lines.push("no declared start (no script, main or package main)");
   for (const entry of day.starts) lines.push(`${entry.file}${entry.box ? ` [${entry.box}]` : ""} — ${entry.why}`);

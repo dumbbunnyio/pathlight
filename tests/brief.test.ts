@@ -331,7 +331,7 @@ test("the briefing lists the declared starts only, never a file just because not
 }, 60_000);
 
 test("the briefing's named date is the local day, not the UTC one", () => {
-  const day: FirstDay = { project: "demo", drafted: true, what: { source: "none" }, built: [], numbers: { boxes: 0, files: 0, imports: 0, languages: [], unread: [] },
+  const day: FirstDay = { project: "demo", drafted: true, what: { source: "none" }, built: [], talksTo: [], numbers: { boxes: 0, files: 0, imports: 0, languages: [], unread: [] },
     starts: [], journeys: [], sure: { named: 1, inferred: 0, unnamed: 0, byPerson: 0, recorded: { at: Date.UTC(2026, 9, 30, 4, 0) } } };
   const zone = process.env.TZ;
   try {

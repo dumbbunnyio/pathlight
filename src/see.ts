@@ -30,7 +30,8 @@ export const seeView = Effect.fn("See.view")(function* (options: { view: View; c
   const viewer = [process.execPath, ...(compiled ? [] : [fileURLToPath(new URL("./cli.ts", import.meta.url))]),
     "view", options.view.id, "--workspace", options.view.workspace, "--project", options.view.project, "--ready", ready, ...(options.select ? ["--select", options.select] : []), ...(options.follow ? ["--follow"] : []),
     ...(agent ? ["--parent", agent] : [])];
-  const environment = ["env", `XDG_CONFIG_HOME=${config}`, "COLORTERM=truecolor", ...viewer];
+  // PATHLIGHT_SEE: a screen to check, not a viewer someone uses, so `B` opens no browser window on the person's desktop from here.
+  const environment = ["env", `XDG_CONFIG_HOME=${config}`, "COLORTERM=truecolor", "PATHLIGHT_SEE=1", ...viewer];
   // The viewer's window is the session's current one, so the keys and the captures go to it.
   if (agent && options.zoom) yield* tmux("split-window", "-h", "-t", "see", ...environment);
   else if (agent) yield* tmux("new-window", "-t", "see", ...environment);

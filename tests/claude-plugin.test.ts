@@ -59,11 +59,12 @@ test("/pathlight:open is handled by a hook that blocks the prompt, so the model 
   const directory = await mkdtemp(join(tmpdir(), "pathlight-open-hook-"));
   try {
     await mkdir(join(directory, "bin"));
-    await writeFile(join(directory, "bin", "pathlight"), `#!/bin/sh\necho "$@" > "${directory}/args"\n`);
+    // Pathlight's own setting answers from CHOICE; every other command records its arguments.
+    await writeFile(join(directory, "bin", "pathlight"), `#!/bin/sh\nif [ "$1 $2" = "config get" ]; then [ -n "$CHOICE" ] && echo "$CHOICE"; exit 0; fi\necho "$@" > "${directory}/args"\necho "Opened the map in Brave."\n`);
     await chmod(join(directory, "bin", "pathlight"), 0o755);
-    const hook = async (prompt: string) => {
+    const hook = async (prompt: string, choice = "") => {
       const child = Bun.spawn(["sh", resolve("plugins/claude/open-hook.sh")], { stdin: "pipe", stdout: "pipe", stderr: "pipe",
-        env: { PATH: `${join(directory, "bin")}:/usr/bin:/bin`, CLAUDE_PROJECT_DIR: "/work/project" } });
+        env: { PATH: `${join(directory, "bin")}:/usr/bin:/bin`, CLAUDE_PROJECT_DIR: "/work/project", CHOICE: choice } });
       child.stdin.write(JSON.stringify({ session_id: "s", prompt })); child.stdin.end();
       return { out: await new Response(child.stdout).text(), code: await child.exited };
     };
@@ -81,5 +82,15 @@ test("/pathlight:open is handled by a hook that blocks the prompt, so the model 
     // Anything but a plain view id never reaches the command line.
     await hook("/pathlight:open $(touch pwned)");
     expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open --workspace /work/project --session s --source claude");
+
+    // `web` opens the browser page's window, by the word or by the setting; `tmux` overrides the setting; the launcher's line is the reply.
+    expect(JSON.parse((await hook("/pathlight:open web services")).out)).toEqual({ continue: false, stopReason: "Opened the map in Brave." });
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("web services --open --workspace /work/project --session s --source claude");
+    await hook("/pathlight:open", "web");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("web --open --workspace /work/project --session s --source claude");
+    await hook("/pathlight:open tmux checkout", "web");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("open checkout --workspace /work/project --session s --source claude");
+    await hook("/pathlight:open web", "");
+    expect((await readFile(join(directory, "args"), "utf8")).trim()).toBe("web --open --workspace /work/project --session s --source claude");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

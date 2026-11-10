@@ -26,7 +26,7 @@ import { doctor, formatDoctor, hasFailures } from "./doctor";
 import { setup } from "./setup";
 import { seeView } from "./see";
 import { paneView } from "./pane";
-import { saveClaude, savedClaude } from "./theme";
+import { saveBrowser, saveClaude, savedBrowser, savedClaude, type Where, wheres } from "./theme";
 
 const help = `pathlight list [--workspace PATH]
 pathlight scan [--workspace PATH] [--out FILE]
@@ -48,10 +48,10 @@ pathlight view VIEW [--workspace PATH] [--project NAME] [--select ELEMENT]
 pathlight see VIEW [--workspace PATH] [--project NAME] [--cols N] [--rows N] [--select ELEMENT] [--keys KEY,KEY] [--ansi] [--follow] [--agent] [--zoom]
 pathlight open [VIEW] [--workspace PATH] [--project NAME] [--here | --split] [--pane %ID] [--socket PATH]
 pathlight pane [VIEW] [--workspace PATH] [--project NAME] --cols N --rows N [--session ID --source claude] [--select ELEMENT] [--socket PATH]
-pathlight web [VIEW] [--workspace PATH] [--project NAME] [--select ELEMENT] [--port N] [--rune]
+pathlight web [VIEW] [--workspace PATH] [--project NAME] [--select ELEMENT] [--session ID --source claude] [--open | --port N] [--rune]
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
-pathlight config get claude | pathlight config set claude pane|tmux
+pathlight config get claude|browser | pathlight config set claude pane|tmux|web | pathlight config set browser COMMAND
 pathlight setup [--workspace PATH] [--yes]
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
@@ -69,7 +69,7 @@ setup is the first run: it checks the machine and the workspace, says what it wo
 init wires Claude Code hooks, the pathlight skills and the OpenCode plugin into a workspace. init --global registers the OpenCode plugin for every project instead (in OpenCode's own opencode.json); it records only in projects with a mapping.
 show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
 see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. --agent puts a pane running cat in that private server as the agent's pane, so t, m and d can be drawn and sent; nothing leaves it. Beside it they open a modal, as they do beside your agent; --zoom puts the viewer in a split beside that pane and zooms it, the full screen where the conversation is hidden, so they open the talk column. For agents and tests.
-web serves the map to a browser on 127.0.0.1 and prints its address, which carries a token for this run only; Ctrl-C stops it. The page is the terminal viewer drawn by the browser: the same header, diagram, inspector and footer, the same words and keys, in the theme the terminal would use. VIEW is the view it opens on, the overview if none. --rune serves the experimental Rune page instead (WebGPU; built only with sh scripts/build-web.sh).
+web serves the map to a browser on 127.0.0.1 and prints its address, which carries a token for this run only; Ctrl-C stops it. The page is the terminal viewer drawn by the browser: the same header, diagram, inspector and footer, the same words and keys, in the theme the terminal would use. VIEW is the view it opens on, the overview if none. --open opens it in a window of its own instead (the first Chromium-family browser found, in Pathlight's own profile, or the one pathlight config set browser names) and returns: one window per workspace, and its server stops when the window closes; B in the viewer does the same. --rune serves the experimental Rune page instead (WebGPU; built only with sh scripts/build-web.sh).
 pane draws the viewer for a host that shows it in its own window (the Claude Code plugin's pane beside the conversation): frames on standard output, keys over a Unix socket, the talk's requests handed back to the host to send as your prompt. It is bound to the session named (the plugin always names its own), never follows, and ends when its output closes.
 open follows the most recent session and shows VIEW if given, else the view named index, else the first view.
 Typed at a shell prompt in tmux it turns that pane into the viewer; run by an agent it splits a pane beside it.
@@ -104,7 +104,7 @@ try {
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, "first-day": { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" }, zoom: { type: "boolean" }, view: { type: "string" }, journey: { type: "string" }, port: { type: "string" }, rune: { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, "first-day": { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" }, zoom: { type: "boolean" }, view: { type: "string" }, journey: { type: "string" }, port: { type: "string" }, rune: { type: "boolean" }, open: { type: "boolean" }, "until-closed": { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -128,7 +128,7 @@ try {
     } else if (command === "draft") {
       if (id) return yield* invalid("draft takes no argument. Use --workspace PATH.");
       const made = yield* draftWorkspace(values.workspace, { out: values.out, force: values.force });
-      process.stdout.write(`Drew ${made.elements} elements (${made.packages ? `${made.packages} packages, ` : ""}${made.components} components${made.folders ? `, ${made.folders} folders` : ""}${made.collections ? `, ${made.collections} collections` : ""}) and ${made.relationships} relationships from the imports.\n`
+      process.stdout.write(`Drew ${made.elements} elements (${made.packages ? `${made.packages} packages, ` : ""}${made.components} components${made.folders ? `, ${made.folders} folders` : ""}${made.collections ? `, ${made.collections} collections` : ""}) and ${made.relationships} relationships from the imports${made.resources ? `, and ${made.resources} ${made.resources === 1 ? "resource" : "resources"} the code talks to (databases, services)` : ""}.\n`
         + `${made.mappings} file mappings; ${made.ignored} test files left out.\nWrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in ${made.target}.\n`
         + (made.unread ? `Not read: ${made.unread}. Their boxes are drawn; no arrow to or from them is.\n` : "")
         + (made.overlay ? `Applied ${made.overlay} names or notes from .pathlight/pathlight.overlay.json.\n` : "")
@@ -203,12 +203,20 @@ try {
       process.stdout.write(formatDoctor(findings));
       if (hasFailures(findings)) process.exitCode = 1;
     } else if (command === "config") {
-      // Pathlight's own settings (src/theme.ts): `claude` is where the Claude Code plugin's /pathlight:open draws the viewer. `get` prints nothing when unset (the tmux pane then).
+      // Pathlight's own settings (src/theme.ts): `claude` is where the Claude Code plugin's /pathlight:open draws the viewer, `browser` the command
+      // pathlight web --open and B use. `get` prints nothing when unset (the tmux pane, the first browser found).
       const [key, value] = extra;
-      if (key !== "claude" || (id === "get" && value !== undefined) || (id === "set" && value !== "pane" && value !== "tmux") || (id !== "get" && id !== "set"))
-        return yield* invalid("Use pathlight config get claude, or pathlight config set claude pane|tmux.");
-      if (id === "get") { const choice = yield* savedClaude(); if (choice) process.stdout.write(`${choice}\n`); }
-      else { yield* saveClaude(value as "pane" | "tmux"); process.stdout.write(`/pathlight:open now opens the ${value === "pane" ? "experimental pane inside Claude Code where it can place one (at most 45% of the terminal)" : "tmux pane, the default"}\n`); }
+      const usage = "Use pathlight config get claude|browser, pathlight config set claude pane|tmux|web, or pathlight config set browser COMMAND.";
+      if ((key !== "claude" && key !== "browser") || (id === "get" && value !== undefined) || (id === "set" && value === undefined) || (id !== "get" && id !== "set")) return yield* invalid(usage);
+      if (key === "claude" && id === "set" && !wheres.includes(value as Where)) return yield* invalid(usage);
+      if (id === "get") { const choice = key === "claude" ? yield* savedClaude() : yield* savedBrowser(); if (choice) process.stdout.write(`${choice}\n`); }
+      else if (key === "browser") {
+        yield* saveBrowser(value!);
+        const { findBrowser } = yield* io("CLI.launch", () => import("./web/launch"));
+        const found = value!.trim() ? yield* findBrowser(value!) : undefined;
+        process.stdout.write(!value!.trim() ? "pathlight web --open now uses the first browser it finds\n" : found ? `pathlight web --open now uses ${found.command.join(" ")}${found.app ? ", in a window of its own" : ", in a tab (a Chromium-family browser gives it a window of its own)"}\n` : `Saved, but ${value} was not found; pathlight web --open will say so until it is installed\n`);
+      }
+      else { yield* saveClaude(value as Where); process.stdout.write(`/pathlight:open now opens ${value === "pane" ? "the experimental pane inside Claude Code where it can place one (at most 45% of the terminal)" : value === "web" ? "the map in a browser window of its own" : "the tmux pane, the default"}\n`); }
     } else if (command === "setup") {
       if (id) return yield* invalid("setup takes no argument. Use --workspace PATH and --yes.");
       process.stdout.write(yield* setup(values.workspace, { yes: values.yes === true }));
@@ -248,8 +256,14 @@ try {
       const mappedProject = values.project ? undefined : yield* readActivityConfig(values.workspace).pipe(Effect.map(mapping => mapping.project), Effect.catch(() => Effect.succeed(undefined)));
       const project = values.project ?? (mappedProject && (!id || (yield* listViews(values.workspace)).views.some(entry => entry.id === id && entry.project === mappedProject)) ? mappedProject : undefined);
       const view = yield* selectView(values.workspace, id ?? (yield* overviewId(values.workspace, project)), project);
+      if (values.open) {
+        if (values.rune || values.port !== undefined) return yield* invalid("--open chooses its own port and serves the default page; leave out --port and --rune.");
+        const { launchWeb } = yield* io("CLI.launch", () => import("./web/launch"));
+        process.stdout.write(`${yield* launchWeb({ workspace: view.workspace, view: view.id, project: view.project, select: values.select, activity })}\n`);
+        return;
+      }
       const { serveWeb } = yield* io("CLI.web", () => import("./web/server"));
-      yield* serveWeb(view, { port, select: values.select, kind: values.rune ? "rune" : "page", signal: abort.signal, print: line => process.stdout.write(line) });
+      yield* serveWeb(view, { port, select: values.select, kind: values.rune ? "rune" : "page", signal: abort.signal, print: line => process.stdout.write(line), untilClosed: values["until-closed"] === true, activity });
     } else if (command === "show" || command === "view" || command === "open") {
       if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));

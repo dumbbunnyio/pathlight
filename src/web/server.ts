@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { watch } from "node:fs";
 import type { View } from "../catalog";
 import { failure, io } from "../effects";
 import { loadThemes, type Mode, paletteOf, savedTheme, themeFromEnvironment } from "../theme";
@@ -8,11 +9,14 @@ import { loadWorld, readChecks } from "../viewer/world";
 import pkg from "../../package.json" with { type: "json" };
 import { splitTitle } from "../viewer/pickers";
 import { shapeView } from "../viewer/shape";
+import type { ActivityBinding } from "../activity";
+import { removeRecord, writeRecord } from "./launch";
+import { createLive, type Live, moving, quiet as noLive, rulesOf } from "./live";
 import { buildHints, loadPage, type Page, type PageKind } from "./page";
 import { type RuneLayoutedView, runeFrameOf, runeSceneOf } from "./rune";
 import { type LayoutedView, type Scene, sceneOf, viewOrder } from "./scene";
 import type { RailRow, SceneData } from "./wire";
-import { type Act, act, frameOf, startWindow, type WindowState, type World, type WorldView } from "./session";
+import { type Act, act, followStep, frameOf, startWindow, type WindowState, type World, type WorldView } from "./session";
 
 /**
  * `pathlight web`: the browser page and what it draws, served on 127.0.0.1 only. Loopback does not protect a server on its own: any page the
@@ -40,7 +44,7 @@ const notBuilt = (kind: PageKind) => `<!doctype html><meta charset="utf-8"><titl
 <h1 style="font-size: 20px">The browser page is not built</h1><p>This copy of Pathlight was built without its ${kind === "rune" ? "Rune page" : "browser page"}. In a checkout, run
 <code>${buildHints[kind]}</code>, then start <code>pathlight web${kind === "rune" ? " --rune" : ""}</code> again.</p></body>`;
 
-export interface WebServer { url: string; port: number; token: string; stop: () => Promise<void> }
+export interface WebServer { url: string; port: number; token: string; stop: () => Promise<void>; windows: () => number }
 
 const number = (value: unknown) => typeof value === "number" && Number.isFinite(value);
 const cameraOf = (value: unknown) => {
@@ -58,6 +62,9 @@ const parseAct = (body: unknown): Act | undefined => {
   if (value.kind === "openView") return { kind: "openView", ...(camera ? { camera } : {}) };
   if (value.kind === "traverse" && ["left", "right", "up", "down"].includes(value.direction as string)) return { kind: "traverse", direction: value.direction as "left" };
   if (value.kind === "inspector") return { kind: "inspector" };
+  if (value.kind === "follow") return { kind: "follow" };
+  if (value.kind === "moved") return { kind: "moved" };
+  if (value.kind === "work") return { kind: "work", ...(camera ? { camera } : {}) };
   if (value.kind === "size" && number(value.cols) && number(value.rows)) return { kind: "size", cols: value.cols as number, rows: value.rows as number };
   if (value.kind === "zoom" && number(value.zoom) && (value.zoom as number) > 0) return { kind: "zoom", zoom: value.zoom as number };
   if (value.kind === "open" && typeof value.view === "string")
@@ -69,8 +76,8 @@ const parseAct = (body: unknown): Act | undefined => {
  * Everything the server needs from the workspace, read once: the views laid out in the terminal's cells, and the palette the terminal would
  * use (decision 13): the theme from `--theme`, else the environment, else the saved one; dark unless the environment says light.
  */
-export const loadWebWorld = (view: View, theme?: string, mode?: Mode) => Effect.gen(function* () {
-  const loaded = yield* loadWorld(view, { watching: false, reload: false });
+export const loadWebWorld = (view: View, theme?: string, mode?: Mode, reload = false) => Effect.gen(function* () {
+  const loaded = yield* loadWorld(view, { watching: false, reload });
   const checks = yield* readChecks(view.workspace, undefined);
   const layouted = loaded.diagrams as unknown as ReadonlyMap<string, LayoutedView>;
   const planned = loaded.config?.planned ?? [];
@@ -81,7 +88,8 @@ export const loadWebWorld = (view: View, theme?: string, mode?: Mode) => Effect.
     const shaped = shapeView(raw, { all: layouted.values(), planned, files: loaded.files, watching: false });
     rows.set(id, { words: shaped.words, row: shaped.row });
   }
-  const world: World = { views: loaded.diagrams as unknown as ReadonlyMap<string, WorldView>, scenes, rows, files: loaded.files, planned, words: checks.words, version: pkg.version };
+  const world: World = { views: loaded.diagrams as unknown as ReadonlyMap<string, WorldView>, scenes, rows, files: loaded.files, planned, words: checks.words, version: pkg.version,
+    config: loaded.config, rules: rulesOf(loaded.config) };
   const themes = yield* loadThemes(view.workspace);
   const environment = yield* themeFromEnvironment();
   const wanted = theme || environment.name || (yield* savedTheme().pipe(Effect.catch(() => Effect.succeed(undefined)))) || "pathlight";
@@ -96,19 +104,25 @@ export const loadWebWorld = (view: View, theme?: string, mode?: Mode) => Effect.
  * Starts the server for one workspace's views. `port` 0 takes a free one. Each page that connects to `/api/events` is a window with its own
  * selection and Back; the stream carries its frames, and `/api/act` with its id changes them.
  */
-export const startWebServer = (view: View, options: { port?: number; select?: string | undefined; page?: Page | null; kind?: PageKind; theme?: string; mode?: Mode }) => Effect.gen(function* () {
+export const startWebServer = (view: View, options: { port?: number; select?: string | undefined; page?: Page | null; kind?: PageKind; theme?: string; mode?: Mode; onWindows?: (count: number) => void;
+  activity?: ActivityBinding | undefined; poll?: number }) => Effect.gen(function* () {
   const kind = options.kind ?? "page";
-  const { world, layouted, palette: chosen, mode, paletteFor } = yield* loadWebWorld(view, options.theme, options.mode);
+  let { world, layouted, palette: chosen, mode, paletteFor } = yield* loadWebWorld(view, options.theme, options.mode);
   // The palette as the terminal installs it (setPalette makes every entry distinct), so the page's variables are the frames' colors exactly.
   const installed = (next: Palette): Palette => { const saved = { ...palette }; setPalette(next, false); const made = { ...palette }; setPalette(saved, false); return made; };
   const colors = installed(chosen);
   // `page: null` serves without one, as a copy built without its page does; left out, the embedded or built page is used.
   const page = options.page === undefined ? yield* io("Web.page", () => loadPage(kind)) : options.page ?? undefined;
   const token = randomBytes(18).toString("base64url");
-  const ordered = viewOrder([...world.scenes.values()], view.id);
-  // The rail, in the view picker's words (viewer/pickers.ts): the view's own name, what holds it, its boxes.
-  const rail: RailRow[] = ordered.map(scene => { const { name, holder } = splitTitle(scene.heading); return { view: scene.id, name, holder, detail: `${scene.cards.length} ${scene.cards.length === 1 ? "box" : "boxes"}` }; });
-  const sceneJson = JSON.stringify({ project: view.project, mode, palette: colors, views: ordered, rail } satisfies SceneData);
+  // The scene every window draws: the views in order and the rail, in the view picker's words (viewer/pickers.ts): the view's own name, what holds
+  // it, its boxes. `revision` counts the model's reloads, so a window knows to fetch it again.
+  let revision = 0;
+  const sceneData = () => {
+    const ordered = viewOrder([...world.scenes.values()], view.id);
+    const rail: RailRow[] = ordered.map(scene => { const { name, holder } = splitTitle(scene.heading); return { view: scene.id, name, holder, detail: `${scene.cards.length} ${scene.cards.length === 1 ? "box" : "boxes"}` }; });
+    return JSON.stringify({ project: view.project, mode, palette: colors, views: ordered, rail, revision } satisfies SceneData);
+  };
+  let sceneJson = sceneData();
   // The Rune page asks for its own mode and draws LikeC4's layout (rune.ts).
   const runeScenes = new Map<Mode, string>();
   const runeScene = (asked: Mode) => {
@@ -119,13 +133,66 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
     return made;
   };
   const windows = new Map<string, { state: WindowState; mode: Mode; send: (text: string) => void }>();
+  // The agent's activity (live.ts), read for every window at once while any is open; the Rune page shows none.
+  const readerFor = () => kind === "page" && (options.activity || world.config) ? createLive(view.workspace, world.config, options.activity) : undefined;
+  let reader = readerFor();
+  let live: Live = { ...noLive, bound: Boolean(reader && options.activity), following: reader?.following ?? false }, shownSignature = "", wasMoving = false, lastSent = 0, polling = false;
   // The terminal's functions read the palette module's colors: a frame is made in the page's palette, and the module's own is put back.
-  const framed = (id: string) => {
+  const framed = (id: string, raise = false) => {
     const entry = windows.get(id)!;
     const saved = { ...palette };
     setPalette(kind === "rune" ? paletteFor(entry.mode) : colors, false);
-    try { return JSON.stringify({ window: id, frame: kind === "rune" ? runeFrameOf(world, entry.state, view.project) : frameOf(world, entry.state) }); } finally { setPalette(saved, false); }
+    try { return JSON.stringify({ window: id, frame: kind === "rune" ? runeFrameOf(world, entry.state, view.project) : frameOf(world, entry.state, live), scene: revision, ...(raise ? { raise: true } : {}) }); } finally { setPalette(saved, false); }
   };
+  const counted = () => options.onWindows?.(windows.size);
+  // Every 250 ms while a window is open: read the journal, let each window's follow act on it, and send a frame where anything shown changed, while
+  // a call runs (its spinner and pulse) or a flash ends, and every two seconds for the ages.
+  const tick = async () => {
+    if (!reader || polling || !windows.size) return;
+    polling = true;
+    try {
+      live = await Effect.runPromise(reader.read);
+      const now = Date.now(), changed = live.signature !== shownSignature, active = moving(live, now);
+      const due = changed || active || wasMoving || (live.events.length > 0 && now - lastSent > 2000);
+      shownSignature = live.signature; wasMoving = active;
+      for (const [id, entry] of windows) {
+        const before = entry.state;
+        entry.state = followStep(world, entry.state, live);
+        if (due || entry.state !== before) entry.send(framed(id));
+        entry.state = { ...entry.state, reveal: false };
+      }
+      if (due) lastSent = now;
+    } finally { polling = false; }
+  };
+  const poller = kind === "page" ? setInterval(() => void tick(), options.poll ?? 250) : undefined;
+
+  // Live reload, as the terminal's: the model, its layout and the file mapping are read again when their files change. Each window keeps its view
+  // and selection where they still exist (and its camera: the page refits only on a change of view); a model with errors keeps the last good one.
+  let reloading = false, again = false, reloadTimer: ReturnType<typeof setTimeout> | undefined;
+  const reloadWorld = async () => {
+    if (reloading) { again = true; return; }
+    reloading = true;
+    try {
+      const next = await Effect.runPromise(loadWebWorld(view, options.theme, options.mode, true)).catch(() => undefined);
+      if (!next) return;
+      ({ world, layouted, palette: chosen, mode, paletteFor } = next);
+      revision++; sceneJson = sceneData(); runeScenes.clear(); reader = readerFor(); shownSignature = "";
+      for (const [id, entry] of windows) {
+        const fallback = world.scenes.has(entry.state.view) ? entry.state.view : view.id;
+        const fresh = startWindow(world, fallback, entry.state.selected, { cols: entry.state.cols, rows: entry.state.rows });
+        entry.state = { ...entry.state, view: fresh.view, selected: fresh.selected, history: entry.state.history.filter(visit => world.scenes.has(visit.view)), restore: null };
+        entry.send(framed(id));
+      }
+    } finally {
+      reloading = false;
+      if (again) { again = false; scheduleReload(); }
+    }
+  };
+  const scheduleReload = () => { clearTimeout(reloadTimer); reloadTimer = setTimeout(() => void reloadWorld(), 500); };
+  const relevant = (name: string) => !/(^|\/)(node_modules|\.git|\.cache)(\/|$)/.test(name)
+    && /\.(c4|likec4)$|(^|\/)(likec4\.config\.(json|js|ts)|\.likec4rc|pathlight\.activity\.json|pathlight\.overlay\.json)$/.test(name);
+  const watcher = (() => { try { return watch(view.workspace, { recursive: true }, (_event, name) => { if (name && relevant(String(name))) scheduleReload(); }); } catch { return undefined; } })();
+  const closeWindow = (id: string) => { if (windows.delete(id)) counted(); };
   const encoder = new TextEncoder();
   const csp = policies[kind];
 
@@ -156,11 +223,12 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
             const stream = new ReadableStream<Uint8Array>({
               start(controller) {
                 windows.set(id, { state: startWindow(world, start, url.searchParams.get("select") ?? (wanted ? undefined : options.select), size), mode: asked, send: text => controller.enqueue(encoder.encode(`data: ${text}\n\n`)) });
+                counted();
                 controller.enqueue(encoder.encode(`data: ${framed(id)}\n\n`));
               },
-              cancel() { windows.delete(id); },
+              cancel() { closeWindow(id); },
             });
-            request.signal.addEventListener("abort", () => windows.delete(id));
+            request.signal.addEventListener("abort", () => closeWindow(id));
             return new Response(stream, { headers: { ...headers, "content-type": "text/event-stream", connection: "keep-alive" } });
           }
           if (url.pathname === "/api/act" && request.method === "POST") {
@@ -170,11 +238,24 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
             const action = parseAct(await request.json().catch(() => undefined));
             if (!action) return new Response("Not an act", { status: 400, headers });
             const before = entry.state;
-            entry.state = act(world, entry.state, action);
+            entry.state = act(world, entry.state, action, live);
             // A camera report that does not change the footer's zoom, or a size the page already had, sends nothing back.
             if (action.kind === "zoom" && Math.round(before.zoom * 100) === Math.round(entry.state.zoom * 100)) return new Response(null, { status: 204, headers });
             entry.send(framed(url.searchParams.get("w")!));
+            entry.state = { ...entry.state, reveal: false };
             return new Response(null, { status: 204, headers });
+          }
+          // A second open of this workspace (launch.ts): every window shows the view asked for and comes forward; the answer says how many there are.
+          if (url.pathname === "/api/raise" && request.method === "POST") {
+            if (!(request.headers.get("content-type") ?? "").startsWith("application/json")) return new Response("Expected JSON", { status: 415, headers });
+            const body = await request.json().catch(() => ({})) as { view?: unknown; select?: unknown };
+            const target = typeof body.view === "string" && world.scenes.has(body.view) ? body.view : undefined, chosen = typeof body.select === "string" ? body.select : undefined;
+            for (const [id, entry] of windows) {
+              if (target && target !== entry.state.view) entry.state = act(world, entry.state, { kind: "open", view: target, select: chosen ?? null });
+              else if (chosen) entry.state = act(world, entry.state, { kind: "select", id: chosen });
+              entry.send(framed(id, true));
+            }
+            return new Response(JSON.stringify({ windows: windows.size }), { headers: { ...headers, "content-type": "application/json" } });
           }
           return new Response("Not found", { status: 404, headers });
         }
@@ -192,18 +273,35 @@ export const startWebServer = (view: View, options: { port?: number; select?: st
   });
   port = server.port ?? 0;
   const url = `http://127.0.0.1:${port}/?t=${token}`;
-  return { url, port, token, built: page !== undefined, stop: () => server.stop(true) } as WebServer & { built: boolean };
+  return { url, port, token, built: page !== undefined, stop: () => { clearInterval(poller); clearTimeout(reloadTimer); watcher?.close(); return server.stop(true); }, windows: () => windows.size } as WebServer & { built: boolean };
 });
 
-/** Serves until `signal` aborts, printing where. */
-export const serveWeb = (view: View, options: { port?: number; select?: string | undefined; kind?: PageKind; signal: AbortSignal; print: (line: string) => void }) => Effect.scoped(Effect.gen(function* () {
+/** How long a server started for a window waits: for its first window, and after its last one closes (a reload reconnects well within it). */
+export const lifetimes = { first: 60_000, last: 5_000 };
+
+/**
+ * Serves until `signal` aborts, printing where. `untilClosed` is the launcher's server (launch.ts): it records itself in the workspace's
+ * `.cache/pathlight/web.json` and stops once its last window has closed, or when no window comes at all.
+ */
+export const serveWeb = (view: View, options: { port?: number; select?: string | undefined; kind?: PageKind; signal: AbortSignal; print: (line: string) => void; untilClosed?: boolean;
+  activity?: ActivityBinding | undefined }) => Effect.scoped(Effect.gen(function* () {
   const kind = options.kind ?? "page";
-  const web = yield* Effect.acquireRelease(startWebServer(view, options), web => Effect.promise(() => web.stop()));
+  const done = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wait = (ms: number) => { clearTimeout(timer); timer = setTimeout(() => done.abort(), ms); };
+  const onWindows = options.untilClosed ? (count: number) => { if (count > 0) clearTimeout(timer); else wait(lifetimes.last); } : undefined;
+  const web = yield* Effect.acquireRelease(startWebServer(view, { ...options, onWindows }), web => Effect.promise(async () => { clearTimeout(timer); await web.stop(); }));
+  if (options.untilClosed) {
+    yield* Effect.acquireRelease(writeRecord(view.workspace, { pid: process.pid, port: web.port, token: web.token, url: web.url, project: view.project }),
+      () => removeRecord(view.workspace).pipe(Effect.ignore));
+    wait(lifetimes.first);
+  }
   options.print(`${web.url}\n`);
   options.print(!web.built ? `The ${kind === "rune" ? "Rune page" : "browser page"} is not built in this copy: run ${buildHints[kind]}. Ctrl-C stops it.\n`
     : kind === "rune" ? "Open it in a browser with WebGPU (experimental). Ctrl-C stops it.\n" : "Open it in a browser. Ctrl-C stops it.\n");
   yield* Effect.callback<void>(resume => {
-    if (options.signal.aborted) return resume(Effect.void);
+    if (options.signal.aborted || done.signal.aborted) return resume(Effect.void);
     options.signal.addEventListener("abort", () => resume(Effect.void), { once: true });
+    done.signal.addEventListener("abort", () => resume(Effect.void), { once: true });
   });
 }));

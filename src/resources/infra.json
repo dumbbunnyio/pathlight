@@ -1,0 +1,309 @@
+{
+ "note": "What infrastructure files say exists (plan phase-r-resources.md, step 2). `images` maps a container image (registry, `library/` and tag removed) to a resource of resources/imports.json; `env` maps an environment name (exact, or a prefix ending in `_`) to one, a SQL one with its engine. Names only: a value is never read. `declares` are the kinds a file alone may add a box for (with no code found); the others only confirm or name what the code imports. `charts` maps a Helm chart dependency's name; `terraform` a Terraform resource type (a SQL one's `engine` attribute names its engine); `modules` a word in a Terraform module's source; `secrets` a word in a Helm value that names a secret or credentials (`agentic_db_creds`).",
+ "declares": [
+  "database",
+  "cache",
+  "queue",
+  "storage",
+  "search",
+  "mail",
+  "identity"
+ ],
+ "images": {
+  "postgres": "postgresql",
+  "postgis/postgis": "postgresql",
+  "bitnami/postgresql": "postgresql",
+  "timescale/timescaledb": "postgresql",
+  "pgvector/pgvector": "postgresql",
+  "supabase/postgres": "postgresql",
+  "mysql": "mysql",
+  "bitnami/mysql": "mysql",
+  "mariadb": "mysql",
+  "bitnami/mariadb": "mysql",
+  "mcr.microsoft.com/mssql/server": "sqlserver",
+  "mongo": "mongodb",
+  "bitnami/mongodb": "mongodb",
+  "mongodb/mongodb-community-server": "mongodb",
+  "redis": "redis",
+  "bitnami/redis": "redis",
+  "redis/redis-stack": "redis",
+  "redis/redis-stack-server": "redis",
+  "valkey/valkey": "redis",
+  "bitnami/valkey": "redis",
+  "eqalpha/keydb": "redis",
+  "docker.dragonflydb.io/dragonflydb/dragonfly": "redis",
+  "memcached": "memcached",
+  "bitnami/memcached": "memcached",
+  "rabbitmq": "rabbitmq",
+  "bitnami/rabbitmq": "rabbitmq",
+  "apache/kafka": "kafka",
+  "bitnami/kafka": "kafka",
+  "confluentinc/cp-kafka": "kafka",
+  "redpandadata/redpanda": "kafka",
+  "docker.redpanda.com/redpandadata/redpanda": "kafka",
+  "nats": "nats",
+  "minio/minio": "minio",
+  "bitnami/minio": "minio",
+  "quay.io/minio/minio": "minio",
+  "elasticsearch": "elasticsearch",
+  "docker.elastic.co/elasticsearch/elasticsearch": "elasticsearch",
+  "bitnami/elasticsearch": "elasticsearch",
+  "opensearchproject/opensearch": "opensearch",
+  "bitnami/opensearch": "opensearch",
+  "getmeili/meilisearch": "meilisearch",
+  "typesense/typesense": "typesense",
+  "clickhouse/clickhouse-server": "clickhouse",
+  "clickhouse": "clickhouse",
+  "mailhog/mailhog": "mail",
+  "axllent/mailpit": "mail",
+  "maildev/maildev": "mail",
+  "rnwood/smtp4dev": "mail",
+  "quay.io/keycloak/keycloak": "keycloak",
+  "bitnami/keycloak": "keycloak",
+  "localstack/localstack": "aws"
+ },
+ "env": [
+  {
+   "name": "DATABASE_URL",
+   "resource": "sql"
+  },
+  {
+   "name": "DB_URL",
+   "resource": "sql"
+  },
+  {
+   "name": "SQLALCHEMY_DATABASE_URI",
+   "resource": "sql"
+  },
+  {
+   "name": "POSTGRES_",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "name": "POSTGRESQL_",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "name": "PGHOST",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "name": "PGDATABASE",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "name": "MYSQL_",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "name": "MARIADB_",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "name": "MONGO_URL",
+   "resource": "mongodb"
+  },
+  {
+   "name": "MONGO_URI",
+   "resource": "mongodb"
+  },
+  {
+   "name": "MONGODB_",
+   "resource": "mongodb"
+  },
+  {
+   "name": "REDIS_",
+   "resource": "redis"
+  },
+  {
+   "name": "VALKEY_",
+   "resource": "redis"
+  },
+  {
+   "name": "MEMCACHED_",
+   "resource": "memcached"
+  },
+  {
+   "name": "AMQP_URL",
+   "resource": "rabbitmq"
+  },
+  {
+   "name": "RABBITMQ_",
+   "resource": "rabbitmq"
+  },
+  {
+   "name": "KAFKA_",
+   "resource": "kafka"
+  },
+  {
+   "name": "NATS_URL",
+   "resource": "nats"
+  },
+  {
+   "name": "S3_",
+   "resource": "s3"
+  },
+  {
+   "name": "AWS_S3_",
+   "resource": "s3"
+  },
+  {
+   "name": "MINIO_",
+   "resource": "minio"
+  },
+  {
+   "name": "ELASTICSEARCH_",
+   "resource": "elasticsearch"
+  },
+  {
+   "name": "OPENSEARCH_",
+   "resource": "opensearch"
+  },
+  {
+   "name": "MEILI_",
+   "resource": "meilisearch"
+  },
+  {
+   "name": "MEILISEARCH_",
+   "resource": "meilisearch"
+  },
+  {
+   "name": "SMTP_",
+   "resource": "mail"
+  },
+  {
+   "name": "LDAP_",
+   "resource": "ldap"
+  },
+  {
+   "name": "OIDC_",
+   "resource": "oidc"
+  },
+  {
+   "name": "SENTRY_DSN",
+   "resource": "sentry"
+  },
+  {
+   "name": "STRIPE_",
+   "resource": "stripe"
+  },
+  {
+   "name": "OPENAI_API_KEY",
+   "resource": "openai"
+  },
+  {
+   "name": "ANTHROPIC_API_KEY",
+   "resource": "anthropic"
+  }
+ ],
+ "charts": {
+  "postgresql": "postgresql",
+  "postgresql-ha": "postgresql",
+  "mysql": "mysql",
+  "mariadb": "mysql",
+  "mongodb": "mongodb",
+  "redis": "redis",
+  "redis-cluster": "redis",
+  "valkey": "redis",
+  "memcached": "memcached",
+  "rabbitmq": "rabbitmq",
+  "kafka": "kafka",
+  "nats": "nats",
+  "minio": "minio",
+  "elasticsearch": "elasticsearch",
+  "opensearch": "opensearch",
+  "meilisearch": "meilisearch",
+  "clickhouse": "clickhouse",
+  "keycloak": "keycloak"
+ },
+ "terraform": {
+  "aws_db_instance": "sql",
+  "aws_rds_cluster": "sql",
+  "google_sql_database_instance": "sql",
+  "azurerm_postgresql_flexible_server": "postgresql",
+  "azurerm_postgresql_server": "postgresql",
+  "azurerm_mysql_flexible_server": "mysql",
+  "azurerm_mssql_server": "sqlserver",
+  "aws_dynamodb_table": "dynamodb",
+  "mongodbatlas_cluster": "mongodb",
+  "mongodbatlas_advanced_cluster": "mongodb",
+  "azurerm_cosmosdb_account": "cosmos",
+  "aws_elasticache_cluster": "redis",
+  "aws_elasticache_replication_group": "redis",
+  "aws_elasticache_serverless_cache": "redis",
+  "google_redis_instance": "redis",
+  "azurerm_redis_cache": "redis",
+  "aws_sqs_queue": "sqs",
+  "aws_sns_topic": "sns",
+  "aws_msk_cluster": "kafka",
+  "aws_mq_broker": "rabbitmq",
+  "google_pubsub_topic": "pubsub",
+  "azurerm_servicebus_namespace": "servicebus",
+  "aws_s3_bucket": "s3",
+  "google_storage_bucket": "gcs",
+  "azurerm_storage_account": "azure-blob",
+  "aws_opensearch_domain": "opensearch",
+  "aws_elasticsearch_domain": "elasticsearch",
+  "aws_ses_domain_identity": "ses",
+  "aws_cognito_user_pool": "cognito",
+  "google_bigquery_dataset": "bigquery"
+ },
+ "modules": {
+  "rds": "sql",
+  "rds-aurora": "sql",
+  "elasticache": "redis",
+  "s3-bucket": "s3",
+  "sqs": "sqs",
+  "sns": "sns",
+  "dynamodb-table": "dynamodb",
+  "msk-kafka-cluster": "kafka",
+  "opensearch": "opensearch"
+ },
+ "engines": {
+  "postgres": "postgresql",
+  "aurora-postgresql": "postgresql",
+  "mysql": "mysql",
+  "aurora-mysql": "mysql",
+  "mariadb": "mysql",
+  "sqlserver-ee": "sqlserver",
+  "sqlserver-se": "sqlserver",
+  "sqlserver-ex": "sqlserver",
+  "sqlserver-web": "sqlserver",
+  "POSTGRES": "postgresql",
+  "MYSQL": "mysql"
+ },
+ "secrets": {
+  "db": "sql",
+  "database": "sql",
+  "postgres": "postgresql",
+  "postgresql": "postgresql",
+  "pg": "postgresql",
+  "mysql": "mysql",
+  "mariadb": "mysql",
+  "mongo": "mongodb",
+  "mongodb": "mongodb",
+  "redis": "redis",
+  "valkey": "redis",
+  "rabbitmq": "rabbitmq",
+  "amqp": "rabbitmq",
+  "kafka": "kafka",
+  "s3": "s3",
+  "minio": "minio",
+  "opensearch": "opensearch",
+  "elasticsearch": "elasticsearch",
+  "ldap": "ldap",
+  "ldapbind": "ldap",
+  "mail": "mail",
+  "mailserver": "mail",
+  "smtp": "mail",
+  "openid": "oidc",
+  "oidc": "oidc",
+  "keycloak": "keycloak"
+ }
+}

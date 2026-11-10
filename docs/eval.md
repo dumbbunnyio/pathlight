@@ -457,3 +457,23 @@ The two misses are honest: Outline's `start` script runs the built `build/server
 | messages, cost | 7, $1.67 | 5, $1.14 | 4, $0.88 | 5, $0.69 |
 
 The mark `← agent` was on screen after every point, with a `Went to …` and a Back entry when the box was in another view; the walk needed no viewer change. What it tripped over: `pathlight brief` takes a box key and the journeys name elements by id (four misses), and two of four agents trimmed the briefing instead of pasting it, dropping the fifteen `Where it starts` lines; both are carried to step 0b.
+
+## Resources (2026-11-09)
+
+What the code talks to that is not code (plan `phase-r-resources`, step 1): the draft draws a resource where a file imports a package the table `src/resources/imports.json` leads to it. `tests/eval/references/resources.json` lists, for Outline, Mealie, Miniflux and opencode, what a reader of the code would say each program talks to, with the evidence, and what must not become a box (HTTP clients, types-only packages, test mocks, build plugins). `bun tests/eval/resources.ts` drafts each in memory and scores found, missed, extra and forbidden.
+
+| | before step 1 | after step 1 |
+| --- | --- | --- |
+| Outline | 0 of 15 | 15 of 15 |
+| Mealie | 0 of 6 | 6 of 6 |
+| Miniflux | 0 of 4 | 4 of 4 |
+| opencode | 0 of 10 | 10 of 10 |
+| extra or forbidden | | 0 |
+
+**Read this score generously.** The references were written from the code before `src/resources.ts` existed, but by the same session that then wrote the table, so the table holds every package those references name. It shows the mechanism works end to end (type-only imports and tests left out, one box per SQL engine, an ORM joining its package's driver, Python's `if TYPE_CHECKING:` import no longer hiding the run-time one), not that the table generalizes. One reference entry changed after the first score: Outline's GitLab plugin (`@gitbeaker/rest`), which the draft found and the reference had missed; the entry says so. Step 2 should add a repository the table was not written against.
+
+**Step 2** (compose and the example environment, `--step 2`): 35 of 35, 0 extra, every title as the references expect. Outline's "SQL database" (sequelize alone) becomes PostgreSQL from `docker-compose.yml`'s `image: postgres` and `.env.sample`; Mealie's stays "SQL database", because its code names both psycopg2 and sqlite3 and one compose file running Postgres does not decide that; Miniflux's PostgreSQL is confirmed by `.devcontainer/docker-compose.yml` and `contrib/docker-compose/`; opencode has no such files. No reference repository gains a box only infrastructure declares: Miniflux's devcontainer runs `caronc/apprise`, a service, which adds nothing by rule. The first run of step 2 renamed Mealie's database PostgreSQL, which the reference caught; the rule now names a database only when the code names no engine itself.
+
+**Step 3** (Helm and Terraform, `--step 3`): 41 of 41, adding IBM's Cognos chart `ibm-cacc-prod` 1.4.0 (`.cache/eval/charts/ibm-cacc-prod`, downloaded, extracted and committed in a repository of its own so the listing sees it; the command is in the reference). The chart has no code and no `dependencies:`, so every box comes from `values.yaml`'s `secretNames`: a SQL database (`agentic_db_creds`), Redis, OpenSearch, LDAP, mail and OpenID Connect, each "declared in values.yaml; no code found". `--step 4` lists what names cannot give: the Content, Audit and Noticecast stores (`cs_creds`, `audit_creds`, `nc_creds`, which only the README's prose explains) and Instana (an environment name), 6 of 10 there. Terraform is read as block headers rather than with a vendored HCL grammar (the plan's first idea): a type and an `engine` are all the table needs, and a regular expression over `resource "TYPE" "NAME"` cannot misread them; no reference repository has Terraform, so it is covered by the unit test only.
+
+The scan change behind it: a file's external import is recorded once, at its first import, unless that one only names types and a later one runs (Mealie imports `openai` under `TYPE_CHECKING` and again inside the functions that call it). `scanRevision` is 7.

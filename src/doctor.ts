@@ -2,6 +2,7 @@ import { dirname, relative, resolve } from "node:path";
 import { Config, Effect } from "effect";
 import { listViews } from "./catalog";
 import { readActivityConfig } from "./activity";
+import { io } from "./effects";
 import { run } from "./process";
 import { claudePluginInstalled, hasPathlightPermission, pathlightPermission, projectSkillCopies } from "./init";
 import pkg from "../package.json" with { type: "json" };
@@ -47,6 +48,14 @@ export const doctor = Effect.fn("Doctor.run")(function* (workspace: string) {
     : { name: "permission", status: "info", detail: `Claude Code will ask before each pathlight command the agent runs (name, flow add, plan)`, fix: `Run \`pathlight init\`, or add "${pathlightPermission}" to permissions.allow in .claude/settings.json.` });
   const copies = claudePluginInstalled() ? projectSkillCopies(root) : [];
   if (copies.length) add({ name: "old skills", status: "fail", detail: "this project has its own copy of the pathlight skills in .claude/skills, which hides the plugin's newer ones", fix: `Run \`pathlight init\` to remove them, or delete ${copies.map(path => relative(root, dirname(path))).join(" and ")}.` });
+  // The browser page (pathlight web): whether this copy has it, and the browser --open and B would use.
+  const page = yield* io("Doctor.page", () => import("./web/page").then(module => module.loadPage("page"))).pipe(Effect.option);
+  add(page._tag === "Some" && page.value ? { name: "browser page", status: "ok", detail: "ready (pathlight web)" }
+    : { name: "browser page", status: "info", detail: "not built in this copy, so pathlight web shows how to build it", fix: "In a checkout, run `bun scripts/build-page.ts`." });
+  const browser = yield* io("Doctor.browser", () => import("./web/launch")).pipe(Effect.flatMap(module => module.findBrowser()), Effect.option);
+  const opener = browser._tag === "Some" ? browser.value : undefined;
+  add(opener ? { name: "browser", status: opener.app ? "ok" : "info", detail: opener.app ? `${opener.name} (${opener.command[0]}) opens the map in a window of its own` : `${opener.name} opens the map in a tab`, ...(opener.app ? {} : { fix: "Install a Chromium-family browser, or name one with `pathlight config set browser COMMAND`, for a window of its own." }) }
+    : { name: "browser", status: "info", detail: "none found, so pathlight web --open and B cannot open a window", fix: "Name one with `pathlight config set browser COMMAND`, or open the address pathlight web prints." });
   const editor = yield* Config.String("VISUAL").pipe(Config.withDefault(""), Effect.flatMap(visual => visual ? Effect.succeed(visual) : Config.String("EDITOR").pipe(Config.withDefault(""))));
   add(editor ? { name: "editor", status: "ok", detail: `${editor} opens files from the viewer` }
     : { name: "editor", status: "info", detail: "neither VISUAL nor EDITOR is set, so opening a file from the viewer will fail", fix: "Set VISUAL or EDITOR, for example `export EDITOR=nvim`." });

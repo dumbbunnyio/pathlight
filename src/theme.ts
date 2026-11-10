@@ -130,8 +130,11 @@ export const paletteFor = (entry: ThemeEntry, mode: Mode, canvas?: string) => Ef
 });
 
 // Pathlight's own settings, in `$XDG_CONFIG_HOME/pathlight/config.json`: the chosen theme's name and, for the Claude Code plugin, where
-// `/pathlight:open` draws the viewer (`claude`: `pane` or `tmux`; unset means tmux). Nothing about any workspace is stored there. Each write keeps the other keys.
-type Settings = { theme?: string; claude?: "pane" | "tmux" };
+// `/pathlight:open` draws the viewer (`claude`: `pane`, `tmux` or `web`; unset means tmux), and the browser `pathlight web --open` and `B` use (`browser`:
+// a command; unset means the first Chromium-family browser found). Nothing about any workspace is stored there. Each write keeps the other keys.
+export type Where = "pane" | "tmux" | "web";
+export const wheres: readonly Where[] = ["pane", "tmux", "web"];
+type Settings = { theme?: string; claude?: Where; browser?: string };
 const configFile = Effect.fn("Theme.configFile")(function* () {
   const configHome = yield* Config.String("XDG_CONFIG_HOME").pipe(Config.withDefault(""));
   return join(configHome || join(homedir(), ".config"), "pathlight", "config.json");
@@ -150,8 +153,9 @@ const readRaw = Effect.fn("Theme.readRaw")(function* () {
 const readSettings = Effect.fn("Theme.readSettings")(function* () {
   const record = yield* readRaw();
   // Each key on its own, so a bad value for one never loses the other.
-  const theme = typeof record.theme === "string" ? record.theme : undefined, claude = record.claude === "pane" || record.claude === "tmux" ? record.claude : undefined;
-  return { ...(theme !== undefined ? { theme } : {}), ...(claude ? { claude } : {}) } as Settings;
+  const theme = typeof record.theme === "string" ? record.theme : undefined, claude = wheres.includes(record.claude as Where) ? record.claude as Where : undefined;
+  const browser = typeof record.browser === "string" && record.browser.trim() ? record.browser.trim() : undefined;
+  return { ...(theme !== undefined ? { theme } : {}), ...(claude ? { claude } : {}), ...(browser ? { browser } : {}) } as Settings;
 });
 
 const saveSettings = Effect.fn("Theme.saveSettings")(function* (change: Partial<Settings>) {
@@ -171,13 +175,23 @@ export const saveTheme = Effect.fn("Theme.save")(function* (name: string) {
   yield* saveSettings({ theme: name });
 });
 
-/** Where the Claude Code plugin's `/pathlight:open` draws the viewer when the command names neither: `pane` (Claude Code's own, experimental) or `tmux` (unset). */
+/** Where the Claude Code plugin's `/pathlight:open` draws the viewer when the command names none: `pane` (Claude Code's own, experimental), `web` (a browser window) or `tmux` (unset). */
 export const savedClaude = Effect.fn("Theme.savedClaude")(function* () {
   return (yield* readSettings()).claude;
 });
 
-export const saveClaude = Effect.fn("Theme.saveClaude")(function* (choice: "pane" | "tmux") {
+export const saveClaude = Effect.fn("Theme.saveClaude")(function* (choice: Where) {
   yield* saveSettings({ claude: choice });
+});
+
+/** The browser command the person chose (`pathlight config set browser COMMAND`), if any. */
+export const savedBrowser = Effect.fn("Theme.savedBrowser")(function* () {
+  return (yield* readSettings()).browser;
+});
+
+/** Saves the browser command; an empty one goes back to the first browser found. */
+export const saveBrowser = Effect.fn("Theme.saveBrowser")(function* (command: string) {
+  yield* saveSettings({ browser: command.trim() || undefined });
 });
 
 export const themeFromEnvironment = Effect.fn("Theme.environment")(function* () {

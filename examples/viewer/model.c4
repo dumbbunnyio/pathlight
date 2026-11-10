@@ -49,6 +49,7 @@ model {
   browser -> viewer 'Uses its rules and words'
   browser -> themes 'Takes the palette'
   browser -> catalog 'Reads the views'
+  browser -> activity 'Reads the journal'
   viewer -> themes 'Applies the palette'
   plugin -> activity 'Records tool lifecycle'
   plugin -> launcher 'Opens a view'

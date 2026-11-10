@@ -1,0 +1,395 @@
+{
+  "note": "Written 2026-11-09 from each repository's code (its non-test imports), before the resources table or src/resources.ts existed. A resource is listed when a reader of the code would say the program talks to it. `step` is the first step that can find it: 1 from imports alone, 2 needs compose or .env names. `title` is what the box should be called once that step has run; `evidence` is what a reader sees. `absent` lists things that must not become boxes. Ids are the vocabulary the scorer matches on; a SQL database is named by its engine when the code names exactly one (`postgresql`, `sqlite`, `planetscale`), else `sql`.",
+  "repos": {
+    "outline": {
+      "workspace": "pathlight-oss-test-repos/outline",
+      "commit": "d3b094352",
+      "resources": [
+        {
+          "id": "sql",
+          "kind": "database",
+          "step": 1,
+          "title": "SQL database",
+          "evidence": "sequelize, sequelize-typescript in server/models"
+        },
+        {
+          "id": "sql",
+          "kind": "database",
+          "step": 2,
+          "title": "PostgreSQL",
+          "evidence": "docker-compose.yml image postgres; DATABASE_URL in .env.sample"
+        },
+        {
+          "id": "redis",
+          "kind": "cache",
+          "step": 1,
+          "title": "Redis",
+          "evidence": "ioredis, bull, @hocuspocus/extension-redis, @socket.io/redis-adapter; image redis, REDIS_URL"
+        },
+        {
+          "id": "s3",
+          "kind": "storage",
+          "step": 1,
+          "title": "Amazon S3",
+          "evidence": "@aws-sdk/client-s3, @aws-sdk/lib-storage, @aws-sdk/s3-presigned-post, @aws-sdk/s3-request-presigner"
+        },
+        {
+          "id": "cloudfront",
+          "kind": "service",
+          "step": 1,
+          "title": "Amazon CloudFront",
+          "evidence": "@aws-sdk/cloudfront-signer"
+        },
+        {
+          "id": "mail",
+          "kind": "mail",
+          "step": 1,
+          "title": "Mail server",
+          "evidence": "nodemailer; SMTP_* in .env.sample"
+        },
+        {
+          "id": "sentry",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "Sentry",
+          "evidence": "@sentry/node, @sentry/react"
+        },
+        {
+          "id": "datadog",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "Datadog",
+          "evidence": "dd-trace"
+        },
+        {
+          "id": "github",
+          "kind": "service",
+          "step": 1,
+          "title": "GitHub",
+          "evidence": "octokit in plugins/github"
+        },
+        {
+          "id": "gitlab",
+          "kind": "service",
+          "step": 1,
+          "title": "GitLab",
+          "evidence": "@gitbeaker/rest in plugins/gitlab. Added after the first score (2026-11-09): the draft found it and the reference had missed it"
+        },
+        {
+          "id": "linear",
+          "kind": "service",
+          "step": 1,
+          "title": "Linear",
+          "evidence": "@linear/sdk in plugins/linear"
+        },
+        {
+          "id": "notion",
+          "kind": "service",
+          "step": 1,
+          "title": "Notion",
+          "evidence": "@notionhq/client in plugins/notion"
+        },
+        {
+          "id": "google-identity",
+          "kind": "identity",
+          "step": 1,
+          "title": "Google sign-in",
+          "evidence": "passport-google-oauth2"
+        },
+        {
+          "id": "slack-identity",
+          "kind": "identity",
+          "step": 1,
+          "title": "Slack sign-in",
+          "evidence": "passport-slack-oauth2"
+        },
+        {
+          "id": "microsoft-identity",
+          "kind": "identity",
+          "step": 1,
+          "title": "Microsoft sign-in",
+          "evidence": "@outlinewiki/passport-azure-ad-oauth2"
+        },
+        {
+          "id": "oauth",
+          "kind": "identity",
+          "step": 1,
+          "title": "OAuth provider",
+          "evidence": "passport-oauth2 (the OIDC and Discord plugins)"
+        }
+      ],
+      "absent": [
+        "axios",
+        "node-fetch",
+        "socket.io",
+        "ws",
+        "discord-api-types",
+        "ioredis-mock",
+        "pg-tsquery",
+        "koa",
+        "jsonwebtoken"
+      ]
+    },
+    "mealie": {
+      "workspace": "pathlight-oss-test-repos/mealie",
+      "commit": "2e7358d10",
+      "resources": [
+        {
+          "id": "sql",
+          "kind": "database",
+          "step": 1,
+          "title": "SQL database",
+          "evidence": "sqlalchemy throughout mealie/; psycopg2 and sqlite3 both imported, so the engine is one of two"
+        },
+        {
+          "id": "openai",
+          "kind": "ai",
+          "step": 1,
+          "title": "OpenAI",
+          "evidence": "openai in mealie/services/openai (imported inside functions; the top-level import is under TYPE_CHECKING)"
+        },
+        {
+          "id": "ldap",
+          "kind": "identity",
+          "step": 1,
+          "title": "LDAP",
+          "evidence": "ldap (python-ldap) in mealie/core/security"
+        },
+        {
+          "id": "oidc",
+          "kind": "identity",
+          "step": 1,
+          "title": "OpenID Connect",
+          "evidence": "authlib in mealie/core and mealie/routes"
+        },
+        {
+          "id": "mail",
+          "kind": "mail",
+          "step": 1,
+          "title": "Mail server",
+          "evidence": "smtplib in mealie/services/email"
+        },
+        {
+          "id": "apprise",
+          "kind": "service",
+          "step": 1,
+          "title": "Apprise notifications",
+          "evidence": "apprise in mealie/services/event_bus_service"
+        }
+      ],
+      "absent": [
+        "requests",
+        "httpx",
+        "fastapi",
+        "pydantic",
+        "alembic",
+        "recipe_scrapers",
+        "jwt"
+      ]
+    },
+    "miniflux": {
+      "workspace": "pathlight-oss-test-repos/v2",
+      "commit": "d5c529b9",
+      "resources": [
+        {
+          "id": "postgresql",
+          "kind": "database",
+          "step": 1,
+          "title": "PostgreSQL",
+          "evidence": "database/sql with github.com/lib/pq"
+        },
+        {
+          "id": "oidc",
+          "kind": "identity",
+          "step": 1,
+          "title": "OpenID Connect",
+          "evidence": "github.com/coreos/go-oidc/v3/oidc"
+        },
+        {
+          "id": "prometheus",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "Prometheus",
+          "evidence": "github.com/prometheus/client_golang (metrics scraped from it)"
+        },
+        {
+          "id": "letsencrypt",
+          "kind": "service",
+          "step": 1,
+          "title": "Let's Encrypt",
+          "evidence": "golang.org/x/crypto/acme/autocert"
+        }
+      ],
+      "absent": [
+        "net/http",
+        "golang.org/x/oauth2",
+        "github.com/go-webauthn/webauthn/webauthn",
+        "github.com/PuerkitoBio/goquery"
+      ]
+    },
+    "opencode": {
+      "workspace": ".cache/eval/opencode-installed",
+      "commit": "5fa426f68d",
+      "resources": [
+        {
+          "id": "sqlite",
+          "kind": "database",
+          "step": 1,
+          "title": "SQLite",
+          "evidence": "drizzle-orm with bun:sqlite and node:sqlite in packages/core, desktop, tui"
+        },
+        {
+          "id": "planetscale",
+          "kind": "database",
+          "step": 1,
+          "title": "PlanetScale",
+          "evidence": "@planetscale/database with drizzle-orm in packages/stats/core"
+        },
+        {
+          "id": "s3",
+          "kind": "storage",
+          "step": 1,
+          "title": "Amazon S3",
+          "evidence": "@aws-sdk/client-s3 in script/update-artifact.ts"
+        },
+        {
+          "id": "cloudflare",
+          "kind": "service",
+          "step": 1,
+          "title": "Cloudflare",
+          "evidence": "cloudflare in packages/console/resource"
+        },
+        {
+          "id": "github",
+          "kind": "service",
+          "step": 1,
+          "title": "GitHub",
+          "evidence": "@octokit/rest, @octokit/graphql, @octokit/auth-app"
+        },
+        {
+          "id": "sentry",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "Sentry",
+          "evidence": "@sentry/solid"
+        },
+        {
+          "id": "otlp",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "OpenTelemetry collector",
+          "evidence": "@opentelemetry/exporter-trace-otlp-http"
+        },
+        {
+          "id": "cohere",
+          "kind": "ai",
+          "step": 1,
+          "title": "Cohere",
+          "evidence": "@ai-sdk/cohere (dynamic import)"
+        },
+        {
+          "id": "perplexity",
+          "kind": "ai",
+          "step": 1,
+          "title": "Perplexity",
+          "evidence": "@ai-sdk/perplexity (dynamic import)"
+        },
+        {
+          "id": "vercel-ai",
+          "kind": "ai",
+          "step": 1,
+          "title": "Vercel v0",
+          "evidence": "@ai-sdk/vercel (dynamic import)"
+        }
+      ],
+      "absent": [
+        "@ai-sdk/provider",
+        "@ai-sdk/provider-utils",
+        "@ai-sdk/openai-compatible",
+        "aws4fetch",
+        "cloudflare:workers",
+        "@sentry/vite-plugin",
+        "hono",
+        "drizzle-kit"
+      ]
+    },
+    "cognos-chart": {
+      "workspace": ".cache/eval/charts/ibm-cacc-prod",
+      "commit": "ibm-cacc-prod 1.4.0 (curl -sSfL https://raw.githubusercontent.com/IBM/charts/master/repo/ibm-helm/ibm-cacc-prod-1.4.0.tgz | tar -xz -C .cache/eval/charts, then git init and commit it there so the listing sees its files)",
+      "note": "The board's expected reading (2026-11-06), written before step 3: no application code, so every box is declared in infrastructure only. The three stores and Instana are named only in the README's prose and an environment name; step 3 reads names, so it is not expected to find them, and they are listed to keep that gap visible.",
+      "resources": [
+        {
+          "id": "sql",
+          "kind": "database",
+          "step": 3,
+          "title": "SQL database",
+          "evidence": "secretNames.agentic_db_creds (the README says PostgreSQL)"
+        },
+        {
+          "id": "redis",
+          "kind": "cache",
+          "step": 3,
+          "title": "Redis",
+          "evidence": "secretNames.external_redis_creds"
+        },
+        {
+          "id": "opensearch",
+          "kind": "search",
+          "step": 3,
+          "title": "OpenSearch",
+          "evidence": "secretNames.opensearch_creds, external_opensearch_creds"
+        },
+        {
+          "id": "ldap",
+          "kind": "identity",
+          "step": 3,
+          "title": "LDAP",
+          "evidence": "secretNames.ldapbind_creds"
+        },
+        {
+          "id": "mail",
+          "kind": "mail",
+          "step": 3,
+          "title": "Mail server",
+          "evidence": "secretNames.mailserver_creds"
+        },
+        {
+          "id": "oidc",
+          "kind": "identity",
+          "step": 3,
+          "title": "OpenID Connect",
+          "evidence": "secretNames.openid_creds"
+        },
+        {
+          "id": "content-store",
+          "kind": "database",
+          "step": 4,
+          "title": "Content Store",
+          "evidence": "secretNames.cs_creds; only the README says what it is"
+        },
+        {
+          "id": "audit-store",
+          "kind": "database",
+          "step": 4,
+          "title": "Audit Store",
+          "evidence": "secretNames.audit_creds; only the README says what it is"
+        },
+        {
+          "id": "noticecast-store",
+          "kind": "database",
+          "step": 4,
+          "title": "Noticecast Store",
+          "evidence": "secretNames.nc_creds; only the README says what it is"
+        },
+        {
+          "id": "instana",
+          "kind": "monitoring",
+          "step": 4,
+          "title": "Instana",
+          "evidence": "INSTANA_AGENT_HOST, an environment name"
+        }
+      ],
+      "absent": []
+    }
+  }
+}

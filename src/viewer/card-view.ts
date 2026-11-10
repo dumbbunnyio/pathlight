@@ -1,5 +1,6 @@
 import { fg, RGBA, StyledText, type TextChunk } from "@opentui/core";
 import type { ActivityEvent } from "../activity";
+import { resourceKinds } from "../resources";
 import { palette } from "../ui";
 import { cardTag, isActive, operationState, outcomeMs } from "./activity-view";
 import { fade, labelTitle, nl } from "./text";
@@ -8,12 +9,15 @@ import { fade, labelTitle, nl } from "./text";
 export const dashed = { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯", horizontal: "┄", vertical: "┆", topT: "┬", bottomT: "┴", leftT: "├", rightT: "┤", cross: "┼" };
 
 /**
- * The word on a box's first row: how many boxes are inside it, for a box that opens a view (a package on the overview too); nothing on a leaf, and no
- * kind word anywhere (`component`, `folder`, `package` told the reader nothing). Counted from every view's boxes, so it is the boxes there are to see.
+ * The word on a box's first row: how many boxes are inside it, for a box that opens a view (a package on the overview too); what a resource is
+ * (`database`, `queue`, from its kind tag: src/resources.ts); nothing on any other leaf, and no other kind word anywhere (`component`, `folder`,
+ * `package` told the reader nothing). Counted from every view's boxes, so it is the boxes there are to see.
  */
-export const insideWords = (view: { id: unknown; nodes: readonly { id: unknown; modelRef?: unknown; navigateTo?: unknown; children: readonly unknown[] }[] }, boxes: ReadonlySet<string>) => {
+export const insideWords = (view: { id: unknown; nodes: readonly { id: unknown; modelRef?: unknown; navigateTo?: unknown; children: readonly unknown[]; kind?: unknown; tags?: readonly unknown[] | null }[] }, boxes: ReadonlySet<string>) => {
   const words = new Map<string, string>();
   for (const node of view.nodes) {
+    const kind = String(node.kind) === "resource" ? resourceKinds.find(word => node.tags?.some(tag => String(tag) === word)) : undefined;
+    if (kind) { words.set(String(node.id), kind); continue; }
     if (node.children.length || !node.navigateTo || String(node.navigateTo) === String(view.id)) continue;
     const ref = String(node.modelRef), count = [...boxes].filter(box => box.startsWith(`${ref}.`)).length;
     if (count) words.set(String(node.id), `[${count.toLocaleString("en")}]`);

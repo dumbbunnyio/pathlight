@@ -5,6 +5,7 @@ import { acquireModel, invalidModel } from "./catalog";
 import { crowdedAbove } from "./draft";
 import { failure, io } from "./effects";
 import { scannedLanguages } from "./languages";
+import { entryFor } from "./resources";
 import { listFiles, scanWorkspace, type Scan } from "./scan";
 
 const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
@@ -53,7 +54,9 @@ export const Check = Schema.Struct({
   views: Schema.Struct({ total: Count, entries: Schema.Array(Schema.String) }),
   // Imports between two mapped elements that no relationship at that level, or above it, declares (in either direction).
   undeclared: Schema.Array(Schema.Struct({ source: Schema.String, target: Schema.String, imports: Count, examples: Schema.Array(Example) })),
-  summary: Schema.Struct({ unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count, largeElements: Count, wideGroups: Count, unlinkedViews: Count }),
+  // What the code talks to (the mapping's `resources`): how many files import each one's packages. None means its evidence is gone.
+  resources: Schema.Array(Schema.Struct({ element: Schema.String, packages: Schema.Array(Schema.String), files: Count, declared: Schema.Array(Schema.String) })),
+  summary: Schema.Struct({ unusedResources: Count, unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count, largeElements: Count, wideGroups: Count, unlinkedViews: Count }),
 });
 export interface Check extends Schema.Schema.Type<typeof Check> {}
 
@@ -65,7 +68,7 @@ const order = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
  * Compares a model's declared relationships and a file mapping with the imports of one tree of files (the working tree, or an older commit).
  * `check` runs it on the workspace; `diff` runs it on two trees and reports what changed.
  */
-export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" | "imports">, paths: readonly string[], declared: readonly { source: string; target: string; title: string | null }[]) {
+export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" | "imports"> & { readonly external?: Scan["external"] }, paths: readonly string[], declared: readonly { source: string; target: string; title: string | null }[]) {
   const shared = config.shared ?? [];
   const planned = config.planned ?? [];
   const isPlanned = (element: string) => planned.some(id => within(element, id));
@@ -95,7 +98,22 @@ export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" 
   const edgesBetween = (from: ReadonlySet<string>, to: ReadonlySet<string>) =>
     evidence.filter(edge => from.has(edge.from) && to.has(edge.to) && edge.from !== edge.to);
 
+  // A resource is judged by the packages that lead to it (src/resources.ts), not by imports between files: a relationship to one is supported when a file
+  // of its source imports one of them at run time. A package the table leads to the same entry as a listed one counts too (a new subpath of a Go module).
+  const resourceOf = new Map((config.resources ?? []).map(item => [item.element, item] as const));
+  const leadsTo = (resource: { packages: readonly string[] }, name: string) => resource.packages.includes(name)
+    || (entryFor(name) !== undefined && resource.packages.some(listed => entryFor(listed) === entryFor(name)));
+  const runtime = (scan.external ?? []).filter(item => item.kind !== "type" && !ignoredPath(item.from));
+  const usesOf = (resource: { packages: readonly string[] }) => runtime.filter(item => leadsTo(resource, item.package));
+  const exampleUse = (item: NonNullable<typeof scan.external>[number]) => ({ from: item.from, line: item.line, to: item.package, kind: item.kind });
   const relationships = declared.map(({ source, target, title }) => {
+    const resource = resourceOf.get(target) ?? resourceOf.get(source);
+    if (resource) {
+      const user = filesWithin(resourceOf.has(target) ? source : target), uses = usesOf(resource).filter(item => user.has(item.from));
+      if (!user.size) return { source, target, title, status: "unverifiable" as const, direction: "none" as const, imports: 0, examples: [] };
+      return { source, target, title, status: uses.length ? "supported" as const : "unsupported" as const, direction: uses.length ? (resourceOf.has(target) ? "same" as const : "opposite" as const) : "none" as const,
+        imports: uses.length, examples: uses.slice(0, 3).map(exampleUse) };
+    }
     const from = filesWithin(source), to = filesWithin(target);
     if (!from.size || !to.size) return { source, target, title, status: "unverifiable" as const, direction: "none" as const, imports: 0, examples: [] };
     const forward = edgesBetween(from, to), backward = edgesBetween(to, from);
@@ -116,9 +134,20 @@ export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" 
       pairs.set(key, entry);
     }
   }
+  // A file that imports a resource's package, in an element with no relationship to the resource.
+  const resources = (config.resources ?? []).map(resource => {
+    const uses = usesOf(resource);
+    for (const use of uses) for (const a of claimed.get(use.from) ?? []) {
+      if (related(a, resource.element) || covered(a, resource.element)) continue;
+      const key = `${a}\0${resource.element}`, entry = pairs.get(key) ?? { source: a, target: resource.element, edges: [] };
+      entry.edges.push({ from: use.from, to: use.package, line: use.line, kind: use.kind, specifier: use.package });
+      pairs.set(key, entry);
+    }
+    return { element: resource.element, packages: [...resource.packages], files: new Set(uses.map(use => use.from)).size, declared: [...resource.declared ?? []] };
+  });
   const undeclared = [...pairs.values()].sort((a, b) => order(a.source, b.source) || order(a.target, b.target))
     .map(({ source, target, edges }) => ({ source, target, imports: edges.length, examples: edges.slice(0, 3).map(example) }));
-  return { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports };
+  return { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports, resources };
 }
 
 export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace: string) {
@@ -148,7 +177,10 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   const declared = [...model.relationships()].map(relationship => ({
     source: String(relationship.source.id), target: String(relationship.target.id), title: relationship.title ?? null,
   }));
-  const { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports } = compareImports(config, scan, paths, declared);
+  for (const item of config.resources ?? []) {
+    if (!elements.has(item.element)) return yield* Effect.fail(failure("Check.resources", `Unknown resource element '${item.element}'.`));
+  }
+  const { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports, resources } = compareImports(config, scan, paths, declared);
 
   // How the mapped files are spread over the elements.
   const mappedCount = claimed.size;
@@ -202,15 +234,15 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   return Check.make({
     version: 1, basis: "static", project: config.project,
     mappings: { total: config.mappings.length, ignored: ignoredFiles.length, shared, sharedImports, unmatched, unmappedFiles },
-    relationships, size, wide, plan, views: { total: viewLinks.size, entries }, undeclared,
-    summary: { unmatchedMappings: unmatched.length, unmappedFiles: unmappedFiles.length, unsupported: relationships.filter(item => item.status === "unsupported").length,
+    relationships, size, wide, plan, views: { total: viewLinks.size, entries }, undeclared, resources,
+    summary: { unusedResources: resources.filter(item => item.packages.length && !item.files).length, unmatchedMappings: unmatched.length, unmappedFiles: unmappedFiles.length, unsupported: relationships.filter(item => item.status === "unsupported").length,
       unverifiable: relationships.filter(item => item.status === "unverifiable").length, undeclared: undeclared.length,
       largeElements: size.filter(item => item.large).length, wideGroups: wide.length, unlinkedViews: Math.max(0, entries.length - 1) },
   });
 }, Effect.scoped);
 
 /** The findings that deserve a look (everything except relationships that could not be checked, and the size notes). */
-export const hasFindings = (check: Check) => check.summary.unmatchedMappings + check.summary.unmappedFiles + check.summary.unsupported + check.summary.undeclared + check.summary.unlinkedViews > 0;
+export const hasFindings = (check: Check) => check.summary.unusedResources + check.summary.unmatchedMappings + check.summary.unmappedFiles + check.summary.unsupported + check.summary.undeclared + check.summary.unlinkedViews > 0;
 
 /** A readable report: what agrees with the code first, then what to look at, with the evidence it rests on. */
 export function formatCheck(check: Check) {
@@ -235,6 +267,14 @@ export function formatCheck(check: Check) {
     if (item.status === "supported") lines.push(`  ✓ ${label(item)}  ${item.imports} import${item.imports === 1 ? "" : "s"}${item.direction === "opposite" ? " (pointing from the target)" : item.direction === "both" ? " (both ways)" : ""}, e.g. ${where(item.examples[0]!)}`);
     else if (item.status === "unsupported") lines.push(`  ▲ ${label(item)}  no import between the mapped files (it may run through a network call, an event or a file)`);
     else lines.push(`  · ${label(item)}  not checkable: an end has no mapped files`);
+  }
+  if (check.resources.length) {
+    lines.push("", `Resources (${check.resources.length}: what the code talks to)`);
+    // One only infrastructure declares is a question for whoever knows the deployment, not a finding.
+    for (const item of check.resources) lines.push(item.files
+      ? `  ✓ ${item.element}  ${item.files} file${item.files === 1 ? "" : "s"} import ${item.packages.join(", ")}`
+      : item.packages.length ? `  ▲ ${item.element}  no file imports ${item.packages.join(", ")} any more: is it still used?`
+      : `  · ${item.element}  declared in ${item.declared.join(", ")}; no code imports it`);
   }
   lines.push("", "Imports with no relationship");
   if (!check.undeclared.length) lines.push("  ✓ none");

@@ -1,0 +1,1557 @@
+{
+ "note": "What a package import says the code talks to (plan phase-r-resources.md). `match` is a package as the scan names it (an npm name, a Python top-level module, a Go import path); it also matches its subpaths (`match/…`). `resource` is the box it leads to; a SQL driver also names its `engine`, and the box takes the engine's name when the code names exactly one. Measured on tests/eval/references/resources.json.",
+ "kinds": [
+  "database",
+  "cache",
+  "queue",
+  "storage",
+  "search",
+  "mail",
+  "identity",
+  "monitoring",
+  "ai",
+  "service"
+ ],
+ "engines": {
+  "postgresql": "PostgreSQL",
+  "neon": "Neon",
+  "mysql": "MySQL",
+  "planetscale": "PlanetScale",
+  "sqlite": "SQLite",
+  "turso": "Turso",
+  "sqlserver": "SQL Server"
+ },
+ "resources": {
+  "sql": {
+   "title": "SQL database",
+   "kind": "database"
+  },
+  "mongodb": {
+   "title": "MongoDB",
+   "kind": "database"
+  },
+  "dynamodb": {
+   "title": "Amazon DynamoDB",
+   "kind": "database"
+  },
+  "firestore": {
+   "title": "Cloud Firestore",
+   "kind": "database"
+  },
+  "bigquery": {
+   "title": "BigQuery",
+   "kind": "database"
+  },
+  "cosmos": {
+   "title": "Azure Cosmos DB",
+   "kind": "database"
+  },
+  "supabase": {
+   "title": "Supabase",
+   "kind": "database"
+  },
+  "clickhouse": {
+   "title": "ClickHouse",
+   "kind": "database"
+  },
+  "redis": {
+   "title": "Redis",
+   "kind": "cache"
+  },
+  "memcached": {
+   "title": "Memcached",
+   "kind": "cache"
+  },
+  "rabbitmq": {
+   "title": "RabbitMQ",
+   "kind": "queue"
+  },
+  "kafka": {
+   "title": "Kafka",
+   "kind": "queue"
+  },
+  "nats": {
+   "title": "NATS",
+   "kind": "queue"
+  },
+  "celery": {
+   "title": "Celery broker",
+   "kind": "queue"
+  },
+  "sqs": {
+   "title": "Amazon SQS",
+   "kind": "queue"
+  },
+  "sns": {
+   "title": "Amazon SNS",
+   "kind": "queue"
+  },
+  "pubsub": {
+   "title": "Google Pub/Sub",
+   "kind": "queue"
+  },
+  "servicebus": {
+   "title": "Azure Service Bus",
+   "kind": "queue"
+  },
+  "s3": {
+   "title": "Amazon S3",
+   "kind": "storage"
+  },
+  "gcs": {
+   "title": "Google Cloud Storage",
+   "kind": "storage"
+  },
+  "azure-blob": {
+   "title": "Azure Blob Storage",
+   "kind": "storage"
+  },
+  "minio": {
+   "title": "MinIO",
+   "kind": "storage"
+  },
+  "aws": {
+   "title": "AWS",
+   "kind": "service"
+  },
+  "cloudfront": {
+   "title": "Amazon CloudFront",
+   "kind": "service"
+  },
+  "lambda": {
+   "title": "AWS Lambda",
+   "kind": "service"
+  },
+  "elasticsearch": {
+   "title": "Elasticsearch",
+   "kind": "search"
+  },
+  "opensearch": {
+   "title": "OpenSearch",
+   "kind": "search"
+  },
+  "meilisearch": {
+   "title": "Meilisearch",
+   "kind": "search"
+  },
+  "typesense": {
+   "title": "Typesense",
+   "kind": "search"
+  },
+  "algolia": {
+   "title": "Algolia",
+   "kind": "search"
+  },
+  "mail": {
+   "title": "Mail server",
+   "kind": "mail"
+  },
+  "sendgrid": {
+   "title": "SendGrid",
+   "kind": "mail"
+  },
+  "postmark": {
+   "title": "Postmark",
+   "kind": "mail"
+  },
+  "resend": {
+   "title": "Resend",
+   "kind": "mail"
+  },
+  "mailgun": {
+   "title": "Mailgun",
+   "kind": "mail"
+  },
+  "ses": {
+   "title": "Amazon SES",
+   "kind": "mail"
+  },
+  "google-identity": {
+   "title": "Google sign-in",
+   "kind": "identity"
+  },
+  "slack-identity": {
+   "title": "Slack sign-in",
+   "kind": "identity"
+  },
+  "microsoft-identity": {
+   "title": "Microsoft sign-in",
+   "kind": "identity"
+  },
+  "github-identity": {
+   "title": "GitHub sign-in",
+   "kind": "identity"
+  },
+  "oauth": {
+   "title": "OAuth provider",
+   "kind": "identity"
+  },
+  "oidc": {
+   "title": "OpenID Connect",
+   "kind": "identity"
+  },
+  "ldap": {
+   "title": "LDAP",
+   "kind": "identity"
+  },
+  "auth0": {
+   "title": "Auth0",
+   "kind": "identity"
+  },
+  "clerk": {
+   "title": "Clerk",
+   "kind": "identity"
+  },
+  "sentry": {
+   "title": "Sentry",
+   "kind": "monitoring"
+  },
+  "datadog": {
+   "title": "Datadog",
+   "kind": "monitoring"
+  },
+  "prometheus": {
+   "title": "Prometheus",
+   "kind": "monitoring"
+  },
+  "otlp": {
+   "title": "OpenTelemetry collector",
+   "kind": "monitoring"
+  },
+  "posthog": {
+   "title": "PostHog",
+   "kind": "monitoring"
+  },
+  "newrelic": {
+   "title": "New Relic",
+   "kind": "monitoring"
+  },
+  "bugsnag": {
+   "title": "Bugsnag",
+   "kind": "monitoring"
+  },
+  "openai": {
+   "title": "OpenAI",
+   "kind": "ai"
+  },
+  "anthropic": {
+   "title": "Anthropic",
+   "kind": "ai"
+  },
+  "google-ai": {
+   "title": "Google Gemini",
+   "kind": "ai"
+  },
+  "bedrock": {
+   "title": "Amazon Bedrock",
+   "kind": "ai"
+  },
+  "azure-openai": {
+   "title": "Azure OpenAI",
+   "kind": "ai"
+  },
+  "mistral": {
+   "title": "Mistral",
+   "kind": "ai"
+  },
+  "cohere": {
+   "title": "Cohere",
+   "kind": "ai"
+  },
+  "perplexity": {
+   "title": "Perplexity",
+   "kind": "ai"
+  },
+  "groq": {
+   "title": "Groq",
+   "kind": "ai"
+  },
+  "xai": {
+   "title": "xAI",
+   "kind": "ai"
+  },
+  "deepseek": {
+   "title": "DeepSeek",
+   "kind": "ai"
+  },
+  "vercel-ai": {
+   "title": "Vercel v0",
+   "kind": "ai"
+  },
+  "openrouter": {
+   "title": "OpenRouter",
+   "kind": "ai"
+  },
+  "ollama": {
+   "title": "Ollama",
+   "kind": "ai"
+  },
+  "stripe": {
+   "title": "Stripe",
+   "kind": "service"
+  },
+  "twilio": {
+   "title": "Twilio",
+   "kind": "service"
+  },
+  "github": {
+   "title": "GitHub",
+   "kind": "service"
+  },
+  "gitlab": {
+   "title": "GitLab",
+   "kind": "service"
+  },
+  "slack": {
+   "title": "Slack",
+   "kind": "service"
+  },
+  "discord": {
+   "title": "Discord",
+   "kind": "service"
+  },
+  "linear": {
+   "title": "Linear",
+   "kind": "service"
+  },
+  "notion": {
+   "title": "Notion",
+   "kind": "service"
+  },
+  "cloudflare": {
+   "title": "Cloudflare",
+   "kind": "service"
+  },
+  "firebase": {
+   "title": "Firebase",
+   "kind": "service"
+  },
+  "apprise": {
+   "title": "Apprise notifications",
+   "kind": "service"
+  },
+  "letsencrypt": {
+   "title": "Let's Encrypt",
+   "kind": "service"
+  },
+  "keycloak": {
+   "title": "Keycloak",
+   "kind": "identity"
+  },
+  "cognito": {
+   "title": "Amazon Cognito",
+   "kind": "identity"
+  }
+ },
+ "packages": [
+  {
+   "match": "@prisma/client",
+   "resource": "sql"
+  },
+  {
+   "match": "drizzle-orm",
+   "resource": "sql"
+  },
+  {
+   "match": "knex",
+   "resource": "sql"
+  },
+  {
+   "match": "typeorm",
+   "resource": "sql"
+  },
+  {
+   "match": "sequelize",
+   "resource": "sql"
+  },
+  {
+   "match": "sequelize-typescript",
+   "resource": "sql"
+  },
+  {
+   "match": "kysely",
+   "resource": "sql"
+  },
+  {
+   "match": "@mikro-orm/core",
+   "resource": "sql"
+  },
+  {
+   "match": "objection",
+   "resource": "sql"
+  },
+  {
+   "match": "sqlalchemy",
+   "resource": "sql"
+  },
+  {
+   "match": "sqlmodel",
+   "resource": "sql"
+  },
+  {
+   "match": "peewee",
+   "resource": "sql"
+  },
+  {
+   "match": "tortoise",
+   "resource": "sql"
+  },
+  {
+   "match": "databases",
+   "resource": "sql"
+  },
+  {
+   "match": "database/sql",
+   "resource": "sql"
+  },
+  {
+   "match": "gorm.io/gorm",
+   "resource": "sql"
+  },
+  {
+   "match": "github.com/jmoiron/sqlx",
+   "resource": "sql"
+  },
+  {
+   "match": "entgo.io/ent",
+   "resource": "sql"
+  },
+  {
+   "match": "github.com/uptrace/bun",
+   "resource": "sql"
+  },
+  {
+   "match": "pg",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "postgres",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "pg-promise",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "@vercel/postgres",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "@effect/sql-pg",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "psycopg",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "psycopg2",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "asyncpg",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "github.com/lib/pq",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "github.com/jackc/pgx",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "github.com/jackc/pgx/v4",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "github.com/jackc/pgx/v5",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "gorm.io/driver/postgres",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "@neondatabase/serverless",
+   "resource": "sql",
+   "engine": "neon"
+  },
+  {
+   "match": "mysql",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "mysql2",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "@effect/sql-mysql2",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "pymysql",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "MySQLdb",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "aiomysql",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "github.com/go-sql-driver/mysql",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "gorm.io/driver/mysql",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "@planetscale/database",
+   "resource": "sql",
+   "engine": "planetscale"
+  },
+  {
+   "match": "better-sqlite3",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "sqlite3",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "sqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "bun:sqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "node:sqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "@effect/sql-sqlite-bun",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "@effect/sql-sqlite-node",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "aiosqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "github.com/mattn/go-sqlite3",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "modernc.org/sqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "gorm.io/driver/sqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "github.com/glebarez/sqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "@libsql/client",
+   "resource": "sql",
+   "engine": "turso"
+  },
+  {
+   "match": "mssql",
+   "resource": "sql",
+   "engine": "sqlserver"
+  },
+  {
+   "match": "tedious",
+   "resource": "sql",
+   "engine": "sqlserver"
+  },
+  {
+   "match": "github.com/denisenko/mssqldb",
+   "resource": "sql",
+   "engine": "sqlserver"
+  },
+  {
+   "match": "github.com/microsoft/go-mssqldb",
+   "resource": "sql",
+   "engine": "sqlserver"
+  },
+  {
+   "match": "gorm.io/driver/sqlserver",
+   "resource": "sql",
+   "engine": "sqlserver"
+  },
+  {
+   "match": "mongodb",
+   "resource": "mongodb"
+  },
+  {
+   "match": "mongoose",
+   "resource": "mongodb"
+  },
+  {
+   "match": "pymongo",
+   "resource": "mongodb"
+  },
+  {
+   "match": "motor",
+   "resource": "mongodb"
+  },
+  {
+   "match": "beanie",
+   "resource": "mongodb"
+  },
+  {
+   "match": "mongoengine",
+   "resource": "mongodb"
+  },
+  {
+   "match": "go.mongodb.org/mongo-driver",
+   "resource": "mongodb"
+  },
+  {
+   "match": "go.mongodb.org/mongo-driver/v2",
+   "resource": "mongodb"
+  },
+  {
+   "match": "@aws-sdk/client-dynamodb",
+   "resource": "dynamodb"
+  },
+  {
+   "match": "@aws-sdk/lib-dynamodb",
+   "resource": "dynamodb"
+  },
+  {
+   "match": "github.com/aws/aws-sdk-go-v2/service/dynamodb",
+   "resource": "dynamodb"
+  },
+  {
+   "match": "@google-cloud/firestore",
+   "resource": "firestore"
+  },
+  {
+   "match": "cloud.google.com/go/firestore",
+   "resource": "firestore"
+  },
+  {
+   "match": "@google-cloud/bigquery",
+   "resource": "bigquery"
+  },
+  {
+   "match": "cloud.google.com/go/bigquery",
+   "resource": "bigquery"
+  },
+  {
+   "match": "@azure/cosmos",
+   "resource": "cosmos"
+  },
+  {
+   "match": "@supabase/supabase-js",
+   "resource": "supabase"
+  },
+  {
+   "match": "supabase",
+   "resource": "supabase"
+  },
+  {
+   "match": "@clickhouse/client",
+   "resource": "clickhouse"
+  },
+  {
+   "match": "clickhouse_connect",
+   "resource": "clickhouse"
+  },
+  {
+   "match": "github.com/ClickHouse/clickhouse-go",
+   "resource": "clickhouse"
+  },
+  {
+   "match": "github.com/ClickHouse/clickhouse-go/v2",
+   "resource": "clickhouse"
+  },
+  {
+   "match": "redis",
+   "resource": "redis"
+  },
+  {
+   "match": "ioredis",
+   "resource": "redis"
+  },
+  {
+   "match": "bull",
+   "resource": "redis"
+  },
+  {
+   "match": "bullmq",
+   "resource": "redis"
+  },
+  {
+   "match": "@upstash/redis",
+   "resource": "redis"
+  },
+  {
+   "match": "@hocuspocus/extension-redis",
+   "resource": "redis"
+  },
+  {
+   "match": "@socket.io/redis-adapter",
+   "resource": "redis"
+  },
+  {
+   "match": "connect-redis",
+   "resource": "redis"
+  },
+  {
+   "match": "aioredis",
+   "resource": "redis"
+  },
+  {
+   "match": "rq",
+   "resource": "redis"
+  },
+  {
+   "match": "github.com/redis/go-redis",
+   "resource": "redis"
+  },
+  {
+   "match": "github.com/redis/go-redis/v9",
+   "resource": "redis"
+  },
+  {
+   "match": "github.com/go-redis/redis",
+   "resource": "redis"
+  },
+  {
+   "match": "github.com/go-redis/redis/v8",
+   "resource": "redis"
+  },
+  {
+   "match": "github.com/gomodule/redigo",
+   "resource": "redis"
+  },
+  {
+   "match": "memjs",
+   "resource": "memcached"
+  },
+  {
+   "match": "pymemcache",
+   "resource": "memcached"
+  },
+  {
+   "match": "github.com/bradfitz/gomemcache",
+   "resource": "memcached"
+  },
+  {
+   "match": "amqplib",
+   "resource": "rabbitmq"
+  },
+  {
+   "match": "amqp-connection-manager",
+   "resource": "rabbitmq"
+  },
+  {
+   "match": "pika",
+   "resource": "rabbitmq"
+  },
+  {
+   "match": "aio_pika",
+   "resource": "rabbitmq"
+  },
+  {
+   "match": "github.com/rabbitmq/amqp091-go",
+   "resource": "rabbitmq"
+  },
+  {
+   "match": "github.com/streadway/amqp",
+   "resource": "rabbitmq"
+  },
+  {
+   "match": "kafkajs",
+   "resource": "kafka"
+  },
+  {
+   "match": "@confluentinc/kafka-javascript",
+   "resource": "kafka"
+  },
+  {
+   "match": "aiokafka",
+   "resource": "kafka"
+  },
+  {
+   "match": "kafka",
+   "resource": "kafka"
+  },
+  {
+   "match": "confluent_kafka",
+   "resource": "kafka"
+  },
+  {
+   "match": "github.com/IBM/sarama",
+   "resource": "kafka"
+  },
+  {
+   "match": "github.com/Shopify/sarama",
+   "resource": "kafka"
+  },
+  {
+   "match": "github.com/segmentio/kafka-go",
+   "resource": "kafka"
+  },
+  {
+   "match": "nats",
+   "resource": "nats"
+  },
+  {
+   "match": "github.com/nats-io/nats.go",
+   "resource": "nats"
+  },
+  {
+   "match": "celery",
+   "resource": "celery"
+  },
+  {
+   "match": "@aws-sdk/client-sqs",
+   "resource": "sqs"
+  },
+  {
+   "match": "github.com/aws/aws-sdk-go-v2/service/sqs",
+   "resource": "sqs"
+  },
+  {
+   "match": "@aws-sdk/client-sns",
+   "resource": "sns"
+  },
+  {
+   "match": "github.com/aws/aws-sdk-go-v2/service/sns",
+   "resource": "sns"
+  },
+  {
+   "match": "@google-cloud/pubsub",
+   "resource": "pubsub"
+  },
+  {
+   "match": "cloud.google.com/go/pubsub",
+   "resource": "pubsub"
+  },
+  {
+   "match": "@azure/service-bus",
+   "resource": "servicebus"
+  },
+  {
+   "match": "@aws-sdk/client-s3",
+   "resource": "s3"
+  },
+  {
+   "match": "@aws-sdk/lib-storage",
+   "resource": "s3"
+  },
+  {
+   "match": "@aws-sdk/s3-presigned-post",
+   "resource": "s3"
+  },
+  {
+   "match": "@aws-sdk/s3-request-presigner",
+   "resource": "s3"
+  },
+  {
+   "match": "github.com/aws/aws-sdk-go-v2/service/s3",
+   "resource": "s3"
+  },
+  {
+   "match": "@google-cloud/storage",
+   "resource": "gcs"
+  },
+  {
+   "match": "cloud.google.com/go/storage",
+   "resource": "gcs"
+  },
+  {
+   "match": "@azure/storage-blob",
+   "resource": "azure-blob"
+  },
+  {
+   "match": "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob",
+   "resource": "azure-blob"
+  },
+  {
+   "match": "minio",
+   "resource": "minio"
+  },
+  {
+   "match": "github.com/minio/minio-go/v7",
+   "resource": "minio"
+  },
+  {
+   "match": "aws-sdk",
+   "resource": "aws"
+  },
+  {
+   "match": "boto3",
+   "resource": "aws"
+  },
+  {
+   "match": "botocore",
+   "resource": "aws"
+  },
+  {
+   "match": "aioboto3",
+   "resource": "aws"
+  },
+  {
+   "match": "github.com/aws/aws-sdk-go",
+   "resource": "aws"
+  },
+  {
+   "match": "@aws-sdk/cloudfront-signer",
+   "resource": "cloudfront"
+  },
+  {
+   "match": "@aws-sdk/client-cloudfront",
+   "resource": "cloudfront"
+  },
+  {
+   "match": "@aws-sdk/client-lambda",
+   "resource": "lambda"
+  },
+  {
+   "match": "@elastic/elasticsearch",
+   "resource": "elasticsearch"
+  },
+  {
+   "match": "elasticsearch",
+   "resource": "elasticsearch"
+  },
+  {
+   "match": "github.com/elastic/go-elasticsearch/v8",
+   "resource": "elasticsearch"
+  },
+  {
+   "match": "@opensearch-project/opensearch",
+   "resource": "opensearch"
+  },
+  {
+   "match": "opensearchpy",
+   "resource": "opensearch"
+  },
+  {
+   "match": "github.com/opensearch-project/opensearch-go/v2",
+   "resource": "opensearch"
+  },
+  {
+   "match": "meilisearch",
+   "resource": "meilisearch"
+  },
+  {
+   "match": "github.com/meilisearch/meilisearch-go",
+   "resource": "meilisearch"
+  },
+  {
+   "match": "typesense",
+   "resource": "typesense"
+  },
+  {
+   "match": "algoliasearch",
+   "resource": "algolia"
+  },
+  {
+   "match": "nodemailer",
+   "resource": "mail"
+  },
+  {
+   "match": "smtplib",
+   "resource": "mail"
+  },
+  {
+   "match": "aiosmtplib",
+   "resource": "mail"
+  },
+  {
+   "match": "net/smtp",
+   "resource": "mail"
+  },
+  {
+   "match": "github.com/wneessen/go-mail",
+   "resource": "mail"
+  },
+  {
+   "match": "gopkg.in/gomail.v2",
+   "resource": "mail"
+  },
+  {
+   "match": "@sendgrid/mail",
+   "resource": "sendgrid"
+  },
+  {
+   "match": "sendgrid",
+   "resource": "sendgrid"
+  },
+  {
+   "match": "postmark",
+   "resource": "postmark"
+  },
+  {
+   "match": "postmarker",
+   "resource": "postmark"
+  },
+  {
+   "match": "resend",
+   "resource": "resend"
+  },
+  {
+   "match": "mailgun.js",
+   "resource": "mailgun"
+  },
+  {
+   "match": "@aws-sdk/client-ses",
+   "resource": "ses"
+  },
+  {
+   "match": "@aws-sdk/client-sesv2",
+   "resource": "ses"
+  },
+  {
+   "match": "passport-google-oauth2",
+   "resource": "google-identity"
+  },
+  {
+   "match": "passport-google-oauth20",
+   "resource": "google-identity"
+  },
+  {
+   "match": "passport-slack-oauth2",
+   "resource": "slack-identity"
+  },
+  {
+   "match": "passport-slack",
+   "resource": "slack-identity"
+  },
+  {
+   "match": "@outlinewiki/passport-azure-ad-oauth2",
+   "resource": "microsoft-identity"
+  },
+  {
+   "match": "passport-azure-ad",
+   "resource": "microsoft-identity"
+  },
+  {
+   "match": "@azure/msal-node",
+   "resource": "microsoft-identity"
+  },
+  {
+   "match": "msal",
+   "resource": "microsoft-identity"
+  },
+  {
+   "match": "passport-github2",
+   "resource": "github-identity"
+  },
+  {
+   "match": "passport-github",
+   "resource": "github-identity"
+  },
+  {
+   "match": "passport-oauth2",
+   "resource": "oauth"
+  },
+  {
+   "match": "openid-client",
+   "resource": "oidc"
+  },
+  {
+   "match": "authlib",
+   "resource": "oidc"
+  },
+  {
+   "match": "github.com/coreos/go-oidc",
+   "resource": "oidc"
+  },
+  {
+   "match": "github.com/coreos/go-oidc/v3",
+   "resource": "oidc"
+  },
+  {
+   "match": "ldapjs",
+   "resource": "ldap"
+  },
+  {
+   "match": "ldapts",
+   "resource": "ldap"
+  },
+  {
+   "match": "ldap",
+   "resource": "ldap"
+  },
+  {
+   "match": "ldap3",
+   "resource": "ldap"
+  },
+  {
+   "match": "github.com/go-ldap/ldap/v3",
+   "resource": "ldap"
+  },
+  {
+   "match": "auth0",
+   "resource": "auth0"
+  },
+  {
+   "match": "@auth0/nextjs-auth0",
+   "resource": "auth0"
+  },
+  {
+   "match": "@clerk/clerk-sdk-node",
+   "resource": "clerk"
+  },
+  {
+   "match": "@clerk/nextjs",
+   "resource": "clerk"
+  },
+  {
+   "match": "@clerk/backend",
+   "resource": "clerk"
+  },
+  {
+   "match": "@sentry/node",
+   "resource": "sentry"
+  },
+  {
+   "match": "@sentry/react",
+   "resource": "sentry"
+  },
+  {
+   "match": "@sentry/browser",
+   "resource": "sentry"
+  },
+  {
+   "match": "@sentry/solid",
+   "resource": "sentry"
+  },
+  {
+   "match": "@sentry/vue",
+   "resource": "sentry"
+  },
+  {
+   "match": "@sentry/nextjs",
+   "resource": "sentry"
+  },
+  {
+   "match": "@sentry/bun",
+   "resource": "sentry"
+  },
+  {
+   "match": "@sentry/sveltekit",
+   "resource": "sentry"
+  },
+  {
+   "match": "@sentry/electron",
+   "resource": "sentry"
+  },
+  {
+   "match": "sentry_sdk",
+   "resource": "sentry"
+  },
+  {
+   "match": "github.com/getsentry/sentry-go",
+   "resource": "sentry"
+  },
+  {
+   "match": "dd-trace",
+   "resource": "datadog"
+  },
+  {
+   "match": "ddtrace",
+   "resource": "datadog"
+  },
+  {
+   "match": "datadog",
+   "resource": "datadog"
+  },
+  {
+   "match": "gopkg.in/DataDog/dd-trace-go.v1",
+   "resource": "datadog"
+  },
+  {
+   "match": "github.com/DataDog/dd-trace-go/v2",
+   "resource": "datadog"
+  },
+  {
+   "match": "prom-client",
+   "resource": "prometheus"
+  },
+  {
+   "match": "prometheus_client",
+   "resource": "prometheus"
+  },
+  {
+   "match": "github.com/prometheus/client_golang",
+   "resource": "prometheus"
+  },
+  {
+   "match": "@opentelemetry/exporter-trace-otlp-http",
+   "resource": "otlp"
+  },
+  {
+   "match": "@opentelemetry/exporter-trace-otlp-grpc",
+   "resource": "otlp"
+  },
+  {
+   "match": "@opentelemetry/exporter-trace-otlp-proto",
+   "resource": "otlp"
+  },
+  {
+   "match": "@opentelemetry/exporter-metrics-otlp-http",
+   "resource": "otlp"
+  },
+  {
+   "match": "@opentelemetry/exporter-logs-otlp-http",
+   "resource": "otlp"
+  },
+  {
+   "match": "go.opentelemetry.io/otel/exporters/otlp",
+   "resource": "otlp"
+  },
+  {
+   "match": "posthog-js",
+   "resource": "posthog"
+  },
+  {
+   "match": "posthog-node",
+   "resource": "posthog"
+  },
+  {
+   "match": "posthog",
+   "resource": "posthog"
+  },
+  {
+   "match": "newrelic",
+   "resource": "newrelic"
+  },
+  {
+   "match": "@bugsnag/js",
+   "resource": "bugsnag"
+  },
+  {
+   "match": "@bugsnag/node",
+   "resource": "bugsnag"
+  },
+  {
+   "match": "openai",
+   "resource": "openai"
+  },
+  {
+   "match": "@ai-sdk/openai",
+   "resource": "openai"
+  },
+  {
+   "match": "langchain_openai",
+   "resource": "openai"
+  },
+  {
+   "match": "@langchain/openai",
+   "resource": "openai"
+  },
+  {
+   "match": "github.com/sashabaranov/go-openai",
+   "resource": "openai"
+  },
+  {
+   "match": "github.com/openai/openai-go",
+   "resource": "openai"
+  },
+  {
+   "match": "@anthropic-ai/sdk",
+   "resource": "anthropic"
+  },
+  {
+   "match": "anthropic",
+   "resource": "anthropic"
+  },
+  {
+   "match": "@ai-sdk/anthropic",
+   "resource": "anthropic"
+  },
+  {
+   "match": "@langchain/anthropic",
+   "resource": "anthropic"
+  },
+  {
+   "match": "langchain_anthropic",
+   "resource": "anthropic"
+  },
+  {
+   "match": "github.com/anthropics/anthropic-sdk-go",
+   "resource": "anthropic"
+  },
+  {
+   "match": "@google/generative-ai",
+   "resource": "google-ai"
+  },
+  {
+   "match": "@google/genai",
+   "resource": "google-ai"
+  },
+  {
+   "match": "@ai-sdk/google",
+   "resource": "google-ai"
+  },
+  {
+   "match": "@ai-sdk/google-vertex",
+   "resource": "google-ai"
+  },
+  {
+   "match": "google.generativeai",
+   "resource": "google-ai"
+  },
+  {
+   "match": "@ai-sdk/amazon-bedrock",
+   "resource": "bedrock"
+  },
+  {
+   "match": "@aws-sdk/client-bedrock-runtime",
+   "resource": "bedrock"
+  },
+  {
+   "match": "@ai-sdk/azure",
+   "resource": "azure-openai"
+  },
+  {
+   "match": "@ai-sdk/mistral",
+   "resource": "mistral"
+  },
+  {
+   "match": "@mistralai/mistralai",
+   "resource": "mistral"
+  },
+  {
+   "match": "mistralai",
+   "resource": "mistral"
+  },
+  {
+   "match": "@ai-sdk/cohere",
+   "resource": "cohere"
+  },
+  {
+   "match": "cohere-ai",
+   "resource": "cohere"
+  },
+  {
+   "match": "cohere",
+   "resource": "cohere"
+  },
+  {
+   "match": "@ai-sdk/perplexity",
+   "resource": "perplexity"
+  },
+  {
+   "match": "@ai-sdk/groq",
+   "resource": "groq"
+  },
+  {
+   "match": "groq-sdk",
+   "resource": "groq"
+  },
+  {
+   "match": "groq",
+   "resource": "groq"
+  },
+  {
+   "match": "@ai-sdk/xai",
+   "resource": "xai"
+  },
+  {
+   "match": "@ai-sdk/deepseek",
+   "resource": "deepseek"
+  },
+  {
+   "match": "@ai-sdk/vercel",
+   "resource": "vercel-ai"
+  },
+  {
+   "match": "@openrouter/ai-sdk-provider",
+   "resource": "openrouter"
+  },
+  {
+   "match": "ollama",
+   "resource": "ollama"
+  },
+  {
+   "match": "ollama-ai-provider",
+   "resource": "ollama"
+  },
+  {
+   "match": "stripe",
+   "resource": "stripe"
+  },
+  {
+   "match": "@stripe/stripe-js",
+   "resource": "stripe"
+  },
+  {
+   "match": "github.com/stripe/stripe-go",
+   "resource": "stripe"
+  },
+  {
+   "match": "twilio",
+   "resource": "twilio"
+  },
+  {
+   "match": "octokit",
+   "resource": "github"
+  },
+  {
+   "match": "@octokit/rest",
+   "resource": "github"
+  },
+  {
+   "match": "@octokit/graphql",
+   "resource": "github"
+  },
+  {
+   "match": "@octokit/core",
+   "resource": "github"
+  },
+  {
+   "match": "@octokit/auth-app",
+   "resource": "github"
+  },
+  {
+   "match": "@octokit/app",
+   "resource": "github"
+  },
+  {
+   "match": "github",
+   "resource": "github"
+  },
+  {
+   "match": "github.com/google/go-github",
+   "resource": "github"
+  },
+  {
+   "match": "@gitbeaker/rest",
+   "resource": "gitlab"
+  },
+  {
+   "match": "@gitbeaker/node",
+   "resource": "gitlab"
+  },
+  {
+   "match": "gitlab",
+   "resource": "gitlab"
+  },
+  {
+   "match": "@slack/web-api",
+   "resource": "slack"
+  },
+  {
+   "match": "@slack/bolt",
+   "resource": "slack"
+  },
+  {
+   "match": "slack_sdk",
+   "resource": "slack"
+  },
+  {
+   "match": "slack_bolt",
+   "resource": "slack"
+  },
+  {
+   "match": "github.com/slack-go/slack",
+   "resource": "slack"
+  },
+  {
+   "match": "discord.js",
+   "resource": "discord"
+  },
+  {
+   "match": "@linear/sdk",
+   "resource": "linear"
+  },
+  {
+   "match": "@notionhq/client",
+   "resource": "notion"
+  },
+  {
+   "match": "notion_client",
+   "resource": "notion"
+  },
+  {
+   "match": "cloudflare",
+   "resource": "cloudflare"
+  },
+  {
+   "match": "firebase-admin",
+   "resource": "firebase"
+  },
+  {
+   "match": "firebase_admin",
+   "resource": "firebase"
+  },
+  {
+   "match": "apprise",
+   "resource": "apprise"
+  },
+  {
+   "match": "golang.org/x/crypto/acme",
+   "resource": "letsencrypt"
+  },
+  {
+   "match": "golang.org/x/crypto/acme/autocert",
+   "resource": "letsencrypt"
+  },
+  {
+   "match": "keycloak-js",
+   "resource": "keycloak"
+  },
+  {
+   "match": "keycloak",
+   "resource": "keycloak"
+  },
+  {
+   "match": "@aws-sdk/client-cognito-identity-provider",
+   "resource": "cognito"
+  }
+ ]
+}

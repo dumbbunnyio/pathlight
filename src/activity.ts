@@ -33,6 +33,11 @@ export const ActivityConfig = Schema.Struct({
   entries: Schema.optionalKey(Schema.Array(Label).check(Schema.isMaxLength(4096))),
   // Elements anything may import (shared types, utilities). `pathlight check` does not ask for a relationship to them.
   shared: Schema.optionalKey(Schema.Array(Label).check(Schema.isMaxLength(256))),
+  // Elements that are what the code talks to (a database, a queue, a third-party API), each with the packages that lead to it (src/resources.ts).
+  // `pathlight check` judges a relationship to one by those packages' imports, not by imports between files.
+  // `declared` lists the infrastructure files that say it exists (compose, the example environment); one with no packages is declared there only.
+  resources: Schema.optionalKey(Schema.Array(Schema.Struct({ element: Label, packages: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))).check(Schema.isMaxLength(256)),
+    declared: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024))).check(Schema.isMaxLength(64))) })).check(Schema.isMaxLength(256))),
 });
 export interface ActivityConfig extends Schema.Schema.Type<typeof ActivityConfig> {}
 

@@ -58,6 +58,21 @@ are Pathlight's (compact fit). Navigation
 between views follows explicit links. File attribution comes from explicit
 workspace mappings, not agent guesses or title matching.
 
+What the code talks to that is not code (databases, caches, queues, object
+stores, search, mail, identity providers, monitoring, AI providers, named
+third-party APIs) is drawn from evidence only: a resource exists where a file
+imports a package that one table of data (`src/resources/imports.json`) leads
+to it, with an arrow from each component that does (implemented 2026-11-09,
+plan `phase-r-resources`, step 1). Type-only imports and tests are no
+evidence; HTTP clients lead nowhere. A resource's mapped files are its schema
+(`*.sql`, `*.prisma`), never the code that calls it, so an edit lights the
+code it was made in. The map says what the code expects, never what anyone
+has access to. Compose files and the example environment are read as names
+only (images, environment names; never a value): they confirm what the code
+reaches, name an ORM's database when they name one engine, and add a box only
+for a datastore they run with no code found, which it says (step 2,
+2026-11-09). Helm charts (dependencies, values' images, secrets named by their kind) and Terraform (resource and module block headers by type) were added in step 3 the same day; prose (a README saying what a secret is for) is not read.
+
 ### The primary experience is genuinely interactive terminal UI
 
 OpenTUI renders nodes, groups, labels and an inspector. Three supplies the eased
@@ -98,6 +113,10 @@ Beside the conversation (a tmux split beside the agent's pane, Claude Code's pan
 ### Pathlight inside Claude Code (implemented 2026-10-31; experimental and off by default since 2026-11-01)
 
 By default `/pathlight:open` opens the tmux viewer beside the conversation, as it always did. `/pathlight:open pane`, or `pathlight config set claude pane` for good, draws the viewer in Claude Code's own pane instead, docked beside the transcript in the fullscreen layout from 110 columns and inline above the prompt on the main screen, bound to that conversation (`$.session.id()`, never `--follow`). Shelved as experimental by David on 2026-11-01: Claude Code caps a docked pane at 45% of the terminal and its mods API offers no way to resize or place it, which is not an effective viewport for the diagram; the work, its tests and its goldens are kept for when that changes, and nothing of it runs unless chosen. The viewer is `pathlight pane`: the same viewer on a headless renderer, its frames sent to the plugin, the person's keys sent back; the talk's request is submitted as the person's own prompt with the text `show` types, and the reply is read from the transcript as before. With the pane chosen, the agent's own `pathlight show`/`open` opens the same pane; `/pathlight:open tmux` or a terminal too small for the pane opens the tmux pane. Under 120 columns the talk is a modal there (the reply is in the transcript beside it). What it does not do: the pane takes no clicks on the diagram, Escape is Claude Code's (`q` leaves a mode there), it opens no editor (files open from the tmux viewer), the docked pane is at most 45% of the terminal's width (the inspector below the diagram under 120 columns), and it records, follows and calls nothing. Desired, not built: an OpenCode equivalent (OpenCode has no pane API; the tmux pane remains there).
+
+### The map in a browser (step 1 implemented 2026-11-08, the launch 2026-11-08)
+
+`pathlight web` serves the terminal viewer to a browser on `127.0.0.1`: the same layout, words, colors and keys, decided on the server by the terminal's own functions and drawn by a small page (Solid) that owns only the pixels and the camera. `B`, `pathlight web --open` and `/pathlight:open web` open it in one app window per workspace, in Pathlight's own browser profile; its server stops when that window closes. It exists so the same page can later sit inside an editor (a VS Code webview) beside the code. Implemented: the map, the inspector, the views, Back, the keys for those, the themes, and the agent's live work (card tags and the pulse of a running call, the news line, Work, follow and `w`, with the same rules as the terminal: reads shown nowhere live, nothing moves unless follow is on), and live reload keeping each window's camera and selection. Desired, not built: journeys, the review and the talk in the browser, then the VS Code extension. Not a hosted service: local, one workspace, no accounts.
 
 ### The first day (implemented 2026-10-29)
 

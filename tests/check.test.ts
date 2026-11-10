@@ -46,7 +46,7 @@ test("check compares the model and mapping with the scan: evidence either way, u
     ]);
     expect(check.relationships.find(item => item.source === "activity")!.examples).toEqual([{ from: "src/viewer.ts", line: 1, to: "src/activity.ts", kind: "import" }]);
     expect(check.undeclared).toEqual([{ source: "catalog", target: "launcher", imports: 1, examples: [{ from: "src/catalog.ts", line: 1, to: "src/launcher.ts", kind: "import" }] }]);
-    expect(check.summary).toEqual({ unmatchedMappings: 1, unmappedFiles: 1, unsupported: 1, unverifiable: 3, undeclared: 1, largeElements: 0, wideGroups: 0, unlinkedViews: 0 });
+    expect(check.summary).toEqual({ unusedResources: 0, unmatchedMappings: 1, unmappedFiles: 1, unsupported: 1, unverifiable: 3, undeclared: 1, largeElements: 0, wideGroups: 0, unlinkedViews: 0 });
     expect(hasFindings(check)).toBe(true);
 
     const text = formatCheck(check);
