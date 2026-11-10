@@ -84,6 +84,22 @@ export function resourcesOf(external: readonly { readonly from: string; readonly
       if (id === "sql") engines.set("sql", new Set([...engines.get("sql") ?? [], ...named]));
     }
   }
+  // One relational box per workspace where the evidence allows it (decision 1): a generic box and one engine box in the whole workspace are that
+  // engine (a Go `database/sql` package beside a `pgx` one); an engine box whose engine the generic box already lists joins it (Infisical: `pg`
+  // in one package, `knex`, `pg` and `mysql2` in another).
+  const generic = found.get("sql");
+  if (generic) {
+    const all = new Set([...sql.values()].flatMap(({ engines: named }) => [...named]));
+    const fold = (from: string, into: string) => {
+      const files = found.get(into) ?? new Map<string, Set<string>>();
+      for (const [path, names] of found.get(from) ?? []) files.set(path, new Set([...files.get(path) ?? [], ...names]));
+      found.set(into, files);
+      found.delete(from);
+      relational.add(into);
+    };
+    if (all.size === 1 && found.has([...all][0]!)) { fold("sql", [...all][0]!); engines.delete("sql"); }
+    else for (const engine of engines.get("sql") ?? []) if (found.has(engine)) fold(engine, "sql");
+  }
   return [...found].map(([id, files]) => {
     const definition = definitions[id] ?? { title: engineNames[id] ?? id, kind: "database" as const };
     const named = [...engines.get(id) ?? []].sort(byText);
@@ -118,19 +134,23 @@ export const envNames = (text: string) => [...new Set(text.split("\n").flatMap(l
 
 /** A compose file's images and environment names (list or map form, `${NAME}` references too). */
 export const composeFacts = (text: string) => {
-  const images = new Set<string>(), env = new Set<string>();
+  const images = new Set<string>(), env = new Set<string>(), found: { resource: string; engine?: string; by: string }[] = [];
   let parsed: unknown;
-  try { parsed = Bun.YAML.parse(text); } catch { return { images: [], env: [] }; }
+  try { parsed = Bun.YAML.parse(text); } catch { return { images: [], env: [], found }; }
   const services = parsed && typeof parsed === "object" ? (parsed as { services?: unknown }).services : undefined;
-  for (const service of services && typeof services === "object" ? Object.values(services) : []) {
+  for (const [name, service] of services && typeof services === "object" ? Object.entries(services) : []) {
     if (!service || typeof service !== "object") continue;
-    const { image, environment } = service as { image?: unknown; environment?: unknown };
+    const { image, environment, build } = service as { image?: unknown; environment?: unknown; build?: unknown };
     if (typeof image === "string") images.add(image.trim());
+    // A service built here has no image to look up (Sentry's `clickhouse-self-hosted-local`): the developer's name for the service stands in.
+    const known = typeof image === "string" && imageResource(image) !== undefined;
+    const id = build !== undefined && !known ? imageResource(name) : undefined;
+    if (id) found.push(asFound(id, `service ${name}, built here`));
     const names = Array.isArray(environment) ? environment.map(item => String(item).split("=")[0]!.trim()) : environment && typeof environment === "object" ? Object.keys(environment) : [];
     for (const name of names) if (envName.test(name)) env.add(name);
   }
   for (const match of text.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)) env.add(match[1]!);
-  return { images: [...images].sort(byText), env: [...env].sort(byText) };
+  return { images: [...images].sort(byText), env: [...env].sort(byText), found };
 };
 
 const charts = infra.charts as Record<string, string>, terraformTypes = infra.terraform as Record<string, string>, moduleWords = infra.modules as Record<string, string>;

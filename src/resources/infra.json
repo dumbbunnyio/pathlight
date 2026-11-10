@@ -60,7 +60,12 @@
   "rnwood/smtp4dev": "mail",
   "quay.io/keycloak/keycloak": "keycloak",
   "bitnami/keycloak": "keycloak",
-  "localstack/localstack": "aws"
+  "localstack/localstack": "aws",
+  "chrislusf/seaweedfs": "seaweedfs",
+  "registry.gitlab.com/egos-tech/smtp": "mail",
+  "namshi/smtp": "mail",
+  "bytemark/smtp": "mail",
+  "boky/postfix": "mail"
  },
  "env": [
   {

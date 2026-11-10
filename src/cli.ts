@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { scannedLanguages } from "./languages";
 import { parseArgs } from "node:util";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -128,8 +129,9 @@ try {
     } else if (command === "draft") {
       if (id) return yield* invalid("draft takes no argument. Use --workspace PATH.");
       const made = yield* draftWorkspace(values.workspace, { out: values.out, force: values.force });
-      process.stdout.write(`Drew ${made.elements} elements (${made.packages ? `${made.packages} packages, ` : ""}${made.components} components${made.folders ? `, ${made.folders} folders` : ""}${made.collections ? `, ${made.collections} collections` : ""}) and ${made.relationships} relationships from the imports${made.resources ? `, and ${made.resources} ${made.resources === 1 ? "resource" : "resources"} the code talks to (databases, services)` : ""}.\n`
-        + `${made.mappings} file mappings; ${made.ignored} test files left out.\nWrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in ${made.target}.\n`
+      process.stdout.write((made.elements ? `Drew ${made.elements} elements (${made.packages ? `${made.packages} packages, ` : ""}${made.components} components${made.folders ? `, ${made.folders} folders` : ""}${made.collections ? `, ${made.collections} collections` : ""}) and ${made.relationships} relationships from the imports${made.resources ? `, and ${made.resources} ${made.resources === 1 ? "resource" : "resources"} the code talks to (databases, services)` : ""}.\n`
+        + `${made.mappings} file mappings; ${made.ignored} test files left out.\n` : `No code the scan reads (${scannedLanguages}); drew the ${made.resources} ${made.resources === 1 ? "resource" : "resources"} the infrastructure files declare.\n`)
+        + `Wrote pathlight.model.c4, pathlight.activity.json and likec4.config.json in ${made.target}.\n`
         + (made.unread ? `Not read: ${made.unread}. Their boxes are drawn; no arrow to or from them is.\n` : "")
         + (made.overlay ? `Applied ${made.overlay} names or notes from .pathlight/pathlight.overlay.json.\n` : "")
         + made.problems.map(text => `Overlay skipped: ${text}\n`).join("")
