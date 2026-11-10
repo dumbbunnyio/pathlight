@@ -18,6 +18,8 @@ export const insideWords = (view: { id: unknown; nodes: readonly { id: unknown; 
   for (const node of view.nodes) {
     const kind = String(node.kind) === "resource" ? resourceKinds.find(word => node.tags?.some(tag => String(tag) === word)) : undefined;
     if (kind) { words.set(String(node.id), kind); continue; }
+    // A program the infrastructure runs (Phase R2) says what it is, as a resource does.
+    if (String(node.kind) === "container" && !node.children.length) { words.set(String(node.id), "container"); continue; }
     if (node.children.length || !node.navigateTo || String(node.navigateTo) === String(view.id)) continue;
     const ref = String(node.modelRef), count = [...boxes].filter(box => box.startsWith(`${ref}.`)).length;
     if (count) words.set(String(node.id), `[${count.toLocaleString("en")}]`);

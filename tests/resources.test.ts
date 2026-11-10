@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { checkWorkspace, formatCheck } from "../src/check";
 import { listViews } from "../src/catalog";
 import { draftWorkspace } from "../src/draft";
-import { chartFacts, composeFacts, entryFor, envNames, imageResource, isInfraFile, resourceKinds, resourcesOf, templateFacts, terraformFacts, valuesFacts, withInfra } from "../src/resources";
+import { chartFacts, composeFacts, programsOf, entryFor, envNames, imageResource, isInfraFile, resourceKinds, resourcesOf, templateFacts, terraformFacts, valuesFacts, withInfra } from "../src/resources";
 import table from "../src/resources/imports.json";
 import { startWebServer } from "../src/web/server";
 import type { Frame, Span } from "../src/web/wire";
@@ -94,7 +94,7 @@ test("the draft draws what the code talks to: a box per resource with its kind, 
     expect(model).not.toContain("stripe");
     expect(model).not.toContain("redis");
     const mapping = JSON.parse(await readFile(join(directory, ".pathlight", "pathlight.activity.json"), "utf8")) as { mappings: { glob: string; element: string }[]; resources: unknown };
-    expect(mapping.resources).toEqual([{ element: "kafka", packages: ["kafkajs"] }, { element: "postgresql", packages: ["pg"] }, { element: "s3", packages: ["@aws-sdk/client-s3"] }]);
+    expect(mapping.resources).toEqual([{ element: "kafka", resource: "kafka", packages: ["kafkajs"] }, { element: "postgresql", resource: "postgresql", packages: ["pg"] }, { element: "s3", resource: "s3", packages: ["@aws-sdk/client-s3"] }]);
     expect(mapping.mappings).toContainEqual({ glob: "**/*.sql", element: "postgresql" });
     // LikeC4 accepts it (`queue` and `storage` are words of its grammar, here tag names), and the overview draws the resources beside the components.
     const views = await Effect.runPromise(listViews(directory));
@@ -158,7 +158,8 @@ test("the viewer names what a resource is on its card's first row", async () => 
 
 test("infrastructure files are read as names only: a compose file's images and environment names, an example environment's names", () => {
   expect(composeFacts(`services:\n  db:\n    image: docker.io/library/postgres:16-alpine\n    environment:\n      - POSTGRES_PASSWORD=secret\n  app:\n    image: acme/app\n    environment:\n      REDIS_URL: redis://cache\n      TOKEN: \${STRIPE_KEY:-x}\n`))
-    .toEqual({ images: ["acme/app", "docker.io/library/postgres:16-alpine"], env: ["POSTGRES_PASSWORD", "REDIS_URL", "STRIPE_KEY", "TOKEN"], found: [] });
+    .toEqual({ images: ["acme/app", "docker.io/library/postgres:16-alpine"], env: ["POSTGRES_PASSWORD", "REDIS_URL", "STRIPE_KEY", "TOKEN"], found: [],
+      programs: [{ name: "app", kind: "service", image: "acme/app", uses: [{ resource: "redis", by: "REDIS_URL" }] }] });
   // A service built here is looked up by its name, and says so; a built service with a known image, or an unknown name, adds nothing.
   expect(composeFacts("services:\n  clickhouse:\n    image: clickhouse-self-hosted-local\n    build:\n      context: ./clickhouse\n  web:\n    build: .\n  db:\n    image: postgres:16\n    build: ./db\n").found)
     .toEqual([{ resource: "clickhouse", by: "service clickhouse, built here" }]);
@@ -195,7 +196,7 @@ test("the draft cites the infrastructure, and check asks about a box only infras
     expect(model).toContain("  meilisearch = resource 'Meilisearch' {\n    #search\n    technology 'image getmeili/meilisearch:v1.8'\n    description 'Declared in docker-compose.yml; no code found that uses it.'\n  }");
     expect(model).toContain("description 'Imported by 1 file. Declared in .env.example.'");
     const mapping = JSON.parse(await readFile(join(directory, ".pathlight", "pathlight.activity.json"), "utf8")) as { resources: unknown[] };
-    expect(mapping.resources).toContainEqual({ element: "meilisearch", packages: [], declared: ["docker-compose.yml"] });
+    expect(mapping.resources).toContainEqual({ element: "meilisearch", resource: "meilisearch", packages: [], declared: ["docker-compose.yml"] });
     const check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.summary).toMatchObject({ unusedResources: 0, unsupported: 0, undeclared: 0 });
     expect(formatCheck(check)).toContain("· meilisearch  declared in docker-compose.yml; no code imports it");
@@ -214,7 +215,7 @@ test("Helm and Terraform are read as declarations: chart dependencies, secrets n
   ].join("\n"));
   expect(values.images).toEqual(["docker.io/bitnami/rabbitmq"]);
   expect(values.found.map(item => `${item.resource} ${item.by}`)).toEqual(["sql secret agentic_db_creds", "redis secret external_redis_creds", "oidc secret openidProxy_creds", "opensearch secret existingSecret"]);
-  expect(templateFacts("spec:\n  containers:\n    - image: \"{{ .Values.image }}\"\n    - image: redis:7\n      env:\n        - name: REDIS_URL\n        - name: {{ .Values.x }}\n")).toEqual({ images: ["redis:7"], env: ["REDIS_URL"] });
+  expect(templateFacts("spec:\n  containers:\n    - image: \"{{ .Values.image }}\"\n    - image: redis:7\n      env:\n        - name: REDIS_URL\n        - name: {{ .Values.x }}\n")).toEqual({ images: ["redis:7"], env: ["REDIS_URL"], programs: [] });
   expect(terraformFacts([
     'resource "aws_db_instance" "main" {\n  engine = "postgres"\n  tags = { a = "b" }\n}',
     'resource "aws_s3_bucket" "uploads" {}', 'resource "aws_vpc" "net" {}', 'resource "aws_iam_role" "app" {}',
@@ -254,5 +255,89 @@ test("a repository of only infrastructure is drawn as what it runs, and what onl
     expect(index).toContain("include redis");
   } finally {
     await rm(packages, { recursive: true, force: true });
+  }
+}, 60_000);
+
+// Phase R2: what the infrastructure runs, with arrows to what each program uses.
+const chart = {
+  "Chart.yaml": "apiVersion: v2\nname: shopchart\nversion: 1.0.0\n",
+  "values.yaml": "secretNames:\n  orders_db_creds: orders-db\n  mail_creds: smtp\n  tls_certs: certs\n",
+  "templates/deployments/api-deployment.yaml": [
+    "---", "apiVersion: apps/v1", "kind: Deployment", "metadata:", "{{ include \"labels\" . | indent 2 }}", "  name: shop-api", "spec:", "  template:", "    spec:", "      containers:",
+    "        - name: api", "          image: {{ .Values.image }}", "          env:", "            - name: REDIS_URL", "      volumes:", "        - secret:", "            secretName: '{{ .Values.secretNames.orders_db_creds }}'",
+    "        - secret:", "            secretName: '{{ .Values.secretNames.tls_certs }}'", "---", "apiVersion: v1", "kind: Service", "metadata:", "  name: shop-api",
+  ].join("\n"),
+  "templates/worker-deployment.yaml": "kind: Deployment\nmetadata:\n  name: {{ .Values.workerName }}\nspec:\n  template:\n    spec:\n      volumes:\n        - secret:\n            secretName: '{{ .Values.secretNames.mail_creds }}'\n",
+  "templates/notes.yaml": "kind: ConfigMap\nmetadata:\n  name: notes\n",
+};
+
+test("a chart's workloads and a compose file's services are programs that use what their files name", () => {
+  const compose = composeFacts([
+    "services:", "  db:", "    image: postgres:16", "  cache:", "    image: redis:7", "  web:", "    image: acme/shop:1", "    depends_on:", "      db:", "        condition: service_healthy",
+    "  worker:", "    image: acme/shop:1", "    depends_on: [cache]", "    links: ['db:database']", "  tools:", "    build: ./tools",
+  ].join("\n"));
+  // `db` and `cache` are resources, not programs; `tools` is built here and is no resource by its name, so it is a program.
+  expect(compose.programs.map(item => [item.name, item.image ?? "", item.uses.map(use => `${use.engine ?? use.resource} ${use.by}`)])).toEqual([
+    ["web", "acme/shop:1", ["postgresql depends_on db"]], ["worker", "acme/shop:1", ["redis depends_on cache", "postgresql links db"]], ["tools", "", []],
+  ]);
+  const files = [
+    { path: "Chart.yaml", images: [], env: [], found: [], chart: "shopchart" },
+    { path: "values.yaml", env: [], ...valuesFacts(chart["values.yaml"]) },
+    { path: "templates/deployments/api-deployment.yaml", ...templateFacts(chart["templates/deployments/api-deployment.yaml"]) },
+    { path: "templates/worker-deployment.yaml", ...templateFacts(chart["templates/worker-deployment.yaml"]) },
+    { path: "templates/notes.yaml", ...templateFacts(chart["templates/notes.yaml"]) },
+  ];
+  // A workload's literal name, or its file's when the name is templated; a secret it reads leads where the chart's values say; a ConfigMap is no program.
+  expect(programsOf(files).map(item => [item.title, item.name, item.kind, item.file, item.uses.map(use => `${use.resource} ${use.by}`)])).toEqual([
+    ["shopchart", "shop-api", "Deployment", "templates/deployments/api-deployment.yaml", ["redis REDIS_URL", "sql secret orders_db_creds"]],
+    ["shopchart", "worker", "Deployment", "templates/worker-deployment.yaml", ["mail secret mail_creds"]],
+  ]);
+});
+
+test("a repository that is mostly infrastructure draws its programs with arrows, and check judges them by the files", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-programs-"));
+  try {
+    await write(directory, chart);
+    await Effect.runPromise(draftWorkspace(directory));
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect(model).toContain("  element container\n");
+    expect(model).toContain("  shop_api = container 'shop-api' {\n    description 'A Deployment in templates/deployments/api-deployment.yaml.'\n  }");
+    expect(model).toContain("  shop_api -> sql 'secret orders_db_creds'\n");
+    expect(model).toContain("  worker -> mail 'secret mail_creds'\n");
+    // REDIS_URL alone declares no Redis, so there is no box for an arrow to reach.
+    expect(model).not.toContain("redis");
+    expect(model).toContain("  view index {\n    title 'shopchart'\n    include *\n");
+    const mapping = JSON.parse(await readFile(join(directory, ".pathlight", "pathlight.activity.json"), "utf8")) as { mappings: unknown[]; programs: unknown[] };
+    expect(mapping.mappings).toContainEqual({ glob: "templates/deployments/api-deployment.yaml", element: "shop_api" });
+    expect(mapping.programs).toEqual([{ element: "shop_api", source: ".", name: "shop-api" }, { element: "worker", source: ".", name: "worker" }]);
+    let check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.relationships.map(item => [item.source, item.target, item.status])).toEqual([["shop_api", "sql", "supported"], ["worker", "mail", "supported"]]);
+    expect(formatCheck(check)).toContain("✓ shop_api → sql  “secret orders_db_creds”  1 name, e.g. templates/deployments/api-deployment.yaml → secret orders_db_creds");
+    // The worker stops reading the mail secret and the API starts: one arrow loses its evidence, and a use has no arrow.
+    await write(directory, { "templates/worker-deployment.yaml": chart["templates/worker-deployment.yaml"].replace("mail_creds", "tls_certs"),
+      "templates/deployments/api-deployment.yaml": chart["templates/deployments/api-deployment.yaml"].replace("secretNames.tls_certs", "secretNames.mail_creds") });
+    check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.relationships.find(item => item.source === "worker")!.status).toBe("unsupported");
+    expect(formatCheck(check)).toContain("▲ worker → mail  “secret mail_creds”  its infrastructure no longer names it");
+    expect(check.undeclared.map(item => `${item.source} → ${item.target}`)).toEqual(["shop_api → mail"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("a compose file's programs are one box beside the code, those running one image a collection, and their cards say container", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-programs-compose-"));
+  try {
+    const service = (name: string) => [`  ${name}:`, "    image: ${APP_IMAGE}", "    depends_on: [cache]"];
+    await write(directory, { "tool.py": "import os\n", "docker-compose.yml": ["services:", "  cache:", "    image: redis:7", ...service("web"), ...service("worker"), ...service("cron"), "  proxy:", "    image: nginx:1"].join("\n") });
+    await Effect.runPromise(draftWorkspace(directory));
+    const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect(model).toContain("  docker_compose = package 'docker-compose' {\n    description 'Compose file: 4 services.'");
+    expect(model).toContain("    app = collection 'app' {\n      description '3 programs that run the image ${APP_IMAGE}.'");
+    expect(model).toContain("  docker_compose.app.web -> redis 'depends_on cache'\n");
+    const screen = await run(process.execPath, [resolve("src/cli.ts"), "see", "docker_compose_components", "--workspace", directory, "--cols", "140", "--rows", "40"]);
+    expect(screen).toMatch(/│ container +│[\s\S]*?│ proxy +│/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
