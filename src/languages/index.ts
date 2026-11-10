@@ -4,10 +4,11 @@ import { io, type OperationError } from "../effects";
 import type { ExportRef, ImportNames, ImportRef } from "../scan-imports";
 import { go } from "./go";
 import { python } from "./python";
+import { rust } from "./rust";
 import { typescript } from "./typescript";
 
 /** The `language` of a scanned file. */
-export type LanguageName = "typescript" | "javascript" | "python" | "go";
+export type LanguageName = "typescript" | "javascript" | "python" | "go" | "rust";
 export type UnresolvedReason = "not-found" | "alias-not-configured" | "package-entry-not-found";
 
 /**
@@ -20,11 +21,15 @@ export type Resolution =
   | { readonly unresolved: UnresolvedReason }
   | undefined;
 
-/** What a front end may consult to resolve: every listed path, the scanned files, the top-level names each declares, and a reader for configuration. */
+/**
+ * What a front end may consult to resolve: every listed path, the scanned files, the top-level names each declares, what each file's `imports` returned
+ * (a Rust crate's module tree is read from its files' `mod` lines), and a reader for configuration.
+ */
 export interface Workspace {
   readonly paths: readonly string[];
   readonly files: ReadonlySet<string>;
   readonly declared: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly refs: ReadonlyMap<string, readonly ImportRef[]>;
   readonly read: (path: string) => Effect.Effect<string | undefined>;
 }
 
@@ -51,7 +56,7 @@ export interface FrontEnd {
   readonly resolver: (workspace: Workspace) => Effect.Effect<(from: string, ref: ImportRef) => Resolution, OperationError>;
 }
 
-export const frontEnds: readonly FrontEnd[] = [typescript, python, go];
+export const frontEnds: readonly FrontEnd[] = [typescript, python, go, rust];
 
 const byExtension = new Map(frontEnds.flatMap(frontEnd => Object.keys(frontEnd.languages).map(extension => [extension, frontEnd] as const)));
 
@@ -61,7 +66,7 @@ export const languageFor = (path: string) => frontEndFor(path)?.languages[posix.
 /** Extensions some front end reads. */
 export const scannedExtensions: ReadonlySet<string> = new Set(byExtension.keys());
 /** The languages the scan reads, as a sentence says them. */
-export const scannedLanguages = "TypeScript, JavaScript, Python and Go";
+export const scannedLanguages = "TypeScript, JavaScript, Python, Go and Rust";
 
 /**
  * The front end that reads a file's declarations, its grammar loaded. A file no front end reads keeps TypeScript's reading, as it had before there were

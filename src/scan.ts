@@ -17,14 +17,14 @@ const Kind = Schema.Literals(["import", "type", "reexport", "dynamic", "require"
  * dates or absolute paths, so scanning the same tree twice gives the same text.
  */
 /** Bump when a change to the scanner can change its output for the same files: `pathlight diff` keeps the base commit's scan and trusts it only for the same revision. */
-export const scanRevision = 7;
+export const scanRevision = 8;
 
 export const Scan = Schema.Struct({
   version: Schema.Literal(1),
   basis: Schema.Literal("static"),
   root: Schema.String,
   files: Schema.Array(Schema.Struct({
-    path: Path, language: Schema.Literals(["typescript", "javascript", "python", "go"]), lines: Count,
+    path: Path, language: Schema.Literals(["typescript", "javascript", "python", "go", "rust"]), lines: Count,
     // What the file offers to others, read from its `export` statements (names only; at most 80). Absent in scans made before 3.
     exports: Schema.optionalKey(Schema.Array(Schema.Struct({
       name: Schema.String.check(Schema.isMaxLength(200)),
@@ -133,7 +133,7 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
     found.set(path, frontEnd.imports(text, path));
   }), { concurrency: 16, discard: true });
 
-  const context: Workspace = { paths, files, declared, read: path => readText(root, path) };
+  const context: Workspace = { paths, files, declared, refs: found, read: path => readText(root, path) };
   const resolvers = new Map<FrontEnd | undefined, (from: string, ref: ImportRef) => Resolution>();
   for (const frontEnd of present) resolvers.set(frontEnd, yield* frontEnd.resolver(context));
   for (const path of sourcePaths) {

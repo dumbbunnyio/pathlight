@@ -36,6 +36,13 @@ test("the compiled binary drafts, initialises, reports on itself and opens its o
     await writeFile(join(golang, "main.go"), 'package main\n\nimport "example.com/demo/store"\n\nfunc main() { store.Open() }\n');
     const scannedGo = JSON.parse(await run(binary, ["scan", "--workspace", golang])) as { imports: unknown[] };
     expect(scannedGo.imports).toEqual([{ from: "main.go", to: "store/store.go", line: 3, kind: "import", specifier: "example.com/demo/store" }]);
+    const crate = join(directory, "rust");
+    await mkdir(join(crate, "src"), { recursive: true });
+    await writeFile(join(crate, "Cargo.toml"), '[package]\nname = "demo"\nedition = "2021"\n');
+    await writeFile(join(crate, "src/store.rs"), "pub fn open() {}\n");
+    await writeFile(join(crate, "src/main.rs"), "mod store;\n\nuse crate::store::open;\n\nfn main() { open() }\n");
+    const scannedRust = JSON.parse(await run(binary, ["scan", "--workspace", crate])) as { imports: unknown[] };
+    expect(scannedRust.imports).toEqual([{ from: "src/main.rs", to: "src/store.rs", line: 3, kind: "import", specifier: "crate::store::open" }]);
     expect(await run(binary, ["check", "--workspace", project,])).toContain("Relationships");
     process.env.CLAUDE_CONFIG_DIR = join(directory, "claude-home"); // whatever plugin the developer has installed must not change the result
     const initialised = await run(binary, ["init", "--workspace", project]);

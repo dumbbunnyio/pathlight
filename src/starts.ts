@@ -7,7 +7,7 @@ import type { Scan } from "./scan";
 
 /**
  * Where the code declares it starts: what the project declares (package.json scripts, `bin`, `main`; pyproject.toml's `[project.scripts]` and
- * `[project.gui-scripts]`) and the programs the code declares (a Go file of `package main` with `func main`, a Python `__main__.py` or `main.py`).
+ * `[project.gui-scripts]`; Cargo.toml's binaries) and the programs the code declares (a Go file of `package main` with `func main`, a Python `__main__.py` or `main.py`).
  * `pathlight brief` lists them with the files nothing imports; the draft never hides a box that holds one.
  */
 export interface DeclaredStart { file: string; why: string }
@@ -50,6 +50,27 @@ export const declaredStartsOf = Effect.fn("Starts.declared")(function* (root: st
         const file = ["", "src/"].flatMap(base => [`${base}${module}.py`, `${base}${module}/__init__.py`]).map(path => posix.join(directory, path)).find(path => sources.has(path));
         if (file) add(file, `script “${name}” in ${posix.join(directory, "pyproject.toml")}`);
       }
+    }
+  }
+  // A Rust package's binaries, as Cargo finds them: each `[[bin]]`, then `src/main.rs` and `src/bin/` unless `autobins = false`.
+  for (const manifest of paths.filter(path => posix.basename(path) === "Cargo.toml" && !notOurs.test(path))) {
+    const directory = posix.dirname(manifest) === "." ? "" : posix.dirname(manifest);
+    const parsed = yield* io("Starts.cargo", () => readFile(join(root, manifest), "utf8")).pipe(Effect.map((text): unknown => { try { return Bun.TOML.parse(text); } catch { return undefined; } }), Effect.catch(() => Effect.succeed(undefined as unknown)));
+    const record = typeof parsed === "object" && parsed ? parsed as Record<string, unknown> : {};
+    const table = typeof record.package === "object" && record.package ? record.package as Record<string, unknown> : undefined;
+    if (!table || typeof table.name !== "string") continue;
+    const at = (path: string) => posix.join(directory, path);
+    for (const entry of Array.isArray(record.bin) ? record.bin as unknown[] : []) {
+      const bin = typeof entry === "object" && entry ? entry as Record<string, unknown> : {};
+      const name = typeof bin.name === "string" ? bin.name : undefined;
+      const file = typeof bin.path === "string" ? at(bin.path) : name ? [at(`src/bin/${name}.rs`), at(`src/bin/${name}/main.rs`), at("src/main.rs")].find(path => sources.has(path)) : undefined;
+      if (file) add(file, `bin “${name ?? table.name}” in ${manifest}`);
+    }
+    if (table.autobins === false) continue;
+    add(at("src/main.rs"), `Rust binary “${table.name}”`);
+    for (const path of [...sources].filter(path => path.startsWith(at("src/bin/")))) {
+      const name = /^([^/]+)\.rs$/.exec(path.slice(at("src/bin/").length))?.[1] ?? /^([^/]+)\/main\.rs$/.exec(path.slice(at("src/bin/").length))?.[1];
+      if (name) add(path, `Rust binary “${name}”`);
     }
   }
   // Programs the code declares: a Go `package main` holding `func main`, a Python `__main__.py` or `main.py`.

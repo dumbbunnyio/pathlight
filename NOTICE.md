@@ -34,6 +34,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 | `tree-sitter.wasm` | `web-tree-sitter` 0.25.10 (<https://github.com/tree-sitter/tree-sitter>) | Copyright (c) 2018-2024 Max Brunsfeld |
 | `tree-sitter-python.wasm` | `tree-sitter-python` 0.25.0 (<https://github.com/tree-sitter/tree-sitter-python>) | Copyright (c) 2016 Max Brunsfeld |
 | `tree-sitter-go.wasm` | `tree-sitter-go` 0.25.0 (<https://github.com/tree-sitter/tree-sitter-go>) | Copyright (c) 2014 Max Brunsfeld |
+| `tree-sitter-rust.wasm` | `tree-sitter-rust` 0.24.0 (<https://github.com/tree-sitter/tree-sitter-rust>) | Copyright (c) 2017 Maxim Sokolov |
 
 ## Rune
 

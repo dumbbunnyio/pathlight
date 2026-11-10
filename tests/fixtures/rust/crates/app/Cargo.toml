@@ -1,0 +1,16 @@
+[package]
+name = "shop-app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "admin"
+path = "src/admin.rs"
+
+[dependencies]
+shop = { package = "shop-core", path = "../core" }
+reqwest = "0.12"
+sqlx = { version = "0.8", features = ["sqlite"] }
+
+[build-dependencies]
+cc = "1"
