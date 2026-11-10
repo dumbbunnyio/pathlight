@@ -225,7 +225,7 @@ Press `a` to follow the work: while a tool runs, the viewer selects the node it 
 
 An element the mapping lists under `planned` that has no files yet (nor anything inside it) is designed but not built: its border is dashed, its box carries a `[planned]` tag, the header counts the planned elements in the view (`3 boxes · 1 planned`), and the inspector says "planned: no files yet" under its title. It looks like any other element as soon as it has files. `pathlight check` reports the same plan.
 
-A view written by `pathlight draft` for one component (`<component>_near`, reached with enter on that component) opens with that component selected, so the picture says what it is about.
+A view written by `pathlight draft` for one component (`<component>_near`, reached with enter on that component) opens with that component selected, so the picture says what it is about. The same holds for a resource's `<resource>_users` (enter on a database, cache or other resource): who uses it, with the resource selected.
 
 Calls made inside a Claude subagent carry its type and show it after the file name in the Work card (`·Explore`) and in the header line (`[Explore]`). Press `s` to hide them and leave only the conversation's own calls, and again to show them; the choice lasts for the viewer's run and applies to replay too.
 
