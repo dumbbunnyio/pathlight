@@ -1,5 +1,5 @@
 {
- "note": "What a package import says the code talks to (plan phase-r-resources.md). `match` is a package as the scan names it (an npm name, a Python top-level module, a Go import path); it also matches its subpaths (`match/…`). `resource` is the box it leads to; a SQL driver also names its `engine`, and the box takes the engine's name when the code names exactly one. Measured on tests/eval/references/resources.json.",
+ "note": "What a package import says the code talks to (plan phase-r-resources.md). `match` is a package as the scan names it (an npm name, a Python top-level module, a Go import path; a Rust crate by its crates.io name, with the next segment of the path the code writes, `sqlx/sqlite`); it also matches its subpaths (`match/…`). `resource` is the box it leads to; a SQL driver also names its `engine`, and the box takes the engine's name when the code names exactly one. Measured on tests/eval/references/resources.json.",
  "kinds": [
   "database",
   "cache",
@@ -1556,6 +1556,329 @@
   {
    "match": "@aws-sdk/client-cognito-identity-provider",
    "resource": "cognito"
+  },
+  {
+   "match": "sqlx",
+   "resource": "sql"
+  },
+  {
+   "match": "sqlx/any",
+   "resource": "sql"
+  },
+  {
+   "match": "diesel",
+   "resource": "sql"
+  },
+  {
+   "match": "diesel-async",
+   "resource": "sql"
+  },
+  {
+   "match": "sea-orm",
+   "resource": "sql"
+  },
+  {
+   "match": "sqlx/sqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "sqlx/Sqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "sqlx/SqlitePool",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "sqlx/SqliteConnection",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "sqlx/SqlitePoolOptions",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "sqlx/SqliteConnectOptions",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "diesel/sqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "diesel/SqliteConnection",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "rusqlite",
+   "resource": "sql",
+   "engine": "sqlite"
+  },
+  {
+   "match": "sqlx/postgres",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "sqlx/Postgres",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "sqlx/PgPool",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "sqlx/PgConnection",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "sqlx/PgPoolOptions",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "sqlx/PgConnectOptions",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "diesel/pg",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "diesel/PgConnection",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "tokio-postgres",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "deadpool-postgres",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "bb8-postgres",
+   "resource": "sql",
+   "engine": "postgresql"
+  },
+  {
+   "match": "sqlx/mysql",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "sqlx/MySql",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "sqlx/MySqlPool",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "sqlx/MySqlConnection",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "sqlx/MySqlPoolOptions",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "sqlx/MySqlConnectOptions",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "diesel/mysql",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "diesel/MysqlConnection",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "mysql_async",
+   "resource": "sql",
+   "engine": "mysql"
+  },
+  {
+   "match": "tiberius",
+   "resource": "sql",
+   "engine": "sqlserver"
+  },
+  {
+   "match": "libsql",
+   "resource": "sql",
+   "engine": "turso"
+  },
+  {
+   "match": "clickhouse",
+   "resource": "clickhouse"
+  },
+  {
+   "match": "aws-sdk-dynamodb",
+   "resource": "dynamodb"
+  },
+  {
+   "match": "deadpool-redis",
+   "resource": "redis"
+  },
+  {
+   "match": "bb8-redis",
+   "resource": "redis"
+  },
+  {
+   "match": "fred",
+   "resource": "redis"
+  },
+  {
+   "match": "memcache",
+   "resource": "memcached"
+  },
+  {
+   "match": "lapin",
+   "resource": "rabbitmq"
+  },
+  {
+   "match": "rdkafka",
+   "resource": "kafka"
+  },
+  {
+   "match": "async-nats",
+   "resource": "nats"
+  },
+  {
+   "match": "aws-sdk-sqs",
+   "resource": "sqs"
+  },
+  {
+   "match": "aws-sdk-sns",
+   "resource": "sns"
+  },
+  {
+   "match": "google-cloud-pubsub",
+   "resource": "pubsub"
+  },
+  {
+   "match": "aws-sdk-s3",
+   "resource": "s3"
+  },
+  {
+   "match": "rust-s3",
+   "resource": "s3"
+  },
+  {
+   "match": "s3",
+   "resource": "s3"
+  },
+  {
+   "match": "google-cloud-storage",
+   "resource": "gcs"
+  },
+  {
+   "match": "azure_storage_blobs",
+   "resource": "azure-blob"
+  },
+  {
+   "match": "opensearch",
+   "resource": "opensearch"
+  },
+  {
+   "match": "meilisearch-sdk",
+   "resource": "meilisearch"
+  },
+  {
+   "match": "lettre",
+   "resource": "mail"
+  },
+  {
+   "match": "aws-sdk-ses",
+   "resource": "ses"
+  },
+  {
+   "match": "aws-sdk-sesv2",
+   "resource": "ses"
+  },
+  {
+   "match": "openidconnect",
+   "resource": "oidc"
+  },
+  {
+   "match": "oauth2",
+   "resource": "oauth"
+  },
+  {
+   "match": "aws-sdk-cognitoidentityprovider",
+   "resource": "cognito"
+  },
+  {
+   "match": "sentry",
+   "resource": "sentry"
+  },
+  {
+   "match": "opentelemetry-otlp",
+   "resource": "otlp"
+  },
+  {
+   "match": "prometheus",
+   "resource": "prometheus"
+  },
+  {
+   "match": "metrics-exporter-prometheus",
+   "resource": "prometheus"
+  },
+  {
+   "match": "posthog-rs",
+   "resource": "posthog"
+  },
+  {
+   "match": "async-openai",
+   "resource": "openai"
+  },
+  {
+   "match": "ollama-rs",
+   "resource": "ollama"
+  },
+  {
+   "match": "async-stripe",
+   "resource": "stripe"
+  },
+  {
+   "match": "octocrab",
+   "resource": "github"
+  },
+  {
+   "match": "slack-morphism",
+   "resource": "slack"
+  },
+  {
+   "match": "serenity",
+   "resource": "discord"
+  },
+  {
+   "match": "aws-sdk-lambda",
+   "resource": "lambda"
   }
  ]
 }
