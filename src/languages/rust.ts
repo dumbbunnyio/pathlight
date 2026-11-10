@@ -56,6 +56,8 @@ function segmentsOf(text: string): string[] | undefined {
 }
 
 const key = (segments: readonly string[]) => segments.join("::");
+/** A path as the code writes it: `::regex::escape`, not `::::regex::escape`. */
+const spell = (segments: readonly string[]) => segments[0] === "::" ? `::${key(segments.slice(1))}` : key(segments);
 
 function read(source: string): RustImport[] {
   const shape: Shape = { scopes: new Map(), externs: new Map(), macros: new Set(), test: false };
@@ -73,7 +75,7 @@ function read(source: string): RustImport[] {
     // A path in code is an import only when it starts at a module or a crate: a type's `Self::`, `Vec::new` and a variant start with a capital.
     if (parts.length < 2 || !(parts[0] === "::" || /^[a-z_]/.test(parts[0]!)) || seenPaths.has(`${key(scope)}\0${key(parts)}`)) return;
     seenPaths.add(`${key(scope)}\0${key(parts)}`);
-    found.push({ specifier: key(parts), line, kind: "import", names: [{ imported: parts.at(-1)!, exported: parts.at(-1)! }], segments: parts, scope, use: false, glob: false });
+    found.push({ specifier: spell(parts), line, kind: "import", names: [{ imported: parts.at(-1)!, exported: parts.at(-1)! }], segments: parts, scope, use: false, glob: false });
   };
   /** The paths written inside a macro's arguments (`writeln!(out, "{}", crate::assets::list())`), read from its tokens; strings are left alone. */
   const macroArguments = (tree: Node, scope: string[]) => {
@@ -186,7 +188,7 @@ function read(source: string): RustImport[] {
         if (!leaf.segments.length) continue;
         const last = leaf.segments.at(-1)!;
         const names = leaf.glob ? "*" as const : [{ imported: last, exported: leaf.alias ?? last }];
-        found.push({ specifier: `${key(leaf.segments)}${leaf.glob ? "::*" : ""}`, line, kind: "import", names, ...reexport ? { reexport: true as const } : {},
+        found.push({ specifier: `${spell(leaf.segments)}${leaf.glob ? "::*" : ""}`, line, kind: "import", names, ...reexport ? { reexport: true as const } : {},
           segments: leaf.segments, scope: frame.scope, use: true, glob: leaf.glob, ...leaf.alias ? { alias: leaf.alias } : {} });
         if (!leaf.glob && (leaf.alias ?? last) !== "_" && !["crate", "self", "super"].includes(leaf.alias ?? last)) scope.aliases.set(leaf.alias ?? last, [...scope.aliases.get(leaf.alias ?? last) ?? [], leaf.segments]);
       }
@@ -233,6 +235,17 @@ const kinds: Record<string, ExportRef["kind"]> = {
   const_item: "const", static_item: "const", mod_item: "namespace",
 };
 
+/** The attributes written before the item at `index`, doc comments between them skipped. */
+const attributesBefore = (nodes: (Node | null)[], index: number) => {
+  const found: string[] = [];
+  for (let at = index - 1; at >= 0; at--) {
+    const node = nodes[at];
+    if (node?.type === "attribute_item") found.push(node.text);
+    else if (node?.type !== "line_comment" && node?.type !== "block_comment") break;
+  }
+  return found;
+};
+
 /** Public top-level items (any `pub`), a `#[macro_export]` macro, then the names a `pub use` offers from elsewhere (`reexport`). */
 function exports(source: string, limit = 80): ExportRef[] {
   const found: ExportRef[] = [], seen = new Set<string>();
@@ -242,7 +255,7 @@ function exports(source: string, limit = 80): ExportRef[] {
   children.forEach((node, index) => {
     if (!node) return;
     const visible = node.namedChildren.some(child => child?.type === "visibility_modifier");
-    if (node.type === "macro_definition" && children[index - 1]?.type === "attribute_item" && /macro_export/.test(children[index - 1]!.text)) add(node.childForFieldName("name")?.text, "function");
+    if (node.type === "macro_definition" && attributesBefore(children, index).some(text => /macro_export/.test(text))) add(node.childForFieldName("name")?.text, "function");
     else if (visible && kinds[node.type]) add(node.childForFieldName("name")?.text, kinds[node.type]!);
     else if (visible && node.type === "use_declaration") {
       const leaves: string[] = [];
@@ -404,14 +417,15 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
   for (const pack of packages.values()) for (const { root, kind } of pack.targets) {
     const target: Target = { kind, package: pack, modules: new Map(), macros: new Map() };
     if (kind === "lib") libraries.set(pack.directory, target);
-    const visit = (path: string, segments: readonly string[], test: boolean, depth: number) => {
+    // A file a `#[path]` attribute names owns the folder it sits in, as a `mod.rs` does: its own `mod x;` is the file beside it.
+    const visit = (path: string, segments: readonly string[], test: boolean, depth: number, named = false) => {
       target.modules.set(key(segments), { file: path, scope: [], test });
       if (!contexts.has(path)) contexts.set(path, { target, segments, test });
       const shape = shapeOf(path);
       if (!shape || depth > 64) return;
       for (const name of shape.macros) if (!target.macros.has(name)) target.macros.set(name, path);
       const fileTest = test || shape.test;
-      const base = isModRs(path, root) ? directory(path) : join_(directory(path), posix.basename(path, ".rs"));
+      const base = named || isModRs(path, root) ? directory(path) : join_(directory(path), posix.basename(path, ".rs"));
       const scopes = [...shape.scopes.keys()].sort((a, b) => a.length - b.length);
       const testScopes = new Set<string>();
       for (const scopeKey of scopes) {
@@ -428,7 +442,7 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
           const folder = join_(base, ...inner);
           const candidates = mod.path ? [join_(inner.length ? folder : directory(path), mod.path)] : [join_(folder, `${mod.name}.rs`), join_(folder, mod.name, "mod.rs")];
           const found = candidates.find(item => listed.has(item) && !target.modules.has(key(child)));
-          if (found && [...target.modules.values()].every(item => item.file !== found)) visit(found, child, childTest, depth + 1);
+          if (found && [...target.modules.values()].every(item => item.file !== found)) visit(found, child, childTest, depth + 1, mod.path !== undefined);
         }
       }
     };
@@ -494,7 +508,9 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
       if (through?.length) {
         const found = merge(through.map(path => resolve(module.file, { ...ref, segments: [...path, ...rest.slice(index + 1)], scope: module.scope, use: true, glob: false }, depth + 1)));
         if (found && "files" in found) {
-          const files = found.files.filter(entry => entry.to !== from);
+          // A module that declares the name itself under another `cfg` keeps its own file too.
+          const own = shapeOf(module.file)?.scopes.get(key(module.scope))?.items.has(name) ? [{ to: module.file, names: [{ imported: name, exported: name }] }] : [];
+          const files = [...own, ...found.files].filter((entry, at, all) => entry.to !== from && all.findIndex(other => other.to === entry.to) === at);
           return files.length ? { files } : undefined;
         }
       }
@@ -542,6 +558,11 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
       if (up > current.length) return { unresolved: "not-found" };
       return walk(target, from, current.slice(0, current.length - up), segments.slice(up), ref, current, depth);
     }
+    // In edition 2015 a `use` path, and any path after `::`, starts at the crate's root.
+    const old = target.package.edition < 2018;
+    if (old && (first === "::" ? segments[1] !== undefined && target.modules.has(key([segments[1]])) : ref.use && target.modules.has(key([first])))) {
+      return walk(target, from, [], first === "::" ? segments.slice(1) : segments, ref, current, depth);
+    }
     if (first === "::") {
       const found = segments[1] ? crate(context, from, segments[1], segments.slice(2), ref, depth) : "none";
       return found === "none" ? ref.use && segments[1] ? { external: externalName(segments[1], segments.slice(2)) } : undefined : found;
@@ -557,7 +578,6 @@ const resolver = Effect.fn("Scan.rust")(function* (workspace: Workspace) {
     // `use a;` then `a::f()`: the path is the use's own.
     if (scope?.aliases.get(first)?.some(alias => alias[0] === first) && !ref.use && depth < 4) return resolve(from, { ...ref, use: true }, depth + 1);
     if (scope?.items.has(first)) return undefined;
-    if (target.package.edition < 2018 && ref.use && target.modules.has(key([first]))) return walk(target, from, [], segments, ref);
     const found = crate(context, from, first, segments.slice(1), ref, depth);
     if (found !== "none") return found;
     return ref.use ? { external: externalName(first, segments.slice(1)) } : undefined;

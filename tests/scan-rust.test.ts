@@ -84,6 +84,27 @@ test("a name a use brought in starts a path, an extern crate alias names its cra
   expect(scan.external.map(item => `${item.from}:${item.line} ${item.package}`)).toEqual(["src/b.rs:7 regex/Regex", "src/b.rs:8 regex/escape", "src/lib.rs:1 regex"]);
 });
 
+test("a use cycle through cfg alternatives ends, and a #[path] file's own mod is the file beside it", async () => {
+  // Edition 2015 (no `edition`): each file takes X from the other under one platform and declares it under the other.
+  const cycle = await scanFixture({
+    "Cargo.toml": '[package]\nname = "n"\nversion = "0.1.0"\n',
+    "src/lib.rs": "mod a;\nmod b;\nmod c;\n",
+    "src/a.rs": "#[cfg(unix)]\nuse b::X;\n#[cfg(windows)]\npub struct X;\n",
+    "src/b.rs": "#[cfg(windows)]\nuse a::X;\n#[cfg(unix)]\npub struct X;\n",
+    "src/c.rs": "use a::X;\nuse ::b::X as Y;\n",
+  });
+  expect(imports(cycle).filter(line => line.startsWith("src/c.rs"))).toEqual(["src/c.rs:1 a::X -> src/a.rs", "src/c.rs:1 a::X -> src/b.rs", "src/c.rs:2 ::b::X -> src/a.rs",
+    "src/c.rs:2 ::b::X -> src/b.rs"]);
+  const placed = await scanFixture({
+    "Cargo.toml": '[package]\nname = "p"\nversion = "0.1.0"\nedition = "2021"\n',
+    "src/lib.rs": '#[path = "odd/place.rs"]\nmod placed;\n\npub fn f() { placed::sub::g(); }\n',
+    "src/odd/place.rs": "pub mod sub;\n",
+    "src/odd/sub.rs": "pub fn g() {}\n",
+    "src/odd/place/sub.rs": "pub fn g() {}\n",
+  });
+  expect(imports(placed)).toEqual(["src/lib.rs:4 placed::sub::g -> src/odd/sub.rs"]);
+});
+
 test("macros, macro arguments, globs, platform aliases and re-exported modules are followed to the file that declares the name", async () => {
   const scan = await scanFixture({
     "Cargo.toml": '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n',

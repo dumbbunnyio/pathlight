@@ -14,7 +14,9 @@
 //   reached by macro expansion, globs the scan cannot narrow, platform `cfg`.
 //
 // Nothing is written into the workspace: cargo's and rust-analyzer's build output goes to a CARGO_TARGET_DIR under $XDG_CACHE_HOME/pathlight (kept,
-// so a second run does not rebuild the build scripts), offline. Needs `cargo`; the
+// so a second run does not rebuild the build scripts), offline.
+// rust-analyzer runs `cargo metadata` in the workspace, which writes a `Cargo.lock` when the workspace has none or a stale one; check
+// `git status` of the workspace after a run (both reference repositories commit theirs). Needs `cargo`; the
 // file level needs `rust-analyzer` (rustup component add rust-analyzer rust-src) and the dependencies fetched (`cargo fetch`), and is skipped without it.
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
