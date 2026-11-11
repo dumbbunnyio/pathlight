@@ -51,5 +51,11 @@ export const crumbActivity = (activity: readonly TextChunk[] | undefined, availa
 /** The news line while follow is on: where it last took you, for as long as it lasts, and the key that stops it. */
 export const followNews = (box: string): TextChunk[] => [fg(palette.muted)("following "), fg(palette.text)(box), fg(palette.muted)("  "), pill("a", palette.accent), fg(palette.muted)(" stop")];
 
+/** What a reload added to and removed from the view on screen, for the news line: `+ Auth middleware  − billing`; nothing when the view did not change. */
+export const reloadNews = (added: readonly string[], removed: readonly string[]): TextChunk[] | undefined => {
+  const items = [...added.map(title => ({ mark: "+ ", title, color: palette.accent })), ...removed.map(title => ({ mark: "− ", title, color: palette.muted }))].slice(0, 4);
+  return items.length ? items.flatMap((item, index) => [...(index ? [fg(palette.muted)("  ")] : []), fg(item.color)(item.mark), fg(palette.text)(item.title)]) : undefined;
+};
+
 /** An offer when the work is in another view. */
 export const workOffer = (title: string): TextChunk[] => [fg(palette.accent)("● "), fg(palette.text)(`working in ${title}`), fg(palette.muted)("  "), pill("w", palette.accent), fg(palette.muted)(" go and follow")];
