@@ -190,6 +190,8 @@ export interface Flows { version: 1; basis: "agent-reading"; flows: FlowReport[]
 export function calledFrom(config: ActivityConfig | undefined, scan: Pick<Scan, "imports">) {
   const within = (element: string, ancestor: string) => element === ancestor || element.startsWith(`${ancestor}.`);
   return (from: string, file: string, name: string): boolean | undefined => {
+    // A function in the box's own files is what the box does, not a call it makes into the next box: not checked.
+    if (elementsOf(config, file).some(element => within(element, from))) return undefined;
     const records = scan.imports.filter(item => item.to === file && item.from !== file && elementsOf(config, item.from).some(element => within(element, from)));
     if (records.some(item => (item.uses ?? []).some(use => use.how !== "types" && (use.name === name || use.name.endsWith(`.${name}`) || use.name.endsWith(`::${name}`) || use.name.startsWith(`${name}.`) || use.name.startsWith(`${name}::`))))) return true;
     // An import whose uses were not read (`require`, a dynamic import, a side-effect import) or were cut at the scan's limit could hold the call.

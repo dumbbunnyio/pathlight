@@ -196,6 +196,8 @@ test("a step that names the function it calls is reported when no file of the bo
   expect(called("shop.api", "src/store/orders.ts", "deleteOrder")).toBe(false);
   // A `require` whose uses were not read could hold the call: not reported.
   expect(called("shop.api", "src/store/rows.ts", "readRow")).toBeUndefined();
+  // A function in the step's own box is what that box does: not checked.
+  expect(called("shop.api", "src/api/orders.ts", "handle")).toBeUndefined();
   const step = (title: string, name: string, notes = "") => ({ source: "shop.api", target: "shop.store", title, backed: true, notes: `${notes}${name} | src/store/orders.ts | export function ${name}()` });
   const report = assessJourney({ id: "order", title: "Order", viewDescription: "Synced at abc1234.", steps: [
     step("saves the order", "saveOrder"), step("deletes it", "deleteOrder"), step("over the wire", "deleteOrder", "over | http\n"),
