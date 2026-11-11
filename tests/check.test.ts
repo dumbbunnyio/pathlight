@@ -127,9 +127,9 @@ views {
 `,
       ".pathlight/pathlight.activity.json": mapping([["src/big/**", "big"], ["src/small.ts", "small"], ["src/types.ts", "types"]]),
       ...big,
-      "src/small.ts": `import { T } from "./types";\nexport const s: T = 1;\n`,
-      "src/types.ts": `export type T = number;\n`,
-      "src/big/core/f0.ts": `import type { T } from "../../types";\nexport const f0: T = 1;\n`,
+      "src/small.ts": `import { T } from "./types";\nexport const s = T + 1;\n`,
+      "src/types.ts": `export const T = 1;\n`,
+      "src/big/core/f0.ts": `import { T } from "../../types";\nexport const f0 = T + 1;\n`,
     });
     // Without `shared`, the imports into types are undeclared relationships.
     let check = await Effect.runPromise(checkWorkspace(directory));

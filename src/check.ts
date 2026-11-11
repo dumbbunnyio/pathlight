@@ -7,6 +7,7 @@ import { failure, io } from "./effects";
 import { scannedLanguages } from "./languages";
 import { entryFor, isSqlResource, programsOf, readInfra, type Program } from "./resources";
 import { listFiles, scanWorkspace, type Scan } from "./scan";
+import { carriesCode } from "./uses";
 
 const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
 // `line` 0: an infrastructure file names it (a secret, `depends_on`), which is read as names, not lines.
@@ -54,7 +55,8 @@ export const Check = Schema.Struct({
   plan: Schema.Struct({ planned: Count, waiting: Schema.Array(Schema.String), built: Schema.Array(Schema.String) }),
   // `entries` are the views no navigateTo points to. A diagram normally has one, the overview.
   views: Schema.Struct({ total: Count, entries: Schema.Array(Schema.String) }),
-  // Imports between two mapped elements that no relationship at that level, or above it, declares (in either direction).
+  // Imports between two mapped elements that no relationship at that level, or above it, declares (in either direction). Imports that only name types
+  // are left out: a model need not draw them.
   undeclared: Schema.Array(Schema.Struct({ source: Schema.String, target: Schema.String, imports: Count, examples: Schema.Array(Example) })),
   // What the code talks to (the mapping's `resources`): how many files import each one's packages. None means its evidence is gone.
   resources: Schema.Array(Schema.Struct({ element: Schema.String, packages: Schema.Array(Schema.String), files: Count, declared: Schema.Array(Schema.String) })),
@@ -137,6 +139,8 @@ export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" 
   const pairs = new Map<string, { source: string; target: string; edges: Scan["imports"][number][] }>();
   let sharedImports = 0;
   for (const edge of evidence) {
+    // An import that only names types is no arrow the model must draw (`src/uses.ts`); it still supports one that is drawn.
+    if (!carriesCode(edge)) continue;
     if ([...claimed.get(edge.to) ?? []].some(isShared) && edge.from !== edge.to) { sharedImports++; continue; }
     for (const a of claimed.get(edge.from) ?? []) for (const b of claimed.get(edge.to) ?? []) {
       if (related(a, b) || covered(a, b)) continue;

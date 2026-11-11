@@ -33,7 +33,7 @@ import { createCamera } from "./viewer/camera";
 import { boundsOf } from "./viewer/compact";
 import { shapeView } from "./viewer/shape";
 import { cardLook } from "./viewer/card-view";
-import { connectsCard, filesCard, flowsCard, stepsCard } from "./viewer/cards";
+import { connectsCard, filesCard, flowsCard, stepsCard, typesLinks } from "./viewer/cards";
 import { crumbActivity, followNews, footerContent, modeHints, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, boxesText, edgeMarks, journeyHeading, viewHeading } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
@@ -67,7 +67,7 @@ const view = options.view;
 let binding = options.activity;
 const following = options.follow === true;
 const world = yield* loadWorld(view, { watching: Boolean(binding || following), reload: false });
-let { config, files, fileError, diagrams } = world;
+let { config, files, fileError, diagrams, typesOnly } = world;
 // Compact fit: each view is drawn from a copy with Pathlight's spacing and card sizes and LikeC4's arrangement (viewer/compact.ts), made once per view.
 // A cell is taken to be half as wide as it is tall, as the camera does when the terminal does not say.
 type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
@@ -135,7 +135,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   if (options.select !== undefined && !asked) return yield* Effect.fail(failure("Native.select", `The view '${view.id}' has no element '${options.select}'. Pathlight list names the views; the element ids are in the model.`));
   type Scene = ReturnType<typeof getDiagram>;
   type Node = Scene["nodes"][number];
-  const state = createState<Node, Scene, { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; notice: string }>(asked ?? firstNode(diagram));
+  const state = createState<Node, Scene, { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; typesOnly: typeof typesOnly; notice: string }>(asked ?? firstNode(diagram));
   let dirty = true;
   let redrawAfterResize = false;
   let fileMode = false, editorActive = false;
@@ -552,7 +552,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const outgoing = diagram.edges.filter(edge => edge.source === state.selected?.id);
     // Who calls it first, then what it calls: one row each, the relationship's own words beside the name. Enter walks the graph.
     const links = [...incoming.map(edge => ({ node: String(edge.source), arrow: "←", tone: palette.incoming, label: edge.label })),
-      ...outgoing.map(edge => ({ node: String(edge.target), arrow: "→", tone: palette.accent, label: edge.label }))];
+      ...outgoing.map(edge => ({ node: String(edge.target), arrow: "→", tone: palette.accent, label: edge.label })),
+      ...typesLinks(state.selected ? { id: String(state.selected.id), modelRef: String(state.selected.modelRef) } : undefined,
+        diagram.nodes.map(node => ({ id: String(node.id), modelRef: String(node.modelRef) })), diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target) })), typesOnly)];
     connectionItems = links.map(item => item.node);
     state.cursor.connections = Math.min(state.cursor.connections, Math.max(0, connectionItems.length - 1));
     const connects = connectsCard(links, name, state.focusSection === "connections" ? state.cursor.connections : undefined, bodyWidth(), rowBackground);
@@ -1156,7 +1158,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const before = new Set(diagram.nodes.map(node => String(node.id)));
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
-        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; imports = undefined;
+        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; imports = undefined;
         forgetGone(state, id => Boolean(diagrams.get(id)?.nodes.length));
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;

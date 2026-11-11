@@ -89,7 +89,7 @@ export const loadWebWorld = (view: View, theme?: string, mode?: Mode, reload = f
     rows.set(id, { words: shaped.words, row: shaped.row });
   }
   const world: World = { views: loaded.diagrams as unknown as ReadonlyMap<string, WorldView>, scenes, rows, files: loaded.files, planned, words: checks.words, version: pkg.version,
-    config: loaded.config, rules: rulesOf(loaded.config) };
+    config: loaded.config, rules: rulesOf(loaded.config), typesOnly: loaded.typesOnly };
   const themes = yield* loadThemes(view.workspace);
   const environment = yield* themeFromEnvironment();
   const wanted = theme || environment.name || (yield* savedTheme().pipe(Effect.catch(() => Effect.succeed(undefined)))) || "pathlight";

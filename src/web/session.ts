@@ -3,7 +3,7 @@ import type { ActivityConfig } from "../activity";
 import { routeTone } from "../routes";
 import { palette, toneColor } from "../ui";
 import { cardLook } from "../viewer/card-view";
-import { connectsCard } from "../viewer/cards";
+import { connectsCard, typesLinks, type TypesPair } from "../viewer/cards";
 import { isActive, nowCard, ticker } from "../viewer/activity-view";
 import { crumbActivity, followNews, footerContent, workOffer } from "../viewer/footer";
 import { helpContent } from "../viewer/help";
@@ -44,6 +44,8 @@ export interface World {
   planned: readonly string[];
   words: ReadonlyMap<string, Words>;
   version: string;
+  /** Pairs whose code only shares types (`#types`): in no view, listed in Connects (viewer/cards.ts `typesLinks`). */
+  typesOnly?: readonly TypesPair[];
   /** The file mapping and its globs: which element a journal's paths belong to. */
   config?: ActivityConfig | undefined;
   rules?: readonly Rule[];
@@ -268,6 +270,8 @@ export const frameOf = (world: World, state: WindowState, live: Live = noLive, n
   const links = selected ? [
     ...diagram.edges.filter(edge => edge.target === selected.id).map(edge => ({ node: String(edge.source), arrow: "←", tone: palette.incoming, label: edge.label })),
     ...diagram.edges.filter(edge => edge.source === selected.id).map(edge => ({ node: String(edge.target), arrow: "→", tone: palette.accent, label: edge.label })),
+    ...typesLinks({ id: String(selected.id), modelRef: String(selected.modelRef ?? selected.id) }, diagram.nodes.map(node => ({ id: String(node.id), modelRef: String(node.modelRef ?? node.id) })),
+      diagram.edges.map(edge => ({ source: String(edge.source), target: String(edge.target) })), world.typesOnly ?? []),
   ] : [];
   const hot = RGBA.fromHex(palette.hot);
   const watching = live.bound || live.following;

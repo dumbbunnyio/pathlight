@@ -528,8 +528,8 @@ test("a folder that is more than half of its package and holds at least openFloo
   expect(model).toContain("  element folder\n");
   expect(model).toContain("  core = folder 'core' {\n    description '111 files, 112 lines'\n    data = component 'data' {");
   expect(model).toContain("    ui = component 'ui' {");
-  expect(model).toContain("  cli -> core.ui '1 import'");
-  expect(model).toContain("  core.ui -> core.data '1 import'");
+  expect(model).toMatch(/\n  cli -> core\.ui '[^']+' \{\n[^}]*description '1 import'/);
+  expect(model).toMatch(/\n  core\.ui -> core\.data '[^']+' \{\n[^}]*description '1 import'/);
   expect([keys["core"], keys["core.ui"], keys["core.data"], keys["cli"]]).toEqual(["src/core", "src/core/ui", "src/core/data", "src/cli"]);
   expect(mappings.map(item => [item.glob, item.element])).toEqual([["src/cli/**", "cli"], ["src/core/data/**", "core.data"], ["src/core/ui/**", "core.ui"]]);
   // check's spread hint is for a box that may be several things: an opened folder is drawn as several, so the hint moves to its children.
@@ -774,5 +774,37 @@ test("a child named like the view's subject is included by its full id, so its l
       return Object.fromEntries([...computed.view("app_components" as never).nodes()].map(node => [String(node.id), node.$node.navigateTo ?? null]));
     })));
     expect(links as Record<string, unknown>).toEqual({ app: null, "app.app": "app_app_near", "app.cli": "app_cli_near" });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+test("an arrow is drawn only where code is used, titled by what it uses; a pair that only shares types is in the model and in no view", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-uses-"));
+  try {
+    await write(directory, {
+      "package.json": JSON.stringify({ name: "app" }),
+      "src/store/store.ts": "export class Store { get() { return 1; } }\nexport interface Row { id: number }\nexport function open() { return new Store(); }\n",
+      "src/api/api.ts": 'import { open, Row } from "../store/store";\nexport const list = (): Row[] => [{ id: open().get() }];\n',
+      "src/view/view.ts": 'import { Row } from "../store/store";\nexport const show = (row: Row) => String(row.id);\n',
+    });
+    const made = await Effect.runPromise(draftWorkspace(directory));
+    expect(made).toMatchObject({ relationships: 1, typesOnly: 1 });
+    const text = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect(text).toMatch(/\.api -> [\w.]*store 'calls open'/);
+    expect(text).toMatch(/\.view_ -> [\w.]*store '[^']+' \{\n\s+#types/);
+    const edges = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const source = yield* acquireModel(directory);
+      const computed = yield* Effect.promise(() => source.computedModel([...source.projects()][0]!));
+      return {
+        views: [...computed.views()].flatMap(view => [...view.edges()].map(edge => `${String(edge.source.id)}->${String(edge.target.id)}`)),
+        model: [...computed.relationships()].map(relation => `${String(relation.source.id)}->${String(relation.target.id)}`),
+      };
+    })));
+    const pair = (list: string[], from: string) => list.some(item => new RegExp(`(^|\\.)${from}->([\\w.]*\\.)?store$`).test(item));
+    expect(pair(edges.model, "view_")).toBe(true);
+    expect(pair(edges.views, "api")).toBe(true);
+    expect(pair(edges.views, "view_")).toBe(false);
+    // `check` does not ask for an arrow that only shares types.
+    const check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.summary).toMatchObject({ undeclared: 0, unsupported: 0 });
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);

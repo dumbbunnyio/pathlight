@@ -12,6 +12,7 @@ import { readPlan } from "../plan";
 import { readDecisions } from "../review";
 import { readStale } from "../stale";
 import { readKeys, readOverlay } from "../edit";
+import type { TypesPair } from "./cards";
 
 /**
  * What the viewer draws from the workspace: the activity mapping (only when it is this project's, unless a session is watched), the files it maps
@@ -28,10 +29,13 @@ export const loadWorld = (view: View, options: { watching: boolean; reload: bool
     const source = yield* acquireModel(view.workspace);
     if (options.reload && source.hasErrors()) return yield* Effect.fail(failure("Reload.model", "The model has errors; showing the last good version"));
     const model = yield* io("LikeC4.layout", () => source.layoutedModel(view.project));
-    return new Map([...model.views()].map(entry => [String(entry.id), entry.$view]));
+    // Pairs that only share types (`#types`, src/draft.ts): in no view, so Connects reads them from the model.
+    const typesOnly: TypesPair[] = [...model.relationships()].filter(relation => [...relation.tags].includes("types" as never))
+      .map(relation => ({ source: String(relation.source.id), target: String(relation.target.id) }));
+    return { views: new Map([...model.views()].map(entry => [String(entry.id), entry.$view])), typesOnly };
   }).pipe(Effect.scoped);
   if (config && options.reload) yield* validateActivityMapping(view, config);
-  return { config, files, fileError, diagrams };
+  return { config, files, fileError, diagrams: diagrams.views, typesOnly: diagrams.typesOnly };
 });
 
 /**
