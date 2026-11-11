@@ -16,6 +16,7 @@ import { scanWorkspace } from "./scan";
 import { draftWorkspace } from "./draft";
 import { checkAndRecord } from "./stale";
 import { planNew, setPlan } from "./plan";
+import { formatRefresh, readRefreshed, readSettings, refreshWorkspace, saveRedraw } from "./refresh";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
 import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
@@ -33,6 +34,7 @@ const help = `pathlight list [--workspace PATH]
 pathlight scan [--workspace PATH] [--out FILE]
 pathlight check [--workspace PATH] [--json] [--strict] [--quiet]
 pathlight diff [--workspace PATH] [--base REV] [--json] [--quiet]
+pathlight refresh [--workspace PATH] [--quiet] [--hook claude]
 pathlight flows [--workspace PATH] [--json] [--strict] [--quiet]
 pathlight flow add ID --title TEXT --reads FILE,FILE --step "FROM -> TO [over http|websocket|process]: EVENT [@ FILE#FUNCTION]" ... [--workspace PATH] [--project NAME] [--force]
 pathlight flow remove ID [--workspace PATH]
@@ -54,12 +56,14 @@ pathlight web [VIEW] [--workspace PATH] [--project NAME] [--select ELEMENT] [--s
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
 pathlight config get claude|browser | pathlight config set claude pane|tmux|web | pathlight config set browser COMMAND
+pathlight config get redraw [--workspace PATH] | pathlight config set redraw on|off [--workspace PATH]
 pathlight setup [--workspace PATH] [--yes]
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
 check compares the LikeC4 model and .pathlight/pathlight.activity.json with that scan: unmatched globs, unmapped files,
 relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found. --quiet prints nothing (the Stop hook uses it); every check records its counts for the viewer's out-of-date badge.
 diff compares the relationships the imports support now with those at a git commit (default HEAD): which the working tree added or lost, and new imports with no relationship. The viewer draws them; static evidence only.
+refresh is what the end of an agent's turn runs (the Claude Stop hook, OpenCode's plugin): one scan, the check's counts, then on a map pathlight draft drew a redraw when files landed where no box claims them, a planned box has files, or a box's files are gone, then the diff's counts. A redraw keeps every name, writes nothing when nothing changes, and is not written when it would remove a box a journey uses (check then says so). A model a person wrote is never redrawn; config set redraw off stops it for one workspace.
 flows checks the state diagrams an agent wrote (*.behavior.c4) against the files they name and the commit they were synced at: files that are gone or changed since, arrows with no event, decisions with one answer, states nothing reaches, states that name no file. A flow is the agent's reading, so this finds what is wrong or old, never that it is right. --strict exits 1 if anything is found.
 flow add writes a journey you worked out from the code: a LikeC4 dynamic view of hops between components, as ID.behavior.c4, stamped with the commit and the files you read. It checks every component against the model and takes the file back out if the model would stop compiling; it decides nothing about what happens. A step can name the function it calls with a trailing @ FILE#FUNCTION: the file must be one you read and must export that name, and its declaration is copied as written (pathlight flows says when it changes). A hop the code makes over HTTP, a websocket or a spawned process, which no import backs, is written FROM -> TO over http: EVENT, and flows does not report it as missing from the model; use it only when you read both the request and the code that answers it. flow remove deletes only a file flow add wrote.
 brief lists, for each box of the draft (or only the boxes under the keys you give, a box's key or an element id from the model, children first), the files it owns with their sizes, what it imports from and what imports it, what is inside it and any name it has: what an agent needs to say what each box is for. With no keys it opens with what the project says about itself (its package description and the start of its README). brief --changed lists only the boxes that are new or whose files changed since pathlight name recorded them, so a later run names just those. brief --first-day prints the briefing for a person new to the code: what it is, how it is built, where the project declares it starts, the journeys to follow (F in the viewer) and how sure the names are, derived each time from the scan, the names and the recorded journeys and stored nowhere. name saves the names and notes the agent worked out (one box with --title and --note, or many from a JSON file of {"key","title","note"} entries, a dash for standard input) as the agent's reading (by "agent"), redraws once, never replaces a name a person wrote, and refuses a key that is not a box.
@@ -143,7 +147,10 @@ try {
     } else if (command === "check") {
       if (id) return yield* invalid("check takes no argument. Use --workspace PATH.");
       const check = yield* checkAndRecord(values.workspace);
-      if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(check, null, 2)}\n` : formatCheck(check));
+      // A redraw the end of the last turn held back, because it would have broken a journey.
+      const behind = (yield* readRefreshed(values.workspace))?.blocked;
+      const behindText = behind ? `The map is behind: a redraw would remove ${behind.element}, which journey ${behind.journey} uses. Rerun the journey or pathlight draft --force.\n` : "";
+      if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(behind ? { ...check, behind } : check, null, 2)}\n` : `${formatCheck(check)}${behindText}`);
       if (values.strict && hasFindings(check)) process.exitCode = 1;
     } else if (command === "flows") {
       if (id) return yield* invalid("flows takes no argument. Use --workspace PATH.");
@@ -211,6 +218,16 @@ try {
       const findings = yield* doctor(values.workspace);
       process.stdout.write(formatDoctor(findings));
       if (hasFailures(findings)) process.exitCode = 1;
+    } else if (command === "refresh") {
+      if (id) return yield* invalid("refresh takes no argument. Use --workspace PATH.");
+      const done = yield* refreshWorkspace(values.workspace);
+      if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(done, null, 2)}\n` : formatRefresh(done));
+    } else if (command === "config" && extra[0] === "redraw") {
+      // Per workspace, in its ignored state: whether a map Pathlight drew is redrawn at the end of each turn (unset is on).
+      const value = extra[1];
+      if ((id === "get" && value !== undefined) || (id === "set" && value !== "on" && value !== "off") || (id !== "get" && id !== "set")) return yield* invalid("Use pathlight config get redraw, or pathlight config set redraw on|off.");
+      if (id === "get") { const saved = (yield* readSettings(values.workspace)).redraw; if (saved) process.stdout.write(`${saved}\n`); }
+      else { yield* saveRedraw(values.workspace, value as "on" | "off"); process.stdout.write(value === "on" ? "This map will be kept current at the end of each turn.\n" : "This map is redrawn only when you ask (pathlight draft).\n"); }
     } else if (command === "config") {
       // Pathlight's own settings (src/theme.ts): `claude` is where the Claude Code plugin's /pathlight:open draws the viewer, `browser` the command
       // pathlight web --open and B use. `get` prints nothing when unset (the tmux pane, the first browser found).

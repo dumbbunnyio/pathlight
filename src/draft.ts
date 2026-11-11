@@ -1085,13 +1085,30 @@ export const writeOverlay = Effect.fn("Draft.writeOverlay")(function* (directory
   });
 });
 
-export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace: string, options: { out?: string; force?: boolean } = {}) {
+/**
+ * The element ids a journey or flow beside the model names (`a -> b` steps, `include` lines), less those its own file defines (a state diagram's states).
+ * A redraw that would remove one of them would stop the model compiling, so `refresh` does not write it.
+ */
+export const journeyIds = (text: string) => {
+  const own = new Set([...text.matchAll(/^\s*([A-Za-z_][\w-]*)\s*=\s*[A-Za-z_]/gm)].map(match => match[1]!));
+  const named = [...text.matchAll(/^\s*([A-Za-z_][\w.-]*)\s*(?:->|<-)\s*([A-Za-z_][\w.-]*)/gm)].flatMap(match => [match[1]!, match[2]!]);
+  for (const match of text.matchAll(/^\s*include\s+([^\n{]+)/gm)) named.push(...match[1]!.split(",").map(item => item.trim().replace(/\.\*$/, "")).filter(item => /^[A-Za-z_][\w.-]*$/.test(item)));
+  return new Set(named.filter(id => !own.has(id.split(".")[0]!)));
+};
+
+export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace: string, options: {
+  out?: string; force?: boolean;
+  /** A scan and file list already made (`pathlight refresh`). */
+  given?: { readonly scan: Scan; readonly paths: readonly string[] };
+  /** Write nothing if the new model would lose an id that a journey beside it names, and say which (`blocked`). */
+  keepJourneys?: boolean;
+} = {}) {
   const root = resolve(workspace);
   // Written into `.pathlight/` unless told where; the ignored state (the overlay keys) stays under the workspace's own `.cache`.
   const target = resolve(options.out ?? join(workspace, home));
   const state = options.out ? target : root;
-  const scan = yield* scanWorkspace(root);
-  const { paths } = yield* listFiles(root);
+  const scan = options.given?.scan ?? (yield* scanWorkspace(root));
+  const paths = options.given?.paths ?? (yield* listFiles(root)).paths;
   const manifests = yield* readManifests(root, paths);
   const overlayText = yield* io("Draft.overlay", () => readFile(join(target, overlayFile), "utf8")).pipe(Effect.option);
   const read = overlayText._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(yield* json(overlayText.value)) : undefined;
@@ -1135,21 +1152,42 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   // The evidence each resource rests on, for `check` to judge its arrows by (the packages, not imports between files).
   const resources = draft.resources.map(item => ({ element: item.element, resource: item.id, packages: item.packages, ...(item.declared.length ? { declared: [...new Set(item.declared.map(entry => entry.path))] } : {}) }));
   const programs = draft.packages.filter(item => item.runs).flatMap(item => item.components.map(entry => ({ element: entry.id, source: entry.program!.source, name: entry.title })));
-  if (overlay && built.length) yield* writeOverlay(target, overlay);
-  yield* io("Draft.write", async () => {
-    await mkdir(target, { recursive: true });
-    await writeFile(join(target, modelFile), rendered.text);
-    await writeFile(join(target, mappingFile), `${JSON.stringify({ version: 1, project: name, mappings, ...(resources.length ? { resources } : {}), ...(programs.length ? { programs } : {}), ...(planned.length ? { planned } : {}), ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}) }, null, 2)}\n`);
-    await mkdir(join(state, ".cache", "pathlight"), { recursive: true });
-    await writeFile(join(state, keysPath), `${JSON.stringify({ version: 1, keys: Object.fromEntries(draft.packages.flatMap(item => [...(draft.flat ? [] : [[item.id, item.key] as const]), ...item.folders.map(folder => [folder.id, folder.key] as const), ...draft.resources.map(resource => [resource.element, resource.key] as const), ...item.groups.map(group => [group.id, group.key] as const), ...item.components.map(entry => [entry.id, entry.key] as const)])) })}\n`);
-    if (!existing.includes(configFile)) await writeFile(join(target, configFile), `${JSON.stringify({ $schema: "https://likec4.dev/schemas/config.json", name, title: label }, null, 2)}\n`);
-  });
+  const keys = Object.fromEntries(draft.packages.flatMap(item => [...(draft.flat ? [] : [[item.id, item.key] as const]), ...item.folders.map(folder => [folder.id, folder.key] as const), ...draft.resources.map(resource => [resource.element, resource.key] as const), ...item.groups.map(group => [group.id, group.key] as const), ...item.components.map(entry => [entry.id, entry.key] as const)]));
+  const mappingText = `${JSON.stringify({ version: 1, project: name, mappings, ...(resources.length ? { resources } : {}), ...(programs.length ? { programs } : {}), ...(planned.length ? { planned } : {}), ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}) }, null, 2)}\n`;
+  // The ids before this draw, from the keys the last one recorded: a journey's id that was there and would not be is a journey this draw would break.
+  let blocked: { element: string; journey: string } | undefined;
+  if (options.keepJourneys) {
+    const before = yield* io("Draft.keys", () => readFile(join(state, keysPath), "utf8")).pipe(Effect.flatMap(json), Effect.option);
+    const old = new Set(before._tag === "Some" && before.value && typeof before.value === "object" ? Object.keys((before.value as { keys?: Record<string, unknown> }).keys ?? {}) : []);
+    const now = new Set(Object.keys(keys));
+    for (const name of existing.filter(file => /\.behavior\.(c4|likec4)$/.test(file)).sort()) {
+      const text = yield* io("Draft.journey", () => readFile(join(target, name), "utf8")).pipe(Effect.catch(() => Effect.succeed("")));
+      const lost = [...journeyIds(text)].sort().find(id => old.has(id) && !now.has(id));
+      if (lost) { blocked = { element: lost, journey: name.replace(/\.behavior\.(c4|likec4)$/, "") }; break; }
+    }
+  }
+  // An unchanged draw writes nothing, so a turn that added nothing does not make the viewer reload.
+  const same = previous._tag === "Some" && previous.value === rendered.text && (yield* io("Draft.mapping", () => readFile(join(target, mappingFile), "utf8")).pipe(Effect.option)).pipe(found => found._tag === "Some" && found.value === mappingText);
+  const written = !blocked && !(same && !built.length);
+  if (written) {
+    if (overlay && built.length) yield* writeOverlay(target, overlay);
+    yield* io("Draft.write", async () => {
+      await mkdir(target, { recursive: true });
+      if (!same) {
+        await writeFile(join(target, modelFile), rendered.text);
+        await writeFile(join(target, mappingFile), mappingText);
+      }
+      await mkdir(join(state, ".cache", "pathlight"), { recursive: true });
+      await writeFile(join(state, keysPath), `${JSON.stringify({ version: 1, keys })}\n`);
+      if (!existing.includes(configFile)) await writeFile(join(target, configFile), `${JSON.stringify({ $schema: "https://likec4.dev/schemas/config.json", name, title: label }, null, 2)}\n`);
+    });
+  }
   const folders = draft.packages.reduce((sum, item) => sum + item.folders.length, 0);
   // Programs the infrastructure runs are counted apart from the code (Phase R2); `components`, `packages` and `elements` are the code's.
   const runners = draft.packages.filter(item => item.runs);
   const code = (count: (item: DraftPackage) => number) => draft.packages.filter(item => !item.runs).reduce((sum, item) => sum + count(item), 0);
   const codePackages = draft.flat ? 0 : draft.packages.length - runners.length;
-  return { target, project: name, packages: codePackages, components: code(item => item.components.length), collections: code(item => item.groups.length), folders, programs: programs.length,
+  return { written, ...(blocked ? { blocked } : {}), keys, target, project: name, packages: codePackages, components: code(item => item.components.length), collections: code(item => item.groups.length), folders, programs: programs.length,
     elements: code(item => item.components.length + item.groups.length) + folders + codePackages,
     relationships: draft.relationships.length, typesOnly: draft.typesOnly.length, resources: draft.resources.length, mappings: mappings.length, ignored: draft.ignored, unread: unreadSummary(draft, unreadSet), overlay: overlay ? Object.keys(overlay.elements).length - unknown.length : 0, unknown,
     problems: draft.problems, pins: overlay && committed?._tag === "Some" ? changedPins(committed.value, overlay) : [] };

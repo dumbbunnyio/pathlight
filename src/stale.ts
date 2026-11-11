@@ -2,6 +2,7 @@ import { realpath, rename, writeFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
 import { checkWorkspace, type Check } from "./check";
+import type { Scan } from "./scan";
 import { isScannedSource, isUnscannedSource, listFiles } from "./scan";
 import { io, json } from "./effects";
 
@@ -40,8 +41,8 @@ const writeStamp = Effect.fn("Stale.write")(function* (workspace: string, stamp:
 });
 
 /** Records a finished check, with how much of the source it could read. Writing is best effort: a read-only workspace just never shows the badge. */
-export const recordStale = (workspace: string, check: Check) => Effect.gen(function* () {
-  const listed = yield* listFiles(workspace).pipe(Effect.map(found => found.paths), Effect.catch(() => Effect.succeed(undefined)));
+export const recordStale = (workspace: string, check: Check, paths?: readonly string[]) => Effect.gen(function* () {
+  const listed = paths ?? (yield* listFiles(workspace).pipe(Effect.map(found => found.paths), Effect.catch(() => Effect.succeed(undefined))));
   const coverage = listed ? { read: listed.filter(isScannedSource).length, unread: listed.filter(isUnscannedSource).length } : {};
   return yield* writeStamp(workspace, { ...staleOf(check), ...coverage });
 });
@@ -56,11 +57,11 @@ const broken = new Set(["Check.model", "Check.mapping", "Check.shared", "Check.p
  * Runs the check and records it. When the check cannot run because the model or the mapping is broken, that is recorded too, so the badge does not
  * keep saying "in sync" from the last good run while the diagram cannot be read. The failure is still raised.
  */
-export const checkAndRecord = Effect.fn("Stale.checkAndRecord")(function* (workspace: string) {
-  const check = yield* checkWorkspace(workspace).pipe(Effect.tapError(error => "operation" in error && broken.has(String(error.operation))
+export const checkAndRecord = Effect.fn("Stale.checkAndRecord")(function* (workspace: string, given?: { readonly scan: Scan; readonly paths: readonly string[] }) {
+  const check = yield* checkWorkspace(workspace, given).pipe(Effect.tapError(error => "operation" in error && broken.has(String(error.operation))
     ? writeStamp(workspace, { version: 1, time: Date.now(), unmapped: 0, unmatched: 0, unsupported: 0, undeclared: 0, invalid: true })
     : Effect.void));
-  yield* recordStale(workspace, check);
+  yield* recordStale(workspace, check, given?.paths);
   return check;
 });
 

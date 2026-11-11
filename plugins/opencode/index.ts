@@ -82,15 +82,15 @@ export default Plugin.define({
     const database = join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "opencode", "opencode.db");
     const pointer = (sessionID: SessionID, change: SessionChange) =>
       enqueue(sessionID, () => () => recordSession(workspace, { source: "opencode", session: sessionID }, { ...existsSync(database) ? { transcript: database } : {}, ...change }));
-    // When a turn ends, `check` and `diff` run, as the Claude plugin's Stop hook does: the viewer's out-of-date badge and its review of new dependencies
-    // come from them. Only in a workspace with a mapping, one run at a time (a turn that ends during a run gets one more), and nothing is reported.
+    // When a turn ends, `refresh` runs, as the Claude plugin's Stop hook does: one scan for the viewer's out-of-date badge, the redraw of a drawn map
+    // and its review of new dependencies. Only in a workspace with a mapping, one run at a time (a turn that ends during a run gets one more), and nothing is reported.
     let checking = false, again = false;
     const endOfTurn = async () => {
       if (checking) { again = true; return; }
       if (!mapped()) return;
       checking = true;
       try {
-        for (const command of ["check", "diff"]) await pathlight([command, "--workspace", workspace, "--quiet"], listening.signal).catch(() => undefined);
+        await pathlight(["refresh", "--workspace", workspace, "--quiet"], listening.signal).catch(() => undefined);
       } finally { checking = false; if (again && !disposed) { again = false; void endOfTurn(); } }
     };
     const turnEnded = new Set(["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"]);
