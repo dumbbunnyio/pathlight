@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { basename, join, posix, resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import { failure, io, json } from "./effects";
@@ -28,6 +28,8 @@ export interface DraftComponent {
   readonly group?: string;
   /** The opened folder this component sits in (directly, or in one of its collections), when it is not in its package's own top level. */
   readonly folder?: string;
+  /** A folder the agent declared before it has files (the overlay's `planned`): drawn dashed, with its glob and in the mapping's `planned`. */
+  readonly planned?: true;
   /** A program the infrastructure runs (Phase R2), drawn as a `container`: its workload kind and image. */
   readonly program?: { readonly kind: string; readonly image?: string; /** The chart folder or compose file that holds it. */ readonly source: string };
 }
@@ -66,6 +68,10 @@ export interface Draft {
   readonly ignored: number;
 }
 
+/** The name of the placeholder that stands for a planned folder's files until it has some (never written to disk). */
+export const plannedPlaceholder = ".pathlight-planned";
+/** Whether a folder holds a file the picture keeps (a test alone does not build a planned box). */
+export const hasFilesIn = (paths: readonly string[], folder: string) => paths.some(path => path.startsWith(`${folder}/`) && !outside.some(item => item.pattern.test(path)));
 /** Folders with fewer files than this go into the package's "small folders" collection (when there are several). */
 export const smallFolder = 3;
 /** A package with more loose files than this lists each one in a "loose files" collection; fewer stay one component. */
@@ -129,6 +135,14 @@ interface Holder {
  */
 export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly external?: Scan["external"] }, manifests: readonly { directory: string; name: string }[], overlay?: Overlay, unread: readonly string[] = [], infra: readonly InfraFile[] = []): Draft {
   const problems: string[] = [];
+  // A planned folder with no files yet stands in the listing as one placeholder file, so it is laid out exactly where its files will land and keeps
+  // the id it will have then. The placeholder is never a file of the box, never counted and never decides what opens (it is treated as unread).
+  // A planned or `standalone` folder is always its own box: it was declared as a part, so it never folds into "small folders".
+  const present = [...scan.files.map(file => file.path), ...unread];
+  const placeholders = new Map<string, string>();
+  for (const item of overlay?.planned ?? []) if (!hasFilesIn(present, item.path)) placeholders.set(`${item.path}/${plannedPlaceholder}`, item.path);
+  const standalone = new Set([...(overlay?.standalone ?? []).map(item => item.key), ...(overlay?.planned ?? []).map(item => item.path)]);
+  unread = [...unread, ...placeholders.keys()];
   const splits = new Set((overlay?.splits ?? []).map(item => item.key));
   const splitSeen = new Set<string>(), splitOpened = new Set<string>();
   const merges = (overlay?.merges ?? []).map((item, index) => ({ ...item, index, applied: false }));
@@ -224,7 +238,7 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
       const directory = opens(readCount(members)) ? opening(path, members) : undefined;
       if (directory) opened.set(key, { directory, split: false });
     }
-    const small = folderKeys.filter(key => !opened.has(key) && groups.get(key)!.length < smallFolder);
+    const small = folderKeys.filter(key => !opened.has(key) && groups.get(key)!.length < smallFolder && !standalone.has(box.folderPath(key)));
     const loose = (groups.get("") ?? []).sort();
     // A collection only exists when it would hold several things; one small folder or a few loose files stay ordinary components.
     const smallGroup = small.length >= 3, looseGroup = loose.length > looseFiles;
@@ -236,7 +250,12 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
     const add = (id: string, key: string, componentTitle: string, members: string[], globs: string[], group?: string) => {
       const full = group ? `${group}.${id}` : box.qualify(id);
       for (const path of members) componentOf.set(path, full);
-      out.components.push({ id: full, key, title: componentTitle, files: members.sort(), globs, ...(group ? { group } : {}), ...inFolder });
+      const held = members.filter(path => placeholders.has(path)), files = members.filter(path => !placeholders.has(path));
+      // A planned folder is a box only where boxes are drawn; deeper, it would be part of another box, which is reported and not drawn.
+      const planned = held.length > 0 && files.length === 0 && key === placeholders.get(held[0]!);
+      if (!planned) for (const path of held) { componentOf.delete(path); problems.push(`planned '${placeholders.get(path)}': it would be inside the box '${key}', not a box of its own. Plan a folder where boxes are drawn.`); }
+      if (!files.length && !planned) return;
+      out.components.push({ id: full, key, title: componentTitle, files: files.sort(), globs, ...(planned ? { planned: true as const } : {}), ...(group ? { group } : {}), ...inFolder });
     };
     const smallTaken = new Set<string>();
     for (const key of folderKeys) {
@@ -580,7 +599,8 @@ export function analyse(draft: Draft, starts: ReadonlySet<string> = new Set()): 
   const minor = new Set<string>();
   // A box that holds a declared start (a script, a main) is where a reader begins: it is never left out of a view. It takes the place of the weakest
   // box shown that is not one.
-  const holdsStart = (item: DraftPackage, id: string) => item.components.some(entry => (entry.id === id || entry.id.startsWith(`${id}.`)) && entry.files.some(path => starts.has(path)));
+  // A planned box is kept the same way: it has no files and no arrows yet, and it is the box the person is waiting to see.
+  const holdsStart = (item: DraftPackage, id: string) => item.components.some(entry => (entry.id === id || entry.id.startsWith(`${id}.`)) && (entry.planned || entry.files.some(path => starts.has(path))));
   const leftOut = (item: DraftPackage, order: readonly string[], room: number) => {
     const shown = order.slice(0, room), hidden = order.slice(room);
     for (const id of hidden.filter(id => holdsStart(item, id))) {
@@ -666,6 +686,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     return `${plural(files.length, "file")}, ${total} (${languages(notRead)} not read by the scan)`;
   };
   const said = (note: string | undefined, text: string) => note ? `${note} · ${text}` : text;
+  const componentFacts = (entry: DraftComponent) => entry.program ? programFacts(entry) : entry.planned ? "Planned: no files yet." : facts(entry.files);
   // A program says what defines it; its image is its technology, which the inspector shows under the name.
   const technologyLine = (entry: DraftComponent, indent: string) => entry.program?.image ? [`${indent}technology ${quote(entry.program.image)}`] : [];
   const programFacts = (entry: DraftComponent) => `${entry.program!.kind === "service" ? "A compose service" : `A ${entry.program!.kind}`}${entry.files.length ? ` in ${entry.files[0]}` : ""}.`;
@@ -676,7 +697,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   // What a package or an opened folder holds directly: its components, the folders it opened, then its collections.
   const block = (item: DraftPackage, indent: string, parent: string, folder?: DraftFolder) => {
     const result: string[] = [];
-    for (const entry of item.components.filter(candidate => !candidate.group && candidate.folder === folder?.id)) result.push(`${indent}${local(entry.id, parent)} = ${entry.program ? "container" : "component"} ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}  `), ...technologyLine(entry, `${indent}  `), `${indent}  description ${quote(said(entry.note, entry.program ? programFacts(entry) : facts(entry.files)))}`, `${indent}}`);
+    for (const entry of item.components.filter(candidate => !candidate.group && candidate.folder === folder?.id)) result.push(`${indent}${local(entry.id, parent)} = ${entry.program ? "container" : "component"} ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}  `), ...technologyLine(entry, `${indent}  `), `${indent}  description ${quote(said(entry.note, componentFacts(entry)))}`, `${indent}}`);
     for (const inner of item.folders.filter(candidate => candidate.parent === folder?.id)) {
       result.push(`${indent}${local(inner.id, parent)} = folder ${quote(inner.title)} {`, ...tagLine(inner.id, "component", `${indent}  `), `${indent}  description ${quote(said(inner.note, facts(item.components.filter(entry => entry.id.startsWith(`${inner.id}.`)).flatMap(entry => entry.files))))}`, ...block(item, `${indent}  `, inner.id, inner), `${indent}}`);
     }
@@ -684,7 +705,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     for (const group of item.groups.filter(candidate => candidate.folder === folder?.id)) {
       const members = item.components.filter(candidate => candidate.group === group.id);
       result.push(`${indent}${local(group.id, parent)} = collection ${quote(group.title)} {`, `${indent}  description ${quote(said(group.note, group.kind === "image" ? `${plural(members.length, "program")} that run the image ${members[0]!.program!.image}.` : `${group.kind === "small" ? `${plural(members.length, "folder")}, ` : ""}${facts(members.flatMap(entry => entry.files))}`))}`);
-      for (const entry of members) result.push(`${indent}  ${local(entry.id, group.id)} = ${entry.program ? "container" : "component"} ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}    `), ...technologyLine(entry, `${indent}    `), `${indent}    description ${quote(said(entry.note, entry.program ? programFacts(entry) : facts(entry.files)))}`, `${indent}  }`);
+      for (const entry of members) result.push(`${indent}  ${local(entry.id, group.id)} = ${entry.program ? "container" : "component"} ${quote(entry.title)} {`, ...tagLine(entry.id, "component", `${indent}    `), ...technologyLine(entry, `${indent}    `), `${indent}    description ${quote(said(entry.note, componentFacts(entry)))}`, `${indent}  }`);
       result.push(`${indent}}`);
     }
     return result;
@@ -950,14 +971,22 @@ export const Overlay = Schema.Struct({
   splits: Schema.optionalKey(Schema.Array(Schema.Struct({ key: Key, by: By })).check(Schema.isMaxLength(256))),
   /** A label for a relationship that imports already support (the count stays in its description). */
   relationships: Schema.optionalKey(Schema.Array(Schema.Struct({ from: Key, to: Key, title: Words(60), by: By })).check(Schema.isMaxLength(1024))),
+  /**
+   * Folders the agent declared before writing them (`pathlight plan --new`), by path, with their name: drawn as a planned box where the folder will sit.
+   * When files land there the name moves to `elements` and the folder to `standalone`.
+   */
+  planned: Schema.optionalKey(Schema.Array(Schema.Struct({ path: Key, title: Words(60), note: Schema.optionalKey(Words(300)), by: By })).check(Schema.isMaxLength(64))),
+  /** Folders (by path) that are always their own box, even with fewer files than "small folders" holds: a planned box stays one once built. */
+  standalone: Schema.optionalKey(Schema.Array(Schema.Struct({ key: Key, by: By })).check(Schema.isMaxLength(256))),
 });
 export interface Overlay extends Schema.Schema.Type<typeof Overlay> {}
 
 /** Applies an overlay to a draft. Titles and notes change; ids, files, globs and relationships never do. `unknown` lists keys that matched nothing. */
 export function applyOverlay(draft: Draft, overlay: Overlay): { draft: Draft; unknown: string[] } {
   const used = new Set<string>();
+  const planned = new Map((overlay.planned ?? []).map(item => [item.path, item] as const));
   const over = <T extends { key: string; title: string; note?: string }>(item: T): T => {
-    const entry = overlay.elements[item.key];
+    const entry = overlay.elements[item.key] ?? planned.get(item.key);
     if (!entry) return item;
     used.add(item.key);
     return { ...item, ...(entry.title ? { title: entry.title } : {}), ...(entry.note ? { note: entry.note } : {}) };
@@ -1034,6 +1063,28 @@ export const declaresBehavior = (text: string) => {
   return false;
 };
 
+/** The overlay once these planned folders have files: each one's name is the folder's name in `elements` unless one is there, and the folder stays its own box. */
+export const builtOverlay = (overlay: Overlay, built: readonly NonNullable<Overlay["planned"]>[number][]): Overlay => {
+  const done = new Set(built.map(item => item.path));
+  const elements = { ...overlay.elements };
+  for (const item of built) if (!elements[item.path]) elements[item.path] = { title: item.title, ...(item.note ? { note: item.note } : {}), ...(item.by ? { by: item.by } : {}) };
+  const standalone = [...overlay.standalone ?? [], ...built.filter(item => !(overlay.standalone ?? []).some(entry => entry.key === item.path)).map(item => ({ key: item.path, ...(item.by ? { by: item.by } : {}) }))];
+  const planned = (overlay.planned ?? []).filter(item => !done.has(item.path));
+  const { planned: _planned, standalone: _standalone, ...rest } = overlay;
+  return { ...rest, elements, ...(planned.length ? { planned } : {}), ...(standalone.length ? { standalone } : {}) };
+};
+
+/** Writes the overlay beside the model, whole or not at all. */
+export const writeOverlay = Effect.fn("Draft.writeOverlay")(function* (directory: string, overlay: Overlay) {
+  const valid = yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(overlay);
+  yield* io("Draft.writeOverlay", async () => {
+    await mkdir(directory, { recursive: true });
+    const target = join(directory, overlayFile), temporary = `${target}.${process.pid}`;
+    await writeFile(temporary, `${JSON.stringify(valid, null, 2)}\n`);
+    await rename(temporary, target);
+  });
+});
+
 export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace: string, options: { out?: string; force?: boolean } = {}) {
   const root = resolve(workspace);
   // Written into `.pathlight/` unless told where; the ignored state (the overlay keys) stays under the workspace's own `.cache`.
@@ -1043,7 +1094,11 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const { paths } = yield* listFiles(root);
   const manifests = yield* readManifests(root, paths);
   const overlayText = yield* io("Draft.overlay", () => readFile(join(target, overlayFile), "utf8")).pipe(Effect.option);
-  const overlay = overlayText._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(yield* json(overlayText.value)) : undefined;
+  const read = overlayText._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay, { onExcessProperty: "error" })(yield* json(overlayText.value)) : undefined;
+  // A planned folder that now has files is built: its name moves to `elements` (never over a name already there) and it stays its own box.
+  const present = [...scan.files.map(file => file.path), ...paths.filter(isUnscannedSource)];
+  const built = (read?.planned ?? []).filter(item => hasFilesIn(present, item.path));
+  const overlay = read && built.length ? builtOverlay(read, built) : read;
   const committedText = overlay ? yield* run("git", ["-C", target, "show", `HEAD:./${overlayFile}`]).pipe(Effect.option) : undefined;
   const committed = committedText?._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay)(yield* json(committedText.value)).pipe(Effect.option) : undefined;
   const unread = paths.filter(isUnscannedSource);
@@ -1076,13 +1131,15 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const starts = new Set((yield* declaredStartsOf(root, scan, paths)).map(start => start.file));
   const rendered = renderDraft(draft, lines, behaviorTexts.some(declaresBehavior), unreadSet, starts);
   const mappings = [...draft.packages.flatMap(item => item.components.flatMap(entry => entry.globs.map(glob => ({ glob, element: entry.id })))), ...schemaMappings(draft, paths)];
+  const planned = draft.packages.flatMap(item => item.components.filter(entry => entry.planned).map(entry => entry.id));
   // The evidence each resource rests on, for `check` to judge its arrows by (the packages, not imports between files).
   const resources = draft.resources.map(item => ({ element: item.element, resource: item.id, packages: item.packages, ...(item.declared.length ? { declared: [...new Set(item.declared.map(entry => entry.path))] } : {}) }));
   const programs = draft.packages.filter(item => item.runs).flatMap(item => item.components.map(entry => ({ element: entry.id, source: entry.program!.source, name: entry.title })));
+  if (overlay && built.length) yield* writeOverlay(target, overlay);
   yield* io("Draft.write", async () => {
     await mkdir(target, { recursive: true });
     await writeFile(join(target, modelFile), rendered.text);
-    await writeFile(join(target, mappingFile), `${JSON.stringify({ version: 1, project: name, mappings, ...(resources.length ? { resources } : {}), ...(programs.length ? { programs } : {}), ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}) }, null, 2)}\n`);
+    await writeFile(join(target, mappingFile), `${JSON.stringify({ version: 1, project: name, mappings, ...(resources.length ? { resources } : {}), ...(programs.length ? { programs } : {}), ...(planned.length ? { planned } : {}), ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}) }, null, 2)}\n`);
     await mkdir(join(state, ".cache", "pathlight"), { recursive: true });
     await writeFile(join(state, keysPath), `${JSON.stringify({ version: 1, keys: Object.fromEntries(draft.packages.flatMap(item => [...(draft.flat ? [] : [[item.id, item.key] as const]), ...item.folders.map(folder => [folder.id, folder.key] as const), ...draft.resources.map(resource => [resource.element, resource.key] as const), ...item.groups.map(group => [group.id, group.key] as const), ...item.components.map(entry => [entry.id, entry.key] as const)])) })}\n`);
     if (!existing.includes(configFile)) await writeFile(join(target, configFile), `${JSON.stringify({ $schema: "https://likec4.dev/schemas/config.json", name, title: label }, null, 2)}\n`);

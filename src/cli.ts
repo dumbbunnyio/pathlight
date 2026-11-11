@@ -15,7 +15,7 @@ import { initGlobal, initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
 import { draftWorkspace } from "./draft";
 import { checkAndRecord } from "./stale";
-import { setPlan } from "./plan";
+import { planNew, setPlan } from "./plan";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
 import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
@@ -40,6 +40,7 @@ pathlight brief [KEY ... | --changed | --first-day] [--workspace PATH] [--json]
 pathlight name KEY --title TEXT --note TEXT [--workspace PATH]
 pathlight name --from FILE|- [--workspace PATH]
 pathlight plan [ELEMENT ...] [--workspace PATH]
+pathlight plan --new FOLDER --title TEXT [--note TEXT] [ELEMENT ...] [--workspace PATH]
 pathlight point [ELEMENT [--view VIEW] [--journey ID --step N]] [--workspace PATH]
 pathlight draft [--workspace PATH] [--out DIR] [--force]
 pathlight init [--workspace PATH] [--no-claude-hooks]
@@ -63,6 +64,7 @@ flows checks the state diagrams an agent wrote (*.behavior.c4) against the files
 flow add writes a journey you worked out from the code: a LikeC4 dynamic view of hops between components, as ID.behavior.c4, stamped with the commit and the files you read. It checks every component against the model and takes the file back out if the model would stop compiling; it decides nothing about what happens. A step can name the function it calls with a trailing @ FILE#FUNCTION: the file must be one you read and must export that name, and its declaration is copied as written (pathlight flows says when it changes). A hop the code makes over HTTP, a websocket or a spawned process, which no import backs, is written FROM -> TO over http: EVENT, and flows does not report it as missing from the model; use it only when you read both the request and the code that answers it. flow remove deletes only a file flow add wrote.
 brief lists, for each box of the draft (or only the boxes under the keys you give, a box's key or an element id from the model, children first), the files it owns with their sizes, what it imports from and what imports it, what is inside it and any name it has: what an agent needs to say what each box is for. With no keys it opens with what the project says about itself (its package description and the start of its README). brief --changed lists only the boxes that are new or whose files changed since pathlight name recorded them, so a later run names just those. brief --first-day prints the briefing for a person new to the code: what it is, how it is built, where the project declares it starts, the journeys to follow (F in the viewer) and how sure the names are, derived each time from the scan, the names and the recorded journeys and stored nowhere. name saves the names and notes the agent worked out (one box with --title and --note, or many from a JSON file of {"key","title","note"} entries, a dash for standard input) as the agent's reading (by "agent"), redraws once, never replaces a name a person wrote, and refuses a key that is not a box.
 plan says which elements you are about to work on (ids from the model); the viewer outlines them and marks activity outside them. No ids clears the plan.
+plan --new declares a folder you are about to create, on a map pathlight draft drew: the map gets a dashed box with your --title where the folder will sit, and the plan is that box and any ELEMENT given. When its files exist the next redraw makes it solid and keeps the name. On a map a person wrote it changes nothing: add the element to the model instead.
 point asks an open viewer to select one element (an id from the model, or a box's key from brief) once (in --view if given, else in a view that draws it) and mark it as the agent's pointing until a key is pressed; it never makes the viewer follow. Ids and a time only. With --journey and --step (a journey's id from pathlight flows and a step's number) the viewer reads that journey at that step, as F would, until esc or the next pointer. With no viewer open on the workspace it does nothing and says so; with no element it clears the pointer.
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
@@ -101,7 +103,7 @@ try {
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2), allowPositionals: true,
     options: {
-      workspace: { type: "string", default: "." }, project: { type: "string" },
+      workspace: { type: "string", default: "." }, new: { type: "string" }, project: { type: "string" },
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
@@ -186,6 +188,10 @@ try {
       else return yield* invalid("Use pathlight name KEY --title TEXT --note TEXT, or pathlight name --from FILE.");
       if (id && values.from) return yield* invalid("Give a KEY or --from, not both.");
       process.stdout.write(formatNamed(yield* nameBoxes(values.workspace, entries)));
+    } else if (command === "plan" && values.new !== undefined) {
+      if (!values.title) return yield* invalid("plan --new FOLDER needs --title TEXT: the name the box will have.");
+      const made = yield* planNew(values.workspace, { path: values.new, title: values.title, note: values.note }, [...(id ? [id] : []), ...extra]);
+      process.stdout.write(`Planned ${made.id} for ${values.new}: a dashed box on the map until its files exist.\nPlan: ${made.plan!.elements.join(", ")}\n`);
     } else if (command === "plan") {
       const made = yield* setPlan(values.workspace, [...(id ? [id] : []), ...extra]);
       process.stdout.write(made ? `Plan: ${made.elements.join(", ")}\n` : "Plan cleared.\n");
