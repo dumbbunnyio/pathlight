@@ -156,3 +156,10 @@ test("a step whose box this view does not draw is handed to the viewer to go to 
   expect(away).toEqual([["order", 1, "api"]]);
   expect(said.join(" ")).not.toContain("is not in this view");
 });
+
+test("the step being read says when the code before it never calls the function it names", () => {
+  const uncalled: FlowMap = { ...journey, steps: journey.steps.map(step => step.n === 2 ? { ...step, uncalled: true as const } : step) };
+  const at = (step: number) => textOf(stepsCard(uncalled, step, new Map(), id => id, 60, 0, RGBA.fromHex("#000000")));
+  expect(at(1)).toContain("no call found");
+  expect(at(0)).not.toContain("no call found");
+});

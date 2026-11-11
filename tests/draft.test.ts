@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { checkWorkspace } from "../src/check";
 import { acquireModel, listViews } from "../src/catalog";
-import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, openFloor, openShare, viewCap, witness } from "../src/draft";
+import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, openFloor, openShare, viewCap, witness, wordsOf } from "../src/draft";
+import type { How } from "../src/uses";
 import { readdir } from "node:fs/promises";
 import { mappingIn, overlayIn, run } from "./effects";
 
@@ -808,3 +809,10 @@ test("an arrow is drawn only where code is used, titled by what it uses; a pair 
     expect(check.summary).toMatchObject({ undeclared: 0, unsupported: 0 });
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("an arrow's words are the strongest kind of use and its most used names, else its type's name, else nothing", () => {
+  const uses = (entries: [string, How, number][]) => new Map(entries.map(([name, how, files]) => [name, { how, files: new Set(Array.from({ length: files }, (_, index) => `f${index}`)) }]));
+  expect(wordsOf(uses([["render", "references", 9], ["saveOrder", "calls", 1], ["loadOrder", "calls", 3]]))).toBe("calls loadOrder, saveOrder");
+  expect(wordsOf(uses([["Storage.FeedsByCategoryWithCounters", "calls", 2], ["Storage.FeedByIdentifierWithCounters", "calls", 1]]))).toBe("calls Storage");
+  expect(wordsOf(uses([["Row", "types", 4]]))).toBeUndefined();
+});
