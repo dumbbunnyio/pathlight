@@ -1,6 +1,6 @@
 # Scan format
 
-`pathlight scan [--workspace PATH] [--out FILE]` reads a workspace's TypeScript, JavaScript, Python and Go source and writes one JSON document. It exists so that an agent drafting a LikeC4 model does not have to read the whole codebase, and so the same facts can feed several views. It does not write or change a model.
+`pathlight scan [--workspace PATH] [--out FILE]` reads a workspace's TypeScript, JavaScript, Python, Go and Rust source and writes one JSON document. It exists so that an agent drafting a LikeC4 model does not have to read the whole codebase, and so the same facts can feed several views. It does not write or change a model.
 
 Everything in it is a **static** reading of source text (`"basis": "static"`). It says what the code names, not what runs: a dynamic `import(name)`, a bundler alias or a framework convention is invisible to it, and an import is not proof of a call.
 
@@ -19,13 +19,14 @@ Everything in it is a **static** reading of source text (`"basis": "static"`). I
 
 ## Languages
 
-Each language is read by a front end in `src/languages/` that gives the rest of the scan the same records, so the draft, `check`, `diff`, `brief`, flows and the viewer read every language alike. TypeScript and JavaScript are read by the hand-written tokenizer in `src/scan-imports.ts`; Python and Go by tree-sitter grammars compiled into the binary (nothing is downloaded, and a grammar is loaded only when the workspace has a file in its language).
+Each language is read by a front end in `src/languages/` that gives the rest of the scan the same records, so the draft, `check`, `diff`, `brief`, flows and the viewer read every language alike. TypeScript and JavaScript are read by the hand-written tokenizer in `src/scan-imports.ts`; Python, Go and Rust by tree-sitter grammars compiled into the binary (nothing is downloaded, and a grammar is loaded only when the workspace has a file in its language).
 
 | Language | Statements read | Resolved by | Not followed (listed, never guessed) |
 | --- | --- | --- | --- |
 | TypeScript, JavaScript (`.ts .tsx .mts .cts .js .jsx .mjs .cjs`) | `import`, `export … from`, `import()` and `require()` with a literal | Relative paths, the nearest tsconfig `baseUrl`/`paths`, workspace packages through `exports`/`main`, `#` subpath imports; a name is followed through barrels (below) | `extends` chains, bundler and framework aliases |
 | Python (`.py`) | `import a.b`, `from a.b import c`, relative `from . import x` / `from ..a import y`, `from a import *`, anywhere in a file; `importlib.import_module`/`__import__` with a literal | Roots: the folder of each `pyproject.toml`, `setup.py` and `setup.cfg`, its `src/`, a folder its `package-dir` (`package_dir`, Poetry's `from`) names, and the workspace root; the nearest root above a file first. `a.b.c` is `a/b/c.py` or `a/b/c/__init__.py`; `from a.b import c` is the module `c` if there is one, else the name `c` in `a/b`. A folder without `__init__.py` is a namespace package. A name taken from a package is followed through its `__init__.py`'s `from .mod import name` (and `*`) to the module that defines it. A first segment that is no package of the workspace is a package from outside | `sys.path` edits (including in `conftest.py`), `PYTHONPATH`, `.pth` files, names built at run time |
 | Go (`.go`) | every `import` | The nearest `go.mod` names a file's module; a nested `go.mod` is its own module; `go.work` lists modules; a `replace` to a local path is followed; `vendor/` is not read. An import is recorded against the files of the package that declare the names the importing file uses (`storage.New`, `storage.Entry`); a dot or blank import, or a used name no file declares, reaches every file of the package. Test files are read as sources and never targets. The standard library and other modules are packages from outside | Build constraints (`//go:build`, `_linux.go`): every file is read whatever its tags; cgo |
+| Rust (`.rs`) | every `use` (groups, `as`, globs, `pub use`), `extern crate`, and a path written in code or a type whose first segment is `crate`, `self`, `super`, `::`, a name a `use` brought in, or a crate (`atuin_common::utils::now()`); code under `#[cfg(test)]` is a test and is not read | Each `Cargo.toml` with a `[package]` is a crate, its targets found as Cargo finds them (`src/lib.rs`, `src/main.rs`, `src/bin/`, the build script, `examples/`, `tests/`, `benches/`, and `[lib]`, `[[bin]]` and the rest); dependencies through `workspace = true` and `package = "…"` renames, a path dependency to that crate's library. From each target's root, `mod x;` is `x.rs` or `x/mod.rs` beside a `lib.rs`, `main.rs` or `mod.rs` and under `a/` for `a.rs`; `#[path]` and inline modules are followed. A path resolves module by module; the segment after the last module is the name taken from that module's file, followed through `pub use` (and `pub use …::*`) like a barrel. Edition 2015 `use` paths start at the crate root. `vendor/` is not read. A crate from outside is named with the next segment of its path (`sqlx/sqlite`); `std`, `core` and `alloc` by name. A file no `mod` reaches is read where it sits under `src/` | `mod x;` (where a file sits, not a use of it); any other `cfg` (features, platforms): every module is read; macros called by bare name; methods and fields (they need types); `include!`; paths inside macro arguments |
 
 ## What it follows
 
@@ -42,7 +43,7 @@ Files come from `git ls-files` (tracked plus untracked, ignoring what `.gitignor
 
 The import reader is compared in the tests with Bun's own scanner on this repository's value imports (they agree), and it additionally reports type-only imports and line numbers, which Bun's does not. Run against three real repositories, it found every relative import that an independent regular-expression scan found.
 
-Python and Go are compared with each language's own tools: CPython's `ast` and `importlib.machinery.PathFinder` for Python (`tests/eval/facts-python.ts`), `go list` for Go at the package level (`tests/eval/facts-go.ts`); see [eval](eval.md#languages-2026-10-28).
+Python and Go are compared with each language's own tools: CPython's `ast` and `importlib.machinery.PathFinder` for Python (`tests/eval/facts-python.ts`), `go list` for Go at the package level (`tests/eval/facts-go.ts`); see [eval](eval.md#languages-2026-10-28). Rust is compared with `cargo metadata` at the crate level and rust-analyzer's SCIP index at the file level (`tests/eval/facts-rust.ts`); see [eval](eval.md#rust-2026-11-10).
 
 # Check
 

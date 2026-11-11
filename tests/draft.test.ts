@@ -101,7 +101,7 @@ test("draft writes a model LikeC4 accepts and `check` finds nothing wrong with, 
   }
 }, 60_000);
 
-test("code the scan cannot read is drawn and labelled, never connected: a Rust crate is its own package, a Zig folder joins its TypeScript binding", async () => {
+test("code the scan cannot read is drawn and labelled, never connected: a Java folder is drawn as a box, a Zig folder joins its TypeScript binding", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-unread-"));
   try {
     await write(directory, {
@@ -109,18 +109,17 @@ test("code the scan cannot read is drawn and labelled, never connected: a Rust c
       "packages/core/src/native.ts": `export const native = 1;\n`,
       "packages/core/src/native/render.zig": `const std = @import("std");\npub fn render() void {}\n`,
       "packages/core/src/native/tests/render_test.zig": `test "x" {}\n`,
-      "packages/rs/Cargo.toml": "[package]\nname = \"rs\"\nversion = \"0.1.0\"\n",
-      "packages/rs/client.rs": "pub fn client() {}\n\nfn helper() {}\n",
-      "packages/rs/tests/client.rs": "#[test]\nfn works() {}\n",
+      "packages/jv/Client.java": "class Client {\n  void client() {}\n}\n",
+      "packages/jv/tests/ClientTest.java": "class ClientTest {}\n",
     });
     const made = await Effect.runPromise(draftWorkspace(directory));
-    // The Rust and Zig tests folders are tests, left out like TypeScript ones.
-    expect(made.unread).toBe("1 Rust, 1 Zig files");
+    // The Java and Zig tests folders are tests, left out like TypeScript ones.
+    expect(made.unread).toBe("1 Java, 1 Zig files");
     const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
-    expect(model).toContain("rs = package 'rs' {");
-    expect(model).toContain("description '1 Rust file, 3 lines, not read by the scan: its connections are not drawn'");
+    expect(model).toContain("packages = component 'packages' {");
+    expect(model).toContain("description '1 Java file, 3 lines, not read by the scan: its connections are not drawn'");
     expect(model).toContain("description '2 files, 3 lines (1 Zig not read by the scan)'");
-    expect(model).not.toMatch(/-> rs\b|rs\.\w+ ->/);
+    expect(model).not.toMatch(/-> root\.packages\b|root\.packages ->/);
     // The packages and folders the scan does read are grouped exactly as before.
     const before = await mkdtemp(join(tmpdir(), "pathlight-draft-read-"));
     try {
@@ -128,11 +127,11 @@ test("code the scan cannot read is drawn and labelled, never connected: a Rust c
       await Effect.runPromise(draftWorkspace(before));
       const ids = (text: string) => [...text.matchAll(/^ +(\w+) = (?:component|collection|package)/gm)].map(match => match[1]);
       const plain = ids(await readFile(join(before, ".pathlight", "pathlight.model.c4"), "utf8"));
-      // Everything drawn before is still there; the only additions are the Rust package (with its one component) and the native module.
+      // Everything drawn before is still there; the only additions are the root package with the Java folder, and the native module.
       const added = [...ids(model)];
       for (const id of plain) added.splice(added.indexOf(id), 1);
       expect(plain.every(id => ids(model).includes(id))).toBe(true);
-      expect(added.sort()).toEqual(["native", "root", "rs"]);
+      expect(added.sort()).toEqual(["native", "packages", "root"]);
     } finally { await rm(before, { recursive: true, force: true }); }
     const check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.summary).toMatchObject({ unmatchedMappings: 0, unmappedFiles: 0, unsupported: 0, undeclared: 0 });
@@ -550,8 +549,8 @@ test("a folder at the same share with fewer than openFloor read files stays one 
 }, 60_000);
 
 test("a folder holding nine in ten of a small package's read files opens, and files the scan does not read do not count against it", async () => {
-  // 18 of 20 read files; the ten Rust files beside the CLI are drawn but not counted.
-  const { made, model } = await drafted({ ...many("src/core/ui", 9), ...many("src/core/data", 9), ...many("src/cli", 2), ...many("src/cli/native", 10, "rs") });
+  // 18 of 20 read files; the ten Java files beside the CLI are drawn but not counted.
+  const { made, model } = await drafted({ ...many("src/core/ui", 9), ...many("src/core/data", 9), ...many("src/cli", 2), ...many("src/cli/native", 10, "java") });
   expect(made).toMatchObject({ folders: 1 });
   expect(model).toContain("  core = folder 'core' {");
 }, 60_000);

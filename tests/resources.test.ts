@@ -64,6 +64,17 @@ test("a SQL database is named by its engine when the code names one, stays one b
   expect(joined.map(item => [item.id, item.files.length, item.engines])).toEqual([["sql", 4, ["MySQL", "PostgreSQL"]]]);
 });
 
+test("a Rust crate is named with the next segment of its path, so sqlx's engine comes from the names the code takes from it", () => {
+  // `sqlx::Error` names no engine; `sqlx::Sqlite` and `sqlx::postgres::PgPool` do. An HTTP client is nothing.
+  expect([entryFor("sqlx/Error"), entryFor("sqlx/Sqlite"), entryFor("sqlx/postgres"), entryFor("rust-s3"), entryFor("reqwest/Client")].map(entry => entry && [entry.resource, entry.engine ?? ""]))
+    .toEqual([["sql", ""], ["sql", "sqlite"], ["sql", "postgresql"], ["s3", ""], undefined]);
+  const scope = (path: string) => path.split("/")[0]!;
+  const found = resourcesOf([use("client/db.rs", "sqlx/Error"), use("client/db.rs", "sqlx/Sqlite"), use("server/db.rs", "sqlx/postgres"), use("server/db.rs", "sqlx/Pool"),
+    use("server/cache.rs", "redis/Client"), use("server/http.rs", "reqwest/Client")], scope);
+  // Each crate's sqlx names one engine, so each is that engine's database.
+  expect(found.map(item => [item.id, item.files.length])).toEqual([["postgresql", 1], ["redis", 1], ["sqlite", 1]]);
+});
+
 const shop = {
   "package.json": JSON.stringify({ name: "shop" }),
   "src/orders/store.ts": `import { Pool } from "pg";\nimport { Kafka } from "kafkajs";\nexport const pool = new Pool(); export const kafka = new Kafka({ brokers: [] });\n`,

@@ -576,6 +576,55 @@
       "absent": [
         "axios"
       ]
+    },
+    "atuin": {
+      "workspace": "pathlight-oss-test-repos/atuin",
+      "commit": "19b66e7fb",
+      "note": "Written 2026-11-10 from the crates' Cargo.toml files and docs/docs/self-hosting before the Rust rows were scored. The sync server keeps history in PostgreSQL (its sqlx also has the sqlite and mysql features); the client, daemon and AI crates keep the user's history in SQLite (sqlx, rusqlite). Under the resources rules the server's several engines make one generic box that the client's SQLite joins.",
+      "resources": [
+        {
+          "id": "sql",
+          "kind": "database",
+          "step": 1,
+          "title": "SQL database",
+          "evidence": "sqlx in nine crates: postgres, sqlite and mysql features in atuin-server, sqlite in atuin-client and atuin-ai; rusqlite in atuin-ai"
+        },
+        {
+          "id": "prometheus",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "Prometheus",
+          "evidence": "metrics-exporter-prometheus in atuin-server"
+        },
+        {
+          "id": "otlp",
+          "kind": "monitoring",
+          "step": 1,
+          "title": "OpenTelemetry collector",
+          "evidence": "opentelemetry-otlp in atuin-daemon (optional feature)"
+        }
+      ],
+      "absent": [
+        "reqwest",
+        "reqwest-middleware",
+        "tonic",
+        "axum",
+        "tokio",
+        "serde_json"
+      ]
+    },
+    "bat": {
+      "workspace": "pathlight-oss-test-repos/bat",
+      "commit": "fe901f50",
+      "note": "Written 2026-11-10 from Cargo.toml: bat reads files and writes to the terminal; it talks to nothing outside the process. A negative case.",
+      "resources": [],
+      "absent": [
+        "syntect",
+        "serde_yaml",
+        "git2",
+        "gix",
+        "minus"
+      ]
     }
   }
 }

@@ -90,7 +90,8 @@ export const entryPointsOf = Effect.fn("Brief.entryPoints")(function* (workspace
   const imported = new Set(scan.imports.map(edge => edge.to));
   // A Go package is imported as a whole and its files use each other without an import: a Go file is reached when any file of its folder is.
   const goPackages = new Set(scan.imports.filter(edge => edge.to.endsWith(".go")).map(edge => posix.dirname(edge.to)));
-  const reached = (path: string) => imported.has(path) || (path.endsWith(".go") && goPackages.has(posix.dirname(path)));
+  // A Rust file is a module a `mod` line places, or a crate root Cargo finds (whose binaries are declared starts above): never a stray lead.
+  const reached = (path: string) => imported.has(path) || (path.endsWith(".go") && goPackages.has(posix.dirname(path))) || path.endsWith(".rs");
   const roots = scan.files.filter(file => !reached(file.path) && !notEntry.test(file.path) && !notOurs.test(file.path) && !found.has(file.path)).sort((a, b) => b.lines - a.lines || (a.path < b.path ? -1 : 1)).slice(0, 12);
   for (const file of roots) add(file.path, "no other file imports it");
   return [...found.values()];
@@ -333,7 +334,7 @@ export interface FirstDay {
 const inferredMark = /\binferred\b/i;
 /** A note's own "(inferred from …)" is shown as one `(inferred)` mark, so every line says it the same way. */
 const plainNote = (note: string) => note.replace(/\s*\([^()]*\binferred\b[^()]*\)\.?\s*$/i, "").trim();
-const languageNames: Record<string, string> = { typescript: "TypeScript", javascript: "JavaScript", python: "Python", go: "Go" };
+const languageNames: Record<string, string> = { typescript: "TypeScript", javascript: "JavaScript", python: "Python", go: "Go", rust: "Rust" };
 /** The briefing's Where it starts is the declared starts only: a file nothing imports is a lead for an agent (`pathlight brief` lists them), not a fact for a person. */
 const declaredStart = (entry: EntryPoint) => entry.why !== "no other file imports it";
 

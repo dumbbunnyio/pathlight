@@ -491,3 +491,72 @@ What the infrastructure runs (plan `phase-r2-workloads`): in a repository with m
 | extra | 0 | 0 |
 
 **Read this generously too.** The same session wrote the references and the reader, from the same reading of the files, so it shows the mechanism works end to end on two real repositories, not that it generalizes. What it leaves out by rule: arrows between programs (Sentry's services reach Postgres through `pgbouncer`, which is drawn as a program with the arrow to Postgres), Cognos's content, audit and notice stores (their secrets name no kind), and Instana (an environment name with no box to reach). The first run named Cognos's workloads after their files; the literal `metadata.name` is now read past the template lines above it. Sentry's `_integration-test/` compose file was counted as a program until the infrastructure reader skipped test folders of that shape.
+
+## Rust (2026-11-10)
+
+The scan reads Rust (`docs/scan.md`, "Languages"; plan `phase-4b-rust.md`). It is measured against Rust's own tools by `tests/eval/facts-rust.ts`, written without reading `src/languages/rust.ts`. It runs on the reference clones themselves and writes nothing into them: cargo's and rust-analyzer's build output goes to `$XDG_CACHE_HOME/pathlight/facts-rust/`, offline (`git status` of both clones was empty after every run). It needs `rustup component add rust-analyzer rust-src` (Rust 1.99.1 here) and `cargo fetch` once per clone.
+
+```sh
+bun tests/eval/facts-rust.ts --workspace pathlight-oss-test-repos/atuin --out /tmp/facts-rust.json
+```
+
+- **Crates**: `cargo metadata --no-deps` gives each workspace package's declared path dependencies. The scan's file records are collapsed to the package that holds each file.
+- **Files**: `rust-analyzer scip`, rust-analyzer's own name resolution (macro expansion, `cfg`). It runs with every feature on and `cfg(test)` off, which matches what the scan reads. A reference pair is file A using a named item (function, type, trait, const, static, macro) that file B defines. Not counted:
+  - members (methods, fields, variants);
+  - modules;
+  - locals;
+  - uses inside `#[cfg(test)]` items, which rust-analyzer still indexes in an inline `mod tests { … }` and which the tool finds from the text;
+  - test and bench targets.
+
+  Where a build script and its library define the same symbol (rust-analyzer names symbols by package), a use is given the nearest definition.
+
+| | crate pairs: scan / declared / both | file pairs: scan / reference / both | scan found | reference confirms |
+| --- | --- | --- | --- | --- |
+| atuin `19b66e7fb`, 13 crates, 579 files | 41 / 44 / 41 | 2,376 / 2,275 / 2,271 | **99.82%** (4 missed) | **95.58%** (105 others) |
+| bat `fe901f50`, 1 crate, 67 files | 0 / 0 / 0 | 156 / 153 / 153 | **100%** | **98.08%** (3 others) |
+
+**Crates.** No crate pair the scan finds is undeclared, so there are no scan bugs at this level. Three declared dependencies are never named by the code the scan reads: `atuin → atuin-server` and `atuin-server → atuin-client` are dev-dependencies used only by tests, and `atuin-daemon → atuin-history` is declared and unused.
+
+**The 4 atuin pairs the scan misses**, each read in the source:
+- 3 are macros called by bare name (`invalid_argument_errors!(…)` in two `pb.rs` files, `new_uuid!(RecordId)` in `atuin-domain/src/record/mod.rs`). A macro reached by text order is a stated gap; one reached by a path (`crate::bat_warning!`) is followed.
+- 1 is a path inside an attribute (`#[arg(long_help = fl!(…, atuin_common::docs::url(…)))]` in `atuin/src/command/client/stats.rs`).
+
+**The 105 atuin pairs only the scan has** are all of kinds the scan reads on purpose:
+- **31 platform alternatives.** `#[cfg(unix)] use unix as platform;` and its Windows twin, or `launchd/macos.rs` beside `launchd/unsupported.rs`. The scan reads every `cfg`, so a name reaches both; rust-analyzer on Linux sees one.
+- **30 from files only another platform compiles.** `macos.rs`, `windows.rs` and `unsupported.rs` are 33 files rust-analyzer did not index here; their imports are real on those platforms.
+- **23 to code `tonic::include_proto!` generates.** The scan points to the `pb.rs` or `search/mod.rs` that includes it; rust-analyzer's definition is in the generated file under the build directory.
+- **11 module imports** (`use crate::grpc;`, `use atuin_octavo::pb;`). The reference does not count modules.
+- **6 re-exports of an outside crate.** `atuin_common::units::ByteSize` is `pub use bytesize::ByteSize`; the scan keeps the import on the file that re-exports it.
+- **2 glob re-exports** that nothing uses (`pub use model::*`).
+- **2 feature alternatives** (`logs/otel.rs` picks `otel/disabled.rs` or the enabled one by feature).
+
+bat's 3 are:
+- 2 glob re-exports nothing uses (`pub use crate::assets::build_assets::*`, `pub use super::assets::assets_metadata::*`);
+- 1 table `include!` generates at build time (`builtin::BUILTIN_MAPPINGS`).
+
+**What the comparison changed in the scan.** The first runs were bat 89.9% / 94.7% and atuin 82.8% (most of that a reference counting test code). Each disagreement was read in the source and fixed in the scan with a test case:
+- an exported macro is at the crate's root but declared in its own file;
+- paths inside macro arguments are read;
+- a glob takes only the names the file writes, followed to the file that declares each;
+- a child's glob or plain `use` of its parent also reaches what the parent brought in with a private `use` (`use crate::handlers::ErrorResponse`);
+- an alias stands for every path a `use` gave it under different `cfg`;
+- a path through a re-exported module (`pub use atuin_client::theme;`) goes on to the declaring file;
+- `pub(in crate::service)` is no import.
+
+**Grammar.** `tree-sitter-rust` 0.24.0 has local parse errors in 18 atuin files and 3 bat files (`&raw` read as a raw borrow, `unsafe extern "C"`, negative const generics). None cost an import the reference has.
+
+**Time.** `scanWorkspace`, median of five, separate processes:
+- atuin 1,349 ms and bat 407 ms (budget 2 s);
+- Mealie 567 ms and Miniflux 419 ms, unchanged.
+
+The Outline, Mealie, Miniflux, Infisical and opencode scans are byte-identical except where Infisical has one Rust file (`wasm/ironrdp-decoder/src/lib.rs`, now read).
+
+**The map** (scratch copies, `pathlight setup --yes`, then `tests/eval/run.ts`):
+- **atuin.** Before: 148 boxes, 0 relationships. After: 165 boxes, 604 relationships all backed by imports, every file claimed, no pair undeclared, no readable view over 20 boxes, at most 10 cards inside one box.
+- **bat.** Before: no map at all ("No source in a language the scan reads"). After: 29 boxes, 98 relationships, the same marks.
+- **Resources** (`tests/eval/resources.ts`): atuin 3 of 3 (SQL database, Prometheus, OpenTelemetry collector), bat 0 of 0 with nothing extra; 68 of 68 at step 3 over all references. Programs are unchanged: 58 of 58 programs, 166 of 166 arrows.
+- **The namer**, run once headless (Sonnet, as in Phase 4e; logs in `.cache/eval/phase-4b/`):
+  - atuin: 165 of 165 boxes named, 19 from the code and 146 inferred from file names, $0.55. "What it is" reads "Atuin: magical shell history — Replaces shell history with a SQLite database …".
+  - bat: 29 of 29, 6 from the code, $0.22.
+
+  There are no name references for these repositories; the notes are for David's live test.
