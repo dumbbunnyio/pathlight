@@ -47,6 +47,8 @@ export const Refreshed = Schema.Struct({
   version: Schema.Literal(1), time: Schema.Number,
   redrew: Schema.Boolean,
   added: Schema.Array(Schema.Struct({ id: Name, key: Name })).check(Schema.isMaxLength(4096)),
+  /** New boxes with no name yet (a folder's own name), by key, at most `namingCap`: what the end of the turn asks the agent to have named. */
+  unnamed: Schema.optionalKey(Schema.Array(Name).check(Schema.isMaxLength(64))),
   /** A redraw was needed and not written: it would remove `element`, which the journey `journey` names. */
   blocked: Schema.optionalKey(Schema.Struct({ element: Name, journey: Name })),
 });
@@ -65,6 +67,17 @@ const writeRefreshed = (root: string, value: Refreshed) => io("Refresh.write", a
   await rename(temporary, statePath(root, "refresh.json"));
 }).pipe(Effect.ignore);
 
+/** At most this many new boxes are named per turn; the rest wait for the next turn or `pathlight brief --changed`. */
+export const namingCap = 6;
+
+/** The one line the end of a turn sends the agent when it drew boxes nobody has named: hand them to the namer, once. */
+export const namingRequest = (keys: readonly string[], waiting = 0) => {
+  const list = keys.length === 1 ? keys[0] : `${keys.slice(0, -1).join(", ")} and ${keys.at(-1)}`;
+  return `Pathlight drew ${keys.length === 1 ? "a new box" : `${keys.length} new boxes`} on the map, ${list}, named only by ${keys.length === 1 ? "its folder" : "their folders"}. `
+    + `Hand ${keys.length === 1 ? "it" : "them"} to the pathlight-namer subagent with ${keys.length === 1 ? "this key" : "these keys"} (${keys.join(" ")}), then end your turn with one line on what you named.`
+    + (waiting ? ` ${waiting} more wait for the next turn (pathlight brief --changed lists them).` : "");
+};
+
 export interface Refresh {
   /** No mapping: the workspace does not use Pathlight, and nothing ran. */
   mapped: boolean;
@@ -76,6 +89,10 @@ export interface Refresh {
   redrew: boolean;
   added: { id: string; key: string }[];
   blocked?: { element: string; journey: string };
+  /** The new boxes to name this turn (at most `namingCap`) and how many more wait; `request` is the one line the agent is sent. */
+  unnamed: string[];
+  waiting: number;
+  request?: string;
   check?: { unmapped: number; unsupported: number; undeclared: number };
   diff?: { relationships: number; undeclared: number };
 }
@@ -83,7 +100,7 @@ export interface Refresh {
 export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (workspace: string) {
   const root = yield* io("Refresh.root", () => realpath(workspace));
   const mapped = yield* io("Refresh.mapping", () => readFile(mappingPath(root), "utf8")).pipe(Effect.option);
-  if (mapped._tag === "None") return { mapped: false, drawn: false, redraw: "off", due: [], redrew: false, added: [] } satisfies Refresh;
+  if (mapped._tag === "None") return { mapped: false, drawn: false, redraw: "off", due: [], redrew: false, added: [], unnamed: [], waiting: 0 } as Refresh;
   const scan = yield* scanWorkspace(root);
   const { paths } = yield* listFiles(root);
   const given = { scan, paths };
@@ -124,17 +141,23 @@ export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (worksp
       check = yield* checkAndRecord(root, given).pipe(Effect.option);
     }
   }
-  yield* writeRefreshed(root, { version: 1, time: Date.now(), redrew, added, ...(blocked ? { blocked } : {}) });
+  // The boxes this redraw added that nobody has named: folders and files the code has (not a collection, not a resource), with no overlay entry. A
+  // person's name is an entry, so a box a person named is never asked about.
+  const named = redrew ? yield* readOverlay(root).pipe(Effect.option) : undefined;
+  const isCode = (key: string) => !key.includes("#") && paths.some(path => path === key || path.startsWith(`${key}/`));
+  const fresh = named?._tag === "Some" ? added.map(item => item.key).filter(key => isCode(key) && !named.value.elements[key]) : [];
+  const unnamed = fresh.slice(0, namingCap), waiting = fresh.length - unnamed.length;
+  yield* writeRefreshed(root, { version: 1, time: Date.now(), redrew, added, ...(unnamed.length ? { unnamed } : {}), ...(blocked ? { blocked } : {}) });
 
   // The review of new dependencies, against the model as it now is. Not a git repository, or no commit yet: there is nothing to compare with.
   const config = yield* readActivityConfig(root).pipe(Effect.option);
   const diff = config._tag === "Some" ? yield* diffWorkspace(root, "HEAD", given).pipe(Effect.option) : undefined;
   if (diff?._tag === "Some") yield* recordDiff(root, diff.value);
   return {
-    mapped: true, drawn, redraw, due, redrew, added, ...(blocked ? { blocked } : {}),
+    mapped: true, drawn, redraw, due, redrew, added, ...(blocked ? { blocked } : {}), unnamed, waiting, ...(unnamed.length ? { request: namingRequest(unnamed, waiting) } : {}),
     ...(check._tag === "Some" ? { check: { unmapped: check.value.mappings.unmappedFiles.length, unsupported: check.value.summary.unsupported, undeclared: check.value.summary.undeclared } } : {}),
     ...(diff?._tag === "Some" ? { diff: { relationships: diff.value.relationships.length, undeclared: diff.value.undeclared.length } } : {}),
-  } satisfies Refresh;
+  } as Refresh;
 });
 
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;

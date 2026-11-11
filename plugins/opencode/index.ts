@@ -84,14 +84,26 @@ export default Plugin.define({
       enqueue(sessionID, () => () => recordSession(workspace, { source: "opencode", session: sessionID }, { ...existsSync(database) ? { transcript: database } : {}, ...change }));
     // When a turn ends, `refresh` runs, as the Claude plugin's Stop hook does: one scan for the viewer's out-of-date badge, the redraw of a drawn map
     // and its review of new dependencies. Only in a workspace with a mapping, one run at a time (a turn that ends during a run gets one more), and nothing is reported.
-    let checking = false, again = false;
-    const endOfTurn = async () => {
-      if (checking) { again = true; return; }
+    let checking = false, again: { sessionID: SessionID | undefined; succeeded: boolean } | null = null;
+    // A run the plugin started itself (its request to name new boxes) is never asked about again: one request per turn, never a loop.
+    const ownRun = new Set<SessionID>();
+    const endOfTurn = async (sessionID: SessionID | undefined, succeeded: boolean) => {
+      if (checking) { again = { sessionID, succeeded }; return; }
       if (!mapped()) return;
       checking = true;
       try {
-        await pathlight(["refresh", "--workspace", workspace, "--quiet"], listening.signal).catch(() => undefined);
-      } finally { checking = false; if (again && !disposed) { again = false; void endOfTurn(); } }
+        const output = await pathlight(["refresh", "--workspace", workspace, "--json"], listening.signal).catch(() => "");
+        const request = (() => { try { return (JSON.parse(output) as { request?: unknown }).request; } catch { return undefined; } })();
+        const ours = sessionID !== undefined && ownRun.delete(sessionID);
+        // Pathlight drew boxes nobody has named: the conversation's agent is asked once, in a message marked as the plugin's, to have them named.
+        if (typeof request === "string" && sessionID && succeeded && !ours && !disposed) {
+          const session = await ctx.session.get({ sessionID }).catch(() => undefined);
+          if (session && session.parentID === undefined) {
+            ownRun.add(sessionID);
+            await ctx.session.synthetic({ sessionID, text: request, description: "pathlight", delivery: "queue", resume: true } as Parameters<typeof ctx.session.synthetic>[0]).catch(() => { ownRun.delete(sessionID); });
+          }
+        }
+      } finally { checking = false; if (again !== null && !disposed) { const next = again; again = null; void endOfTurn(next.sessionID, next.succeeded); } }
     };
     const turnEnded = new Set(["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"]);
     // A new run of a session is a new turn. Only the fact is recorded, never the prompt.
@@ -103,7 +115,7 @@ export default Plugin.define({
           // A permission request is OpenCode waiting for the person in its own pane; a reply, a new turn or the turn's end clears it.
           if (sessionID && event.type === "permission.asked") pointer(sessionID, { waiting: true });
           if (sessionID && event.type === "permission.replied") pointer(sessionID, { waiting: false });
-          if (turnEnded.has(event.type)) { if (sessionID) pointer(sessionID, { waiting: false, ended: Date.now() }); void endOfTurn(); continue; }
+          if (turnEnded.has(event.type)) { if (sessionID) pointer(sessionID, { waiting: false, ended: Date.now() }); void endOfTurn(sessionID, event.type === "session.execution.succeeded"); continue; }
           if (event.type !== "session.execution.started" || !sessionID) continue;
           enqueue(sessionID, () => { const marker = Effect.runSync(turnActivity({ source: "opencode", session: sessionID })); return () => writeActivity(workspace, marker); });
           pointer(sessionID, { waiting: false, ended: null });

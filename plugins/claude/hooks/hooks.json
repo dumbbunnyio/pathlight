@@ -71,8 +71,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$f/.pathlight/pathlight.activity.json\" ] && command -v pathlight >/dev/null 2>&1 && { pathlight record --workspace \"$f\"; pathlight refresh --workspace \"$f\" --quiet; } >/dev/null 2>&1; exit 0'",
-            "async": true
+            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; [ -f \"$f/.pathlight/pathlight.activity.json\" ] && command -v pathlight >/dev/null 2>&1 || exit 0; in=$(cat); printf %s \"$in\" | pathlight record --workspace \"$f\" >/dev/null 2>&1; ask=$(printf %s \"$in\" | pathlight refresh --workspace \"$f\" --hook claude 2>&1 >/dev/null); [ $? -eq 2 ] && { printf \"%s\\n\" \"$ask\" >&2; exit 2; }; exit 0'",
+            "async": true,
+            "asyncRewake": true
           }
         ]
       }

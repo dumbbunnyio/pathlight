@@ -107,7 +107,7 @@ try {
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2), allowPositionals: true,
     options: {
-      workspace: { type: "string", default: "." }, new: { type: "string" }, project: { type: "string" },
+      workspace: { type: "string", default: "." }, new: { type: "string" }, hook: { type: "string" }, project: { type: "string" },
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
@@ -218,6 +218,14 @@ try {
       const findings = yield* doctor(values.workspace);
       process.stdout.write(formatDoctor(findings));
       if (hasFailures(findings)) process.exitCode = 1;
+    } else if (command === "refresh" && values.hook !== undefined) {
+      // Claude Code's Stop hook (`asyncRewake`): the hook's input on standard input, and exit 2 with one line on standard error wakes the agent with it.
+      // Only the first stop of a turn asks; anything that goes wrong asks nothing and exits 0, since a hook's failure must never reach the person.
+      if (values.hook !== "claude") return yield* invalid("--hook takes claude.");
+      const input = yield* readStdin.pipe(Effect.flatMap(json), Effect.option);
+      const again = input._tag === "Some" && !!input.value && typeof input.value === "object" && (input.value as { stop_hook_active?: unknown }).stop_hook_active === true;
+      const done = yield* refreshWorkspace(values.workspace).pipe(Effect.option);
+      if (done._tag === "Some" && done.value.request && !again) { process.stderr.write(`${done.value.request}\n`); process.exitCode = 2; }
     } else if (command === "refresh") {
       if (id) return yield* invalid("refresh takes no argument. Use --workspace PATH.");
       const done = yield* refreshWorkspace(values.workspace);
