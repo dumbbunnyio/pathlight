@@ -36,7 +36,7 @@ const howOf = (chain: Ancestors, at: number): How => {
   }
   return "references";
 };
-const notUses = new Set(["keyword_argument", "parameters", "lambda_parameters", "function_definition", "class_definition", "global_statement", "nonlocal_statement",
+const notUses = new Set(["parameters", "lambda_parameters", "function_definition", "class_definition", "global_statement", "nonlocal_statement",
   "import_statement", "import_from_statement", "aliased_import", "dotted_name"]);
 
 /** Where each binding is used in the file, and how, in one walk that keeps its own ancestors. */
@@ -67,6 +67,8 @@ function occurrencesOf(root: Node, bindings: ReadonlyMap<string, readonly Python
     const parent = step.ancestors.at(-1);
     if (!parent || notUses.has(parent.node.type)) continue;
     if (parent.node.type === "attribute" && step.field === "attribute") continue;
+    // `f(model=User)`: the keyword is no use, the value is.
+    if (parent.node.type === "keyword_argument" && step.field === "name") continue;
     if ((parent.node.type === "typed_parameter" || parent.node.type === "default_parameter" || parent.node.type === "typed_default_parameter") && step.field === "name") continue;
     const chain = [...step.ancestors, { node, field: step.field }];
     for (const binding of bindings.get(node.text)!) {

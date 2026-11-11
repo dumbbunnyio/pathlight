@@ -150,3 +150,26 @@ test("the scan sends each use through a barrel to the file that declares it, and
     expect(Object.fromEntries(from.map(item => [item.to, carriesCode(item)]))).toEqual({ "lib/run.ts": true, "lib/types.ts": false });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("values in less obvious places: a case label, a keyword argument, a comparison, and a fallback after `as`", async () => {
+  const [x] = importsOf([
+    'import { FOO, LIMIT, Name, DEFAULT, Action } from "./x";',
+    "function reduce(state: number, action: Action) { switch (action.type) { case FOO: return 1 } }",
+    "if (count < LIMIT && total > (count + 1)) {}",
+    "const pick = a < b ? Name : c > (d);",
+    "const port = process.env.PORT as string || DEFAULT;",
+  ].join("\n"));
+  expect(howOf(x!.uses)).toMatchObject({ FOO: "references", LIMIT: "references", Name: "references", DEFAULT: "references", Action: "types" });
+  await python.load();
+  const [schemas] = python.imports("from .schemas import UserOut, UserIn\ndef create(data: UserIn):\n    return serialize(model=UserOut)\n", "routes.py");
+  expect(howOf(schemas!.uses)).toMatchObject({ UserOut: "references", UserIn: "types" });
+  expect(carriesCode(schemas!)).toBe(true);
+});
+
+test("Rust: a member called on a trait object or an `impl Trait` parameter is a call of that trait", async () => {
+  await rust.load();
+  for (const parameter of ["&dyn Shout", "impl Shout", "&(dyn Shout + Send)", "Arc<dyn Shout>"]) {
+    const [shout] = rust.imports(`use crate::ext::Shout;\nfn f(t: ${parameter}) { t.shout() }`, "src/lib.rs").filter(ref => ref.uses?.length);
+    expect(howOf(shout!.uses)["Shout::shout"]).toBe("calls");
+  }
+});

@@ -684,7 +684,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const nodeForElement = (element: string) => nodeIn(diagram, element);
   const loadFlows = () => {
     if (closing) return;
-    runTask(checkFlows(view.workspace).pipe(Effect.map(flowMaps), Effect.tap(list => Effect.sync(() => {
+    runTask(checkFlows(view.workspace, { scan: readScan }).pipe(Effect.map(flowMaps), Effect.tap(list => Effect.sync(() => {
       flowMode.load(list);
       const waiting = pointWaiting;
       if (waiting) { pointWaiting = undefined; if (!state.pendingVisit && !editorActive) pointAtStep(waiting); }
@@ -806,9 +806,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     return { links };
   };
   // The scan's imports, read when a request first needs them and again after a reload: a request names the files on the component's edges.
-  let imports: Scan["imports"] | undefined;
-  const readImports = Effect.suspend(() => imports ? Effect.succeed(imports) : scanWorkspace(view.workspace).pipe(
-    Effect.map(scan => scan.imports), Effect.tap(list => Effect.sync(() => { imports = list; })), Effect.catch(() => Effect.succeed([] as Scan["imports"]))));
+  // One scan, made when first needed and kept until the model reloads: for `t`'s request and for the journeys' call check.
+  let scanned: Scan | undefined;
+  const readScan = Effect.suspend(() => scanned ? Effect.succeed(scanned) : scanWorkspace(view.workspace).pipe(Effect.tap(scan => Effect.sync(() => { scanned = scan; }))));
+  const readImports = readScan.pipe(Effect.map(scan => scan.imports), Effect.catch(() => Effect.succeed([] as Scan["imports"])));
   const requestFiles = (target: Node) => readImports.pipe(Effect.map(list => {
     const near = new Set(diagram.edges.flatMap(edge => edge.source === target.id ? [edge.target] : edge.target === target.id ? [edge.source] : []));
     const neighbours = diagram.nodes.filter(node => near.has(node.id)).flatMap(node => files.get(String(node.modelRef ?? "")) ?? []);
@@ -1158,7 +1159,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const before = new Set(diagram.nodes.map(node => String(node.id)));
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
-        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; imports = undefined;
+        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; scanned = undefined;
         forgetGone(state, id => Boolean(diagrams.get(id)?.nodes.length));
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;

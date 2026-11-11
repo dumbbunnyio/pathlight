@@ -266,7 +266,8 @@ function occurrencesOf(tokens: readonly Token[], bindings: ReadonlyMap<string, B
     for (let at_ = index + 1, depth = 1; at_ < tokens.length && at_ < index + 200; at_++) {
       const token = tokens[at_]!;
       if (token.kind !== "punct") continue;
-      if (token.text === ";" || (token.text === "=" && !is(at_ + 1, ">"))) return false;
+      // A statement's end, an assignment, a logical operator or a ternary: a comparison, not type arguments (`a < b && c > (d)`).
+      if (token.text === ";" || (token.text === "=" && !is(at_ + 1, ">")) || (token.text === "&" && is(at_ + 1, "&")) || (token.text === "|" && is(at_ + 1, "|")) || token.text === "?") return false;
       if (token.text === "<") depth++;
       else if (token.text === ">" && !is(at_ - 1, "=")) { if (--depth === 0) return is(at_ + 1, "(") || is(at_ + 1, "`") || pendingClass !== undefined || is(index - 2, "function"); }
     }
@@ -287,7 +288,9 @@ function occurrencesOf(tokens: readonly Token[], bindings: ReadonlyMap<string, B
         continue;
       }
       if (run && stack.length === run.depth) {
-        if (text === ";" || (text === "," && run.kind !== "heritage" && run.kind !== "alias" && run.kind !== "block")
+        // A logical operator ends an `as` or an annotation's type: `env.PORT as string || DEFAULT`.
+        const logical = ((text === "|" && is(index + 1, "|")) || (text === "&" && is(index + 1, "&"))) && (run.kind === "as" || run.kind === "annotation" || run.kind === "return");
+        if (logical || text === ";" || (text === "," && run.kind !== "heritage" && run.kind !== "alias" && run.kind !== "block")
           || (text === "=" && (run.kind === "annotation" || run.kind === "return" || run.kind === "as"))
           || ((text === ":" || text === "?") && (run.kind === "annotation" || run.kind === "return" || run.kind === "as"))) { run = undefined; }
         else if (text === "{") {
@@ -359,7 +362,8 @@ function occurrencesOf(tokens: readonly Token[], bindings: ReadonlyMap<string, B
     }
     const frame = top();
     // A key in an object literal, a parameter or property named like the binding, or a declaration of the same name: not a use.
-    if (is(index + 1, ":") && !inType() && frame.ternary === 0 && (frame.open === "{" || frame.open === "(")) continue;
+    // (`case FOO:` in a switch is a use.)
+    if (is(index + 1, ":") && !inType() && frame.ternary === 0 && (frame.open === "{" || frame.open === "(") && before?.text !== "case") continue;
     if ((is(index + 1, "?") && is(index + 2, ":")) || declaring.has(before?.text ?? "") || before?.text === "function") continue;
     const member = is(index + 1, ".") && at(index + 2)?.kind === "word" ? at(index + 2)!.text : undefined;
     const after = member ? index + 3 : index + 1;

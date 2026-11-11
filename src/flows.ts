@@ -200,7 +200,8 @@ export function calledFrom(config: ActivityConfig | undefined, scan: Pick<Scan, 
   };
 }
 
-export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string, given?: { scan?: Scan }) {
+/** `given.scan`: a scan already made, or a way to get one (the viewer's cached scan); the call check asks for it only when some step names a call. */
+export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string, given?: { scan?: Scan | Effect.Effect<Scan, unknown> }) {
   const root = yield* io("Flows.workspace", () => realpath(workspace));
   const config = yield* readActivityConfig(root).pipe(Effect.option, Effect.map(found => found._tag === "Some" ? found.value : undefined));
   // The file listing comes from git, which still lists a tracked file that was deleted from disk, so existence is asked of the filesystem.
@@ -263,7 +264,10 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string,
   const declared = (file: string, name: string) => { const call = callFiles.get(file); return call?.reader.declaration(call.text, name); };
   // The check of a step's call needs the scan's uses; scanned only when some step names a call and a mapping says which files are whose.
   const anyCall = journeyInputs.some(input => input.steps.some(step => parseCall(step.notes)));
-  const scan = anyCall && config ? given?.scan ?? (yield* scanWorkspace(root).pipe(Effect.catch(() => Effect.succeed(undefined)))) : undefined;
+  const provided = given?.scan;
+  const scan = anyCall && config
+    ? (provided === undefined ? yield* scanWorkspace(root).pipe(Effect.catch(() => Effect.succeed(undefined))) : Effect.isEffect(provided) ? yield* provided.pipe(Effect.catch(() => Effect.succeed(undefined))) : provided)
+    : undefined;
   const called = scan ? calledFrom(config, scan) : undefined;
   const journeys = journeyInputs.map(input => {
     return assessJourney(input, { declared, changedElements: elementsChanged(changedFor.get(input) ?? new Set()), known: candidate => changedSince.get(candidate) !== undefined, ...called ? { called } : {} });

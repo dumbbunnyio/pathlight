@@ -7,6 +7,7 @@ import { checkWorkspace } from "../src/check";
 import { acquireModel, listViews } from "../src/catalog";
 import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, openFloor, openShare, viewCap, witness, wordsOf } from "../src/draft";
 import type { How } from "../src/uses";
+import { loadWorld } from "../src/viewer/world";
 import { readdir } from "node:fs/promises";
 import { mappingIn, overlayIn, run } from "./effects";
 
@@ -783,12 +784,14 @@ test("an arrow is drawn only where code is used, titled by what it uses; a pair 
   try {
     await write(directory, {
       "package.json": JSON.stringify({ name: "app" }),
-      "src/store/store.ts": "export class Store { get() { return 1; } }\nexport interface Row { id: number }\nexport function open() { return new Store(); }\n",
+      // The store names a type of the API's back: a loop of imports, but only one way carries code, so no cycle is reported.
+      "src/store/store.ts": 'import { Shape } from "../api/shape";\nexport class Store { get(shape?: Shape) { return 1; } }\nexport interface Row { id: number }\nexport function open() { return new Store(); }\n',
+      "src/api/shape.ts": "export interface Shape { size: number }\n",
       "src/api/api.ts": 'import { open, Row } from "../store/store";\nexport const list = (): Row[] => [{ id: open().get() }];\n',
       "src/view/view.ts": 'import { Row } from "../store/store";\nexport const show = (row: Row) => String(row.id);\n',
     });
     const made = await Effect.runPromise(draftWorkspace(directory));
-    expect(made).toMatchObject({ relationships: 1, typesOnly: 1 });
+    expect(made).toMatchObject({ relationships: 1, typesOnly: 2 });
     const text = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(text).toMatch(/\.api -> [\w.]*store 'calls open'/);
     expect(text).toMatch(/\.view_ -> [\w.]*store '[^']+' \{\n\s+#types/);
@@ -804,6 +807,14 @@ test("an arrow is drawn only where code is used, titled by what it uses; a pair 
     expect(pair(edges.model, "view_")).toBe(true);
     expect(pair(edges.views, "api")).toBe(true);
     expect(pair(edges.views, "view_")).toBe(false);
+    expect(edges.views.some(edge => /store->([\w.]*\.)?api$/.test(edge))).toBe(false);
+    expect((await Effect.runPromise(listViews(directory))).views.map(view => String(view.id))).not.toContain("cycles");
+    // The viewer reads the pairs from the model, for Connects.
+    const world = await Effect.runPromise(Effect.gen(function* () {
+      const views = yield* listViews(directory);
+      return yield* loadWorld({ workspace: directory, project: views.views[0]!.project, id: "index" } as never, { watching: false, reload: false });
+    }));
+    expect(world.typesOnly.map(pair => `${pair.source}->${pair.target}`).sort().map(pair => pair.replace(/[\w]+\./g, ""))).toEqual(["store->api", "view_->store"]);
     // `check` does not ask for an arrow that only shares types.
     const check = await Effect.runPromise(checkWorkspace(directory));
     expect(check.summary).toMatchObject({ undeclared: 0, unsupported: 0 });

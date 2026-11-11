@@ -82,6 +82,10 @@ const typeNames = (type: Node | null): string[] => {
   if (type.type === "type_identifier") return [type.text];
   if (type.type === "scoped_type_identifier") return [type.childForFieldName("name")?.text ?? ""].filter(Boolean);
   if (type.type === "reference_type") return typeNames(type.childForFieldName("type"));
+  // A trait object or `impl Trait` (`&dyn Store`, `Arc<dyn Store + Send>`, `impl Store`): how Rust code is handed its dependencies.
+  if (type.type === "dynamic_type" || type.type === "abstract_type") return typeNames(type.childForFieldName("trait") ?? type.namedChildren[0] ?? null);
+  // `(dyn Store + Send)` parses as a one-element tuple of a bounded type.
+  if (type.type === "bounded_type" || (type.type === "tuple_type" && type.namedChildren.length === 1)) return typeNames(type.namedChildren[0] ?? null);
   if (type.type === "generic_type" && /^(Arc|Rc|Box|Mutex|RwLock)$/.test(type.childForFieldName("type")?.text.split("::").at(-1) ?? "")) return typeNames(type.childForFieldName("type_arguments")?.namedChildren[0] ?? null);
   return [];
 };
