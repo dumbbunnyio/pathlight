@@ -5,6 +5,7 @@ import { failure, io, json, type OperationError } from "./effects";
 import { frontEndFor, frontEnds, languageFor, scannedExtensions, type FrontEnd, type Resolution, type Workspace } from "./languages";
 import { run } from "./process";
 import type { ImportKind, ImportNames, ImportRef } from "./scan-imports";
+import { hows, strongest, type Use } from "./uses";
 
 const Path = Schema.String.check(Schema.isMinLength(1));
 const Count = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
@@ -17,7 +18,7 @@ const Kind = Schema.Literals(["import", "type", "reexport", "dynamic", "require"
  * dates or absolute paths, so scanning the same tree twice gives the same text.
  */
 /** Bump when a change to the scanner can change its output for the same files: `pathlight diff` keeps the base commit's scan and trusts it only for the same revision. */
-export const scanRevision = 8;
+export const scanRevision = 9;
 
 export const Scan = Schema.Struct({
   version: Schema.Literal(1),
@@ -32,7 +33,9 @@ export const Scan = Schema.Struct({
     }))),
   })),
   // Imports that resolve to a file in this workspace; `line` is where the statement starts in `from`.
-  imports: Schema.Array(Schema.Struct({ from: Path, to: Path, line: Line, kind: Kind, specifier: Schema.String })),
+  // `uses`: how `from` uses what it takes from `to` (`src/uses.ts`), strongest first, at most 12. Absent where the scan reads no uses, and in scans made before 9.
+  imports: Schema.Array(Schema.Struct({ from: Path, to: Path, line: Line, kind: Kind, specifier: Schema.String,
+    uses: Schema.optionalKey(Schema.Array(Schema.Struct({ name: Schema.String, how: Schema.Literals(hows) }))) })),
   // Packages outside the workspace (and `node:` or `bun:` built-ins), once per importing file.
   external: Schema.Array(Schema.Struct({ from: Path, package: Schema.String, line: Line, kind: Kind })),
   // Imports that look like they point into the workspace but did not resolve to a file.
@@ -111,9 +114,9 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
   const { listing, paths } = yield* listFiles(root);
   const files = new Set(paths);
 
-  const imports: Scan["imports"][number][] = [];
+  const imports: Found[] = [];
   // What each import takes, by position in `imports`, and the names each file declares itself: enough to follow a name through re-exports.
-  const taken: { names?: ImportNames; reexport?: true }[] = [];
+  const taken: Taken[] = [];
   const declared = new Map<string, Set<string>>();
   const unresolved: Scan["unresolved"][number][] = [];
   const external = new Map<string, Scan["external"][number]>();
@@ -142,7 +145,10 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
       const { specifier: raw, line, kind, reexport } = ref;
       const resolution = resolve!(path, ref);
       if (!resolution) continue;
-      if ("files" in resolution) for (const { to, names } of resolution.files) { imports.push({ from: path, to, line, kind, specifier: raw }); taken.push({ names, reexport }); }
+      if ("files" in resolution) for (const { to, names, uses } of resolution.files) {
+        imports.push({ from: path, to, line, kind, specifier: raw });
+        taken.push({ names, reexport, ...(uses ?? ref.uses) ? { uses: uses ?? ref.uses } : {} });
+      }
       else if ("unresolved" in resolution) unresolved.push({ from: path, specifier: raw, line, kind, reason: resolution.unresolved });
       else {
         // Once per file, at its first import, unless that one only names types and a later one is used at run time (Python's `if TYPE_CHECKING:` import,
@@ -158,7 +164,8 @@ export const scanWorkspace = Effect.fn("Scan.workspace")(function* (workspace: s
   for (const path of paths) if (unscannedExtensions.has(extension(path))) unscannedCounts.set(extension(path), (unscannedCounts.get(extension(path)) ?? 0) + 1);
   const unique = <T extends { from: string; line: number }>(items: T[], key: (item: T) => string) =>
     [...new Map(items.map(item => [key(item), item])).values()].sort((a, b) => order(a.from, b.from) || a.line - b.line || order(key(a), key(b)));
-  const resolvedImports = unique(throughReexports(imports, taken, declared), item => `${item.from}\0${item.line}\0${item.to}\0${item.kind}\0${item.specifier}`);
+  const resolvedImports = unique(throughReexports(imports, taken, declared), item => `${item.from}\0${item.line}\0${item.to}\0${item.kind}\0${item.specifier}`)
+    .map(({ uses, ...item }) => uses ? { ...item, uses: uses.slice(0, 12).map(use => ({ name: use.name, how: use.how })) } : item);
   const unresolvedImports = unique(unresolved, item => `${item.from}\0${item.line}\0${item.specifier}\0${item.kind}`);
   const externalImports = [...external.values()].sort((a, b) => order(a.from, b.from) || order(a.package, b.package));
   return Scan.make({
@@ -178,7 +185,10 @@ export type { ImportKind };
  * file that declares it, and the import is recorded against that file (one record per file reached). A name that cannot be followed (a namespace
  * import, a binding re-exported from a local import, a module outside the workspace) keeps the import on the file it named, so nothing is guessed.
  */
-export function throughReexports(imports: readonly Scan["imports"][number][], taken: readonly { names?: ImportNames; reexport?: true }[], declared: ReadonlyMap<string, ReadonlySet<string>>) {
+type Found = Omit<Scan["imports"][number], "uses"> & { readonly uses?: readonly Use[] };
+interface Taken { readonly names?: ImportNames; readonly reexport?: true; readonly uses?: readonly Use[] }
+
+export function throughReexports(imports: readonly Found[], taken: readonly Taken[], declared: ReadonlyMap<string, ReadonlySet<string>>): Found[] {
   const offers = new Map<string, { to: string; names: ImportNames }[]>();
   imports.forEach((item, index) => { const what = taken[index]; if (what?.reexport && what.names) offers.set(item.from, [...offers.get(item.from) ?? [], { to: item.to, names: what.names }]); });
   const memo = new Map<string, string | undefined>();
@@ -201,10 +211,19 @@ export function throughReexports(imports: readonly Scan["imports"][number][], ta
     memo.set(key, found);
     return found;
   };
+  // Each use goes with its name to the file that declares it. A file that declares none of the names used (a module imported whole, CommonJS) keeps them all.
+  const withUses = (item: Found, uses: readonly Use[] | undefined, mine: (use: Use) => boolean): Found => {
+    if (!uses) return item;
+    const own = uses.filter(mine);
+    return { ...item, uses: strongest(own.length ? own : uses) };
+  };
   return imports.flatMap((item, index) => {
     const what = taken[index];
-    if (what?.reexport || !what?.names || what.names === "*" || !what.names.length || !offers.has(item.to)) return [item];
+    if (what?.reexport || !what?.names || what.names === "*" || !what.names.length || !offers.has(item.to)) return [withUses(item, what?.uses, use => declared.get(item.to)?.has(use.imported) ?? false)];
     const reached = [...new Set(what.names.map(name => declaring(item.to, name.imported, 0) ?? item.to))].sort();
-    return reached.filter(to => to !== item.from).map(to => ({ ...item, to }));
+    return reached.filter(to => to !== item.from).map(to => {
+      const uses = what.uses?.filter(use => (declaring(item.to, use.imported, 0) ?? item.to) === to);
+      return uses ? { ...item, to, uses: strongest(uses) } : { ...item, to };
+    });
   });
 }

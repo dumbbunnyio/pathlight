@@ -8,6 +8,7 @@ import { isUnscannedSource, languageOf, listFiles, scanWorkspace, type Scan } fr
 import { scannedLanguages } from "./languages";
 import { programsOf, readInfra, resourcesOf, withInfra, type InfraFile, type Program, type Resource } from "./resources";
 import { declaredStartsOf } from "./starts";
+import { carriesCode, hows, stronger, type How } from "./uses";
 
 /**
  * A first picture of a codebase made from facts alone, with no model in the loop: packages become boxes, the top-level folders
@@ -52,7 +53,13 @@ export interface Draft {
   readonly uses: readonly { readonly from: string; readonly to: string; readonly files: number; readonly packages: readonly string[] }[];
   /** True when the workspace is one package: components are then the top level. */
   readonly flat: boolean;
-  readonly relationships: readonly { readonly from: string; readonly to: string; readonly imports: number; readonly title?: string }[];
+  /**
+   * The arrows: imports that carry code from one component to another (`src/uses.ts`). `imports` counts those; `words` is what the code uses there
+   * (`calls createDocument, presentDocument`), when it fits; `title` is a person's or the namer's pinned title.
+   */
+  readonly relationships: readonly { readonly from: string; readonly to: string; readonly imports: number; readonly title?: string; readonly words?: string }[];
+  /** Pairs whose every import only names types: written to the model tagged `#types`, left out of every view, listed in Connects as `types only`. */
+  readonly typesOnly: readonly { readonly from: string; readonly to: string; readonly imports: number; readonly title?: string }[];
   /** Overlay entries that contradict the code (a merge of folders that are gone, a pinned arrow no import supports): skipped, never drawn. */
   readonly problems: readonly string[];
   readonly ignore: readonly string[];
@@ -323,13 +330,28 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
     if (!claimed.has(path)) claimed.set(path, ignoredBy(path) ? undefined : claims.find(claim => claim.globs.some(glob => glob.match(path)))?.id);
     return claimed.get(path);
   };
-  const counts = new Map<string, number>();
+  // Per pair of components: every import, those that carry code, and how each name is used across the files that use it.
+  const counts = new Map<string, { imports: number; code: number; uses: Map<string, { how: How; files: Set<string> }> }>();
   for (const item of scan.imports) {
     const from = ownerOfFile(item.from), to = ownerOfFile(item.to);
-    if (from && to && from !== to) counts.set(`${from}\0${to}`, (counts.get(`${from}\0${to}`) ?? 0) + 1);
+    if (!from || !to || from === to) continue;
+    const entry = counts.get(`${from}\0${to}`) ?? { imports: 0, code: 0, uses: new Map() };
+    counts.set(`${from}\0${to}`, entry);
+    entry.imports++;
+    if (!carriesCode(item)) continue;
+    entry.code++;
+    for (const use of item.uses ?? []) {
+      if (use.how === "types") continue;
+      const seen = entry.uses.get(use.name) ?? { how: use.how, files: new Set<string>() };
+      seen.how = stronger(seen.how, use.how);
+      seen.files.add(item.from);
+      entry.uses.set(use.name, seen);
+    }
   }
-  const relationships = [...counts].map(([key, imports]) => { const [from, to] = key.split("\0") as [string, string]; return { from, to, imports }; })
+  const pairs = [...counts].map(([key, entry]) => { const [from, to] = key.split("\0") as [string, string]; return { from, to, ...entry }; })
     .sort((a, b) => byText(a.from, b.from) || byText(a.to, b.to));
+  const relationships = pairs.filter(pair => pair.code > 0).map(pair => { const words = wordsOf(pair.uses); return { from: pair.from, to: pair.to, imports: pair.code, ...words ? { words } : {} }; });
+  const typesOnly = pairs.filter(pair => pair.code === 0).map(pair => ({ from: pair.from, to: pair.to, imports: pair.imports }));
 
   for (const item of merges) if (!item.applied) problems.push(`merge '${item.title}': every folder it names must exist in one package and be in no other merge (${item.keys.join(", ")}).`);
   for (const key of splits) {
@@ -343,10 +365,11 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
   for (const pin of overlay?.relationships ?? []) {
     const from = idOf.get(pin.from), to = idOf.get(pin.to);
     if (!from || !to) problems.push(`relationship '${pin.from}' → '${pin.to}': ${!from ? pin.from : pin.to} is not a component of the draft.`);
-    else if (!relationships.some(edge => edge.from === from && edge.to === to)) problems.push(`relationship '${pin.from}' → '${pin.to}': no import runs from the first to the second, so there is no arrow to title.`);
+    else if (![...relationships, ...typesOnly].some(edge => edge.from === from && edge.to === to)) problems.push(`relationship '${pin.from}' → '${pin.to}': no import runs from the first to the second, so there is no arrow to title.`);
     else titled.set(`${from}\0${to}`, pin.title);
   }
-  const labelled = relationships.map(edge => titled.has(`${edge.from}\0${edge.to}`) ? { ...edge, title: titled.get(`${edge.from}\0${edge.to}`)! } : edge);
+  const pinned = <T extends { from: string; to: string }>(edge: T) => titled.has(`${edge.from}\0${edge.to}`) ? { ...edge, title: titled.get(`${edge.from}\0${edge.to}`)! } : edge;
+  const labelled = relationships.map(pinned);
 
   // What the code talks to, by the packages its files import; a file the picture leaves out (a test) is no evidence. Each resource is a top-level box
   // with an id of its own, and a component uses it when one of its files imports one of its packages.
@@ -374,7 +397,7 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
     for (const [to, names] of by) uses.push({ from: entry.id, to, files: 0, packages: [...names].sort(byText) });
   }
   uses.sort((a, b) => byText(a.from, b.from) || byText(a.to, b.to));
-  return { packages, flat, relationships: labelled, resources, uses, problems, ignore, ignored: source.length - kept.length };
+  return { packages, flat, relationships: labelled, typesOnly: typesOnly.map(pinned), resources, uses, problems, ignore, ignored: source.length - kept.length };
 }
 
 /** A collection of programs is named by the image they run: `$SNUBA_IMAGE` is `snuba`, `getsentry/relay:24.1` is `relay`. */
@@ -388,6 +411,27 @@ const quote = (text: string) => `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 export const generatedMarker = "// Generated by `pathlight draft` from the code. Do not edit by hand: rerun it, and keep names and notes in an overlay.";
+
+const verbs: Record<How, string> = { calls: "calls", renders: "renders", constructs: "constructs", extends: "extends", references: "uses", types: "" };
+/**
+ * What an arrow's code uses, as its title: the strongest kind of use, then up to three names in order of how many files use them, within 32 characters
+ * (`calls createDocument, presentDocument`, `extends BaseModel +2`); when no member fits, its type (`calls Storage`). Undefined when nothing fits or
+ * nothing was read, so the title stays the count.
+ */
+export function wordsOf(uses: ReadonlyMap<string, { readonly how: How; readonly files: ReadonlySet<string> }>): string | undefined {
+  const how = hows.find(kind => kind !== "types" && [...uses.values()].some(use => use.how === kind));
+  if (!how) return undefined;
+  const names = [...uses].filter(([, use]) => use.how === how).sort((a, b) => b[1].files.size - a[1].files.size || byText(a[0], b[0])).map(([name]) => name);
+  const fit = (list: readonly string[]) => {
+    for (let shown = Math.min(3, list.length); shown >= 1; shown--) {
+      const rest = list.length - shown, text = `${verbs[how]} ${list.slice(0, shown).join(", ")}${rest ? ` +${rest}` : ""}`;
+      if (text.length <= 32) return text;
+    }
+    return undefined;
+  };
+  // Members whose names are too long (`Storage.FeedsByCategoryWithCounters`) are said by their type (`calls Storage`).
+  return fit(names) ?? fit([...new Set(names.map(name => name.split(/\.|::/)[0]!))]);
+}
 
 /** Connection weights a view can hide, weakest first: a relationship carries `lt<N>` for every N above its import count. */
 const tiers = [2, 3, 5, 10, 20, 50, 100] as const;
@@ -605,7 +649,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   const inCycle = new Set([...analysis.componentCycles.values()].flatMap(found => found.flat()));
   const inPackageCycle = new Set(analysis.packageCycles.flat());
   const entries: string[] = [];
-  const out: string[] = [generatedMarker, "", "specification {", ...(draft.flat ? [] : ["  element package"]), ...(draft.packages.some(item => item.folders.length) ? ["  element folder"] : []), "  element collection", "  element component", ...(draft.packages.some(item => item.runs) ? ["  element container"] : []), ...tiers.map(tier => `  tag lt${tier}`), "  tag minor", "  tag cycle", "  tag pkgcycle", "}", "", "model {"];
+  const out: string[] = [generatedMarker, "", "specification {", ...(draft.flat ? [] : ["  element package"]), ...(draft.packages.some(item => item.folders.length) ? ["  element folder"] : []), "  element collection", "  element component", ...(draft.packages.some(item => item.runs) ? ["  element container"] : []), ...tiers.map(tier => `  tag lt${tier}`), "  tag minor", "  tag cycle", "  tag pkgcycle", ...(draft.typesOnly.length ? ["  tag types"] : []), "}", "", "model {"];
   // A resource is its own kind of element, its kind (database, cache …) a tag the viewers draw as the card's word.
   const kinds = [...new Set(draft.resources.map(item => item.kind))].sort(byText);
   if (draft.resources.length) out.splice(out.indexOf("  element component") + 1, 0, "  element resource", ...kinds.map(kind => `  tag ${kind}`));
@@ -667,9 +711,12 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   out.push("");
   for (const edge of draft.relationships) {
     const weak = tiers.filter(tier => edge.imports < tier).map(tier => `#lt${tier}`);
-    const inner = [...(weak.length ? [weak.join(" ")] : []), ...(edge.title ? [`description ${quote(plural(edge.imports, "import"))}`] : [])];
-    out.push(`  ${edge.from} -> ${edge.to} ${quote(edge.title ?? plural(edge.imports, "import"))}${inner.length ? ` {\n${inner.map(line => `    ${line}`).join("\n")}\n  }` : ""}`);
+    const title = edge.title ?? edge.words;
+    const inner = [...(weak.length ? [weak.join(" ")] : []), ...(title ? [`description ${quote(plural(edge.imports, "import"))}`] : [])];
+    out.push(`  ${edge.from} -> ${edge.to} ${quote(title ?? plural(edge.imports, "import"))}${inner.length ? ` {\n${inner.map(line => `    ${line}`).join("\n")}\n  }` : ""}`);
   }
+  // A pair that only shares types is in the model, so Connects can say so, and in no view (every view excludes `#types`).
+  for (const edge of draft.typesOnly) out.push(`  ${edge.from} -> ${edge.to} ${quote(edge.title ?? "types only")} {`, "    #types", `    description ${quote(`${plural(edge.imports, "import")} of types only`)}`, "  }");
   // A use of a resource carries no tier, so no view's thinning hides it.
   // A program's arrow is titled by what names the resource (`secret mailserver_creds`, `depends_on redis`); it has no import count.
   for (const use of draft.uses) out.push(...(use.files ? [`  ${use.from} -> ${use.to} ${quote(use.packages.join(", "))} {`, `    description ${quote(plural(use.files, "file"))}`, "  }"] : [`  ${use.from} -> ${use.to} ${quote(use.packages.join(", "))}`]));
@@ -862,7 +909,10 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     }
   }
   out.push(...nearViews(), ...usersViews(), "}", "");
-  return { text: out.join("\n"), entries };
+  // Every view leaves out the pairs that only share types; each view ends with its layout line, so the exclusion goes just before it.
+  const views = out.indexOf("views {");
+  const text = draft.typesOnly.length ? out.flatMap((line, index) => index > views && line.startsWith("    autoLayout") ? ["    exclude * -> * where tag is #types", line] : [line]) : out;
+  return { text: text.join("\n"), entries };
 }
 
 /** The human decisions in an overlay, one comparable line each. */
@@ -1044,6 +1094,6 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const codePackages = draft.flat ? 0 : draft.packages.length - runners.length;
   return { target, project: name, packages: codePackages, components: code(item => item.components.length), collections: code(item => item.groups.length), folders, programs: programs.length,
     elements: code(item => item.components.length + item.groups.length) + folders + codePackages,
-    relationships: draft.relationships.length, resources: draft.resources.length, mappings: mappings.length, ignored: draft.ignored, unread: unreadSummary(draft, unreadSet), overlay: overlay ? Object.keys(overlay.elements).length - unknown.length : 0, unknown,
+    relationships: draft.relationships.length, typesOnly: draft.typesOnly.length, resources: draft.resources.length, mappings: mappings.length, ignored: draft.ignored, unread: unreadSummary(draft, unreadSet), overlay: overlay ? Object.keys(overlay.elements).length - unknown.length : 0, unknown,
     problems: draft.problems, pins: overlay && committed?._tag === "Some" ? changedPins(committed.value, overlay) : [] };
 });

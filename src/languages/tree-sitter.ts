@@ -49,3 +49,21 @@ export function* descendants(node: Node): Generator<Node> {
     }
   } finally { cursor.delete(); }
 }
+
+/** A node as a walk meets it, with the field it fills in its parent and its ancestors (nearest last), so no reader asks the tree for a parent. */
+export interface Step { readonly node: Node; readonly field: string | null; readonly ancestors: readonly { readonly node: Node; readonly field: string | null }[] }
+
+/** Every node under `node` in source order with its field and ancestors. `skip` returning true leaves a node's children out. */
+export function* walk(node: Node, skip?: (node: Node) => boolean): Generator<Step> {
+  const cursor = node.walk();
+  const ancestors: { node: Node; field: string | null }[] = [];
+  try {
+    for (;;) {
+      const current = cursor.currentNode, field = cursor.currentFieldName;
+      yield { node: current, field, ancestors };
+      if (!skip?.(current) && cursor.gotoFirstChild()) { ancestors.push({ node: current, field }); continue; }
+      while (ancestors.length && !cursor.gotoNextSibling()) { cursor.gotoParent(); ancestors.pop(); }
+      if (!ancestors.length) return;
+    }
+  } finally { cursor.delete(); }
+}

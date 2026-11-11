@@ -1,9 +1,10 @@
 import { posix } from "node:path";
 import { Effect } from "effect";
 import type { ExportRef, ImportRef } from "../scan-imports";
+import { callsThrough, strongest, usesOf, type Binding, type How, type Occurrence } from "../uses";
 import type { FrontEnd, Resolution, Workspace } from "./index";
 import file from "./grammars/tree-sitter-python.wasm" with { type: "file" };
-import { descendants, grammar, type Node } from "./tree-sitter";
+import { descendants, grammar, walk, type Node, type Step } from "./tree-sitter";
 
 /**
  * Python. Statements are found anywhere in a file (a function body, a `try:`, an `if`); an import under `if TYPE_CHECKING:` is a type import, and
@@ -17,8 +18,80 @@ const named = (node: Node) => node.type === "aliased_import"
   ? { imported: node.childForFieldName("name")!.text, exported: node.childForFieldName("alias")!.text }
   : { imported: node.text, exported: node.text };
 
+/** A binding that names a module (`import a.b`, `import a.b as c`): its members are what the file uses, after the dotted prefix the code writes. */
+interface PythonBinding extends Binding { readonly prefix: readonly string[]; readonly ref: number }
+
+type Ancestors = Step["ancestors"];
+/**
+ * How the name at `at` in `chain` is used (`chain` is the walk's ancestors with the node itself last; `at` the name, or `name.member`): called, a base
+ * class, inside an annotation, under a decorator, or as a value.
+ */
+const howOf = (chain: Ancestors, at: number): How => {
+  const self = chain[at]!, parent = chain[at - 1], grand = chain[at - 2];
+  if (parent?.node.type === "call" && self.field === "function") return "calls";
+  if (parent?.node.type === "argument_list" && grand?.node.type === "class_definition" && parent.field === "superclasses") return "extends";
+  for (let up = at - 1; up >= 0 && !/statement$|^(block|module|function_definition|class_definition)$/.test(chain[up]!.node.type); up--) {
+    if (chain[up]!.node.type === "type") return "types";
+    if (chain[up]!.node.type === "decorator") return "calls";
+  }
+  return "references";
+};
+const notUses = new Set(["parameters", "lambda_parameters", "function_definition", "class_definition", "global_statement", "nonlocal_statement",
+  "import_statement", "import_from_statement", "aliased_import", "dotted_name"]);
+
+/** Where each binding is used in the file, and how, in one walk that keeps its own ancestors. */
+function occurrencesOf(root: Node, bindings: ReadonlyMap<string, readonly PythonBinding[]>): Occurrence[] {
+  const found: Occurrence[] = [];
+  const typed = new Map<string, Set<string>>(), called = new Map<string, Set<string>>();
+  for (const step of walk(root)) {
+    const node = step.node, type = node.type;
+    if (type === "typed_parameter" || type === "typed_default_parameter" || (type === "assignment" && node.childForFieldName("type"))) {
+      const name = type === "assignment" ? node.childForFieldName("left") : node.childForFieldName("name") ?? node.namedChildren.find(child => child?.type === "identifier") ?? null;
+      const annotation = node.childForFieldName("type");
+      const local = name?.type === "attribute" ? name.childForFieldName("attribute")?.text : name?.type === "identifier" ? name.text : undefined;
+      // `db: Db` or `db: Optional[Db]`, not `dbs: list[Db]`: only then is a member called on `db` one of `Db`'s.
+      const first = annotation?.namedChildren[0];
+      const plain = first?.type === "identifier" ? first : first?.type === "generic_type" && first.namedChildren[0]?.text === "Optional" ? first.namedChildren[1]?.namedChildren[0] ?? null : null;
+      if (local && plain?.type === "identifier" && bindings.get(plain.text)?.some(item => !item.namespace)) (typed.get(local) ?? typed.set(local, new Set()).get(local)!).add(plain.text);
+    }
+    if (type === "call") {
+      const fn = node.childForFieldName("function");
+      if (fn?.type === "attribute") {
+        const object = fn.childForFieldName("object");
+        const holder = object?.type === "identifier" ? object.text : object?.type === "attribute" ? object.childForFieldName("attribute")?.text : undefined;
+        const method = fn.childForFieldName("attribute")?.text;
+        if (holder && method) (called.get(holder) ?? called.set(holder, new Set()).get(holder)!).add(method);
+      }
+    }
+    if (type !== "identifier" || !bindings.has(node.text)) continue;
+    const parent = step.ancestors.at(-1);
+    if (!parent || notUses.has(parent.node.type)) continue;
+    if (parent.node.type === "attribute" && step.field === "attribute") continue;
+    // `f(model=User)`: the keyword is no use, the value is.
+    if (parent.node.type === "keyword_argument" && step.field === "name") continue;
+    if ((parent.node.type === "typed_parameter" || parent.node.type === "default_parameter" || parent.node.type === "typed_default_parameter") && step.field === "name") continue;
+    const chain = [...step.ancestors, { node, field: step.field }];
+    for (const binding of bindings.get(node.text)!) {
+      // Climb `a.b.c` past the prefix the binding stands for, then take the next name as the member used.
+      let at = chain.length - 1, ok = true;
+      for (const part of binding.prefix.slice(1)) {
+        const up = chain[at - 1];
+        if (up?.node.type !== "attribute" || chain[at]!.field !== "object" || up.node.childForFieldName("attribute")?.text !== part) { ok = false; break; }
+        at--;
+      }
+      if (!ok) continue;
+      const up = chain[at - 1];
+      const member = up?.node.type === "attribute" && chain[at]!.field === "object" ? up.node.childForFieldName("attribute")?.text : undefined;
+      found.push({ local: binding.local, ...member ? { member } : {}, how: howOf(chain, member ? at - 1 : at) });
+    }
+  }
+  return [...found, ...callsThrough(typed, called)];
+}
+
 function imports(source: string, path: string): ImportRef[] {
   const found: ImportRef[] = [];
+  const bindings = new Map<string, PythonBinding[]>();
+  const bind = (key: string, binding: PythonBinding) => bindings.set(key, [...(bindings.get(key) ?? []).filter(item => item.local !== binding.local), binding]);
   // A package's `__init__.py` offers what it imports from its own modules (`from .mod import name`) to whoever imports the package, so those lines are
   // followed like `export … from`. Its other imports are its own, followed like any file's.
   const barrel = posix.basename(path) === "__init__.py";
@@ -30,11 +103,17 @@ function imports(source: string, path: string): ImportRef[] {
       const block = node.childForFieldName("consequence");
       if (block) typeOnly.push([block.startIndex, block.endIndex]);
     } else if (node.type === "import_statement") {
-      for (const name of node.childrenForFieldName("name")) if (name) found.push({ specifier: named(name).imported, line, kind });
+      for (const name of node.childrenForFieldName("name")) if (name) {
+        const { imported, exported } = named(name);
+        const prefix = name.type === "aliased_import" ? [exported] : imported.split(".");
+        bind(prefix[0]!, { local: prefix.join("."), imported: "*", namespace: true, typeOnly: kind === "type", prefix, ref: found.length });
+        found.push({ specifier: imported, line, kind });
+      }
     } else if (node.type === "import_from_statement" || node.type === "future_import_statement") {
       const module = node.type === "future_import_statement" ? "__future__" : node.childForFieldName("module_name")!.text;
       const names = node.children.some(child => child?.type === "wildcard_import") ? "*" as const
         : node.childrenForFieldName("name").flatMap(name => name ? [named(name)] : []);
+      if (names !== "*") for (const name of names) bind(name.exported, { local: name.exported, imported: name.imported, namespace: false, typeOnly: kind === "type", prefix: [name.exported], ref: found.length });
       found.push({ specifier: module, line, kind, names, ...barrel && module.startsWith(".") ? { reexport: true as const } : {} });
     } else if (node.type === "call" && /^(importlib\.import_module|import_module|__import__)$/.test(node.childForFieldName("function")?.text ?? "")) {
       const first = node.childForFieldName("arguments")?.namedChildren[0];
@@ -44,7 +123,13 @@ function imports(source: string, path: string): ImportRef[] {
       if (content && /^[A-Za-z_][\w.]*$/.test(content)) found.push({ specifier: content, line, kind: "dynamic" });
     }
   }
-  return found;
+  if (!bindings.size) return found;
+  const all = [...bindings.values()].flat();
+  const occurrences = occurrencesOf(parser.parse(source), bindings);
+  return found.map((ref, index) => {
+    const own = all.filter(binding => binding.ref === index);
+    return own.length ? { ...ref, uses: strongest(own.flatMap(binding => usesOf(binding, occurrences))) } : ref;
+  });
 }
 
 /** The top-level statements of a module, a decorated definition unwrapped. */

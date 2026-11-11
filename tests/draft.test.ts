@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { checkWorkspace } from "../src/check";
 import { acquireModel, listViews } from "../src/catalog";
-import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, openFloor, openShare, viewCap, witness } from "../src/draft";
+import { analyse, crowdedAbove, draftOf, draftWorkspace, generatedMarker, likec4Keywords, loops, openFloor, openShare, viewCap, witness, wordsOf } from "../src/draft";
+import type { How } from "../src/uses";
+import { loadWorld } from "../src/viewer/world";
 import { readdir } from "node:fs/promises";
 import { mappingIn, overlayIn, run } from "./effects";
 
@@ -528,8 +530,8 @@ test("a folder that is more than half of its package and holds at least openFloo
   expect(model).toContain("  element folder\n");
   expect(model).toContain("  core = folder 'core' {\n    description '111 files, 112 lines'\n    data = component 'data' {");
   expect(model).toContain("    ui = component 'ui' {");
-  expect(model).toContain("  cli -> core.ui '1 import'");
-  expect(model).toContain("  core.ui -> core.data '1 import'");
+  expect(model).toMatch(/\n  cli -> core\.ui '[^']+' \{\n[^}]*description '1 import'/);
+  expect(model).toMatch(/\n  core\.ui -> core\.data '[^']+' \{\n[^}]*description '1 import'/);
   expect([keys["core"], keys["core.ui"], keys["core.data"], keys["cli"]]).toEqual(["src/core", "src/core/ui", "src/core/data", "src/cli"]);
   expect(mappings.map(item => [item.glob, item.element])).toEqual([["src/cli/**", "cli"], ["src/core/data/**", "core.data"], ["src/core/ui/**", "core.ui"]]);
   // check's spread hint is for a box that may be several things: an opened folder is drawn as several, so the hint moves to its children.
@@ -776,3 +778,52 @@ test("a child named like the view's subject is included by its full id, so its l
     expect(links as Record<string, unknown>).toEqual({ app: null, "app.app": "app_app_near", "app.cli": "app_cli_near" });
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("an arrow is drawn only where code is used, titled by what it uses; a pair that only shares types is in the model and in no view", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-draft-uses-"));
+  try {
+    await write(directory, {
+      "package.json": JSON.stringify({ name: "app" }),
+      // The store names a type of the API's back: a loop of imports, but only one way carries code, so no cycle is reported.
+      "src/store/store.ts": 'import { Shape } from "../api/shape";\nexport class Store { get(shape?: Shape) { return 1; } }\nexport interface Row { id: number }\nexport function open() { return new Store(); }\n',
+      "src/api/shape.ts": "export interface Shape { size: number }\n",
+      "src/api/api.ts": 'import { open, Row } from "../store/store";\nexport const list = (): Row[] => [{ id: open().get() }];\n',
+      "src/view/view.ts": 'import { Row } from "../store/store";\nexport const show = (row: Row) => String(row.id);\n',
+    });
+    const made = await Effect.runPromise(draftWorkspace(directory));
+    expect(made).toMatchObject({ relationships: 1, typesOnly: 2 });
+    const text = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
+    expect(text).toMatch(/\.api -> [\w.]*store 'calls open'/);
+    expect(text).toMatch(/\.view_ -> [\w.]*store '[^']+' \{\n\s+#types/);
+    const edges = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const source = yield* acquireModel(directory);
+      const computed = yield* Effect.promise(() => source.computedModel([...source.projects()][0]!));
+      return {
+        views: [...computed.views()].flatMap(view => [...view.edges()].map(edge => `${String(edge.source.id)}->${String(edge.target.id)}`)),
+        model: [...computed.relationships()].map(relation => `${String(relation.source.id)}->${String(relation.target.id)}`),
+      };
+    })));
+    const pair = (list: string[], from: string) => list.some(item => new RegExp(`(^|\\.)${from}->([\\w.]*\\.)?store$`).test(item));
+    expect(pair(edges.model, "view_")).toBe(true);
+    expect(pair(edges.views, "api")).toBe(true);
+    expect(pair(edges.views, "view_")).toBe(false);
+    expect(edges.views.some(edge => /store->([\w.]*\.)?api$/.test(edge))).toBe(false);
+    expect((await Effect.runPromise(listViews(directory))).views.map(view => String(view.id))).not.toContain("cycles");
+    // The viewer reads the pairs from the model, for Connects.
+    const world = await Effect.runPromise(Effect.gen(function* () {
+      const views = yield* listViews(directory);
+      return yield* loadWorld({ workspace: directory, project: views.views[0]!.project, id: "index" } as never, { watching: false, reload: false });
+    }));
+    expect(world.typesOnly.map(pair => `${pair.source}->${pair.target}`).sort().map(pair => pair.replace(/[\w]+\./g, ""))).toEqual(["store->api", "view_->store"]);
+    // `check` does not ask for an arrow that only shares types.
+    const check = await Effect.runPromise(checkWorkspace(directory));
+    expect(check.summary).toMatchObject({ undeclared: 0, unsupported: 0 });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}, 60_000);
+
+test("an arrow's words are the strongest kind of use and its most used names, else its type's name, else nothing", () => {
+  const uses = (entries: [string, How, number][]) => new Map(entries.map(([name, how, files]) => [name, { how, files: new Set(Array.from({ length: files }, (_, index) => `f${index}`)) }]));
+  expect(wordsOf(uses([["render", "references", 9], ["saveOrder", "calls", 1], ["loadOrder", "calls", 3]]))).toBe("calls loadOrder, saveOrder");
+  expect(wordsOf(uses([["Storage.FeedsByCategoryWithCounters", "calls", 2], ["Storage.FeedByIdentifierWithCounters", "calls", 1]]))).toBe("calls Storage");
+  expect(wordsOf(uses([["Row", "types", 4]]))).toBeUndefined();
+});

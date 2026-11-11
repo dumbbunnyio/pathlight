@@ -35,8 +35,9 @@ export interface BriefBox {
   otherCount: number;
   /** What the box's files offer to others, read from their `export` statements: the biggest files first, at most 40. */
   exports: { name: string; kind: string; file: string }[];
-  imports: { key: string; generated: string; imports: number }[];
-  importedBy: { key: string; generated: string; imports: number }[];
+  // `words`: what the code uses across that arrow (`calls createDocument, presentDocument`), when the draft could say it in a few words.
+  imports: { key: string; generated: string; imports: number; words?: string }[];
+  importedBy: { key: string; generated: string; imports: number; words?: string }[];
   /** Keys of the boxes inside this one. */
   inside: string[];
   /** Depth below the top of the diagram: 0 is a package (or a top-level component or folder of a flat workspace). */
@@ -180,8 +181,9 @@ export const briefOf = Effect.fn("Brief.of")(function* (workspace: string) {
   for (const edge of draft.relationships) {
     const from = byId.get(edge.from), to = byId.get(edge.to);
     if (!from || !to) continue;
-    from.imports.push({ key: to.key, generated: to.generated, imports: edge.imports });
-    to.importedBy.push({ key: from.key, generated: from.generated, imports: edge.imports });
+    const words = edge.words ? { words: edge.words } : {};
+    from.imports.push({ key: to.key, generated: to.generated, imports: edge.imports, ...words });
+    to.importedBy.push({ key: from.key, generated: from.generated, imports: edge.imports, ...words });
   }
   // A folder's imports are those that cross its edge, counted by the component on the other side.
   for (const item of draft.packages) for (const folder of item.folders) {
@@ -230,7 +232,7 @@ export const changedBoxes = Effect.fn("Brief.changed")(function* (workspace: str
 
 const filesShown = 12, neighboursShown = 6, insideShown = 20, exportsShown = 16;
 const count = (value: number, noun: string) => `${value.toLocaleString("en")} ${noun}${value === 1 ? "" : "s"}`;
-const neighbours = (items: BriefBox["imports"]) => items.slice(0, neighboursShown).map(item => `${item.key} (${item.imports})`).join(", ") + (items.length > neighboursShown ? `, +${items.length - neighboursShown} more` : "");
+const neighbours = (items: BriefBox["imports"]) => items.slice(0, neighboursShown).map(item => `${item.key} (${item.imports}${item.words ? `: ${item.words}` : ""})`).join(", ") + (items.length > neighboursShown ? `, +${items.length - neighboursShown} more` : "");
 
 export function formatBrief(boxes: readonly BriefBox[], all: readonly BriefBox[] = boxes) {
   const byKey = new Map(all.map(box => [box.key, box] as const));
@@ -364,7 +366,7 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const talksTo = draftOf(scan, yield* readManifests(root, paths), overlay, paths.filter(isUnscannedSource), yield* readInfra(root, paths)).resources
     .map(item => ({ key: item.key, title: item.title, kind: item.kind, files: item.files.length })).sort((a, b) => b.files - a.files || (a.title < b.title ? -1 : 1));
   const drafted = yield* io("Brief.drafted", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
-  const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
+  const flows = yield* checkFlows(root, { scan }).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
   const journeys = flows.found ? [...flows.found.journeys.map(item => ({ id: item.id, title: item.title, kind: "journey" as const, steps: item.steps.length, findings: item.findings.length })),
     ...flows.found.flows.map(item => ({ id: item.view ?? item.id, title: item.title, kind: "state diagram" as const, steps: item.steps.length, findings: item.findings.length }))] : [];
   const named = all.filter(box => box.name?.title || box.name?.note);

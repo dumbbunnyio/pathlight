@@ -1,9 +1,10 @@
 import { posix } from "node:path";
 import { Effect } from "effect";
 import type { ExportRef, ImportNames, ImportRef } from "../scan-imports";
+import { commonMethods, stronger, strongest, type How, type Use } from "../uses";
 import type { FrontEnd, Resolution, Workspace } from "./index";
 import file from "./grammars/tree-sitter-rust.wasm" with { type: "file" };
-import { grammar, type Node } from "./tree-sitter";
+import { descendants, grammar, type Node } from "./tree-sitter";
 
 /**
  * Rust. A `use` (every form: groups, renames, globs, `pub use`), an `extern crate` and a path written in code whose first segment is `crate`, `self`,
@@ -56,6 +57,38 @@ function segmentsOf(text: string): string[] | undefined {
 }
 
 const key = (segments: readonly string[]) => segments.join("::");
+
+const fielded = new Set(["identifier", "type_identifier", "scoped_identifier", "scoped_type_identifier", "generic_function", "generic_type"]);
+/** Where a node sits, as the walk recorded it: its type and the field it fills in its parent (for the types in `fielded`), by depth. */
+type Lineage = { type: string; field: string | null }[];
+/**
+ * How a name or path at `depth` is used, from where it sits: called (a function, `Type::method`, a macro), a struct literal, a trait implemented, a type,
+ * or a value. Read from the walk's lineage, so no node is asked for its parent.
+ */
+const howOf = (lineage: Lineage, depth: number): How => {
+  const self = lineage[depth]!, parent = lineage[depth - 1], grand = lineage[depth - 2];
+  if (parent?.type === "call_expression" && self.field === "function") return "calls";
+  if (parent?.type === "generic_function" && self.field === "function" && grand?.type === "call_expression" && parent.field === "function") return "calls";
+  if (parent?.type === "macro_invocation") return "calls";
+  if (parent?.type === "struct_expression" && self.field === "name") return "constructs";
+  if (parent?.type === "impl_item" && self.field === "trait") return "extends";
+  if (parent?.type === "generic_type" && grand?.type === "impl_item" && parent.field === "trait") return "extends";
+  if (self.type === "type_identifier" || self.type === "scoped_type_identifier") return "types";
+  return "references";
+};
+/** The type an annotation is, through references and the smart pointers whose methods are the type's own (`&Client`, `Arc<Client>`), not a collection. */
+const typeNames = (type: Node | null): string[] => {
+  if (!type) return [];
+  if (type.type === "type_identifier") return [type.text];
+  if (type.type === "scoped_type_identifier") return [type.childForFieldName("name")?.text ?? ""].filter(Boolean);
+  if (type.type === "reference_type") return typeNames(type.childForFieldName("type"));
+  // A trait object or `impl Trait` (`&dyn Store`, `Arc<dyn Store + Send>`, `impl Store`): how Rust code is handed its dependencies.
+  if (type.type === "dynamic_type" || type.type === "abstract_type") return typeNames(type.childForFieldName("trait") ?? type.namedChildren[0] ?? null);
+  // `(dyn Store + Send)` parses as a one-element tuple of a bounded type.
+  if (type.type === "bounded_type" || (type.type === "tuple_type" && type.namedChildren.length === 1)) return typeNames(type.namedChildren[0] ?? null);
+  if (type.type === "generic_type" && /^(Arc|Rc|Box|Mutex|RwLock)$/.test(type.childForFieldName("type")?.text.split("::").at(-1) ?? "")) return typeNames(type.childForFieldName("type_arguments")?.namedChildren[0] ?? null);
+  return [];
+};
 /** A path as the code writes it: `::regex::escape`, not `::::regex::escape`. */
 const spell = (segments: readonly string[]) => segments[0] === "::" ? `::${key(segments.slice(1))}` : key(segments);
 
@@ -71,9 +104,22 @@ function read(source: string): RustImport[] {
   scopeOf([]);
   const found: RustImport[] = [{ specifier: "", line: 1, kind: "import", segments: [], scope: [], use: false, glob: false, shape }];
   const seenPaths = new Set<string>();
-  const codePath = (parts: string[], line: number, scope: string[]) => {
+  // How each name the file writes is used, by its first segment (`Client` in `Client::new()`, with the last segment as the member), and how each path in
+  // code is used; a member called on a local annotated with an imported type is a call of that type.
+  // The strongest use of each name and member (`""` for the name alone), and of each path.
+  const occurrences = new Map<string, Map<string, How>>();
+  const pathHows = new Map<string, How>();
+  const typed = new Map<string, Set<string>>(), called = new Map<string, Set<string>>();
+  const occur = (name: string, member: string | undefined, how: How) => {
+    const members = occurrences.get(name) ?? occurrences.set(name, new Map()).get(name)!, seen = members.get(member ?? "");
+    members.set(member ?? "", seen ? stronger(seen, how) : how);
+  };
+  const codePath = (parts: string[], line: number, scope: string[], how: How = "references") => {
     // A path in code is an import only when it starts at a module or a crate: a type's `Self::`, `Vec::new` and a variant start with a capital.
-    if (parts.length < 2 || !(parts[0] === "::" || /^[a-z_]/.test(parts[0]!)) || seenPaths.has(`${key(scope)}\0${key(parts)}`)) return;
+    if (parts.length < 2 || !(parts[0] === "::" || /^[a-z_]/.test(parts[0]!))) return;
+    const pathKey = `${key(scope)}\0${key(parts)}`, seen = pathHows.get(pathKey);
+    pathHows.set(pathKey, seen ? stronger(seen, how) : how);
+    if (seenPaths.has(`${key(scope)}\0${key(parts)}`)) return;
     seenPaths.add(`${key(scope)}\0${key(parts)}`);
     found.push({ specifier: spell(parts), line, kind: "import", names: [{ imported: parts.at(-1)!, exported: parts.at(-1)! }], segments: parts, scope, use: false, glob: false });
   };
@@ -82,7 +128,7 @@ function read(source: string): RustImport[] {
     const tokens: { text: string; line: number }[] = [];
     const collect = (node: Node) => {
       if (/string_literal|char_literal|comment/.test(node.type)) { tokens.push({ text: "", line: 0 }); return; }
-      if (node.childCount === 0) { tokens.push({ text: node.text, line: node.startPosition.row + 1 }); if (node.type === "identifier") used.add(node.text); return; }
+      if (node.childCount === 0) { tokens.push({ text: node.text, line: node.startPosition.row + 1 }); if (node.type === "identifier") { used.add(node.text); occur(node.text, undefined, "references"); } return; }
       for (const child of node.children) if (child) collect(child);
     };
     collect(tree);
@@ -98,6 +144,7 @@ function read(source: string): RustImport[] {
   };
   // The scopes open around the cursor: the depth of each scope's container (the file, or an inline module's body) and its path.
   const frames: { depth: number; scope: string[] }[] = [{ depth: 0, scope: [] }];
+  const lineage: Lineage = [];
   // Attributes read so far before the next item, per depth: `#[cfg(test)]` and `#[path = "…"]` belong to the item that follows them.
   const pending: string[][] = [];
 
@@ -139,7 +186,19 @@ function read(source: string): RustImport[] {
   /** Reads one node; true when its children are to be read too. */
   const visit = (node: Node, depth: number): boolean => {
     if (node.type === "line_comment" || node.type === "block_comment") return false;
-    if (node.type === "identifier" || node.type === "type_identifier") { used.add(node.text); return false; }
+    if (node.type === "identifier" || node.type === "type_identifier") { used.add(node.text); occur(node.text, undefined, howOf(lineage, depth)); return false; }
+    if (node.type === "parameter" || node.type === "let_declaration" || node.type === "field_declaration") {
+      const name = node.childForFieldName(node.type === "field_declaration" ? "name" : "pattern");
+      const local = name?.type === "identifier" || name?.type === "field_identifier" ? name.text : name?.type === "mut_pattern" ? name.namedChildren.find(child => child?.type === "identifier")?.text : undefined;
+      if (local) for (const type of typeNames(node.childForFieldName("type"))) (typed.get(local) ?? typed.set(local, new Set()).get(local)!).add(type);
+    }
+    if (node.type === "call_expression") {
+      const fn = node.childForFieldName("function");
+      const value = fn?.type === "field_expression" ? fn.childForFieldName("value") : null;
+      const holder = value?.type === "identifier" ? value.text : value?.type === "field_expression" ? value.childForFieldName("field")?.text : value?.type === "self" ? undefined : undefined;
+      const method = fn?.type === "field_expression" ? fn.childForFieldName("field")?.text : undefined;
+      if (holder && method) (called.get(holder) ?? called.set(holder, new Set()).get(holder)!).add(method);
+    }
     // `pub(in crate::service)` says who may see an item; it uses nothing.
     if (node.type === "visibility_modifier") return false;
     if (node.type === "attribute_item") { (pending[depth] ??= []).push(node.text); return false; }
@@ -186,6 +245,8 @@ function read(source: string): RustImport[] {
       if (argument) useTree(argument, [], leaves);
       for (const leaf of leaves) {
         if (!leaf.segments.length) continue;
+        // A name a `use` reaches through (`use self::PagingMode::*`, then `Always` in a match) is used as a value: its variants or items are taken.
+        for (const segment of leaf.glob ? leaf.segments : leaf.segments.slice(0, -1)) if (!["crate", "self", "super", "::"].includes(segment)) occur(segment, undefined, "references");
         const last = leaf.segments.at(-1)!;
         const names = leaf.glob ? "*" as const : [{ imported: last, exported: leaf.alias ?? last }];
         found.push({ specifier: `${spell(leaf.segments)}${leaf.glob ? "::*" : ""}`, line, kind: "import", names, ...reexport ? { reexport: true as const } : {},
@@ -204,18 +265,39 @@ function read(source: string): RustImport[] {
     }
     if (node.type === "scoped_identifier" || node.type === "scoped_type_identifier") {
       const parts = segmentsOf(node.text);
-      if (parts) codePath(parts, line, frame.scope);
+      const how = howOf(lineage, depth);
+      if (parts) {
+        codePath(parts, line, frame.scope, how);
+        if (parts.length > 1) { occur(parts[0]!, parts.at(-1), how); used.add(parts[0]!); }
+      }
       return false;
     }
     return true;
   };
 
   // A glob that is not offered on (`pub use …::*`) takes the names the file writes, so each can be followed to the file that declares it.
-  const narrowed = () => found.map(ref => ref.glob && !ref.reexport ? { ...ref, names: [...used].sort().map(name => ({ imported: name, exported: name })) } : ref);
+  const usesOf = (local: string, imported: string): Use[] => [...occurrences.get(local) ?? []].map(([member, how]) => ({ imported, name: member ? `${local}::${member}` : local, how }));
+  const narrowed = () => {
+    for (const [local, types] of typed) for (const method of called.get(local) ?? []) if (!commonMethods.has(method)) for (const type of types) occur(type, method, "calls");
+    // Every glob of the file takes the same names, so they are worked out once.
+    let globNames: { imported: string; exported: string }[] | undefined, globUses: Use[] | undefined;
+    return found.map(ref => {
+      if (ref.shape || !ref.segments.length) return ref;
+      if (ref.glob && !ref.reexport) return { ...ref, names: globNames ??= [...used].sort().map(name => ({ imported: name, exported: name })), uses: globUses ??= strongest([...used].flatMap(name => usesOf(name, name))) };
+      if (ref.glob) return ref;
+      const last = ref.segments.at(-1)!;
+      if (ref.use) return { ...ref, uses: strongest(usesOf(ref.alias ?? last, last)) };
+      const how = pathHows.get(`${key(ref.scope)}\0${key(ref.segments)}`);
+      return { ...ref, uses: how ? [{ imported: last, name: last, how }] : [] };
+    });
+  };
   const cursor = parser.parse(source).walk();
   try {
     for (let depth = 0; ;) {
-      if (visit(cursor.currentNode, depth) && cursor.gotoFirstChild()) { depth++; continue; }
+      const node = cursor.currentNode;
+      // Only these nodes' fields are read (howOf): asking every node for its field would cost a call into the parser each.
+      lineage[depth] = { type: node.type, field: fielded.has(node.type) ? cursor.currentFieldName : null };
+      if (visit(node, depth) && cursor.gotoFirstChild()) { depth++; continue; }
       for (;;) {
         if (depth === 0) return narrowed();
         if (cursor.gotoNextSibling()) { while (frames.length > 1 && frames.at(-1)!.depth >= depth) frames.pop(); break; }

@@ -8,6 +8,7 @@ import { acquireModel, invalidModel } from "./catalog";
 import { failure, io } from "./effects";
 import { declarationsFor, type FrontEnd } from "./languages";
 import { run } from "./process";
+import { scanWorkspace, type Scan } from "./scan";
 
 /**
  * Whether the state diagrams an agent wrote (`*.behavior.c4`, see the pathlight behavior skill) still agree with the code they were read from.
@@ -28,7 +29,8 @@ export type Sync =
  * One step of a flow, in the order it is told. A journey step is a hop between two components (a LikeC4 dynamic view's step); a behavior step is a
  * state. `elements` are the components it touches, and `backed` is whether the model has a relationship for the hop (null for a state, which is no hop).
  */
-export interface FlowStep { n: number; title: string; elements: string[]; from?: string; to?: string; backed: boolean | null; reply?: boolean; mark?: "bug" | "fixed"; call?: StepCall; over?: Over }
+/** `uncalled`: the step names the function it calls, and no file of the box it starts from uses that function (`pathlight flows` says `no call found`). */
+export interface FlowStep { n: number; title: string; elements: string[]; from?: string; to?: string; backed: boolean | null; reply?: boolean; mark?: "bug" | "fixed"; call?: StepCall; over?: Over; uncalled?: true }
 /** The function a journey step calls, as the agent recorded it (`name | file | declaration` in the step's notes). The declaration is the code's own text when it was written. */
 export interface StepCall { name: string; file: string; declaration: string }
 /** How a hop travels when no import makes it: the agent read the request and the code that answers it (`over | http` in the step's notes). */
@@ -132,7 +134,12 @@ export interface JourneyReport { id: string; title: string; view: string; sync: 
 const last = (id: string) => id.split(".").at(-1) ?? id;
 
 /** `changedElements` are the components some changed file belongs to (files that differ from the sync commit); `known` says whether that commit exists. */
-export function assessJourney(journey: JourneyInput, git: { changedElements: ReadonlySet<string>; known: (sha: string) => boolean; declared?: (file: string, name: string) => string | undefined }): JourneyReport {
+/**
+ * `called` says whether a file of `from` uses `name` from `file` other than as a type (true), does not (false), or the scan cannot tell (undefined:
+ * an import whose uses were not read, or were cut at the scan's limit).
+ */
+export function assessJourney(journey: JourneyInput, git: { changedElements: ReadonlySet<string>; known: (sha: string) => boolean; declared?: (file: string, name: string) => string | undefined;
+  called?: (from: string, file: string, name: string) => boolean | undefined }): JourneyReport {
   const sha = syncOf(journey.viewDescription);
   const findings: string[] = [];
   const steps: FlowStep[] = journey.steps.map((step, index) => ({ n: index + 1, title: step.title, elements: [...new Set([step.source, step.target])], from: step.source, to: step.target, backed: step.backed,
@@ -150,6 +157,12 @@ export function assessJourney(journey: JourneyInput, git: { changedElements: Rea
     // The first step over a pair sets which way the request goes; hops the other way are answers.
     const opened = steps.find(other => (other.from === step.from && other.to === step.to) || (other.from === step.to && other.to === step.from))!;
     if (step.backed === false && opened.from === step.to && opened.to === step.from) step.reply = true;
+  }
+  // A step that names the function it calls is checked against the code: some file of the box the hop starts from must use it. A hop over the wire, an
+  // answer, and a call into the box's own files are not checked.
+  for (const step of steps) if (step.call && step.from && !step.over && !step.reply && git.called?.(step.from, step.call.file, step.call.name) === false) {
+    step.uncalled = true;
+    findings.push(`Step ${step.n}: no file of ${last(step.from)} calls ${step.call.name} (${step.call.file}).`);
   }
   const gaps = new Map<string, FlowStep[]>();
   for (const step of steps) if (step.backed === false && !step.reply && !step.over) gaps.set(`${step.from} ${step.to}`, [...(gaps.get(`${step.from} ${step.to}`) ?? []), step]);
@@ -173,7 +186,22 @@ export function assessJourney(journey: JourneyInput, git: { changedElements: Rea
 
 export interface Flows { version: 1; basis: "agent-reading"; flows: FlowReport[]; journeys: JourneyReport[]; summary: { flows: number; journeys: number; findings: number; unverified: number; behind: number } }
 
-export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string) {
+/** What a file of `from` uses from `file`, by the scan's uses; a name matches itself, a member of it (`Store.get`) or a member called through it. */
+export function calledFrom(config: ActivityConfig | undefined, scan: Pick<Scan, "imports">) {
+  const within = (element: string, ancestor: string) => element === ancestor || element.startsWith(`${ancestor}.`);
+  return (from: string, file: string, name: string): boolean | undefined => {
+    // A function in the box's own files is what the box does, not a call it makes into the next box: not checked.
+    if (elementsOf(config, file).some(element => within(element, from))) return undefined;
+    const records = scan.imports.filter(item => item.to === file && item.from !== file && elementsOf(config, item.from).some(element => within(element, from)));
+    if (records.some(item => (item.uses ?? []).some(use => use.how !== "types" && (use.name === name || use.name.endsWith(`.${name}`) || use.name.endsWith(`::${name}`) || use.name.startsWith(`${name}.`) || use.name.startsWith(`${name}::`))))) return true;
+    // An import whose uses were not read (`require`, a dynamic import, a side-effect import) or were cut at the scan's limit could hold the call.
+    if (records.some(item => !item.uses || item.uses.length >= 12)) return undefined;
+    return false;
+  };
+}
+
+/** `given.scan`: a scan already made, or a way to get one (the viewer's cached scan); the call check asks for it only when some step names a call. */
+export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string, given?: { scan?: Scan | Effect.Effect<Scan, unknown> }) {
   const root = yield* io("Flows.workspace", () => realpath(workspace));
   const config = yield* readActivityConfig(root).pipe(Effect.option, Effect.map(found => found._tag === "Some" ? found.value : undefined));
   // The file listing comes from git, which still lists a tracked file that was deleted from disk, so existence is asked of the filesystem.
@@ -234,9 +262,15 @@ export const checkFlows = Effect.fn("Flows.check")(function* (workspace: string)
     callFiles.set(file, text === undefined ? undefined : { text, reader: yield* declarationsFor(file) });
   }
   const declared = (file: string, name: string) => { const call = callFiles.get(file); return call?.reader.declaration(call.text, name); };
+  // The check of a step's call needs the scan's uses; scanned only when some step names a call and a mapping says which files are whose.
+  const anyCall = journeyInputs.some(input => input.steps.some(step => parseCall(step.notes)));
+  const provided = given?.scan;
+  const scan = anyCall && config
+    ? (provided === undefined ? yield* scanWorkspace(root).pipe(Effect.catch(() => Effect.succeed(undefined))) : Effect.isEffect(provided) ? yield* provided.pipe(Effect.catch(() => Effect.succeed(undefined))) : provided)
+    : undefined;
+  const called = scan ? calledFrom(config, scan) : undefined;
   const journeys = journeyInputs.map(input => {
-    const sha = syncOf(input.viewDescription);
-    return assessJourney(input, { declared, changedElements: elementsChanged(changedFor.get(input) ?? new Set()), known: candidate => changedSince.get(candidate) !== undefined });
+    return assessJourney(input, { declared, changedElements: elementsChanged(changedFor.get(input) ?? new Set()), known: candidate => changedSince.get(candidate) !== undefined, ...called ? { called } : {} });
   }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const all = [...flows, ...journeys];
   return {

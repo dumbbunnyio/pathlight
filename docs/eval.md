@@ -560,3 +560,84 @@ The Outline, Mealie, Miniflux, Infisical and opencode scans are byte-identical e
   - bat: 29 of 29, 6 from the code, $0.22.
 
   There are no name references for these repositories; the notes are for David's live test.
+
+## Uses (2026-11-10)
+
+Phase 5 (`docs/internal/plans/phase-5-uses.md`): each import records how the file uses each name it takes (`calls`, `renders`, `constructs`, `extends`, `references`, `types`; `docs/scan.md`, "Uses"), the draft draws an arrow only where code is used and titles it by what is used, `check` does not ask for an arrow that only shares types, and a journey step that names its function is checked against the uses.
+
+### Types only, against the compilers
+
+`bun tests/eval/facts-uses.ts --workspace DIR`. TypeScript: each tsconfig is emitted with the project's `tsc` (7.0.2) into a temporary folder, with `verbatimModuleSyntax` and `emitDecoratorMetadata` off; an import binding the emit drops is types only to the compiler. Imports are read from the source and the output with Babel's parser, not the scanner's tokenizer. Go: `tests/eval/facts_uses_go` type-checks the workspace with `go/types` (standard library only, offline) and says, per file and imported workspace package, whether any use is outside a type position. Only imports the scan resolves into the workspace count; those written as type imports are left out (both sides agree by construction).
+
+| | compared | scan says types only | compiler says types only | precision | recall |
+| --- | --- | --- | --- | --- | --- |
+| this repository (names) | 1,099 | 1 | 1 | 100% | 100% |
+| Outline (names) | 14,054 | 1 | 1 | 100% | 100% |
+| opencode (names) | 21,654 | 345 | 349 | 100% | 99.14% |
+| opencode (statements) | 15,716 | 263 | 266 | 100% | 98.87% |
+| Infisical (names) | 40,045 | 12,545 | 12,918 | 100% | 99.53%, 314 kept on purpose |
+| Infisical (statements) | 25,166 | 6,849 | 7,148 | 100% | 99.55%, 268 kept on purpose |
+| Miniflux (file → package, Go) | 860 | 68 | 102 | 100% | 100%, 34 kept on purpose |
+
+- **Precision is what matters**: a name the scan wrongly calls types only would hide a real arrow. No such name was found in the four TypeScript repositories or in Go. Infisical (added on the review's advice: Outline and this repository write nearly every type import as `import type`, so they test little) had two before the last fix, enum members used as computed keys in a type (`{ [HoneyTokenType.AWS]: … }`); a computed key in a type is now a value.
+- **opencode's misses** keep an arrow the compiler would drop: generic arguments that hold an object type with a `;` (`new Map<string, { ref: Location.Ref; at: number }>()`) or sit next to a logical operator are read as values on purpose, and one binding is used only as a call through a typed local (below). Infisical's 314 are calls through typed locals, its other misses of the same cautious kind.
+- **Miniflux's 34** are files that call methods through a field or parameter typed with the other package (`store *storage.Storage`, then `h.store.UserByUsername(…)`): `go/types` calls the import types only, the scan keeps the arrow because the file runs that package's code. Read in the code, all are real calls (`internal/api/middleware.go → internal/storage/storage.go`: `Storage.CheckPassword`, `Storage.UserByAPIKey` …).
+- **Outline** writes nearly every type import as `import type`, so only one plain import there is types only. **This repository** has one unused import (`src/viewer/footer.ts`'s `clip`), which the compiler drops and the scan keeps (an import with no use read carries code).
+- **Python and Rust have no independent answer** here: CPython has no notion of a type-only import, and rust-analyzer's index says what a name resolves to, not whether the use is in a type position. They are covered by the fixtures in `tests/scan-uses.test.ts`, and the arrows they lose were read by hand (below).
+
+**What the comparison changed in the scan** (each with a test). The first opencode run was 72% precise:
+- the tokenizer read template literals' `${…}` as text and lost its place after a quote in a regular expression inside one; it now reads template expressions as code (a dynamic `import()` inside one is now found, and line numbers after JSX text with an apostrophe are right);
+- JSX: text and attribute names were read as code (`<Text type="…">`, `:{x}:`); `.tsx` and `.jsx` files now read an element's tag name and its `{…}` expressions only, skip comments between attributes, a generic element's type arguments (`<List<Item>>`), and do not mistake `type F = <T>(x: T) => T` or `open?<T>(…)` for an element;
+- a class head's own object literal (`class X extends Schema.Class<X>("id")({ … }) {}`, Effect's style) was taken for the class body; an object key named `class` started a class; a spread (`...value`) was read as a property;
+- `export { a }` followed by `export * as B from "./b"` with no semicolon was read as one re-export of `a` from `./b` (a bug in the import reader since Phase 1: opencode had a file importing itself);
+- calls through a typed local counted array and common methods (`tools: Tool[]`, then `tools.map(…)`, or `config.clone()`).
+
+The review then found, each now with a test: a Python keyword argument's value (`response_model=UserOut`) was skipped; an imported name used as a `case` label was skipped; a comparison (`c < LIMIT && t > (c + 1)`) was read as generic arguments; an `as` type ran past `||`; and a call on a Rust trait object (`source: &dyn SessionSource`, then `source.analyse()`) was not a call through a typed local.
+
+### The map
+
+`draftOf` on each repository, before (`main` at `62effc5`) and after. Before, every pair with an import was drawn. After, drawn plus types only is the same total on every repository: nothing is added or lost, only moved out of the views.
+
+| | arrows before | drawn after | types only (in no view) | drawn arrows titled by their uses |
+| --- | --- | --- | --- | --- |
+| this repository | 221 | 203 | 18 | 197 |
+| Outline | 9 | 8 | 1 (`server → app`) | 7 |
+| opencode | 2,826 | 2,536 | 290 | 2,250 |
+| Mealie | 62 | 62 | 0 | 55 |
+| Miniflux | 124 | 116 | 8 | 101 |
+| atuin | 591 | 509 | 82 | 405 |
+| bat | 98 | 77 | 21 | 57 |
+
+- Titles read `calls loadOrder, saveOrder`, `calls CreateFeed +7`, `extends MealieModel`, `uses LOCALE_CONFIG`, or, when no member name fits in 32 characters, the type (`calls Storage`). An arrow keeps its import count as its title when nothing fits or no use was read (a side-effect import, `require`, a stylesheet).
+- **Read by hand.** Miniflux's 8 (all agreed by `go/types`): `internal.integration → internal.model_` (22 imports) is the one that matters: every integration takes a `*model.Entry` and reads its fields without calling into `model`. bat's 21 and atuin's 82 were sampled (bat: `input → error` and `lessopen → error` use only the `Result` alias; atuin: `atuin_daemon.server → atuin_daemon.search` names `SearchServer<…>` in a field type only, `atuin_ai.session → atuin_ai.usage` names `UsageSnapshot` in signatures only). One sample was wrong and is fixed: bat's `output → paging` brings `PagingMode`'s variants in with `use self::PagingMode::*` and matches on them, a value use; a name a `use` path reaches through now counts as one.
+- **Resources and programs are unchanged**: 68 of 68 at step 3, 58 of 58 programs, 166 of 166 arrows.
+- **Model scorer** (`tests/eval/run.ts`) on fresh drafts: Outline, Mealie and Miniflux 100% of files claimed, 100% of arrows supported, no pair undeclared.
+
+### Names
+
+The namer once each, headless, on fresh drafts of the three hard-box repositories, with this branch's plugin (the brief now lists what each arrow uses: `imports from: internal/config (2: calls Opts), internal/reader (1: calls ParseSrcSetAttribute)`), scored with `tests/eval/names.ts`:
+
+| | Phase 4 | now | time / cost |
+| --- | --- | --- | --- |
+| Outline | 12 of 12 | 12 of 12 | 53 s / $0.33 |
+| Mealie | 9 of 10 | 9 of 10 | 82 s / $0.42 |
+| Miniflux | 4 of 4 | 4 of 4 | 66 s / $0.34 |
+
+As the plan expected, the references sit at their ceiling and cannot show the words helping; they show nothing got worse. Outline's "Where it starts" lists `build.js` and two release scripts, not `server/index.ts` and `app/index.tsx` (0 of 2), and does the same on `main`: not this phase.
+
+### Flows
+
+No recorded journeys survive from earlier runs, so the three Outline questions were traced once with the `d` request (`flowMessage`, the `app` box, no files listed) on the named Outline copy, headless, through the tracer: 69 s / $0.46, 116 s / $0.57, 81 s / $0.66. `tests/eval/flows.ts`: **0 of 3** (Phase 2b: 1 of 3). Every key file was read (4/4, 5/5, 5/5) and every required hop but one was found in order. What fails is new: the map now has resource boxes, and the tracers added hops to them (`server → sql`, `server → redis`, `plugins → slack_identity`); the scorer judges a hop by imports between files, so it calls those invented. That is the scorer missing a kind of edge the map gained in Phase R, not a wrong trace. Slack still misses `server → plugins` as in Phase 2b.
+
+Two steps named their function (`@ file#function`), both on the acting box's own files (`signIn` in `server/utils/authentication.ts` on `server → sql`): the tracer uses `@` for either end of a hop. The call check skips a function in the step's own box for that reason (a test covers it), so `pathlight flows` reports nothing on these journeys. On Miniflux, a journey with `internal.api -> internal.http: … @ internal/http/response/html.go#HTMLServerError` is reported "no file of api calls HTMLServerError", which is true (the API answers in JSON); the same journey's step calling `json.go#JSON` is not.
+
+### Time
+
+`scanWorkspace`, median of five in one warm process (after one unmeasured scan), `main` at `62effc5` and this branch, the same hour:
+
+| | Outline | Mealie | Miniflux | atuin | bat | Infisical |
+| --- | --- | --- | --- | --- | --- | --- |
+| `main` | 456 ms | 589 ms | 406 ms | 1,569 ms | 390 ms | 2,673 ms |
+| this branch | 616 ms | 845 ms | 546 ms | 1,881 ms | 442 ms | 3,708 ms |
+
+Every budgeted repository stays under 2 s; atuin has the least room. In separate processes the machine measured slower that hour for both (atuin 2,332 against 3,120 ms; the Rust phase measured `main` at 1,349 ms in a quieter hour), so compare within a row, not with older tables. Infisical was already over the budget. The cost is the reading of uses: the TypeScript token pass, and for tree-sitter languages a walk that keeps its own ancestors (asking a node for its parent calls into the parser each time).

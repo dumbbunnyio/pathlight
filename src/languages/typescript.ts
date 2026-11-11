@@ -193,7 +193,7 @@ const resolver = Effect.fn("Scan.typescript")(function* (workspace: Workspace) {
 export const typescript: FrontEnd = {
   languages,
   load: () => Promise.resolve(),
-  imports: source => importsOf(source),
+  imports: (source, path) => importsOf(source, /\.(tsx|jsx|js|mjs|cjs)$/.test(path)),
   exports: (source, limit) => exportsOf(source, limit),
   declaration: declarationOf,
   declarationLine,

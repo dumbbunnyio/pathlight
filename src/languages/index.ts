@@ -2,6 +2,7 @@ import { posix } from "node:path";
 import { Effect } from "effect";
 import { io, type OperationError } from "../effects";
 import type { ExportRef, ImportNames, ImportRef } from "../scan-imports";
+import type { Use } from "../uses";
 import { go } from "./go";
 import { python } from "./python";
 import { rust } from "./rust";
@@ -16,7 +17,7 @@ export type UnresolvedReason = "not-found" | "alias-not-configured" | "package-e
  * outside the workspace, a reason it did not resolve, or nothing to record (an empty specifier, a namespace package with no file of its own).
  */
 export type Resolution =
-  | { readonly files: readonly { readonly to: string; readonly names?: ImportNames }[] }
+  | { readonly files: readonly { readonly to: string; readonly names?: ImportNames; readonly uses?: readonly Use[] }[] }
   | { readonly external: string }
   | { readonly unresolved: UnresolvedReason }
   | undefined;

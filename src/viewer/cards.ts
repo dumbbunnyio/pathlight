@@ -13,6 +13,32 @@ const lit = (chunks: TextChunk[], on: boolean, background: RGBA) => on ? chunks.
 
 export interface Link { node: string; arrow: string; tone: string; label?: string | null }
 
+/** A pair of model elements whose code only shares types (`#types`): in the model, in no view. */
+export interface TypesPair { readonly source: string; readonly target: string }
+const within = (element: string, ancestor: string) => element === ancestor || element.startsWith(`${ancestor}.`);
+/**
+ * Connects' last rows: what the selected card shares only types with, muted, `types only`. The other end is the card in this view that draws it (the
+ * element or its nearest drawn ancestor); a pair the view already connects, or one whose other end is not drawn here, adds no row.
+ */
+export function typesLinks(selected: { id: string; modelRef: string } | undefined, nodes: readonly { id: string; modelRef: string }[],
+  edges: readonly { source: string; target: string }[], pairs: readonly TypesPair[]): Link[] {
+  if (!selected) return [];
+  const cardOf = (element: string) => nodes.filter(node => within(element, node.modelRef) && !within(selected.modelRef, node.modelRef) && !within(node.modelRef, selected.modelRef))
+    .sort((a, b) => b.modelRef.length - a.modelRef.length)[0];
+  const found = new Map<string, Link>();
+  for (const pair of pairs) {
+    const outward = within(pair.source, selected.modelRef) && !within(pair.target, selected.modelRef);
+    const inward = within(pair.target, selected.modelRef) && !within(pair.source, selected.modelRef);
+    if (!outward && !inward) continue;
+    const other = cardOf(outward ? pair.target : pair.source);
+    if (!other) continue;
+    const drawn = edges.some(edge => outward ? edge.source === selected.id && edge.target === other.id : edge.source === other.id && edge.target === selected.id);
+    const key = `${outward ? "→" : "←"}${other.id}`;
+    if (!drawn && !found.has(key)) found.set(key, { node: other.id, arrow: outward ? "→" : "←", tone: palette.muted, label: "types only" });
+  }
+  return [...found.values()].sort((a, b) => (a.arrow === b.arrow ? 0 : a.arrow === "←" ? -1 : 1) || (a.node < b.node ? -1 : a.node > b.node ? 1 : 0));
+}
+
 /** Connects: who calls it first, then what it calls, one row each with the relationship's own words. The row under the cursor shows them in full, wrapped. */
 export function connectsCard(links: readonly Link[], name: (id: string) => string, cursor: number | undefined, width: number, background: RGBA): Card {
   if (!links.length) return { chunks: [fg(palette.border)("none")], lines: 1, starts: [] };
@@ -90,6 +116,8 @@ export function stepsCard(flow: FlowMap, current: number, byElement: ReadonlyMap
     if (step.reply) { chunks.push(indent(5), fg(palette.muted)("↩ the answer to an earlier step\n")); line++; }
     else if (step.over) { chunks.push(indent(5), fg(palette.purple)(`over ${step.over}`), fg(palette.muted)(", not an import\n")); line++; }
     else if (step.backed === false) { chunks.push(indent(5), fg(palette.accent)("≠ "), fg(palette.muted)("no arrow on the map for this hop\n")); line++; }
+    // The function the step names, which no file of the box before it uses (pathlight flows).
+    if (step.uncalled) { chunks.push(indent(5), fg(palette.accent)("no call found"), fg(palette.muted)(" from the box before\n")); line++; }
     if (!step.elements.length) { chunks.push(indent(5), fg(palette.muted)("no component for this step\n")); line++; }
     if (step.call) {
       // The function this hop calls, as the file declares it (copied when the flow was written, checked by pathlight flows): a name, where, and the
