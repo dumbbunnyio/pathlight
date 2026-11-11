@@ -573,12 +573,14 @@ Phase 5 (`docs/internal/plans/phase-5-uses.md`): each import records how the fil
 | --- | --- | --- | --- | --- | --- |
 | this repository (names) | 1,099 | 1 | 1 | 100% | 100% |
 | Outline (names) | 14,054 | 1 | 1 | 100% | 100% |
-| opencode (names) | 21,654 | 346 | 349 | 100% | 99.43% |
-| opencode (statements) | 15,716 | 264 | 266 | 100% | 99.25% |
+| opencode (names) | 21,654 | 345 | 349 | 100% | 99.14% |
+| opencode (statements) | 15,716 | 263 | 266 | 100% | 98.87% |
+| Infisical (names) | 40,045 | 12,545 | 12,918 | 100% | 99.53%, 314 kept on purpose |
+| Infisical (statements) | 25,166 | 6,849 | 7,148 | 100% | 99.55%, 268 kept on purpose |
 | Miniflux (file → package, Go) | 860 | 68 | 102 | 100% | 100%, 34 kept on purpose |
 
-- **Precision is what matters**: a name the scan wrongly calls types only would hide a real arrow. No such name was found in the three TypeScript repositories or in Go.
-- **opencode's 3 misses** keep an arrow the compiler would drop: two are generic arguments that hold an object type with a `;` (`new Map<string, { ref: Location.Ref; at: number }>()`), which the reader treats as values on purpose; one is a binding used only as a call through a typed local (below).
+- **Precision is what matters**: a name the scan wrongly calls types only would hide a real arrow. No such name was found in the four TypeScript repositories or in Go. Infisical (added on the review's advice: Outline and this repository write nearly every type import as `import type`, so they test little) had two before the last fix, enum members used as computed keys in a type (`{ [HoneyTokenType.AWS]: … }`); a computed key in a type is now a value.
+- **opencode's misses** keep an arrow the compiler would drop: generic arguments that hold an object type with a `;` (`new Map<string, { ref: Location.Ref; at: number }>()`) or sit next to a logical operator are read as values on purpose, and one binding is used only as a call through a typed local (below). Infisical's 314 are calls through typed locals, its other misses of the same cautious kind.
 - **Miniflux's 34** are files that call methods through a field or parameter typed with the other package (`store *storage.Storage`, then `h.store.UserByUsername(…)`): `go/types` calls the import types only, the scan keeps the arrow because the file runs that package's code. Read in the code, all are real calls (`internal/api/middleware.go → internal/storage/storage.go`: `Storage.CheckPassword`, `Storage.UserByAPIKey` …).
 - **Outline** writes nearly every type import as `import type`, so only one plain import there is types only. **This repository** has one unused import (`src/viewer/footer.ts`'s `clip`), which the compiler drops and the scan keeps (an import with no use read carries code).
 - **Python and Rust have no independent answer** here: CPython has no notion of a type-only import, and rust-analyzer's index says what a name resolves to, not whether the use is in a type position. They are covered by the fixtures in `tests/scan-uses.test.ts`, and the arrows they lose were read by hand (below).
@@ -589,6 +591,8 @@ Phase 5 (`docs/internal/plans/phase-5-uses.md`): each import records how the fil
 - a class head's own object literal (`class X extends Schema.Class<X>("id")({ … }) {}`, Effect's style) was taken for the class body; an object key named `class` started a class; a spread (`...value`) was read as a property;
 - `export { a }` followed by `export * as B from "./b"` with no semicolon was read as one re-export of `a` from `./b` (a bug in the import reader since Phase 1: opencode had a file importing itself);
 - calls through a typed local counted array and common methods (`tools: Tool[]`, then `tools.map(…)`, or `config.clone()`).
+
+The review then found, each now with a test: a Python keyword argument's value (`response_model=UserOut`) was skipped; an imported name used as a `case` label was skipped; a comparison (`c < LIMIT && t > (c + 1)`) was read as generic arguments; an `as` type ran past `||`; and a call on a Rust trait object (`source: &dyn SessionSource`, then `source.analyse()`) was not a call through a typed local.
 
 ### The map
 
@@ -626,3 +630,14 @@ As the plan expected, the references sit at their ceiling and cannot show the wo
 No recorded journeys survive from earlier runs, so the three Outline questions were traced once with the `d` request (`flowMessage`, the `app` box, no files listed) on the named Outline copy, headless, through the tracer: 69 s / $0.46, 116 s / $0.57, 81 s / $0.66. `tests/eval/flows.ts`: **0 of 3** (Phase 2b: 1 of 3). Every key file was read (4/4, 5/5, 5/5) and every required hop but one was found in order. What fails is new: the map now has resource boxes, and the tracers added hops to them (`server → sql`, `server → redis`, `plugins → slack_identity`); the scorer judges a hop by imports between files, so it calls those invented. That is the scorer missing a kind of edge the map gained in Phase R, not a wrong trace. Slack still misses `server → plugins` as in Phase 2b.
 
 Two steps named their function (`@ file#function`), both on the acting box's own files (`signIn` in `server/utils/authentication.ts` on `server → sql`): the tracer uses `@` for either end of a hop. The call check skips a function in the step's own box for that reason (a test covers it), so `pathlight flows` reports nothing on these journeys. On Miniflux, a journey with `internal.api -> internal.http: … @ internal/http/response/html.go#HTMLServerError` is reported "no file of api calls HTMLServerError", which is true (the API answers in JSON); the same journey's step calling `json.go#JSON` is not.
+
+### Time
+
+`scanWorkspace`, median of five in one warm process (after one unmeasured scan), `main` at `62effc5` and this branch, the same hour:
+
+| | Outline | Mealie | Miniflux | atuin | bat | Infisical |
+| --- | --- | --- | --- | --- | --- | --- |
+| `main` | 456 ms | 589 ms | 406 ms | 1,569 ms | 390 ms | 2,673 ms |
+| this branch | 616 ms | 845 ms | 546 ms | 1,881 ms | 442 ms | 3,708 ms |
+
+Every budgeted repository stays under 2 s; atuin has the least room. In separate processes the machine measured slower that hour for both (atuin 2,332 against 3,120 ms; the Rust phase measured `main` at 1,349 ms in a quieter hour), so compare within a row, not with older tables. Infisical was already over the budget. The cost is the reading of uses: the TypeScript token pass, and for tree-sitter languages a walk that keeps its own ancestors (asking a node for its parent calls into the parser each time).

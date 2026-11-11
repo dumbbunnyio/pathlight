@@ -368,7 +368,9 @@ function occurrencesOf(tokens: readonly Token[], bindings: ReadonlyMap<string, B
     const member = is(index + 1, ".") && at(index + 2)?.kind === "word" ? at(index + 2)!.text : undefined;
     const after = member ? index + 3 : index + 1;
     let how: How;
-    if (inType()) {
+    // A computed key in a type, `{ [Kind.Aws]: … }`, is a value the type is keyed by.
+    if (inType() && before?.text === "[" && ["{", ";", ","].includes(at(index - 2)?.text ?? "")) how = "references";
+    else if (inType()) {
       how = "types";
       // `db: Db` or `db: Db | undefined`, not `dbs: Db[]` or `make: () => Db`: only then is a member called on `db` one of `Db`'s.
       if (run?.owner && run.kind === "annotation" && run.start === index - 1 && !is(index + 1, "[") && !is(index + 1, ".")) (typed.get(run.owner) ?? typed.set(run.owner, new Set()).get(run.owner)!).add(word);

@@ -153,13 +153,14 @@ test("the scan sends each use through a barrel to the file that declares it, and
 
 test("values in less obvious places: a case label, a keyword argument, a comparison, and a fallback after `as`", async () => {
   const [x] = importsOf([
-    'import { FOO, LIMIT, Name, DEFAULT, Action } from "./x";',
+    'import { FOO, LIMIT, Name, DEFAULT, Action, Kind } from "./x";',
     "function reduce(state: number, action: Action) { switch (action.type) { case FOO: return 1 } }",
     "if (count < LIMIT && total > (count + 1)) {}",
     "const pick = a < b ? Name : c > (d);",
     "const port = process.env.PORT as string || DEFAULT;",
+    "type ByKind = { [Kind.Aws]: string; other: Kind };",
   ].join("\n"));
-  expect(howOf(x!.uses)).toMatchObject({ FOO: "references", LIMIT: "references", Name: "references", DEFAULT: "references", Action: "types" });
+  expect(howOf(x!.uses)).toMatchObject({ FOO: "references", LIMIT: "references", Name: "references", DEFAULT: "references", Action: "types", Kind: "references" });
   await python.load();
   const [schemas] = python.imports("from .schemas import UserOut, UserIn\ndef create(data: UserIn):\n    return serialize(model=UserOut)\n", "routes.py");
   expect(howOf(schemas!.uses)).toMatchObject({ UserOut: "references", UserIn: "types" });
