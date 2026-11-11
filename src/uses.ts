@@ -54,9 +54,16 @@ export function usesOf(binding: Binding, occurrences: readonly Occurrence[]): Us
   return strongest(found);
 }
 
+/**
+ * Methods every value has from its language, not from the type that was imported (`clone`, `toString`, `iter`): a call of one through a typed local
+ * says nothing about the other file's code.
+ */
+export const commonMethods: ReadonlySet<string> = new Set(["clone", "to_owned", "to_string", "into", "as_ref", "as_mut", "borrow", "borrow_mut", "iter", "len", "is_empty",
+  "unwrap", "expect", "eq", "cmp", "fmt", "default", "deref", "hash", "toString", "valueOf", "toJSON", "then", "catch", "finally", "map", "filter", "forEach"]);
+
 /** Calls through typed locals: `typed` maps a local (`db`) to the bindings its annotation names (`Db`); `called` the members called on each local. */
 export function callsThrough(typed: ReadonlyMap<string, ReadonlySet<string>>, called: ReadonlyMap<string, ReadonlySet<string>>): Occurrence[] {
   const found: Occurrence[] = [];
-  for (const [local, types] of typed) for (const member of called.get(local) ?? []) for (const type of types) found.push({ local: type, member, how: "calls", through: true });
+  for (const [local, types] of typed) for (const member of called.get(local) ?? []) if (!commonMethods.has(member)) for (const type of types) found.push({ local: type, member, how: "calls", through: true });
   return found;
 }

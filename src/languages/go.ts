@@ -1,10 +1,10 @@
 import { posix } from "node:path";
 import { Effect } from "effect";
 import type { ExportRef, ImportRef } from "../scan-imports";
-import { strongest, type How, type Use } from "../uses";
+import { commonMethods, strongest, type How, type Use } from "../uses";
 import type { FrontEnd, Resolution, Workspace } from "./index";
 import file from "./grammars/tree-sitter-go.wasm" with { type: "file" };
-import { descendants, grammar, type Node } from "./tree-sitter";
+import { descendants, grammar, walk, type Node, type Step } from "./tree-sitter";
 
 /**
  * Go. An import names a package, a folder of files, so it is recorded against the files of that package that declare the names the importing file
@@ -20,18 +20,17 @@ const parser = grammar(file);
  */
 interface GoImport extends ImportRef { readonly alias?: string; readonly selects: ReadonlyMap<string, ReadonlySet<string>>; readonly how: ReadonlyMap<string, readonly Use[]> }
 
-/** How `pkg.Name` is used, from where it sits: a call, a composite literal, an embedded field, a type, or a value. */
-const howOf = (node: Node): How => {
-  const parent = node.parent;
+/** How `pkg.Name` is used, from where it sits (the walk's ancestors, not the tree's): a call, a composite literal, an embedded field, a type, or a value. */
+const howOf = ({ node, field, ancestors }: Step): How => {
+  const parent = ancestors.at(-1), grand = ancestors.at(-2);
+  if (parent?.node.type === "composite_literal" && field === "type") return "constructs";
   if (node.type === "qualified_type") {
-    const holder = parent?.type === "pointer_type" ? parent.parent : parent;
-    if (parent?.type === "composite_literal" && parent.childForFieldName("type")?.id === node.id) return "constructs";
+    const holder = parent?.node.type === "pointer_type" ? grand?.node : parent?.node;
     if (holder?.type === "field_declaration" && !holder.childForFieldName("name")) return "extends";
     return "types";
   }
-  if (parent?.type === "call_expression" && parent.childForFieldName("function")?.id === node.id) return "calls";
-  if (parent?.type === "selector_expression" && parent.parent?.type === "call_expression" && parent.parent.childForFieldName("function")?.id === parent.id) return "calls";
-  if (parent?.type === "composite_literal" && parent.childForFieldName("type")?.id === node.id) return "constructs";
+  if (parent?.node.type === "call_expression" && field === "function") return "calls";
+  if (parent?.node.type === "selector_expression" && field === "operand" && grand?.node.type === "call_expression" && parent.field === "function") return "calls";
   return "references";
 };
 /** The `pkg.Type` an annotation is, directly or through a pointer: a slice or a map of it has the container's methods, not its own. */
@@ -47,28 +46,29 @@ function imports(source: string): ImportRef[] {
   // `pkg.Name` in an expression and `pkg.Type` in a type, by the name before the dot. Only exported names can come from another package.
   const selects = new Map<string, Set<string>>();
   const how = new Map<string, Use[]>();
-  const use = (qualifier: Node | null, name: Node | null, node: Node) => {
+  const use = (qualifier: Node | null, name: Node | null, step: Step) => {
     if (!qualifier || !name || !exported(name.text)) return;
     const set = selects.get(qualifier.text) ?? new Set<string>();
     set.add(name.text);
     selects.set(qualifier.text, set);
-    how.set(qualifier.text, [...how.get(qualifier.text) ?? [], { imported: name.text, name: name.text, how: howOf(node) }]);
+    (how.get(qualifier.text) ?? how.set(qualifier.text, []).get(qualifier.text)!).push({ imported: name.text, name: name.text, how: howOf(step) });
   };
   // A member called on a parameter, field or variable whose declared type is `pkg.Type` is a call into that package.
   const typed = new Map<string, Node[]>(), called = new Map<string, Set<string>>();
   const annotate = (names: (Node | null)[], type: Node | null) => {
-    for (const name of names) if (name) typed.set(name.text, [...typed.get(name.text) ?? [], ...namedTypes(type)]);
+    for (const name of names) if (name) (typed.get(name.text) ?? typed.set(name.text, []).get(name.text)!).push(...namedTypes(type));
   };
   const found: GoImport[] = [];
-  for (const node of descendants(root)) {
+  for (const step of walk(root)) {
+    const node = step.node;
     if (node.type === "selector_expression") {
       const operand = node.childForFieldName("operand");
-      if (operand?.type === "identifier") use(operand, node.childForFieldName("field"), node);
-      const call = node.parent?.type === "call_expression" && node.parent.childForFieldName("function")?.id === node.id;
+      if (operand?.type === "identifier") use(operand, node.childForFieldName("field"), step);
+      const call = step.ancestors.at(-1)?.node.type === "call_expression" && step.field === "function";
       const holder = operand?.type === "identifier" ? operand : operand?.type === "selector_expression" ? operand.childForFieldName("field") : null;
       const method = node.childForFieldName("field")?.text;
       if (call && holder && method) (called.get(holder.text) ?? called.set(holder.text, new Set()).get(holder.text)!).add(method);
-    } else if (node.type === "qualified_type") use(node.childForFieldName("package"), node.childForFieldName("name"), node);
+    } else if (node.type === "qualified_type") use(node.childForFieldName("package"), node.childForFieldName("name"), step);
     else if (node.type === "parameter_declaration" || node.type === "field_declaration" || node.type === "var_spec") annotate(node.childrenForFieldName("name"), node.childForFieldName("type"));
     else if (node.type === "import_spec") {
       const path = node.childForFieldName("path");
@@ -76,9 +76,9 @@ function imports(source: string): ImportRef[] {
       if (specifier) found.push({ specifier, line: node.startPosition.row + 1, kind: "import", alias: node.childForFieldName("name")?.text, selects, how });
     }
   }
-  for (const [local, types] of typed) for (const method of called.get(local) ?? []) for (const type of types) {
+  for (const [local, types] of typed) for (const method of called.get(local) ?? []) if (!commonMethods.has(method)) for (const type of types) {
     const qualifier = type.childForFieldName("package")?.text, name = type.childForFieldName("name")?.text;
-    if (qualifier && name) how.set(qualifier, [...how.get(qualifier) ?? [], { imported: name, name: `${name}.${method}`, how: "calls" }]);
+    if (qualifier && name) (how.get(qualifier) ?? how.set(qualifier, []).get(qualifier)!).push({ imported: name, name: `${name}.${method}`, how: "calls" });
   }
   return found;
 }

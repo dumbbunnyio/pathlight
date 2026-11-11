@@ -4,7 +4,7 @@ import type { ExportRef, ImportRef } from "../scan-imports";
 import { callsThrough, strongest, usesOf, type Binding, type How, type Occurrence } from "../uses";
 import type { FrontEnd, Resolution, Workspace } from "./index";
 import file from "./grammars/tree-sitter-python.wasm" with { type: "file" };
-import { descendants, grammar, type Node } from "./tree-sitter";
+import { descendants, grammar, walk, type Node, type Step } from "./tree-sitter";
 
 /**
  * Python. Statements are found anywhere in a file (a function body, a `try:`, an `if`); an import under `if TYPE_CHECKING:` is a type import, and
@@ -21,57 +21,66 @@ const named = (node: Node) => node.type === "aliased_import"
 /** A binding that names a module (`import a.b`, `import a.b as c`): its members are what the file uses, after the dotted prefix the code writes. */
 interface PythonBinding extends Binding { readonly prefix: readonly string[]; readonly ref: number }
 
-/** How the node at `use` (a name, or `name.member`) is used: called, a base class, inside an annotation, or as a value. */
-const howOf = (use: Node): How => {
-  const parent = use.parent;
-  if (parent?.type === "call" && parent.childForFieldName("function")?.id === use.id) return "calls";
-  if (parent?.type === "argument_list" && parent.parent?.type === "class_definition" && parent.parent.childForFieldName("superclasses")?.id === parent.id) return "extends";
-  for (let at: Node | null = use.parent; at && !/statement$|^(block|module|function_definition|class_definition)$/.test(at.type); at = at.parent) {
-    if (at.type === "type") return "types";
-    if (at.type === "decorator") return "calls";
+type Ancestors = Step["ancestors"];
+/**
+ * How the name at `at` in `chain` is used (`chain` is the walk's ancestors with the node itself last; `at` the name, or `name.member`): called, a base
+ * class, inside an annotation, under a decorator, or as a value.
+ */
+const howOf = (chain: Ancestors, at: number): How => {
+  const self = chain[at]!, parent = chain[at - 1], grand = chain[at - 2];
+  if (parent?.node.type === "call" && self.field === "function") return "calls";
+  if (parent?.node.type === "argument_list" && grand?.node.type === "class_definition" && parent.field === "superclasses") return "extends";
+  for (let up = at - 1; up >= 0 && !/statement$|^(block|module|function_definition|class_definition)$/.test(chain[up]!.node.type); up--) {
+    if (chain[up]!.node.type === "type") return "types";
+    if (chain[up]!.node.type === "decorator") return "calls";
   }
   return "references";
 };
 const notUses = new Set(["keyword_argument", "parameters", "lambda_parameters", "function_definition", "class_definition", "global_statement", "nonlocal_statement",
   "import_statement", "import_from_statement", "aliased_import", "dotted_name"]);
 
-/** Where each binding is used in the file, and how. */
+/** Where each binding is used in the file, and how, in one walk that keeps its own ancestors. */
 function occurrencesOf(root: Node, bindings: ReadonlyMap<string, readonly PythonBinding[]>): Occurrence[] {
   const found: Occurrence[] = [];
   const typed = new Map<string, Set<string>>(), called = new Map<string, Set<string>>();
-  for (const node of descendants(root)) {
-    if (node.type === "typed_parameter" || node.type === "typed_default_parameter" || (node.type === "assignment" && node.childForFieldName("type"))) {
-      const name = node.type === "assignment" ? node.childForFieldName("left") : node.childForFieldName("name") ?? node.namedChildren.find(child => child?.type === "identifier") ?? null;
-      const type = node.childForFieldName("type");
+  for (const step of walk(root)) {
+    const node = step.node, type = node.type;
+    if (type === "typed_parameter" || type === "typed_default_parameter" || (type === "assignment" && node.childForFieldName("type"))) {
+      const name = type === "assignment" ? node.childForFieldName("left") : node.childForFieldName("name") ?? node.namedChildren.find(child => child?.type === "identifier") ?? null;
+      const annotation = node.childForFieldName("type");
       const local = name?.type === "attribute" ? name.childForFieldName("attribute")?.text : name?.type === "identifier" ? name.text : undefined;
       // `db: Db` or `db: Optional[Db]`, not `dbs: list[Db]`: only then is a member called on `db` one of `Db`'s.
-      const plain = type?.namedChildren[0]?.type === "identifier" ? type.namedChildren[0] : type?.namedChildren[0]?.type === "generic_type" && /^(Optional)$/.test(type.namedChildren[0].namedChildren[0]?.text ?? "") ? type.namedChildren[0].namedChildren[1]?.namedChildren[0] ?? null : null;
+      const first = annotation?.namedChildren[0];
+      const plain = first?.type === "identifier" ? first : first?.type === "generic_type" && first.namedChildren[0]?.text === "Optional" ? first.namedChildren[1]?.namedChildren[0] ?? null : null;
       if (local && plain?.type === "identifier" && bindings.get(plain.text)?.some(item => !item.namespace)) (typed.get(local) ?? typed.set(local, new Set()).get(local)!).add(plain.text);
     }
-    if (node.type === "call") {
+    if (type === "call") {
       const fn = node.childForFieldName("function");
-      const object = fn?.type === "attribute" ? fn.childForFieldName("object") : null;
-      const holder = object?.type === "identifier" ? object.text : object?.type === "attribute" ? object.childForFieldName("attribute")?.text : undefined;
-      const method = fn?.childForFieldName("attribute")?.text;
-      if (holder && method) (called.get(holder) ?? called.set(holder, new Set()).get(holder)!).add(method);
+      if (fn?.type === "attribute") {
+        const object = fn.childForFieldName("object");
+        const holder = object?.type === "identifier" ? object.text : object?.type === "attribute" ? object.childForFieldName("attribute")?.text : undefined;
+        const method = fn.childForFieldName("attribute")?.text;
+        if (holder && method) (called.get(holder) ?? called.set(holder, new Set()).get(holder)!).add(method);
+      }
     }
-    if (node.type !== "identifier") continue;
-    const parent = node.parent;
-    if (!bindings.has(node.text) || !parent || notUses.has(parent.type)) continue;
-    if (parent.type === "attribute" && parent.childForFieldName("attribute")?.id === node.id) continue;
-    if ((parent.type === "typed_parameter" || parent.type === "default_parameter" || parent.type === "typed_default_parameter") && parent.childForFieldName("name")?.id === node.id) continue;
+    if (type !== "identifier" || !bindings.has(node.text)) continue;
+    const parent = step.ancestors.at(-1);
+    if (!parent || notUses.has(parent.node.type)) continue;
+    if (parent.node.type === "attribute" && step.field === "attribute") continue;
+    if ((parent.node.type === "typed_parameter" || parent.node.type === "default_parameter" || parent.node.type === "typed_default_parameter") && step.field === "name") continue;
+    const chain = [...step.ancestors, { node, field: step.field }];
     for (const binding of bindings.get(node.text)!) {
       // Climb `a.b.c` past the prefix the binding stands for, then take the next name as the member used.
-      let use: Node = node, ok = true;
+      let at = chain.length - 1, ok = true;
       for (const part of binding.prefix.slice(1)) {
-        const up = use.parent;
-        if (up?.type !== "attribute" || up.childForFieldName("object")?.id !== use.id || up.childForFieldName("attribute")?.text !== part) { ok = false; break; }
-        use = up;
+        const up = chain[at - 1];
+        if (up?.node.type !== "attribute" || chain[at]!.field !== "object" || up.node.childForFieldName("attribute")?.text !== part) { ok = false; break; }
+        at--;
       }
       if (!ok) continue;
-      const up = use.parent;
-      const member = up?.type === "attribute" && up.childForFieldName("object")?.id === use.id ? up.childForFieldName("attribute")?.text : undefined;
-      found.push({ local: binding.local, ...member ? { member } : {}, how: howOf(member ? up! : use) });
+      const up = chain[at - 1];
+      const member = up?.node.type === "attribute" && chain[at]!.field === "object" ? up.node.childForFieldName("attribute")?.text : undefined;
+      found.push({ local: binding.local, ...member ? { member } : {}, how: howOf(chain, member ? at - 1 : at) });
     }
   }
   return [...found, ...callsThrough(typed, called)];

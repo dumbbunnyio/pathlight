@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import { Effect } from "effect";
 import type { ExportRef, ImportNames, ImportRef } from "../scan-imports";
-import { strongest, type How, type Use } from "../uses";
+import { commonMethods, stronger, strongest, type How, type Use } from "../uses";
 import type { FrontEnd, Resolution, Workspace } from "./index";
 import file from "./grammars/tree-sitter-rust.wasm" with { type: "file" };
 import { descendants, grammar, type Node } from "./tree-sitter";
@@ -58,17 +58,22 @@ function segmentsOf(text: string): string[] | undefined {
 
 const key = (segments: readonly string[]) => segments.join("::");
 
-/** How a name or path is used, from where it sits: called (a function, `Type::method`, a macro), a struct literal, a trait implemented, a type, or a value. */
-const howOf = (node: Node): How => {
-  const parent = node.parent;
-  const at = (holder: Node | null | undefined, field: string, child: Node) => holder?.childForFieldName(field)?.id === child.id;
-  if (parent?.type === "call_expression" && at(parent, "function", node)) return "calls";
-  if (parent?.type === "generic_function" && at(parent, "function", node) && parent.parent?.type === "call_expression") return "calls";
+const fielded = new Set(["identifier", "type_identifier", "scoped_identifier", "scoped_type_identifier", "generic_function", "generic_type"]);
+/** Where a node sits, as the walk recorded it: its type and the field it fills in its parent (for the types in `fielded`), by depth. */
+type Lineage = { type: string; field: string | null }[];
+/**
+ * How a name or path at `depth` is used, from where it sits: called (a function, `Type::method`, a macro), a struct literal, a trait implemented, a type,
+ * or a value. Read from the walk's lineage, so no node is asked for its parent.
+ */
+const howOf = (lineage: Lineage, depth: number): How => {
+  const self = lineage[depth]!, parent = lineage[depth - 1], grand = lineage[depth - 2];
+  if (parent?.type === "call_expression" && self.field === "function") return "calls";
+  if (parent?.type === "generic_function" && self.field === "function" && grand?.type === "call_expression" && parent.field === "function") return "calls";
   if (parent?.type === "macro_invocation") return "calls";
-  if (parent?.type === "struct_expression" && at(parent, "name", node)) return "constructs";
-  if (parent?.type === "impl_item" && at(parent, "trait", node)) return "extends";
-  if (parent?.type === "generic_type" && parent.parent?.type === "impl_item" && at(parent.parent, "trait", parent)) return "extends";
-  if (node.type === "type_identifier" || node.type === "scoped_type_identifier") return "types";
+  if (parent?.type === "struct_expression" && self.field === "name") return "constructs";
+  if (parent?.type === "impl_item" && self.field === "trait") return "extends";
+  if (parent?.type === "generic_type" && grand?.type === "impl_item" && parent.field === "trait") return "extends";
+  if (self.type === "type_identifier" || self.type === "scoped_type_identifier") return "types";
   return "references";
 };
 /** The type an annotation is, through references and the smart pointers whose methods are the type's own (`&Client`, `Arc<Client>`), not a collection. */
@@ -97,14 +102,19 @@ function read(source: string): RustImport[] {
   const seenPaths = new Set<string>();
   // How each name the file writes is used, by its first segment (`Client` in `Client::new()`, with the last segment as the member), and how each path in
   // code is used; a member called on a local annotated with an imported type is a call of that type.
-  const occurrences = new Map<string, { member?: string; how: How }[]>();
-  const pathHows = new Map<string, How[]>();
+  // The strongest use of each name and member (`""` for the name alone), and of each path.
+  const occurrences = new Map<string, Map<string, How>>();
+  const pathHows = new Map<string, How>();
   const typed = new Map<string, Set<string>>(), called = new Map<string, Set<string>>();
-  const occur = (name: string, member: string | undefined, how: How) => occurrences.set(name, [...occurrences.get(name) ?? [], { ...member ? { member } : {}, how }]);
+  const occur = (name: string, member: string | undefined, how: How) => {
+    const members = occurrences.get(name) ?? occurrences.set(name, new Map()).get(name)!, seen = members.get(member ?? "");
+    members.set(member ?? "", seen ? stronger(seen, how) : how);
+  };
   const codePath = (parts: string[], line: number, scope: string[], how: How = "references") => {
     // A path in code is an import only when it starts at a module or a crate: a type's `Self::`, `Vec::new` and a variant start with a capital.
     if (parts.length < 2 || !(parts[0] === "::" || /^[a-z_]/.test(parts[0]!))) return;
-    pathHows.set(`${key(scope)}\0${key(parts)}`, [...pathHows.get(`${key(scope)}\0${key(parts)}`) ?? [], how]);
+    const pathKey = `${key(scope)}\0${key(parts)}`, seen = pathHows.get(pathKey);
+    pathHows.set(pathKey, seen ? stronger(seen, how) : how);
     if (seenPaths.has(`${key(scope)}\0${key(parts)}`)) return;
     seenPaths.add(`${key(scope)}\0${key(parts)}`);
     found.push({ specifier: spell(parts), line, kind: "import", names: [{ imported: parts.at(-1)!, exported: parts.at(-1)! }], segments: parts, scope, use: false, glob: false });
@@ -130,6 +140,7 @@ function read(source: string): RustImport[] {
   };
   // The scopes open around the cursor: the depth of each scope's container (the file, or an inline module's body) and its path.
   const frames: { depth: number; scope: string[] }[] = [{ depth: 0, scope: [] }];
+  const lineage: Lineage = [];
   // Attributes read so far before the next item, per depth: `#[cfg(test)]` and `#[path = "…"]` belong to the item that follows them.
   const pending: string[][] = [];
 
@@ -171,7 +182,7 @@ function read(source: string): RustImport[] {
   /** Reads one node; true when its children are to be read too. */
   const visit = (node: Node, depth: number): boolean => {
     if (node.type === "line_comment" || node.type === "block_comment") return false;
-    if (node.type === "identifier" || node.type === "type_identifier") { used.add(node.text); occur(node.text, undefined, howOf(node)); return false; }
+    if (node.type === "identifier" || node.type === "type_identifier") { used.add(node.text); occur(node.text, undefined, howOf(lineage, depth)); return false; }
     if (node.type === "parameter" || node.type === "let_declaration" || node.type === "field_declaration") {
       const name = node.childForFieldName(node.type === "field_declaration" ? "name" : "pattern");
       const local = name?.type === "identifier" || name?.type === "field_identifier" ? name.text : name?.type === "mut_pattern" ? name.namedChildren.find(child => child?.type === "identifier")?.text : undefined;
@@ -248,7 +259,7 @@ function read(source: string): RustImport[] {
     }
     if (node.type === "scoped_identifier" || node.type === "scoped_type_identifier") {
       const parts = segmentsOf(node.text);
-      const how = howOf(node);
+      const how = howOf(lineage, depth);
       if (parts) {
         codePath(parts, line, frame.scope, how);
         if (parts.length > 1) { occur(parts[0]!, parts.at(-1), how); used.add(parts[0]!); }
@@ -259,22 +270,28 @@ function read(source: string): RustImport[] {
   };
 
   // A glob that is not offered on (`pub use …::*`) takes the names the file writes, so each can be followed to the file that declares it.
-  const usesOf = (local: string, imported: string): Use[] => (occurrences.get(local) ?? []).map(item => ({ imported, name: item.member ? `${local}::${item.member}` : local, how: item.how }));
+  const usesOf = (local: string, imported: string): Use[] => [...occurrences.get(local) ?? []].map(([member, how]) => ({ imported, name: member ? `${local}::${member}` : local, how }));
   const narrowed = () => {
-    for (const [local, types] of typed) for (const method of called.get(local) ?? []) for (const type of types) occur(type, method, "calls");
+    for (const [local, types] of typed) for (const method of called.get(local) ?? []) if (!commonMethods.has(method)) for (const type of types) occur(type, method, "calls");
+    // Every glob of the file takes the same names, so they are worked out once.
+    let globNames: { imported: string; exported: string }[] | undefined, globUses: Use[] | undefined;
     return found.map(ref => {
       if (ref.shape || !ref.segments.length) return ref;
-      if (ref.glob && !ref.reexport) return { ...ref, names: [...used].sort().map(name => ({ imported: name, exported: name })), uses: strongest([...used].flatMap(name => usesOf(name, name))) };
+      if (ref.glob && !ref.reexport) return { ...ref, names: globNames ??= [...used].sort().map(name => ({ imported: name, exported: name })), uses: globUses ??= strongest([...used].flatMap(name => usesOf(name, name))) };
       if (ref.glob) return ref;
       const last = ref.segments.at(-1)!;
       if (ref.use) return { ...ref, uses: strongest(usesOf(ref.alias ?? last, last)) };
-      return { ...ref, uses: strongest((pathHows.get(`${key(ref.scope)}\0${key(ref.segments)}`) ?? []).map(how => ({ imported: last, name: last, how }))) };
+      const how = pathHows.get(`${key(ref.scope)}\0${key(ref.segments)}`);
+      return { ...ref, uses: how ? [{ imported: last, name: last, how }] : [] };
     });
   };
   const cursor = parser.parse(source).walk();
   try {
     for (let depth = 0; ;) {
-      if (visit(cursor.currentNode, depth) && cursor.gotoFirstChild()) { depth++; continue; }
+      const node = cursor.currentNode;
+      // Only these nodes' fields are read (howOf): asking every node for its field would cost a call into the parser each.
+      lineage[depth] = { type: node.type, field: fielded.has(node.type) ? cursor.currentFieldName : null };
+      if (visit(node, depth) && cursor.gotoFirstChild()) { depth++; continue; }
       for (;;) {
         if (depth === 0) return narrowed();
         if (cursor.gotoNextSibling()) { while (frames.length > 1 && frames.at(-1)!.depth >= depth) frames.pop(); break; }
