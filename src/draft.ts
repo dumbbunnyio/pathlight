@@ -1157,12 +1157,12 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   // The ids before this draw, from the keys the last one recorded: a journey's id that was there and would not be is a journey this draw would break.
   let blocked: { element: string; journey: string } | undefined;
   if (options.keepJourneys) {
-    const before = yield* io("Draft.keys", () => readFile(join(state, keysPath), "utf8")).pipe(Effect.flatMap(json), Effect.option);
-    const old = new Set(before._tag === "Some" && before.value && typeof before.value === "object" ? Object.keys((before.value as { keys?: Record<string, unknown> }).keys ?? {}) : []);
+    // Every element a draw makes is in `keys`, so a journey's id the new draw lacks is one this draw would leave unresolved, whatever the last draw
+    // recorded (its keys live in ignored state, which a fresh clone or a cleaned cache does not have).
     const now = new Set(Object.keys(keys));
     for (const name of existing.filter(file => /\.behavior\.(c4|likec4)$/.test(file)).sort()) {
       const text = yield* io("Draft.journey", () => readFile(join(target, name), "utf8")).pipe(Effect.catch(() => Effect.succeed("")));
-      const lost = [...journeyIds(text)].sort().find(id => old.has(id) && !now.has(id));
+      const lost = [...journeyIds(text)].sort().find(id => !now.has(id));
       if (lost) { blocked = { element: lost, journey: name.replace(/\.behavior\.(c4|likec4)$/, "") }; break; }
     }
   }

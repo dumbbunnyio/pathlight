@@ -1,19 +1,19 @@
 #!/usr/bin/env bun
 import { scannedLanguages } from "./languages";
 import { parseArgs } from "node:util";
-import { writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { listViews, overviewId, selectView } from "./catalog";
 import { Config, Effect, Schema } from "effect";
 import { io, json, failure } from "./effects";
 import { writeReady } from "./ready";
 import { atShellPrompt, showView } from "./tmux";
 import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
-import { mappingPath } from "./layout";
+import { homeOf, mappingPath, modelFile } from "./layout";
 import { claudeActivity, claudeJournals, claudeSession } from "./claude";
 import { initGlobal, initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
-import { draftWorkspace } from "./draft";
+import { draftWorkspace, journeyIds } from "./draft";
 import { checkAndRecord } from "./stale";
 import { planNew, setPlan } from "./plan";
 import { formatRefresh, readRefreshed, readSettings, refreshWorkspace, saveRedraw } from "./refresh";
@@ -148,8 +148,12 @@ try {
       if (id) return yield* invalid("check takes no argument. Use --workspace PATH.");
       const check = yield* checkAndRecord(values.workspace);
       // A redraw the end of the last turn held back, because it would have broken a journey.
-      const behind = (yield* readRefreshed(values.workspace))?.blocked;
-      const behindText = behind ? `The map is behind: a redraw would remove ${behind.element}, which journey ${behind.journey} uses. Rerun the journey or pathlight draft --force.\n` : "";
+      // Only while it is still true: the journey still names the box, and the model is the one the held-back redraw would have replaced.
+      const refreshed = yield* readRefreshed(values.workspace), held = refreshed?.blocked;
+      const journey = held ? yield* io("CLI.journey", () => readFile(join(homeOf(resolve(values.workspace)), `${held.journey}.behavior.c4`), "utf8")).pipe(Effect.option) : undefined;
+      const modelTime = held ? yield* io("CLI.modelTime", () => stat(join(homeOf(resolve(values.workspace)), modelFile))).pipe(Effect.map(found => found.mtimeMs), Effect.option) : undefined;
+      const behind = held && journey?._tag === "Some" && journeyIds(journey.value).has(held.element) && modelTime?._tag === "Some" && modelTime.value <= refreshed!.time ? held : undefined;
+      const behindText = behind ? `The map is behind: a redraw would remove ${behind.element}, which journey ${behind.journey} uses. Rerun or remove that journey (pathlight flow remove ${behind.journey}); the next turn then redraws.\n` : "";
       if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(behind ? { ...check, behind } : check, null, 2)}\n` : `${formatCheck(check)}${behindText}`);
       if (values.strict && hasFindings(check)) process.exitCode = 1;
     } else if (command === "flows") {

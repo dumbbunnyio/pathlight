@@ -67,13 +67,18 @@ export const planNew = Effect.fn("Plan.new")(function* (workspace: string, wante
   if (model._tag === "None" || !model.value.startsWith(generatedMarker))
     return yield* Effect.fail(failure("Plan.written", "This map was not drawn by pathlight draft, so plan --new does not change it. Add the element to the model, list its id under \"planned\" in .pathlight/pathlight.activity.json, then run pathlight plan with its id."));
   const { paths } = yield* listFiles(root);
+  if (paths.includes(path)) return yield* Effect.fail(failure("Plan.path", `${path} is a file; plan --new takes the folder you are about to create.`));
   if (hasFilesIn(paths, path)) return yield* Effect.fail(failure("Plan.exists", `${path} already has files, so it is drawn already. Run pathlight plan with the id of its box (pathlight brief ${path} names it).`));
   const overlay = yield* readOverlay(root);
   const pinned = overlay.elements[path]?.by === "human" || (overlay.planned ?? []).some(item => item.path === path && item.by === "human");
   if (pinned) return yield* Effect.fail(failure("Plan.pinned", `${path} has a name a person gave it; it is left as it is.`));
   const next = { ...overlay, planned: [...(overlay.planned ?? []).filter(item => item.path !== path), { path, title, ...(note ? { note } : {}), by: "agent" as const }] };
   yield* writeOverlay(homeOf(root), next).pipe(Effect.mapError(() => failure("Plan.invalid", "A title is at most 60 characters and a note at most 300, each one line. Nothing was written.")));
-  const drawn = yield* draftWorkspace(root).pipe(Effect.tapError(() => writeOverlay(homeOf(root), overlay)));
+  const drawn = yield* draftWorkspace(root, { keepJourneys: true }).pipe(Effect.tapError(() => writeOverlay(homeOf(root), overlay)));
+  if (drawn.blocked) {
+    yield* writeOverlay(homeOf(root), overlay);
+    return yield* Effect.fail(failure("Plan.journey", `Redrawing the map now would remove ${drawn.blocked.element}, which journey ${drawn.blocked.journey} uses, so nothing was planned. Rerun or remove that journey first.`));
+  }
   const id = [...(yield* readKeys(root))].find(([, key]) => key === path)?.[0];
   if (!id) {
     // Not a place boxes are drawn (inside another box): put the overlay back and redraw, so nothing half-made is left.

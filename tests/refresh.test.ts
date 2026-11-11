@@ -71,11 +71,34 @@ test("a redraw that would remove an id a journey names is not written, and check
     await writeFile(join(directory, "src/zz/one.ts"), "export const one = 1;\n");
     expect(refresh(directory)).toMatchObject({ redrew: false, blocked: { element: "small.aa", journey: "trip" } });
     expect(await readFile(model(directory), "utf8")).toBe(before);
-    expect(cli(directory, "check").out).toContain("small.aa");
-    // Once the journey no longer names it, the redraw goes ahead and check stops saying so.
+    expect(JSON.parse(cli(directory, "check", "--json").out).behind).toEqual({ element: "small.aa", journey: "trip" });
+    // plan --new would redraw too, so it is held back the same way and plans nothing.
+    expect(cli(directory, "plan", "--new", "src/auth", "--title", "Auth").code).not.toBe(0);
+    expect(await readFile(model(directory), "utf8")).toBe(before);
+    // Once the journey no longer names it, check stops saying so at once, and the next turn redraws.
     await rm(join(directory, ".pathlight/trip.behavior.c4"));
+    expect(JSON.parse(cli(directory, "check", "--json").out).behind).toBeUndefined();
     expect(refresh(directory)).toMatchObject({ redrew: true });
-    expect(cli(directory, "check").out).not.toContain("small.aa");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("with the last draw's keys gone (a fresh clone, a cleaned cache), a redraw still keeps journeys and announces no box", async () => {
+  const directory = await shop();
+  try {
+    await writeFile(join(directory, ".pathlight/trip.behavior.c4"), "views {\n  dynamic view trip {\n    title 'Trip'\n    small.aa -> api 'asks'\n  }\n}\n");
+    await rm(join(directory, ".cache"), { recursive: true, force: true });
+    await writeFile(join(directory, "src/aa/two.ts"), "export const y = 2;\n");
+    await writeFile(join(directory, "src/aa/three.ts"), "export const z = 3;\n");
+    await mkdir(join(directory, "src/zz"));
+    await writeFile(join(directory, "src/zz/one.ts"), "export const one = 1;\n");
+    expect(refresh(directory)).toMatchObject({ redrew: false, blocked: { element: "small.aa", journey: "trip" } });
+    expect(cli(directory, "check").code).toBe(0);
+    await rm(join(directory, ".pathlight/trip.behavior.c4"));
+    await rm(join(directory, ".cache"), { recursive: true, force: true });
+    const done = refresh(directory) as ReturnType<typeof refresh> & { unnamed: string[] };
+    expect(done).toMatchObject({ redrew: true, added: [], unnamed: [] });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

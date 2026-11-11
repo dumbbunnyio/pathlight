@@ -49,6 +49,8 @@ export const Refreshed = Schema.Struct({
   added: Schema.Array(Schema.Struct({ id: Name, key: Name })).check(Schema.isMaxLength(4096)),
   /** New boxes with no name yet (a folder's own name), by key, at most `namingCap`: what the end of the turn asks the agent to have named. */
   unnamed: Schema.optionalKey(Schema.Array(Name).check(Schema.isMaxLength(64))),
+  /** New boxes past the cap, asked about at the next end of a turn. */
+  waiting: Schema.optionalKey(Schema.Array(Name).check(Schema.isMaxLength(4096))),
   /** A redraw was needed and not written: it would remove `element`, which the journey `journey` names. */
   blocked: Schema.optionalKey(Schema.Struct({ element: Name, journey: Name })),
 });
@@ -75,7 +77,7 @@ export const namingRequest = (keys: readonly string[], waiting = 0) => {
   const list = keys.length === 1 ? keys[0] : `${keys.slice(0, -1).join(", ")} and ${keys.at(-1)}`;
   return `Pathlight drew ${keys.length === 1 ? "a new box" : `${keys.length} new boxes`} on the map, ${list}, named only by ${keys.length === 1 ? "its folder" : "their folders"}. `
     + `Hand ${keys.length === 1 ? "it" : "them"} to the pathlight-namer subagent with ${keys.length === 1 ? "this key" : "these keys"} (${keys.join(" ")}), then end your turn with one line on what you named.`
-    + (waiting ? ` ${waiting} more wait for the next turn (pathlight brief --changed lists them).` : "");
+    + (waiting ? ` ${waiting} more are asked about at the end of the next turn.` : "");
 };
 
 export interface Refresh {
@@ -128,7 +130,8 @@ export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (worksp
     const made = yield* draftWorkspace(root, { given, keepJourneys: true });
     blocked = made.blocked;
     redrew = made.written;
-    if (redrew) {
+    // With no keys from the last draw (a fresh clone, a cleaned cache) nothing says which boxes are new: none is announced or asked about.
+    if (redrew && before.size) {
       const oldKeys = new Set(before.values());
       added = Object.entries(made.keys).filter(([, key]) => !oldKeys.has(key)).map(([id, key]) => ({ id, key })).sort((a, b) => a.id < b.id ? -1 : 1);
       // The agent's plan names ids; an id the redraw moved (a folder that left "small folders") follows its key, and one whose key is gone is dropped.
@@ -138,16 +141,19 @@ export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (worksp
         const next = [...new Set(plan.elements.flatMap(id => { const key = before.get(id); const moved = key === undefined ? (id in made.keys ? id : undefined) : byKey.get(key); return moved ? [moved] : []; }))];
         if (next.join() !== plan.elements.join()) yield* setPlan(root, next).pipe(Effect.ignore);
       }
-      check = yield* checkAndRecord(root, given).pipe(Effect.option);
     }
+    if (redrew) check = yield* checkAndRecord(root, given).pipe(Effect.option);
   }
   // The boxes this redraw added that nobody has named: folders and files the code has (not a collection, not a resource), with no overlay entry. A
   // person's name is an entry, so a box a person named is never asked about.
-  const named = redrew ? yield* readOverlay(root).pipe(Effect.option) : undefined;
-  const isCode = (key: string) => !key.includes("#") && paths.some(path => path === key || path.startsWith(`${key}/`));
-  const fresh = named?._tag === "Some" ? added.map(item => item.key).filter(key => isCode(key) && !named.value.elements[key]) : [];
-  const unnamed = fresh.slice(0, namingCap), waiting = fresh.length - unnamed.length;
-  yield* writeRefreshed(root, { version: 1, time: Date.now(), redrew, added, ...(unnamed.length ? { unnamed } : {}), ...(blocked ? { blocked } : {}) });
+  // Boxes past the last turn's cap come first, while they are still on the map and still unnamed.
+  const last = yield* readRefreshed(root);
+  const named = yield* readOverlay(root).pipe(Effect.option);
+  const drawnKeys = new Set((yield* readKeys(root)).values());
+  const isCode = (key: string) => !key.includes("#") && drawnKeys.has(key) && paths.some(path => path === key || path.startsWith(`${key}/`));
+  const fresh = named._tag === "Some" ? [...new Set([...last?.waiting ?? [], ...added.map(item => item.key)])].filter(key => isCode(key) && !named.value.elements[key]) : [];
+  const unnamed = fresh.slice(0, namingCap), later = fresh.slice(namingCap), waiting = later.length;
+  yield* writeRefreshed(root, { version: 1, time: Date.now(), redrew, added, ...(unnamed.length ? { unnamed } : {}), ...(later.length ? { waiting: later } : {}), ...(blocked ? { blocked } : {}) });
 
   // The review of new dependencies, against the model as it now is. Not a git repository, or no commit yet: there is nothing to compare with.
   const config = yield* readActivityConfig(root).pipe(Effect.option);
@@ -169,7 +175,7 @@ export function formatRefresh(result: Refresh) {
   else lines.push("Checked: the model could not be read (pathlight check says why).");
   if (!result.drawn) lines.push("The map was written by a person, so it is never redrawn.");
   else if (result.redraw === "off") lines.push("Redraw is off for this workspace (pathlight config set redraw on --workspace . turns it on).");
-  else if (result.blocked) lines.push(`Not redrawn: it would remove ${result.blocked.element}, which journey ${result.blocked.journey} uses. Rerun the journey, or pathlight draft --force.`);
+  else if (result.blocked) lines.push(`Not redrawn: it would remove ${result.blocked.element}, which journey ${result.blocked.journey} uses. Rerun or remove that journey; the next turn then redraws.`);
   else if (result.redrew) lines.push(`Redrew the map (${result.due.join(", ")})${result.added.length ? `: new ${result.added.length === 1 ? "box" : "boxes"} ${result.added.map(item => item.key).join(", ")}` : ""}.`);
   else if (result.due.length) lines.push("The map already matches the code.");
   else lines.push("The map already matches the code: nothing to redraw.");

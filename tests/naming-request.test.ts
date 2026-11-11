@@ -85,10 +85,14 @@ test("the request names only boxes nobody has named, at most six a turn", async 
     expect(done.waiting).toBe(2);
     expect(done.unnamed).not.toContain("src/auth");
     expect(done.request).toContain(done.unnamed[0]!);
-    // Nothing new next turn, nothing asked.
-    const next = JSON.parse(cli(directory, "refresh", "--json").out) as { unnamed: string[]; request?: string };
-    expect(next.unnamed).toEqual([]);
-    expect(next.request).toBeUndefined();
+    // The two past the cap are asked about at the next end of a turn, even though that turn drew nothing; then nothing is left to ask.
+    const next = JSON.parse(cli(directory, "refresh", "--json").out) as { unnamed: string[]; waiting: number; request?: string };
+    expect(next.unnamed).toHaveLength(2);
+    expect(next.unnamed.some(key => done.unnamed.includes(key))).toBe(false);
+    expect(next.waiting).toBe(0);
+    const third = JSON.parse(cli(directory, "refresh", "--json").out) as { unnamed: string[]; request?: string };
+    expect(third.unnamed).toEqual([]);
+    expect(third.request).toBeUndefined();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
