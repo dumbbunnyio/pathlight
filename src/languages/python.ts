@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 import { Effect } from "effect";
 import type { ExportRef, ImportRef } from "../scan-imports";
+import { callsThrough, strongest, usesOf, type Binding, type How, type Occurrence } from "../uses";
 import type { FrontEnd, Resolution, Workspace } from "./index";
 import file from "./grammars/tree-sitter-python.wasm" with { type: "file" };
 import { descendants, grammar, type Node } from "./tree-sitter";
@@ -17,8 +18,69 @@ const named = (node: Node) => node.type === "aliased_import"
   ? { imported: node.childForFieldName("name")!.text, exported: node.childForFieldName("alias")!.text }
   : { imported: node.text, exported: node.text };
 
+/** A binding that names a module (`import a.b`, `import a.b as c`): its members are what the file uses, after the dotted prefix the code writes. */
+interface PythonBinding extends Binding { readonly prefix: readonly string[]; readonly ref: number }
+
+/** How the node at `use` (a name, or `name.member`) is used: called, a base class, inside an annotation, or as a value. */
+const howOf = (use: Node): How => {
+  const parent = use.parent;
+  if (parent?.type === "call" && parent.childForFieldName("function")?.id === use.id) return "calls";
+  if (parent?.type === "argument_list" && parent.parent?.type === "class_definition" && parent.parent.childForFieldName("superclasses")?.id === parent.id) return "extends";
+  for (let at: Node | null = use.parent; at && !/statement$|^(block|module|function_definition|class_definition)$/.test(at.type); at = at.parent) {
+    if (at.type === "type") return "types";
+    if (at.type === "decorator") return "calls";
+  }
+  return "references";
+};
+const notUses = new Set(["keyword_argument", "parameters", "lambda_parameters", "function_definition", "class_definition", "global_statement", "nonlocal_statement",
+  "import_statement", "import_from_statement", "aliased_import", "dotted_name"]);
+
+/** Where each binding is used in the file, and how. */
+function occurrencesOf(root: Node, bindings: ReadonlyMap<string, readonly PythonBinding[]>): Occurrence[] {
+  const found: Occurrence[] = [];
+  const typed = new Map<string, Set<string>>(), called = new Map<string, Set<string>>();
+  for (const node of descendants(root)) {
+    if (node.type === "typed_parameter" || node.type === "typed_default_parameter" || (node.type === "assignment" && node.childForFieldName("type"))) {
+      const name = node.type === "assignment" ? node.childForFieldName("left") : node.childForFieldName("name") ?? node.namedChildren.find(child => child?.type === "identifier") ?? null;
+      const type = node.childForFieldName("type");
+      const local = name?.type === "attribute" ? name.childForFieldName("attribute")?.text : name?.type === "identifier" ? name.text : undefined;
+      // `db: Db` or `db: Optional[Db]`, not `dbs: list[Db]`: only then is a member called on `db` one of `Db`'s.
+      const plain = type?.namedChildren[0]?.type === "identifier" ? type.namedChildren[0] : type?.namedChildren[0]?.type === "generic_type" && /^(Optional)$/.test(type.namedChildren[0].namedChildren[0]?.text ?? "") ? type.namedChildren[0].namedChildren[1]?.namedChildren[0] ?? null : null;
+      if (local && plain?.type === "identifier" && bindings.get(plain.text)?.some(item => !item.namespace)) (typed.get(local) ?? typed.set(local, new Set()).get(local)!).add(plain.text);
+    }
+    if (node.type === "call") {
+      const fn = node.childForFieldName("function");
+      const object = fn?.type === "attribute" ? fn.childForFieldName("object") : null;
+      const holder = object?.type === "identifier" ? object.text : object?.type === "attribute" ? object.childForFieldName("attribute")?.text : undefined;
+      const method = fn?.childForFieldName("attribute")?.text;
+      if (holder && method) (called.get(holder) ?? called.set(holder, new Set()).get(holder)!).add(method);
+    }
+    if (node.type !== "identifier") continue;
+    const parent = node.parent;
+    if (!bindings.has(node.text) || !parent || notUses.has(parent.type)) continue;
+    if (parent.type === "attribute" && parent.childForFieldName("attribute")?.id === node.id) continue;
+    if ((parent.type === "typed_parameter" || parent.type === "default_parameter" || parent.type === "typed_default_parameter") && parent.childForFieldName("name")?.id === node.id) continue;
+    for (const binding of bindings.get(node.text)!) {
+      // Climb `a.b.c` past the prefix the binding stands for, then take the next name as the member used.
+      let use: Node = node, ok = true;
+      for (const part of binding.prefix.slice(1)) {
+        const up = use.parent;
+        if (up?.type !== "attribute" || up.childForFieldName("object")?.id !== use.id || up.childForFieldName("attribute")?.text !== part) { ok = false; break; }
+        use = up;
+      }
+      if (!ok) continue;
+      const up = use.parent;
+      const member = up?.type === "attribute" && up.childForFieldName("object")?.id === use.id ? up.childForFieldName("attribute")?.text : undefined;
+      found.push({ local: binding.local, ...member ? { member } : {}, how: howOf(member ? up! : use) });
+    }
+  }
+  return [...found, ...callsThrough(typed, called)];
+}
+
 function imports(source: string, path: string): ImportRef[] {
   const found: ImportRef[] = [];
+  const bindings = new Map<string, PythonBinding[]>();
+  const bind = (key: string, binding: PythonBinding) => bindings.set(key, [...(bindings.get(key) ?? []).filter(item => item.local !== binding.local), binding]);
   // A package's `__init__.py` offers what it imports from its own modules (`from .mod import name`) to whoever imports the package, so those lines are
   // followed like `export … from`. Its other imports are its own, followed like any file's.
   const barrel = posix.basename(path) === "__init__.py";
@@ -30,11 +92,17 @@ function imports(source: string, path: string): ImportRef[] {
       const block = node.childForFieldName("consequence");
       if (block) typeOnly.push([block.startIndex, block.endIndex]);
     } else if (node.type === "import_statement") {
-      for (const name of node.childrenForFieldName("name")) if (name) found.push({ specifier: named(name).imported, line, kind });
+      for (const name of node.childrenForFieldName("name")) if (name) {
+        const { imported, exported } = named(name);
+        const prefix = name.type === "aliased_import" ? [exported] : imported.split(".");
+        bind(prefix[0]!, { local: prefix.join("."), imported: "*", namespace: true, typeOnly: kind === "type", prefix, ref: found.length });
+        found.push({ specifier: imported, line, kind });
+      }
     } else if (node.type === "import_from_statement" || node.type === "future_import_statement") {
       const module = node.type === "future_import_statement" ? "__future__" : node.childForFieldName("module_name")!.text;
       const names = node.children.some(child => child?.type === "wildcard_import") ? "*" as const
         : node.childrenForFieldName("name").flatMap(name => name ? [named(name)] : []);
+      if (names !== "*") for (const name of names) bind(name.exported, { local: name.exported, imported: name.imported, namespace: false, typeOnly: kind === "type", prefix: [name.exported], ref: found.length });
       found.push({ specifier: module, line, kind, names, ...barrel && module.startsWith(".") ? { reexport: true as const } : {} });
     } else if (node.type === "call" && /^(importlib\.import_module|import_module|__import__)$/.test(node.childForFieldName("function")?.text ?? "")) {
       const first = node.childForFieldName("arguments")?.namedChildren[0];
@@ -44,7 +112,13 @@ function imports(source: string, path: string): ImportRef[] {
       if (content && /^[A-Za-z_][\w.]*$/.test(content)) found.push({ specifier: content, line, kind: "dynamic" });
     }
   }
-  return found;
+  if (!bindings.size) return found;
+  const all = [...bindings.values()].flat();
+  const occurrences = occurrencesOf(parser.parse(source), bindings);
+  return found.map((ref, index) => {
+    const own = all.filter(binding => binding.ref === index);
+    return own.length ? { ...ref, uses: strongest(own.flatMap(binding => usesOf(binding, occurrences))) } : ref;
+  });
 }
 
 /** The top-level statements of a module, a decorated definition unwrapped. */

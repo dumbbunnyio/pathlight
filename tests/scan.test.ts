@@ -43,7 +43,7 @@ const divided = 4 / 2; import real from "./real";
 const dynamic = await import(name);
 const meta = import.meta.url;
 const obj = { import: 1, require: 2 }; obj.require("./method");
-`)).toEqual(["import ./real @6"]);
+`)).toEqual(["dynamic ./in-template-expression @4", "import ./real @6"]);
 });
 
 test("importsOf reads an import whose list of names runs to hundreds of lines (generated code does this)", () => {

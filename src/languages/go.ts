@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 import { Effect } from "effect";
 import type { ExportRef, ImportRef } from "../scan-imports";
+import { strongest, type How, type Use } from "../uses";
 import type { FrontEnd, Resolution, Workspace } from "./index";
 import file from "./grammars/tree-sitter-go.wasm" with { type: "file" };
 import { descendants, grammar, type Node } from "./tree-sitter";
@@ -13,8 +14,29 @@ import { descendants, grammar, type Node } from "./tree-sitter";
  */
 const parser = grammar(file);
 
-/** A Go import carries what the file uses through each package name, so resolution can pick the files that declare those names. */
-interface GoImport extends ImportRef { readonly alias?: string; readonly uses: ReadonlyMap<string, ReadonlySet<string>> }
+/**
+ * A Go import carries what the file uses through each package name, so resolution can pick the files that declare those names, and how it uses each
+ * (`src/uses.ts`), which the resolution hands to each file it reaches.
+ */
+interface GoImport extends ImportRef { readonly alias?: string; readonly selects: ReadonlyMap<string, ReadonlySet<string>>; readonly how: ReadonlyMap<string, readonly Use[]> }
+
+/** How `pkg.Name` is used, from where it sits: a call, a composite literal, an embedded field, a type, or a value. */
+const howOf = (node: Node): How => {
+  const parent = node.parent;
+  if (node.type === "qualified_type") {
+    const holder = parent?.type === "pointer_type" ? parent.parent : parent;
+    if (parent?.type === "composite_literal" && parent.childForFieldName("type")?.id === node.id) return "constructs";
+    if (holder?.type === "field_declaration" && !holder.childForFieldName("name")) return "extends";
+    return "types";
+  }
+  if (parent?.type === "call_expression" && parent.childForFieldName("function")?.id === node.id) return "calls";
+  if (parent?.type === "selector_expression" && parent.parent?.type === "call_expression" && parent.parent.childForFieldName("function")?.id === parent.id) return "calls";
+  if (parent?.type === "composite_literal" && parent.childForFieldName("type")?.id === node.id) return "constructs";
+  return "references";
+};
+/** The `pkg.Type` an annotation is, directly or through a pointer: a slice or a map of it has the container's methods, not its own. */
+const namedTypes = (type: Node | null): Node[] => !type ? [] : type.type === "qualified_type" ? [type]
+  : type.type === "pointer_type" ? type.namedChildren.flatMap(child => namedTypes(child)) : [];
 
 const isTest = (path: string) => path.endsWith("_test.go");
 const vendored = (path: string) => /(^|\/)vendor\//.test(path);
@@ -23,24 +45,40 @@ const exported = (name: string) => /^\p{Lu}/u.test(name);
 function imports(source: string): ImportRef[] {
   const root = parser.parse(source);
   // `pkg.Name` in an expression and `pkg.Type` in a type, by the name before the dot. Only exported names can come from another package.
-  const uses = new Map<string, Set<string>>();
-  const use = (qualifier: Node | null, name: Node | null) => {
+  const selects = new Map<string, Set<string>>();
+  const how = new Map<string, Use[]>();
+  const use = (qualifier: Node | null, name: Node | null, node: Node) => {
     if (!qualifier || !name || !exported(name.text)) return;
-    const set = uses.get(qualifier.text) ?? new Set<string>();
+    const set = selects.get(qualifier.text) ?? new Set<string>();
     set.add(name.text);
-    uses.set(qualifier.text, set);
+    selects.set(qualifier.text, set);
+    how.set(qualifier.text, [...how.get(qualifier.text) ?? [], { imported: name.text, name: name.text, how: howOf(node) }]);
+  };
+  // A member called on a parameter, field or variable whose declared type is `pkg.Type` is a call into that package.
+  const typed = new Map<string, Node[]>(), called = new Map<string, Set<string>>();
+  const annotate = (names: (Node | null)[], type: Node | null) => {
+    for (const name of names) if (name) typed.set(name.text, [...typed.get(name.text) ?? [], ...namedTypes(type)]);
   };
   const found: GoImport[] = [];
   for (const node of descendants(root)) {
     if (node.type === "selector_expression") {
       const operand = node.childForFieldName("operand");
-      if (operand?.type === "identifier") use(operand, node.childForFieldName("field"));
-    } else if (node.type === "qualified_type") use(node.childForFieldName("package"), node.childForFieldName("name"));
+      if (operand?.type === "identifier") use(operand, node.childForFieldName("field"), node);
+      const call = node.parent?.type === "call_expression" && node.parent.childForFieldName("function")?.id === node.id;
+      const holder = operand?.type === "identifier" ? operand : operand?.type === "selector_expression" ? operand.childForFieldName("field") : null;
+      const method = node.childForFieldName("field")?.text;
+      if (call && holder && method) (called.get(holder.text) ?? called.set(holder.text, new Set()).get(holder.text)!).add(method);
+    } else if (node.type === "qualified_type") use(node.childForFieldName("package"), node.childForFieldName("name"), node);
+    else if (node.type === "parameter_declaration" || node.type === "field_declaration" || node.type === "var_spec") annotate(node.childrenForFieldName("name"), node.childForFieldName("type"));
     else if (node.type === "import_spec") {
       const path = node.childForFieldName("path");
       const specifier = path?.namedChildren.find(child => child?.type === "interpreted_string_literal_content" || child?.type === "raw_string_literal_content")?.text;
-      if (specifier) found.push({ specifier, line: node.startPosition.row + 1, kind: "import", alias: node.childForFieldName("name")?.text, uses });
+      if (specifier) found.push({ specifier, line: node.startPosition.row + 1, kind: "import", alias: node.childForFieldName("name")?.text, selects, how });
     }
+  }
+  for (const [local, types] of typed) for (const method of called.get(local) ?? []) for (const type of types) {
+    const qualifier = type.childForFieldName("package")?.text, name = type.childForFieldName("name")?.text;
+    if (qualifier && name) how.set(qualifier, [...how.get(qualifier) ?? [], { imported: name, name: `${name}.${method}`, how: "calls" }]);
   }
   return found;
 }
@@ -149,22 +187,25 @@ const resolver = Effect.fn("Scan.go")(function* (workspace: Workspace) {
   };
 
   return (from: string, ref: ImportRef): Resolution => {
-    const { specifier, alias, uses } = ref as GoImport;
+    const { specifier, alias, selects, how } = ref as GoImport;
     const target = folderFor(from, specifier);
     if (!target) return { external: specifier };
     const files = target.owned ? packages.get(target.folder) ?? [] : [];
     if (!files.length) return { unresolved: "not-found" };
     if (alias === "." || alias === "_") return { files: files.map(to => ({ to })) };
-    const wanted = [...uses.get(alias ?? names.get(target.folder) ?? posix.basename(target.folder)) ?? []].sort();
+    const qualifier = alias ?? names.get(target.folder) ?? posix.basename(target.folder);
+    const wanted = [...selects.get(qualifier) ?? []].sort();
+    const used = strongest(how.get(qualifier) ?? []);
+    const usesFor = (to: string) => { const own = used.filter(item => declared.get(to)?.has(item.imported)); return { uses: own.length ? own : used }; };
     const reached = new Map<string, string[]>();
     for (const name of wanted) {
       const declaring = files.filter(path => declared.get(path)?.has(name));
       // A name no file declares (a method value, a name the reading missed) keeps the whole package.
-      if (!declaring.length) return { files: files.map(to => ({ to, names: wanted.map(item => ({ imported: item, exported: item })) })) };
+      if (!declaring.length) return { files: files.map(to => ({ to, names: wanted.map(item => ({ imported: item, exported: item })), uses: used })) };
       for (const path of declaring) reached.set(path, [...reached.get(path) ?? [], name]);
     }
     if (!reached.size) return { files: files.map(to => ({ to })) };
-    return { files: [...reached].map(([to, taken]) => ({ to, names: taken.map(name => ({ imported: name, exported: name })) })) };
+    return { files: [...reached].map(([to, taken]) => ({ to, names: taken.map(name => ({ imported: name, exported: name })), ...usesFor(to) })) };
   };
 });
 
