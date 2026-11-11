@@ -116,6 +116,8 @@ export function stepsCard(flow: FlowMap, current: number, byElement: ReadonlyMap
     if (step.reply) { chunks.push(indent(5), fg(palette.muted)("↩ the answer to an earlier step\n")); line++; }
     else if (step.over) { chunks.push(indent(5), fg(palette.purple)(`over ${step.over}`), fg(palette.muted)(", not an import\n")); line++; }
     else if (step.backed === false) { chunks.push(indent(5), fg(palette.accent)("≠ "), fg(palette.muted)("no arrow on the map for this hop\n")); line++; }
+    // The function the step names, which no file of the box before it uses (pathlight flows).
+    if (step.uncalled) { chunks.push(indent(5), fg(palette.accent)("no call found"), fg(palette.muted)(" from the box before\n")); line++; }
     if (!step.elements.length) { chunks.push(indent(5), fg(palette.muted)("no component for this step\n")); line++; }
     if (step.call) {
       // The function this hop calls, as the file declares it (copied when the flow was written, checked by pathlight flows): a name, where, and the

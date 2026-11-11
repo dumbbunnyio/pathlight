@@ -366,7 +366,7 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const talksTo = draftOf(scan, yield* readManifests(root, paths), overlay, paths.filter(isUnscannedSource), yield* readInfra(root, paths)).resources
     .map(item => ({ key: item.key, title: item.title, kind: item.kind, files: item.files.length })).sort((a, b) => b.files - a.files || (a.title < b.title ? -1 : 1));
   const drafted = yield* io("Brief.drafted", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
-  const flows = yield* checkFlows(root).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
+  const flows = yield* checkFlows(root, { scan }).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
   const journeys = flows.found ? [...flows.found.journeys.map(item => ({ id: item.id, title: item.title, kind: "journey" as const, steps: item.steps.length, findings: item.findings.length })),
     ...flows.found.flows.map(item => ({ id: item.view ?? item.id, title: item.title, kind: "state diagram" as const, steps: item.steps.length, findings: item.findings.length }))] : [];
   const named = all.filter(box => box.name?.title || box.name?.note);

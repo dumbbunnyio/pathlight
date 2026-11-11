@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { assessFlow, assessJourney, namedFiles, syncOf, type FlowInput, type JourneyInput } from "../src/flows";
+import { assessFlow, assessJourney, calledFrom, namedFiles, syncOf, type FlowInput, type JourneyInput } from "../src/flows";
 import { run } from "./effects";
 
 const cli = (...args: string[]) => run(process.execPath, [resolve("src/cli.ts"), ...args]);
@@ -182,3 +182,24 @@ views {
     expect(await cli("flows", "--workspace", directory)).toContain("journey placeorder; 3 steps");
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 60_000);
+
+test("a step that names the function it calls is reported when no file of the box before it uses that function", () => {
+  const config = { version: 1 as const, project: "shop", mappings: [{ glob: "src/api/**", element: "shop.api" }, { glob: "src/store/**", element: "shop.store" }] };
+  const scan = { imports: [
+    { from: "src/api/orders.ts", to: "src/store/orders.ts", line: 1, kind: "import" as const, specifier: "../store/orders", uses: [{ name: "saveOrder", how: "calls" as const }, { name: "Order", how: "types" as const }] },
+    { from: "src/api/rows.ts", to: "src/store/rows.ts", line: 1, kind: "require" as const, specifier: "../store/rows" },
+  ] };
+  const called = calledFrom(config, scan);
+  expect(called("shop.api", "src/store/orders.ts", "saveOrder")).toBe(true);
+  // Named only as a type is no call; a name the box never imports is none either.
+  expect(called("shop.api", "src/store/orders.ts", "Order")).toBe(false);
+  expect(called("shop.api", "src/store/orders.ts", "deleteOrder")).toBe(false);
+  // A `require` whose uses were not read could hold the call: not reported.
+  expect(called("shop.api", "src/store/rows.ts", "readRow")).toBeUndefined();
+  const step = (title: string, name: string, notes = "") => ({ source: "shop.api", target: "shop.store", title, backed: true, notes: `${notes}${name} | src/store/orders.ts | export function ${name}()` });
+  const report = assessJourney({ id: "order", title: "Order", viewDescription: "Synced at abc1234.", steps: [
+    step("saves the order", "saveOrder"), step("deletes it", "deleteOrder"), step("over the wire", "deleteOrder", "over | http\n"),
+  ] }, { changedElements: new Set(), known: () => true, called });
+  expect(report.steps.map(item => item.uncalled ?? false)).toEqual([false, true, false]);
+  expect(report.findings.filter(text => text.includes("deleteOrder"))).toHaveLength(1);
+});
