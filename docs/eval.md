@@ -641,3 +641,34 @@ Two steps named their function (`@ file#function`), both on the acting box's own
 | this branch | 616 ms | 845 ms | 546 ms | 1,881 ms | 442 ms | 3,708 ms |
 
 Every budgeted repository stays under 2 s; atuin has the least room. In separate processes the machine measured slower that hour for both (atuin 2,332 against 3,120 ms; the Rust phase measured `main` at 1,349 ms in a quieter hour), so compare within a row, not with older tables. Infisical was already over the budget. The cost is the reading of uses: the TypeScript token pass, and for tree-sitter languages a walk that keeps its own ancestors (asking a node for its parent calls into the parser each time).
+
+## Watch it being built (2026-11-11)
+
+Phase 6 (`docs/internal/plans/phase-6-watch-it-built.md`): `pathlight refresh` at the end of each turn, planned boxes on a drawn map (`plan --new`), and a request to have new boxes named.
+
+### Ids under a redraw
+
+Simulated on the scans of the seven reference clones (`draftOf` with files added, nothing written into the clones). A new folder of three files moves no id on 7 of 7; of one or two files, none on 6 of 7 (Mealie's `mealie` holds exactly two small folders, so a third makes the "small folders" collection and moves both); a fourth loose file in Mealie's `mealie` makes "loose files" and removes `mealie.mealie.root`. A small folder grown to three files changes its id in 22 of 23 cases, but only when a redraw is due for another reason: its files are still claimed, so growing alone is no reason to redraw. Names never move (the overlay is keyed by path). A planned box is its own box from its first file, so the box the agent declared never makes or joins a collection; a redraw that would remove an id a journey names is held back, and the agent's plan follows a moved id through its key.
+
+### Flows
+
+The scorer backs a hop to or from a resource box by the packages that lead to it (the mapping's `resources`, as `check` judges such an arrow): a cited file of the other box imports one, itself or through one file of its own box that does (Outline's commands and the collaboration server reach `sequelize` through `server/storage/database.ts`). Re-scored without re-tracing, the three Outline journeys of Phase 5: **2 of 3** (`collab-keystroke` and `create-document` pass; 0 of 3 before). Slack still misses `server → plugins` and invents `app → plugins`, a real miss.
+
+### The map
+
+`pathlight draft` on the named Phase 5 copies of Mealie, Outline and Miniflux writes the same model, mapping and overlay byte for byte on `main` and on this branch, so the model scores are unchanged (planned and `standalone` entries change nothing when an overlay has none).
+
+### Time
+
+The end of a turn before (`check --quiet` then `diff --quiet`, two processes, two scans of the working tree) and after (`refresh --quiet`, one), warm (the base commit's scan cached), three runs each on a fresh draft of a copy, seconds:
+
+| | atuin | bat | Infisical | Mealie | Outline | Sentry self-hosted | Miniflux |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| check + diff | 4.71–4.98 | 1.71–1.74 | 8.62–8.76 | 2.38–2.44 | 1.97–1.99 | 0.71–0.72 | 1.81–1.83 |
+| refresh | 2.74–2.78 | 0.95–0.97 | 4.81–4.97 | 1.28–1.33 | 1.10–1.14 | 0.44–0.46 | 1.03–1.05 |
+
+A turn that redraws (a new package of three files) took 1.20 s on Miniflux and 3.07 s on atuin, still under the old pair. On every fresh draft a turn that adds nothing redraws nothing and writes nothing (the model's time stamp does not change).
+
+### One live session
+
+A Miniflux copy with its named map, Claude Code 2.1.316 on Sonnet 5.5 with this branch's plugin (`--plugin-dir`, the installed one off for the session). The viewer's `t` request on `api`: "add a /healthz/details endpoint in a new internal/health package that reports the version and whether the database answers". The agent ran `plan --new internal/health --title "Health details"` before writing, wrote the package, and at the end of the turn the map had `Health details` solid with `api → health "calls Check"` and `health → version`; nothing was asked, since the box had its name. A second, plain prompt (add `internal/uptime`): the agent declared that one too. A folder written by hand before a third turn (`internal/feedstats`, undeclared): the Stop hook woke the agent once ("Stop hook feedback"), it handed the key to the namer, the box became "Feed entry counts", and the next stop asked nothing. Tokens: the first turn 3,247 out, 407k cache read, 28k cache written; the wake-up turn 328 out, 109k cache read; the namer 652 out, 26k cache read, 10k written. `refresh` on that copy takes 1.02–1.08 s. The namer's box is left out of the crowded `internal` view as minor (no importer, 23 boxes), so it shows only in that view's "everything" view: a box nobody declared is kept only by the same rules as any box.
