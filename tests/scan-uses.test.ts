@@ -111,6 +111,9 @@ test("Rust: calls, struct literals, implemented traits, types and calls through 
   ].join("\n"), "src/lib.rs").filter(ref => ref.uses);
   const uses = Object.assign({}, ...refs.map(ref => howOf(ref.uses)));
   expect(uses).toMatchObject({ send: "calls", Config: "constructs", Handler: "extends", Message: "types", Client: "types", "Client::post": "calls" });
+  // An enum whose variants a `use` brings in is used as a value, even when the code names it otherwise only as a type.
+  const [mode] = rust.imports("use crate::paging::Mode;\nfn run(mode: Mode) { use self::Mode::*; match mode { Always => {}, _ => {} } }", "src/lib.rs").filter(ref => ref.uses);
+  expect(howOf(mode!.uses)).toMatchObject({ Mode: "references" });
 });
 
 test("Go: calls, composite literals, embedded structs, types and calls through an annotated parameter, each on the file that declares it", async () => {

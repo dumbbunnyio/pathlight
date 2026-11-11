@@ -241,6 +241,8 @@ function read(source: string): RustImport[] {
       if (argument) useTree(argument, [], leaves);
       for (const leaf of leaves) {
         if (!leaf.segments.length) continue;
+        // A name a `use` reaches through (`use self::PagingMode::*`, then `Always` in a match) is used as a value: its variants or items are taken.
+        for (const segment of leaf.glob ? leaf.segments : leaf.segments.slice(0, -1)) if (!["crate", "self", "super", "::"].includes(segment)) occur(segment, undefined, "references");
         const last = leaf.segments.at(-1)!;
         const names = leaf.glob ? "*" as const : [{ imported: last, exported: leaf.alias ?? last }];
         found.push({ specifier: `${spell(leaf.segments)}${leaf.glob ? "::*" : ""}`, line, kind: "import", names, ...reexport ? { reexport: true as const } : {},
