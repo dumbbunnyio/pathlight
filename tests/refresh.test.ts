@@ -56,6 +56,18 @@ test("a turn that adds nothing writes nothing; a new folder is drawn with its ar
   }
 }, 60_000);
 
+test("a draw that changes nothing still puts back a missing likec4.config.json, so the map can be read again", async () => {
+  const directory = await shop();
+  try {
+    await rm(join(directory, ".pathlight/likec4.config.json"));
+    expect(cli(directory, "check").code).not.toBe(0);
+    expect(cli(directory, "draft").code).toBe(0);
+    expect(cli(directory, "check").code).toBe(0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("a redraw that would remove an id a journey names is not written, and check says why", async () => {
   const directory = await shop();
   try {

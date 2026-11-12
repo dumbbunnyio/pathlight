@@ -1168,7 +1168,7 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   }
   // An unchanged draw writes nothing, so a turn that added nothing does not make the viewer reload.
   const same = previous._tag === "Some" && previous.value === rendered.text && (yield* io("Draft.mapping", () => readFile(join(target, mappingFile), "utf8")).pipe(Effect.option)).pipe(found => found._tag === "Some" && found.value === mappingText);
-  const written = !blocked && !(same && !built.length);
+  const written = !blocked && !(same && !built.length && existing.includes(configFile));
   if (written) {
     if (overlay && built.length) yield* writeOverlay(target, overlay);
     yield* io("Draft.write", async () => {
