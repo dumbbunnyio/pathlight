@@ -37,6 +37,21 @@ export const viewHaving = <View extends WhereView>(views: ReadonlyMap<string, Vi
 };
 
 /**
+ * Boxes new to the model (no view drew them before a reload) that the view on screen does not draw, each with the view that does, chosen as
+ * `viewHaving` chooses. The view on screen announces its own new cards itself.
+ */
+export const newElsewhere = <View extends WhereView>(views: ReadonlyMap<string, View>, here: WhereView, drawnBefore: ReadonlySet<string>) => {
+  const drawnHere = new Set(here.nodes.map(node => String(node.modelRef ?? "")));
+  const fresh = [...new Set([...views.values()].flatMap(entry => entry.nodes.map(node => String(node.modelRef ?? ""))))]
+    .filter(element => element && !drawnBefore.has(element) && !drawnHere.has(element));
+  return fresh.flatMap(element => {
+    const found = viewHaving(views, here, element);
+    const node = found && nodeForElement(found[1], element);
+    return found && node ? [{ element, title: node.title, viewId: found[0], view: String(found[1].title ?? found[0]) }] : [];
+  });
+};
+
+/**
  * The newest call that maps to any element. In this view (or via an ancestor that is) it is a node; otherwise it names the view to go to:
  * one this view links to with navigateTo first, else the smallest view that contains the element. Never switches by itself.
  */

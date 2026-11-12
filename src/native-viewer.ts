@@ -49,7 +49,7 @@ import { createFlowMode, flowView, stepElement } from "./viewer/flow-mode";
 import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
-import { type Direction, elementsOf, neighborIn, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, nothingThere, viewHaving as viewIn } from "./viewer/where";
+import { type Direction, elementsOf, neighborIn, newElsewhere, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, nothingThere, viewHaving as viewIn } from "./viewer/where";
 
 /**
  * Who draws the viewer when it is not the terminal's own process: `pathlight pane` hands it a headless renderer and takes the frames, says when the
@@ -1162,6 +1162,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (!target?.nodes.length) { message = `View '${diagram.id}' is gone or empty in the new model; showing the previous version`; }
       else {
         const before = new Set(diagram.nodes.map(node => String(node.id)));
+        // Every element some view drew before the reload, so a box new to the model that another view draws can be told from one that was always there.
+        const drawnBefore = new Set([...diagrams.values()].flatMap(entry => entry.nodes.map(node => String(node.modelRef ?? ""))));
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
         diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; scanned = undefined;
@@ -1179,11 +1181,20 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         if (next.notice) message = next.notice;
         const now = Date.now();
         for (const node of addedNodes) grown.set(String(node.id), now);
-        const chunks = reloadNews(addedNodes.map(node => node.title), removed.map(id => id.split(".").at(-1) ?? id));
+        const elsewhere = newElsewhere(diagrams, diagram, drawnBefore);
+        const chunks = reloadNews(addedNodes.map(node => node.title), removed.map(id => id.split(".").at(-1) ?? id), elsewhere);
         reloaded = chunks ? { chunks, until: now + 6000 } : undefined;
         if (chunks) setTimeout(() => { if (!closing) update(); }, 6000);
         // With follow on, the camera goes to the first new box; nothing is selected. With follow off the camera stays where the person put it.
-        if (addedNodes[0] && (binding || following) && followCamera && !followPaused) camera.reveal(addedNodes[0]);
+        // A box only another view draws takes follow there (with a Back entry, as follow does for work), unless a dialog is open.
+        const follows = (binding || following) && followCamera && !followPaused;
+        if (addedNodes[0] && follows) camera.reveal(addedNodes[0]);
+        else if (elsewhere[0] && follows && !(help.visible || summary.visible || goto.visible || picker.visible || dialog.naming)) {
+          const box = elsewhere[0];
+          remember(state, visit());
+          camera.animating = false; followedTitle = box.title;
+          state.pendingVisit = { diagram: getDiagram(box.viewId), reveal: box.element, notice: next.notice };
+        }
       }
       update();
     }
@@ -1197,6 +1208,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (next.restore) restore(next.restore);
       else { camera.autoFit = true; fit(); camera.settle(); }
       if (next.select) state.selected = nodeForElement(next.select) ?? state.selected;
+      // A box a reload added that only this view draws: it draws itself in and is brought on screen; the selection stays the view's own.
+      const shown = next.reveal ? nodeForElement(next.reveal) : undefined;
+      if (shown) { grown.set(String(shown.id), Date.now()); camera.ensureVisible(shown); }
       if (next.file) showFile(next.file);
       const reading = next.flow, flow = reading && flowMode.flows.find(item => item.type === reading.type && item.id === reading.id);
       if (reading && flow) {
