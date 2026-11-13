@@ -89,3 +89,34 @@ export const planNew = Effect.fn("Plan.new")(function* (workspace: string, wante
   }
   return { id, plan: yield* setPlan(root, [id, ...also]) };
 });
+
+/**
+ * `pathlight plan --drop PATH`: takes back a `plan --new` nobody built. The overlay's `planned` entry goes, the map is redrawn without the dashed box,
+ * and the box leaves the plan. A folder with files is not dropped (the next redraw builds it), nor one a person planned.
+ */
+export const planDrop = Effect.fn("Plan.drop")(function* (workspace: string, given: string) {
+  const root = yield* io("Plan.root", () => realpath(workspace));
+  const path = posix.normalize(given.trim().replace(/\\/g, "/")).replace(/\/+$/, "");
+  const model = yield* io("Plan.model", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.option);
+  if (model._tag === "None" || !model.value.startsWith(generatedMarker))
+    return yield* Effect.fail(failure("Plan.written", "This map was not drawn by pathlight draft, so plan --drop does not change it. Remove the element from the model and its id from \"planned\" in .pathlight/pathlight.activity.json."));
+  const overlay = yield* readOverlay(root);
+  const item = (overlay.planned ?? []).find(entry => entry.path === path);
+  if (!item) return yield* Effect.fail(failure("Plan.unknown", `${path} is not a planned box. plan --drop takes the folder a plan --new declared.`));
+  if (item.by === "human") return yield* Effect.fail(failure("Plan.pinned", `${path} was planned by a person; it is left as it is.`));
+  const { paths } = yield* listFiles(root);
+  if (hasFilesIn(paths, path)) return yield* Effect.fail(failure("Plan.exists", `${path} has files, so the end of the turn draws it as built. Remove its files first to drop it.`));
+  const before = yield* readKeys(root);
+  const id = [...before].find(([, key]) => key === path)?.[0];
+  const { planned: _planned, ...rest } = overlay;
+  const remaining = (overlay.planned ?? []).filter(entry => entry.path !== path);
+  yield* writeOverlay(homeOf(root), remaining.length ? { ...rest, planned: remaining } : rest);
+  const drawn = yield* draftWorkspace(root, { keepJourneys: true }).pipe(Effect.tapError(() => writeOverlay(homeOf(root), overlay)));
+  if (drawn.blocked) {
+    yield* writeOverlay(homeOf(root), overlay);
+    return yield* Effect.fail(failure("Plan.journey", `Redrawing the map now would remove ${drawn.blocked.element}, which journey ${drawn.blocked.journey} uses, so nothing was dropped. Rerun or remove that journey first.`));
+  }
+  const plan = yield* readPlan(root);
+  if (plan && id && plan.elements.includes(id)) return { id, plan: yield* setPlan(root, plan.elements.filter(element => element !== id)) };
+  return { id, plan };
+});

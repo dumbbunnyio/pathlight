@@ -105,3 +105,45 @@ test("plan --new changes nothing on a map a person wrote, inside another box, or
     await rm(drawn, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("plan --drop takes a planned box nobody built off the map and out of the plan, and refuses a folder that is not planned or has files", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-plan-drop-"));
+  const read = async (path: string) => JSON.parse(await readFile(join(directory, path), "utf8"));
+  const model = () => readFile(join(directory, ".pathlight/pathlight.model.c4"), "utf8");
+  try {
+    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "shop" }));
+    await mkdir(join(directory, "src/api"), { recursive: true });
+    await mkdir(join(directory, "src/store"), { recursive: true });
+    for (const name of ["a", "b", "c"]) {
+      await writeFile(join(directory, `src/api/${name}.ts`), `import { save } from "../store/${name}";\nexport const h = () => save();\n`);
+      await writeFile(join(directory, `src/store/${name}.ts`), "export const save = () => 1;\n");
+    }
+    expect(cli(directory, "draft").code).toBe(0);
+    const drawn = await model();
+    expect(cli(directory, "plan", "--new", "src/billing", "--title", "Billing").code).toBe(0);
+    expect(cli(directory, "plan", "--new", "src/auth", "--title", "Auth middleware", "api").code).toBe(0);
+
+    expect(cli(directory, "plan", "--drop", "src/auth").code).toBe(0);
+    expect((await read(".pathlight/pathlight.overlay.json")).planned).toEqual([expect.objectContaining({ path: "src/billing" })]);
+    expect((await read(".pathlight/pathlight.activity.json")).planned).toEqual(["billing"]);
+    expect(await model()).not.toMatch(/^\s*auth = /m);
+    expect((await read(".cache/pathlight/plan.json")).elements).toEqual(["api"]);
+
+    // Not planned (gone already, or a box that has files): nothing changes.
+    const now = await model();
+    expect(cli(directory, "plan", "--drop", "src/auth").code).not.toBe(0);
+    expect(cli(directory, "plan", "--drop", "src/api").code).not.toBe(0);
+    // Planned, but its files have landed: the next redraw builds it, so it is not dropped.
+    await mkdir(join(directory, "src/billing"));
+    await writeFile(join(directory, "src/billing/pay.ts"), "export const pay = 1;\n");
+    expect(cli(directory, "plan", "--drop", "src/billing").code).not.toBe(0);
+    expect((await read(".pathlight/pathlight.overlay.json")).planned).toHaveLength(1);
+    expect(await model()).toBe(now);
+
+    await rm(join(directory, "src/billing"), { recursive: true });
+    expect(cli(directory, "plan", "--drop", "src/billing").code).toBe(0);
+    expect(await model()).toBe(drawn);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
