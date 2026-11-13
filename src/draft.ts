@@ -6,7 +6,7 @@ import { configFile, home, mappingFile, modelFile, overlayFile } from "./layout"
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace, type Scan } from "./scan";
 import { scannedLanguages } from "./languages";
-import { programsOf, readInfra, resourcesOf, withInfra, type InfraFile, type Program, type Resource } from "./resources";
+import { programsOf, readInfra, resourcesOf, targetsOf, withInfra, type InfraFile, type Program, type Resource, type Target } from "./resources";
 import { declaredStartsOf } from "./starts";
 import { carriesCode, hows, stronger, type How } from "./uses";
 
@@ -48,7 +48,13 @@ export interface DraftPackage {
 }
 /** A resource the code talks to (src/resources.ts), drawn at the top level with `element` as its id. */
 export interface DraftResource extends Resource { readonly element: string; readonly note?: string }
+/** A resource a target runs (Phase 7): an instance of the resource's element. `title` only when the target runs that resource more than once. */
+export interface DraftInstance { readonly id: string; readonly name: string; readonly element: string; readonly by: string; readonly title?: string }
+/** Where something runs: a compose file, a chart or a Terraform folder, as a frame of the "Where it runs" view. `key` is `runs:<path>`. */
+export interface DraftTarget { readonly id: string; readonly key: string; readonly note?: string; readonly title: string; readonly path: string; readonly format: Target["format"]; readonly instances: readonly DraftInstance[] }
 export interface Draft {
+  /** The frames of "Where it runs", none when no file runs a resource on the map or the infrastructure is drawn as programs. */
+  readonly targets: readonly DraftTarget[];
   readonly packages: readonly DraftPackage[];
   /** What the code talks to that is not code, and which components use each (by the files that import its packages). */
   readonly resources: readonly DraftResource[];
@@ -416,7 +422,24 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
     for (const [to, names] of by) uses.push({ from: entry.id, to, files: 0, packages: [...names].sort(byText) });
   }
   uses.sort((a, b) => byText(a.from, b.from) || byText(a.to, b.to));
-  return { packages, flat, relationships: labelled, typesOnly: typesOnly.map(pinned), resources, uses, problems, ignore, ignored: source.length - kept.length };
+  // Where it runs (plan phase-7-deployment.md): each file that runs a resource on the map is a frame holding an instance of it. A chart or compose
+  // file drawn as programs already is that picture, so it gets no frame (decision 4).
+  const targetTaken = new Set<string>();
+  const targets = targetsOf(infra).filter(target => !runners.includes(target.path)).flatMap((target): DraftTarget[] => {
+    const local = new Set<string>();
+    const found = target.runs.flatMap(run => {
+      // An engine's image is the box of that engine, or the one "SQL database" box; never the box of another engine.
+      const relational = resources.filter(candidate => candidate.sql);
+      const resource = run.engine ? resources.find(candidate => candidate.id === run.engine) ?? relational.find(candidate => candidate.id === "sql" && relational.length === 1)
+        : resources.find(candidate => candidate.id === run.resource) ?? (run.resource === "sql" && relational.length === 1 ? relational[0] : undefined);
+      return resource ? [{ run, resource }] : [];
+    });
+    if (!found.length) return [];
+    const instances = found.map(({ run, resource }) => ({ id: unique(slug(run.name), local), name: run.name, element: resource.element, by: run.by,
+      ...(found.filter(other => other.resource === resource).length > 1 ? { title: run.name } : {}) }));
+    return [{ id: unique(slug(target.path), targetTaken), key: `runs:${target.path}`, title: target.path, path: target.path, format: target.format, instances }];
+  });
+  return { targets, packages, flat, relationships: labelled, typesOnly: typesOnly.map(pinned), resources, uses, problems, ignore, ignored: source.length - kept.length };
 }
 
 /** A collection of programs is named by the image they run: `$SNUBA_IMAGE` is `snuba`, `getsentry/relay:24.1` is `relay`. */
@@ -673,6 +696,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   // A resource is its own kind of element, its kind (database, cache …) a tag the viewers draw as the card's word.
   const kinds = [...new Set(draft.resources.map(item => item.kind))].sort(byText);
   if (draft.resources.length) out.splice(out.indexOf("  element component") + 1, 0, "  element resource", ...kinds.map(kind => `  tag ${kind}`));
+  if (draft.targets.length) out.splice(out.indexOf("}"), 0, "  deploymentNode target");
   // Files in a language the scan does not read are counted and named by language, and the description says their connections are not drawn.
   const languages = (files: readonly string[]) => {
     const counts = new Map<string, number>();
@@ -930,11 +954,42 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
     }
   }
   out.push(...nearViews(), ...usersViews(), "}", "");
+  // Where it runs: a frame per file, an instance per resource it runs. Open while the whole is readable; past that each frame is one closed box
+  // that opens its own view. A frame is included with `.*`: `.**` would leave out every box that has no arrow. Kept apart from `out`: the
+  // types-only exclusion below is for the model's views, not these.
+  const runsView: string[] = [], runs: string[] = [];
+  if (draft.targets.length) {
+    const what = { compose: "Compose file", chart: "Helm chart", terraform: "Terraform" } as const;
+    const total = draft.targets.reduce((sum, target) => sum + target.instances.length, 0), crowded = total > crowdedAbove;
+    const frameView = (target: DraftTarget) => `runs_${target.id}`;
+    runs.push("deployment {");
+    for (const target of draft.targets) {
+      runs.push(`  target ${target.id} ${quote(target.title)} {`, `    description ${quote(said(target.note, `${what[target.format]} ${target.path}: runs ${plural(target.instances.length, "resource")} on this map.`))}`);
+      for (const instance of target.instances) runs.push(instance.title ? `    ${instance.id} = instanceOf ${instance.element} {\n      title ${quote(instance.title)}\n    }` : `    ${instance.id} = instanceOf ${instance.element}`);
+      runs.push("  }");
+    }
+    runs.push("}", "");
+    // The view sits directly after the overview, so the viewers list it there.
+    runsView.push("", "  deployment view runs {", "    title 'Where it runs'",
+      ...describe(`${plural(draft.targets.length, "file")} that ${draft.targets.length === 1 ? "runs" : "run"} something, each with the resources it runs.`, crowded ? "Each opens its own view." : undefined),
+      ...draft.targets.flatMap(target => crowded ? [`    include ${target.id} with {`, `      navigateTo ${frameView(target)}`, "    }"] : [`    include ${target.id}, ${target.id}.*`]), "    autoLayout LeftRight", "  }");
+    if (crowded) {
+      runs.push("views {");
+      for (const target of draft.targets) runs.push(`  deployment view ${frameView(target)} {`, `    title ${quote(target.title)}`, `    include ${target.id}, ${target.id}.*`, "    autoLayout LeftRight", "  }");
+      runs.push("}", "");
+    }
+    entries.push("runs");
+  }
   // Every view leaves out the pairs that only share types; each view ends with its layout line, so the exclusion goes just before it.
   const views = out.indexOf("views {");
   const text = draft.typesOnly.length ? out.flatMap((line, index) => index > views && line.startsWith("    autoLayout") ? ["    exclude * -> * where tag is #types", line] : [line]) : out;
-  return { text: text.join("\n"), entries };
+  // The overview is the first view written; it ends at the first closing line after it.
+  const after = text.indexOf("  }", text.indexOf("  view index {")) + 1;
+  return { text: [...text.slice(0, after), ...runsView, ...text.slice(after), ...runs].join("\n"), entries };
 }
+
+/** What each frame runs, as the mapping and the scorer read it: the target's path, the service's name, the boxes it is an instance of, and the evidence. */
+export const runsOf = (draft: Draft) => draft.targets.flatMap(target => target.instances.map(instance => ({ target: target.path, name: instance.name, elements: [instance.element], by: instance.by })));
 
 /** The human decisions in an overlay, one comparable line each. */
 const pinsOf = (overlay: Overlay | undefined) => new Map<string, string>([
@@ -992,7 +1047,7 @@ export function applyOverlay(draft: Draft, overlay: Overlay): { draft: Draft; un
     return { ...item, ...(entry.title ? { title: entry.title } : {}), ...(entry.note ? { note: entry.note } : {}) };
   };
   const packages = draft.packages.map(item => ({ ...over(item), components: item.components.map(over), groups: item.groups.map(over), folders: item.folders.map(over) }));
-  return { draft: { ...draft, packages, resources: draft.resources.map(over) }, unknown: Object.keys(overlay.elements).filter(key => !used.has(key)).sort() };
+  return { draft: { ...draft, packages, resources: draft.resources.map(over), targets: draft.targets.map(over) }, unknown: Object.keys(overlay.elements).filter(key => !used.has(key)).sort() };
 }
 
 /** The name another language's manifest gives its package: a Go module (its last path segment), a Rust crate, a Python project. */

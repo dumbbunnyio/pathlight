@@ -55,6 +55,7 @@
   "clickhouse/clickhouse-server": "clickhouse",
   "clickhouse": "clickhouse",
   "mailhog/mailhog": "mail",
+  "mailhog": "mail",
   "axllent/mailpit": "mail",
   "maildev/maildev": "mail",
   "rnwood/smtp4dev": "mail",

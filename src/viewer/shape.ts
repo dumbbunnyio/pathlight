@@ -12,7 +12,7 @@ export interface ShapeNode { id: unknown; parent?: unknown; children: readonly u
  */
 export const shapeView = <N extends ShapeNode>(raw: { id: unknown; nodes: readonly N[] }, options: {
   /** Every view's nodes, for the count of boxes inside a box that opens a view. */
-  all: Iterable<{ nodes: readonly { modelRef?: unknown }[] }>;
+  all: Iterable<{ nodes: readonly { id?: unknown; modelRef?: unknown; kind?: unknown }[] }>;
   planned: readonly string[]; files: ReadonlyMap<string, readonly string[]>;
   /** Watching a session: every card keeps the first row, so the activity counts that appear there never move the layout. */
   watching: boolean;
@@ -22,7 +22,9 @@ export const shapeView = <N extends ShapeNode>(raw: { id: unknown; nodes: readon
   const planned = (ref: string) => options.planned.some(id => ref === id || ref.startsWith(`${id}.`)) && ![...options.files].some(([element, paths]) => (element === ref || element.startsWith(`${ref}.`)) && paths.length);
   const input = raw.nodes.map(node => ({ id: String(node.id), parent: node.parent ? String(node.parent) : null, children: node.children.map(String),
     x: node.x, y: node.y, width: node.width, height: node.height, title: node.title, kind: node.kind ? String(node.kind) : undefined, status: planned(String(node.modelRef)) }));
-  const words = insideWords(raw, new Set([...options.all].flatMap(other => other.nodes.map(node => String(node.modelRef)))));
+  const every = [...options.all].flatMap(other => other.nodes);
+  const words = insideWords(raw, new Set(every.map(node => String(node.modelRef))), new Set(every.filter(node => String(node.kind) === "resource").map(node => String(node.modelRef))),
+    new Set(every.map(node => String(node.id))));
   const row = words.size > 0 || kindsVary(raw.nodes) || options.watching;
   const rects = compact(input, { aspect: 0.5, wordRow: row });
   const nodes: N[] = raw.nodes.map((node, index) => ({ ...node, x: rects[index]!.x, y: rects[index]!.y, width: rects[index]!.width, height: rects[index]!.height }));

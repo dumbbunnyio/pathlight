@@ -7,12 +7,12 @@
 // `--root` is the folder the references' workspaces are relative to (default: the folder holding this checkout; `.cache/…` is under this checkout).
 // `--step N` expects only the frames the plan's steps 1 to N draw (extras are counted whatever their step). The draft's `runs` is what the mapping
 // carries (decision 8): one entry per service a frame runs, `{ target, name, elements, by }`, where `elements` are the boxes it is an instance of (a
-// resource's element, or code boxes) and empty for a plain service. A draft without `runs` draws nothing.
+// resource's element, or code boxes) and empty for a plain service: `runsOf` in src/draft.ts.
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Effect } from "effect";
-import { type Draft, draftOf, readManifests } from "../../src/draft";
+import { type Draft, draftOf, readManifests, runsOf } from "../../src/draft";
 import { readInfra } from "../../src/resources";
 import { isUnscannedSource, listFiles, scanWorkspace } from "../../src/scan";
 
@@ -55,7 +55,7 @@ for (const [name, repo] of Object.entries(reference.repos)) {
     const { paths } = yield* listFiles(workspace);
     return draftOf(scan, yield* readManifests(workspace, paths), undefined, paths.filter(isUnscannedSource), yield* readInfra(workspace, paths));
   }));
-  const runs = (draft as Draft & { readonly runs?: readonly RunEntry[] }).runs ?? [];
+  const runs: readonly RunEntry[] = runsOf(draft);
   const boxes = boxesOf(draft);
   const resourceOf = new Map(draft.resources.map(item => [item.element, item.sql ? "sql" : item.id] as const));
   const allFiles = [...new Set([...boxes.values()].flat())];
@@ -106,11 +106,11 @@ for (const [name, repo] of Object.entries(reference.repos)) {
       const strays = drawn.find(entry => entry.name === service.name)?.elements.filter(element => resourceOf.has(element)) ?? [];
       const expectTie = !service.untied && service.rung != null;
       if (expectTie) totals.tiesExpected++;
-      // An image-only service is held untied only where its frame is drawn at all.
-      const framed = drawn.length > 0;
+      // An image-only service is held untied where it is drawn (as a plain box) with no tie; one that is not drawn at all is not held, only absent.
+      const framed = drawn.length > 0, present = drawn.some(entry => entry.name === service.name);
       if (service.untied && framed) { ties.heldExpected++; totals.untiedExpected++; }
       if (!elements.length && !strays.length) {
-        if (service.untied && framed) { ties.held++; totals.untiedHeld++; }
+        if (service.untied && framed && present) { ties.held++; totals.untiedHeld++; }
         else if (expectTie) { ties.untied.push(label); totals.tiesUntied++; }
         continue;
       }
@@ -128,6 +128,13 @@ for (const [name, repo] of Object.entries(reference.repos)) {
       else if (covered) { ties.right.push(label); totals.tiesRight++; }
       else { ties.partial.push(`${label} → ${elements.join(", ")}`); totals.tiesPartial++; }
     }
+  }
+  // Every other tie is wrong: a code box on a service the reference does not list as running code (a proxy, a tool, a resource service), in any
+  // frame, expected or not. Without this a tie by image name in an optional or extra frame would go uncounted.
+  const codeServices = new Set(repo.frames.flatMap(frame => frame.services.filter(service => service.runs === "code").map(service => `${frame.target}\0${service.name}`)));
+  for (const entry of runs) {
+    const tied = entry.elements.filter(element => !resourceOf.has(element));
+    if (tied.length && !codeServices.has(`${entry.target}\0${entry.name}`)) { ties.wrong.push(`${entry.target}#${entry.name} → ${tied.join(", ")} (not a code service in the reference)`); totals.tiesWrong++; }
   }
   totals.instancesRight += instances.right; totals.instancesExtra += instances.extra.length;
   results[name] = {
