@@ -1,15 +1,41 @@
 import { LikeC4 } from "likec4";
 import { existsSync, readFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { Effect } from "effect";
 import type { ActivityConfig } from "./activity";
 import { io, failure } from "./effects";
+import { home } from "./layout";
+import { run } from "./process";
+
+/**
+ * LikeC4 puts a `.c4` file that sits in no project's folder into a separate `default` project. That file cannot see any
+ * project's specification, so a person's scratch file there fails the whole workspace. Pathlight leaves such a file out
+ * when git ignores it. It leaves nothing out of `.pathlight/`, out of any project's folder (a model kept in an ignored
+ * folder with its own config still loads), or out of a workspace with no project, where those files are the model.
+ */
+const leaveOutIgnoredStrays = (source: LikeC4) => Effect.gen(function* () {
+  const projects = source.projectsManager;
+  const orphan = (projects.constructor as unknown as { DefaultProjectId: string }).DefaultProjectId;
+  if (!projects.all.some(id => id !== orphan)) return;
+  const root = source.workspace;
+  const strays = source.documentPaths()
+    .filter(path => projects.ownerProjectId(path) === orphan)
+    .map(path => relative(root, path))
+    .filter(path => !path.startsWith("..") && path.split(sep)[0] !== home);
+  if (!strays.length) return;
+  // The ignored, untracked ones among them, names unquoted; outside a git repository this fails and everything stays in.
+  const listed = yield* run("git", ["--literal-pathspecs", "-C", root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", ...strays])
+    .pipe(Effect.catch(() => Effect.succeed("")));
+  const ignored = new Set(listed.split("\0"));
+  const left = strays.filter(path => ignored.has(path)).map(path => resolve(root, path));
+  if (left.length) projects.setWorkspaceExcludePatterns(left.map(path => path.replace(/[\\*?[\]{}()!+@]/g, "\\$&")));
+});
 
 export const acquireModel = (workspace: string) => Effect.acquireRelease(
   io("LikeC4.open", () => LikeC4.fromWorkspace(workspace, { logger: false, printErrors: false })),
   source => io("LikeC4.dispose", () => source.dispose()).pipe(Effect.orDie),
-);
+).pipe(Effect.tap(leaveOutIgnoredStrays));
 
 /**
  * Why a model does not compile, in words a person can act on: the parser's first errors with file and line, and, if there is one, an older pathlight
