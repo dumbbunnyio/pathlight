@@ -98,6 +98,21 @@ test("the request names only boxes nobody has named, at most six a turn", async 
   }
 }, 60_000);
 
+test("a run that asks nobody (--no-ask, OpenCode's own run) leaves every new box waiting for the next run that asks", async () => {
+  const directory = await shop("pathlight-naming-noask-");
+  try {
+    for (let n = 0; n < namingCap + 2; n++) await folder(directory, `part${n}`);
+    const quiet = JSON.parse(cli(directory, "refresh", "--json", "--no-ask").out) as { unnamed: string[]; waiting: number; request?: string };
+    expect(quiet).toMatchObject({ unnamed: [], waiting: namingCap + 2 });
+    expect(quiet.request).toBeUndefined();
+    const asks = JSON.parse(cli(directory, "refresh", "--json").out) as { unnamed: string[]; waiting: number };
+    expect(asks.unnamed).toHaveLength(namingCap);
+    expect(asks.waiting).toBe(2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
 type Body = { messages: { role: string; content: unknown }[]; tools?: { function?: { name: string } }[] };
 const chunk = (delta: object, finish: string | null = null) =>
   `data: ${JSON.stringify({ id: "fake", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
@@ -159,3 +174,39 @@ test.skipIf(!Bun.which("opencode"))("OpenCode's plugin sends the request once, a
     await rm(home, { recursive: true, force: true });
   }
 }, 120_000);
+
+test("boxes past the cap are asked about at the person's next turn, after the woken turn's own stop", async () => {
+  const directory = await shop("pathlight-naming-waiting-");
+  const tools = await mkdtemp(join(tmpdir(), "pathlight-naming-bin-"));
+  try {
+    const bin = await shim(tools);
+    const hook = (JSON.parse(await readFile("plugins/claude/hooks/hooks.json", "utf8")) as { hooks: { Stop: { hooks: { command: string }[] }[] } }).hooks.Stop[0]!.hooks[0]!;
+    const stop = (active: boolean) => {
+      const done = Bun.spawnSync(["sh", "-c", hook.command], { cwd: directory, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CLAUDE_PROJECT_DIR: directory },
+        stdin: Buffer.from(JSON.stringify({ hook_event_name: "Stop", session_id: "s1", transcript_path: "/nowhere.jsonl", stop_hook_active: active })), stdout: "pipe", stderr: "pipe" });
+      return { code: done.exitCode, err: done.stderr.toString() };
+    };
+    const keys = (err: string) => err.match(/\(([^)]+)\)/)![1]!.split(" ");
+    // The person's turn adds eight folders: six are asked about, two wait.
+    for (let n = 0; n < namingCap + 2; n++) await folder(directory, `part${n}`);
+    const first = stop(false);
+    expect(first.code).toBe(2);
+    const asked = keys(first.err);
+    expect(asked).toHaveLength(namingCap);
+    // The woken turn: the namer names those six, and its own stop asks nothing.
+    for (const key of asked) expect(cli(directory, "name", key, "--title", `Named ${key.split("/").at(-1)}`, "--note", "A part.").code).toBe(0);
+    expect(stop(true).code).toBe(0);
+    // The person's next turn ends: the two that waited are asked about now, and none of the six again.
+    const next = stop(false);
+    expect(next.code).toBe(2);
+    const rest = keys(next.err);
+    expect(rest).toHaveLength(2);
+    expect(rest.some(key => asked.includes(key))).toBe(false);
+    // Asked once: the turn after asks nothing, though nobody named them.
+    expect(stop(true).code).toBe(0);
+    expect(stop(false).code).toBe(0);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+    await rm(tools, { recursive: true, force: true });
+  }
+}, 60_000);

@@ -49,7 +49,7 @@ export const Refreshed = Schema.Struct({
   added: Schema.Array(Schema.Struct({ id: Name, key: Name })).check(Schema.isMaxLength(4096)),
   /** New boxes with no name yet (a folder's own name), by key, at most `namingCap`: what the end of the turn asks the agent to have named. */
   unnamed: Schema.optionalKey(Schema.Array(Name).check(Schema.isMaxLength(64))),
-  /** New boxes past the cap, asked about at the next end of a turn. */
+  /** New boxes not asked about yet: past the cap, or drawn by a run that asked nobody. The next run that asks takes them first. */
   waiting: Schema.optionalKey(Schema.Array(Name).check(Schema.isMaxLength(4096))),
   /** A redraw was needed and not written: it would remove `element`, which the journey `journey` names. */
   blocked: Schema.optionalKey(Schema.Struct({ element: Name, journey: Name })),
@@ -99,7 +99,12 @@ export interface Refresh {
   diff?: { relationships: number; undeclared: number };
 }
 
-export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (workspace: string) {
+/**
+ * `ask` is false when nobody will be asked after this run (the woken turn's own stop, OpenCode's own run): the new unnamed boxes then all keep
+ * waiting for the next run that asks. A box is in one request at most: once asked it is never carried again, named or not.
+ */
+export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (workspace: string, options: { ask?: boolean } = {}) {
+  const ask = options.ask ?? true;
   const root = yield* io("Refresh.root", () => realpath(workspace));
   const mapped = yield* io("Refresh.mapping", () => readFile(mappingPath(root), "utf8")).pipe(Effect.option);
   if (mapped._tag === "None") return { mapped: false, drawn: false, redraw: "off", due: [], redrew: false, added: [], unnamed: [], waiting: 0 } as Refresh;
@@ -146,13 +151,13 @@ export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (worksp
   }
   // The boxes this redraw added that nobody has named: folders and files the code has (not a collection, not a resource), with no overlay entry. A
   // person's name is an entry, so a box a person named is never asked about.
-  // Boxes past the last turn's cap come first, while they are still on the map and still unnamed.
+  // Boxes that waited (past the last request's cap, or drawn while nobody was asked) come first, while they are still on the map and still unnamed.
   const last = yield* readRefreshed(root);
   const named = yield* readOverlay(root).pipe(Effect.option);
   const drawnKeys = new Set((yield* readKeys(root)).values());
   const isCode = (key: string) => !key.includes("#") && drawnKeys.has(key) && paths.some(path => path === key || path.startsWith(`${key}/`));
   const fresh = named._tag === "Some" ? [...new Set([...last?.waiting ?? [], ...added.map(item => item.key)])].filter(key => isCode(key) && !named.value.elements[key]) : [];
-  const unnamed = fresh.slice(0, namingCap), later = fresh.slice(namingCap), waiting = later.length;
+  const unnamed = ask ? fresh.slice(0, namingCap) : [], later = ask ? fresh.slice(namingCap) : fresh, waiting = later.length;
   yield* writeRefreshed(root, { version: 1, time: Date.now(), redrew, added, ...(unnamed.length ? { unnamed } : {}), ...(later.length ? { waiting: later } : {}), ...(blocked ? { blocked } : {}) });
 
   // The review of new dependencies, against the model as it now is. Not a git repository, or no commit yet: there is nothing to compare with.

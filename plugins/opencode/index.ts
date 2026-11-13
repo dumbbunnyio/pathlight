@@ -92,16 +92,17 @@ export default Plugin.define({
       if (!mapped()) return;
       checking = true;
       try {
-        const output = await pathlight(["refresh", "--workspace", workspace, "--json"], listening.signal).catch(() => "");
-        const request = (() => { try { return (JSON.parse(output) as { request?: unknown }).request; } catch { return undefined; } })();
         const ours = sessionID !== undefined && ownRun.delete(sessionID);
+        // Whether this run may ask is decided before the refresh: a run that asks nobody (its own run, a failed or child session) passes --no-ask,
+        // so the new boxes keep waiting for the next run that does.
+        const session = sessionID && succeeded && !ours && !disposed ? await ctx.session.get({ sessionID }).catch(() => undefined) : undefined;
+        const asks = sessionID !== undefined && session !== undefined && session.parentID === undefined;
+        const output = await pathlight(["refresh", "--workspace", workspace, "--json", ...asks ? [] : ["--no-ask"]], listening.signal).catch(() => "");
+        const request = (() => { try { return (JSON.parse(output) as { request?: unknown }).request; } catch { return undefined; } })();
         // Pathlight drew boxes nobody has named: the conversation's agent is asked once, in a message marked as the plugin's, to have them named.
-        if (typeof request === "string" && sessionID && succeeded && !ours && !disposed) {
-          const session = await ctx.session.get({ sessionID }).catch(() => undefined);
-          if (session && session.parentID === undefined) {
-            ownRun.add(sessionID);
-            await ctx.session.synthetic({ sessionID, text: request, description: "pathlight", delivery: "queue", resume: true } as Parameters<typeof ctx.session.synthetic>[0]).catch(() => { ownRun.delete(sessionID); });
-          }
+        if (typeof request === "string" && asks && !disposed) {
+          ownRun.add(sessionID);
+          await ctx.session.synthetic({ sessionID, text: request, description: "pathlight", delivery: "queue", resume: true } as Parameters<typeof ctx.session.synthetic>[0]).catch(() => { ownRun.delete(sessionID); });
         }
       } finally { checking = false; if (again !== null && !disposed) { const next = again; again = null; void endOfTurn(next.sessionID, next.succeeded); } }
     };
