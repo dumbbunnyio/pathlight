@@ -61,7 +61,7 @@ const baseFacts = (root: string, sha: string) => Effect.gen(function* () {
   return { ...fresh, cached: false };
 });
 
-export const diffWorkspace = Effect.fn("Diff.workspace")(function* (workspace: string, base = "HEAD") {
+export const diffWorkspace = Effect.fn("Diff.workspace")(function* (workspace: string, base = "HEAD", given?: { readonly scan: Scan; readonly paths: readonly string[] }) {
   const root = yield* io("Diff.root", () => realpath(workspace));
   if (!/^[\w./~^@{}-]{1,200}$/.test(base) || base.startsWith("-")) return yield* Effect.fail(failure("Diff.base", `'${base}' is not a git revision.`));
   const sha = (yield* run("git", ["-C", root, "rev-parse", "--verify", "--quiet", `${base}^{commit}`]).pipe(
@@ -72,7 +72,7 @@ export const diffWorkspace = Effect.fn("Diff.workspace")(function* (workspace: s
   const model = yield* io("LikeC4.compute", () => source.computedModel(config.project));
   const declared = [...model.relationships()].map(item => ({ source: String(item.source.id), target: String(item.target.id), title: item.title ?? null }));
 
-  const now = compareImports(config, yield* scanWorkspace(root), (yield* listFiles(root)).paths, declared);
+  const now = compareImports(config, given?.scan ?? (yield* scanWorkspace(root)), given?.paths ?? (yield* listFiles(root)).paths, declared);
   const baseline = yield* baseFacts(root, sha);
   const before = compareImports(config, baseline.scan, baseline.paths, declared);
 

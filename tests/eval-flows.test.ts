@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { passes, scoreFlow, type FlowScoreInput, type Hop } from "./eval/flow-score";
+import { passes, scoreFlow, supportedBy, type FlowScoreInput, type Hop } from "./eval/flow-score";
 
 const question = {
   id: "check-run", question: "q", files: ["src/cli.ts", "src/check.ts"],
@@ -85,4 +85,30 @@ test("planted: a hop the answer marks `over` passes with no relationship and no 
   const unmarked = score({ ...web, hops: [{ from: "app", to: "server" }, web.hops[1]!] });
   expect(unmarked).toMatchObject({ unbacked: 1, unsupported: 1, runtime: [] });
   expect(passes(unmarked)).toBe(false);
+});
+
+// A hop to a resource box is backed by the packages that lead to it, as `pathlight check` judges such an arrow: no file imports a file of a database.
+test("a hop to or from a resource is supported by a cited file of the other box importing one of its packages, and by nothing else", () => {
+  const config = { version: 1 as const, project: "p", mappings: [{ glob: "server/**", element: "server" }, { glob: "app/**", element: "app" }],
+    resources: [{ element: "sql", resource: "postgres", packages: ["sequelize", "pg"] }, { element: "redis", resource: "redis", packages: ["ioredis"] }] };
+  const scan = { imports: [{ from: "app/page.ts", to: "server/api.ts", line: 1, kind: "import" as const, specifier: "../server/api" }],
+    external: [{ from: "server/models/user.ts", package: "sequelize", line: 1, kind: "import" as const }, { from: "server/types.ts", package: "ioredis", line: 1, kind: "type" as const }] };
+  const backs = supportedBy(config, scan);
+  expect(backs("server", "sql", ["server/models/user.ts"])).toBe(true);
+  // A reply from the database back to the server is the same evidence.
+  expect(backs("sql", "server", ["server/models/user.ts"])).toBe(true);
+  // The trace must have read the file; another box's import is not this hop; a type-only import is no use of the cache.
+  expect(backs("server", "sql", ["server/api.ts"])).toBe(false);
+  expect(backs("app", "sql", ["server/models/user.ts"])).toBe(false);
+  expect(backs("server", "redis", ["server/types.ts"])).toBe(false);
+  // Through the box's own client module, one step: the command imports the database module, which imports the driver.
+  const wrapped = supportedBy(config, { imports: [...scan.imports, { from: "server/commands/save.ts", to: "server/models/user.ts", line: 1, kind: "import" as const, specifier: "../models/user" }], external: scan.external });
+  expect(wrapped("server", "sql", ["server/commands/save.ts"])).toBe(true);
+  expect(wrapped("app", "sql", ["app/page.ts"])).toBe(false);
+  // Hops between components are still judged by imports between their files.
+  expect(backs("app", "server", ["app/page.ts"])).toBe(true);
+  const question = { id: "save", question: "q", files: ["server/models/user.ts"], hops: [{ from: "app", to: "server" }, { from: "server", to: "sql" }] };
+  const score = scoreFlow({ question, supported: backs, written: { hops: question.hops.map(hop => ({ ...hop, backed: true })), cited: ["app/page.ts", "server/models/user.ts"], missingFiles: [], findings: [] } });
+  expect(score.unsupported).toBe(0);
+  expect(passes(score)).toBe(true);
 });

@@ -1,21 +1,22 @@
 #!/usr/bin/env bun
 import { scannedLanguages } from "./languages";
 import { parseArgs } from "node:util";
-import { writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import { listViews, overviewId, selectView } from "./catalog";
 import { Config, Effect, Schema } from "effect";
 import { io, json, failure } from "./effects";
 import { writeReady } from "./ready";
 import { atShellPrompt, showView } from "./tmux";
 import { ActivityBinding, readActivityConfig, writeActivity } from "./activity";
-import { mappingPath } from "./layout";
+import { homeOf, mappingPath, modelFile } from "./layout";
 import { claudeActivity, claudeJournals, claudeSession } from "./claude";
 import { initGlobal, initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
-import { draftWorkspace } from "./draft";
+import { draftWorkspace, journeyIds } from "./draft";
 import { checkAndRecord } from "./stale";
-import { setPlan } from "./plan";
+import { planDrop, planNew, setPlan } from "./plan";
+import { formatRefresh, readRefreshed, readSettings, refreshWorkspace, saveRedraw } from "./refresh";
 import { diffWorkspace, formatDiff, recordDiff } from "./diff";
 import { formatCheck, hasFindings } from "./check";
 import { checkFlows, formatFlows, hasFlowFindings } from "./flows";
@@ -33,6 +34,7 @@ const help = `pathlight list [--workspace PATH]
 pathlight scan [--workspace PATH] [--out FILE]
 pathlight check [--workspace PATH] [--json] [--strict] [--quiet]
 pathlight diff [--workspace PATH] [--base REV] [--json] [--quiet]
+pathlight refresh [--workspace PATH] [--quiet] [--no-ask] [--hook claude]
 pathlight flows [--workspace PATH] [--json] [--strict] [--quiet]
 pathlight flow add ID --title TEXT --reads FILE,FILE --step "FROM -> TO [over http|websocket|process]: EVENT [@ FILE#FUNCTION]" ... [--workspace PATH] [--project NAME] [--force]
 pathlight flow remove ID [--workspace PATH]
@@ -40,6 +42,8 @@ pathlight brief [KEY ... | --changed | --first-day] [--workspace PATH] [--json]
 pathlight name KEY --title TEXT --note TEXT [--workspace PATH]
 pathlight name --from FILE|- [--workspace PATH]
 pathlight plan [ELEMENT ...] [--workspace PATH]
+pathlight plan --new FOLDER --title TEXT [--note TEXT] [ELEMENT ...] [--workspace PATH]
+pathlight plan --drop FOLDER [--workspace PATH]
 pathlight point [ELEMENT [--view VIEW] [--journey ID --step N]] [--workspace PATH]
 pathlight draft [--workspace PATH] [--out DIR] [--force]
 pathlight init [--workspace PATH] [--no-claude-hooks]
@@ -53,16 +57,19 @@ pathlight web [VIEW] [--workspace PATH] [--project NAME] [--select ELEMENT] [--s
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
 pathlight config get claude|browser | pathlight config set claude pane|tmux|web | pathlight config set browser COMMAND
+pathlight config get redraw [--workspace PATH] | pathlight config set redraw on|off [--workspace PATH]
 pathlight setup [--workspace PATH] [--yes]
 
 scan reads the source statically and prints files, imports and what it could not read as JSON.
 check compares the LikeC4 model and .pathlight/pathlight.activity.json with that scan: unmatched globs, unmapped files,
 relationships with no import behind them and imports with no relationship. --strict exits 1 if anything is found. --quiet prints nothing (the Stop hook uses it); every check records its counts for the viewer's out-of-date badge.
 diff compares the relationships the imports support now with those at a git commit (default HEAD): which the working tree added or lost, and new imports with no relationship. The viewer draws them; static evidence only.
+refresh is what the end of an agent's turn runs (the Claude Stop hook, OpenCode's plugin): one scan, the check's counts, then on a map pathlight draft drew a redraw when files landed where no box claims them, a planned box has files, or a box's files are gone, then the diff's counts. A redraw keeps every name, writes nothing when nothing changes, and is not written when it would remove a box a journey uses (check then says so). A model a person wrote is never redrawn; config set redraw off stops it for one workspace. New boxes nobody has named are asked about at most six a run and each once; --no-ask says nobody will be asked after this run, so they keep waiting for the next run that asks; only --json carries the request, so a refresh without it asks nobody either.
 flows checks the state diagrams an agent wrote (*.behavior.c4) against the files they name and the commit they were synced at: files that are gone or changed since, arrows with no event, decisions with one answer, states nothing reaches, states that name no file. A flow is the agent's reading, so this finds what is wrong or old, never that it is right. --strict exits 1 if anything is found.
 flow add writes a journey you worked out from the code: a LikeC4 dynamic view of hops between components, as ID.behavior.c4, stamped with the commit and the files you read. It checks every component against the model and takes the file back out if the model would stop compiling; it decides nothing about what happens. A step can name the function it calls with a trailing @ FILE#FUNCTION: the file must be one you read and must export that name, and its declaration is copied as written (pathlight flows says when it changes). A hop the code makes over HTTP, a websocket or a spawned process, which no import backs, is written FROM -> TO over http: EVENT, and flows does not report it as missing from the model; use it only when you read both the request and the code that answers it. flow remove deletes only a file flow add wrote.
 brief lists, for each box of the draft (or only the boxes under the keys you give, a box's key or an element id from the model, children first), the files it owns with their sizes, what it imports from and what imports it, what is inside it and any name it has: what an agent needs to say what each box is for. With no keys it opens with what the project says about itself (its package description and the start of its README). brief --changed lists only the boxes that are new or whose files changed since pathlight name recorded them, so a later run names just those. brief --first-day prints the briefing for a person new to the code: what it is, how it is built, where the project declares it starts, the journeys to follow (F in the viewer) and how sure the names are, derived each time from the scan, the names and the recorded journeys and stored nowhere. name saves the names and notes the agent worked out (one box with --title and --note, or many from a JSON file of {"key","title","note"} entries, a dash for standard input) as the agent's reading (by "agent"), redraws once, never replaces a name a person wrote, and refuses a key that is not a box.
 plan says which elements you are about to work on (ids from the model); the viewer outlines them and marks activity outside them. No ids clears the plan.
+plan --new declares a folder you are about to create, on a map pathlight draft drew: the map gets a dashed box with your --title where the folder will sit, and the plan is that box and any ELEMENT given. When its files exist the next redraw makes it solid and keeps the name. On a map a person wrote it changes nothing: add the element to the model instead. plan --drop takes back a plan --new whose folder has no files: the dashed box leaves the map and the plan.
 point asks an open viewer to select one element (an id from the model, or a box's key from brief) once (in --view if given, else in a view that draws it) and mark it as the agent's pointing until a key is pressed; it never makes the viewer follow. Ids and a time only. With --journey and --step (a journey's id from pathlight flows and a step's number) the viewer reads that journey at that step, as F would, until esc or the next pointer. With no viewer open on the workspace it does nothing and says so; with no element it clears the pointer.
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
@@ -101,11 +108,11 @@ try {
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2), allowPositionals: true,
     options: {
-      workspace: { type: "string", default: "." }, project: { type: "string" },
+      workspace: { type: "string", default: "." }, new: { type: "string" }, drop: { type: "string" }, hook: { type: "string" }, project: { type: "string" },
       pane: { type: "string" }, socket: { type: "string" },
       ready: { type: "string" }, help: { type: "boolean" },
       session: { type: "string" }, source: { type: "string", default: "opencode" },
-      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, "first-day": { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" }, zoom: { type: "boolean" }, view: { type: "string" }, journey: { type: "string" }, port: { type: "string" }, rune: { type: "boolean" }, open: { type: "boolean" }, "until-closed": { type: "boolean" },
+      follow: { type: "boolean" }, out: { type: "string" }, json: { type: "boolean" }, changed: { type: "boolean" }, "first-day": { type: "boolean" }, strict: { type: "boolean" }, quiet: { type: "boolean" }, "no-ask": { type: "boolean" }, base: { type: "string" }, parent: { type: "string" }, "no-claude-hooks": { type: "boolean" }, global: { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" }, title: { type: "string" }, note: { type: "string" }, from: { type: "string" }, reads: { type: "string", multiple: true }, step: { type: "string", multiple: true }, here: { type: "boolean" }, split: { type: "boolean" }, select: { type: "string" }, cols: { type: "string" }, rows: { type: "string" }, keys: { type: "string" }, ansi: { type: "boolean" }, agent: { type: "boolean" }, zoom: { type: "boolean" }, view: { type: "string" }, journey: { type: "string" }, port: { type: "string" }, rune: { type: "boolean" }, open: { type: "boolean" }, "until-closed": { type: "boolean" },
     },
   });
   const [command, id, ...extra] = positionals;
@@ -141,7 +148,14 @@ try {
     } else if (command === "check") {
       if (id) return yield* invalid("check takes no argument. Use --workspace PATH.");
       const check = yield* checkAndRecord(values.workspace);
-      if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(check, null, 2)}\n` : formatCheck(check));
+      // A redraw the end of the last turn held back, because it would have broken a journey.
+      // Only while it is still true: the journey still names the box, and the model is the one the held-back redraw would have replaced.
+      const refreshed = yield* readRefreshed(values.workspace), held = refreshed?.blocked;
+      const journey = held ? yield* io("CLI.journey", () => readFile(join(homeOf(resolve(values.workspace)), `${held.journey}.behavior.c4`), "utf8")).pipe(Effect.option) : undefined;
+      const modelTime = held ? yield* io("CLI.modelTime", () => stat(join(homeOf(resolve(values.workspace)), modelFile))).pipe(Effect.map(found => found.mtimeMs), Effect.option) : undefined;
+      const behind = held && journey?._tag === "Some" && journeyIds(journey.value).has(held.element) && modelTime?._tag === "Some" && modelTime.value <= refreshed!.time ? held : undefined;
+      const behindText = behind ? `The map is behind: a redraw would remove ${behind.element}, which journey ${behind.journey} uses (${relative(resolve(values.workspace), join(homeOf(resolve(values.workspace)), `${behind.journey}.behavior.c4`))}). Rerun or remove that journey; the next turn then redraws.\n` : "";
+      if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(behind ? { ...check, behind } : check, null, 2)}\n` : `${formatCheck(check)}${behindText}`);
       if (values.strict && hasFindings(check)) process.exitCode = 1;
     } else if (command === "flows") {
       if (id) return yield* invalid("flows takes no argument. Use --workspace PATH.");
@@ -186,6 +200,14 @@ try {
       else return yield* invalid("Use pathlight name KEY --title TEXT --note TEXT, or pathlight name --from FILE.");
       if (id && values.from) return yield* invalid("Give a KEY or --from, not both.");
       process.stdout.write(formatNamed(yield* nameBoxes(values.workspace, entries)));
+    } else if (command === "plan" && values.drop !== undefined) {
+      if (values.new !== undefined || id || extra.length) return yield* invalid("plan --drop FOLDER takes nothing else.");
+      const dropped = yield* planDrop(values.workspace, values.drop);
+      process.stdout.write(`Dropped the planned box for ${values.drop}.\n${dropped.plan ? `Plan: ${dropped.plan.elements.join(", ")}` : "No plan."}\n`);
+    } else if (command === "plan" && values.new !== undefined) {
+      if (!values.title) return yield* invalid("plan --new FOLDER needs --title TEXT: the name the box will have.");
+      const made = yield* planNew(values.workspace, { path: values.new, title: values.title, note: values.note }, [...(id ? [id] : []), ...extra]);
+      process.stdout.write(`Planned ${made.id} for ${values.new}: a dashed box on the map until its files exist.\nPlan: ${made.plan!.elements.join(", ")}\n`);
     } else if (command === "plan") {
       const made = yield* setPlan(values.workspace, [...(id ? [id] : []), ...extra]);
       process.stdout.write(made ? `Plan: ${made.elements.join(", ")}\n` : "Plan cleared.\n");
@@ -205,6 +227,25 @@ try {
       const findings = yield* doctor(values.workspace);
       process.stdout.write(formatDoctor(findings));
       if (hasFailures(findings)) process.exitCode = 1;
+    } else if (command === "refresh" && values.hook !== undefined) {
+      // Claude Code's Stop hook (`asyncRewake`): the hook's input on standard input, and exit 2 with one line on standard error wakes the agent with it.
+      // Only the first stop of a turn asks (the woken turn's own stop leaves new boxes waiting for the next); anything that goes wrong asks nothing and exits 0, since a hook's failure must never reach the person.
+      if (values.hook !== "claude") return yield* invalid("--hook takes claude.");
+      const input = yield* readStdin.pipe(Effect.flatMap(json), Effect.option);
+      const again = input._tag === "Some" && !!input.value && typeof input.value === "object" && (input.value as { stop_hook_active?: unknown }).stop_hook_active === true;
+      const done = yield* refreshWorkspace(values.workspace, { ask: !again }).pipe(Effect.option);
+      if (done._tag === "Some" && done.value.request) { process.stderr.write(`${done.value.request}\n`); process.exitCode = 2; }
+    } else if (command === "refresh") {
+      if (id) return yield* invalid("refresh takes no argument. Use --workspace PATH.");
+      // Only --json carries the request; text and --quiet show none, so they ask nobody and leave new boxes waiting.
+      const done = yield* refreshWorkspace(values.workspace, { ask: !!values.json && !values["no-ask"] });
+      if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(done, null, 2)}\n` : formatRefresh(done));
+    } else if (command === "config" && extra[0] === "redraw") {
+      // Per workspace, in its ignored state: whether a map Pathlight drew is redrawn at the end of each turn (unset is on).
+      const value = extra[1];
+      if ((id === "get" && value !== undefined) || (id === "set" && value !== "on" && value !== "off") || (id !== "get" && id !== "set")) return yield* invalid("Use pathlight config get redraw, or pathlight config set redraw on|off.");
+      if (id === "get") { const saved = (yield* readSettings(values.workspace)).redraw; if (saved) process.stdout.write(`${saved}\n`); }
+      else { yield* saveRedraw(values.workspace, value as "on" | "off"); process.stdout.write(value === "on" ? "This map will be kept current at the end of each turn.\n" : "This map is redrawn only when you ask (pathlight draft).\n"); }
     } else if (command === "config") {
       // Pathlight's own settings (src/theme.ts): `claude` is where the Claude Code plugin's /pathlight:open draws the viewer, `browser` the command
       // pathlight web --open and B use. `get` prints nothing when unset (the tmux pane, the first browser found).

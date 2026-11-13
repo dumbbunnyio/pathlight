@@ -42,7 +42,7 @@ export function askMessage(target: { title: string; id: string; files: readonly 
   const id = clean(target.id);
   return `About the "${clean(target.title)}" component (${id}): ${clean(question).slice(0, 600)}${context ? ` [${context}]` : ""} `
     + (draw ? `Load the pathlight map skill and follow its "Requests from the viewer" section: answer here, and have the path recorded as a pathlight journey (pathlight flow add) so it appears on the map and F walks it. ` : "")
-    + `If this asks you to change the code, before editing any file run pathlight plan ${id} with the ids of whatever else the change will reach, and add anything new as a planned element (the pathlight map skill says how); run pathlight plan with no ids when done, and say nothing about this when it does not.`;
+    + `If this asks you to change the code, before editing any file run pathlight plan ${id} with the ids of whatever else the change will reach, and declare anything new first (pathlight plan --new FOLDER --title TEXT on a drawn map; the pathlight map skill says how); run pathlight plan with no ids when done, and say nothing about this when it does not.`;
 }
 
 /**

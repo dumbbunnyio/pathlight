@@ -85,9 +85,12 @@ export const claudeSettings = (current: unknown, hook: string): Record<string, u
     if (!present) entries.push({ hooks: [{ type: "command", command: `sh '${hook}'`, async: true }] });
     hooks[event] = entries;
   }
-  // At the end of each turn, check the model against the code so the viewer can say when it has drifted.
-  const stop = [...hooks.Stop ?? []];
-  if (!stop.some(entry => JSON.stringify(entry).includes("plugins/claude/stop-hook.sh"))) stop.push({ hooks: [{ type: "command", command: `sh '${hook.replace(/hook\.sh$/, "stop-hook.sh")}'`, async: true }] });
+  // At the end of each turn, refresh the map against the code (the check, a drawn map's redraw, the diff). `asyncRewake` lets it wake the agent once
+  // to name the boxes it drew; an entry an older init wrote gains it.
+  const stopHook = (entry: unknown) => JSON.stringify(entry).includes("plugins/claude/stop-hook.sh");
+  const stop = [...hooks.Stop ?? []].map(entry => stopHook(entry) && entry && typeof entry === "object" && Array.isArray((entry as { hooks?: unknown }).hooks)
+    ? { ...entry, hooks: (entry as { hooks: Record<string, unknown>[] }).hooks.map(item => String(item.command ?? "").includes("stop-hook.sh") ? { ...item, async: true, asyncRewake: true } : item) } : entry);
+  if (!stop.some(stopHook)) stop.push({ hooks: [{ type: "command", command: `sh '${hook.replace(/hook\.sh$/, "stop-hook.sh")}'`, async: true, asyncRewake: true }] });
   hooks.Stop = stop;
   return { ...settings, hooks };
 };

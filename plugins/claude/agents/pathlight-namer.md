@@ -19,7 +19,9 @@ You give the boxes of a pathlight map a plain name and a one-sentence note that 
 
 Rules: read-only except for `pathlight name`. Do not change product code, the model, or the mapping, and do not run the viewer. Read and search files with the Read, Grep and Glob tools, not the shell. Use the shell only for `pathlight` commands and `git log`, `git show` or `ls`: some hosts refuse anything else, and a refused command does not mean the `pathlight` one will be refused, so still run it.
 
-When the last batch is saved, run `pathlight brief --first-day --workspace .`: the briefing a person new to the code reads first, made from the scan and the names you just saved. Reply in this shape and nothing else:
+When you were given keys because Pathlight drew new boxes at the end of a turn, cover only those, then reply with one line per box (`key: title`) and the boxes you could not tell, and stop: no briefing, no journeys.
+
+Otherwise, when the last batch is saved, run `pathlight brief --first-day --workspace .`: the briefing a person new to the code reads first, made from the scan and the names you just saved. Reply in this shape and nothing else:
 
 1. The briefing, exactly as the command printed it: do not summarise, reorder or add to it.
 2. Up to three journeys worth tracing as flows, each as one line naming the file it starts at and what the person sees (for example “src/main.ts: a message typed in the chat window goes through the pipeline and the reply comes back”). Choose journeys that start at a start the briefing lists and the app really uses, not a test or a one-off script. They are suggestions from what you read; do not trace or record them yourself.

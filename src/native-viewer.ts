@@ -1,4 +1,4 @@
-import { BoxRenderable, TextRenderable, StyledText, fg, RGBA, createCliRenderer, type CliRenderer, type CliRendererConfig } from "@opentui/core";
+import { BoxRenderable, TextRenderable, StyledText, fg, RGBA, createCliRenderer, type CliRenderer, type CliRendererConfig, type TextChunk } from "@opentui/core";
 import { Effect, FiberSet, Schedule } from "effect";
 import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -34,7 +34,7 @@ import { boundsOf } from "./viewer/compact";
 import { shapeView } from "./viewer/shape";
 import { cardLook } from "./viewer/card-view";
 import { connectsCard, filesCard, flowsCard, stepsCard, typesLinks } from "./viewer/cards";
-import { crumbActivity, followNews, footerContent, modeHints, workOffer } from "./viewer/footer";
+import { crumbActivity, followNews, footerContent, modeHints, reloadNews, workOffer } from "./viewer/footer";
 import { badgeContent as headerBadge, boxesText, edgeMarks, journeyHeading, viewHeading } from "./viewer/header";
 import { helpCap, helpContent } from "./viewer/help";
 import { allotSections, appNoteOf, headContent, isWaiting, nodeListContent, opensOf, pinnedLines, sectionHeader } from "./viewer/inspector-view";
@@ -49,7 +49,7 @@ import { createFlowMode, flowView, stepElement } from "./viewer/flow-mode";
 import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
-import { type Direction, elementsOf, neighborIn, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, nothingThere, viewHaving as viewIn } from "./viewer/where";
+import { type Direction, elementsOf, neighborIn, newElsewhere, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, nothingThere, viewHaving as viewIn } from "./viewer/where";
 
 /**
  * Who draws the viewer when it is not the terminal's own process: `pathlight pane` hands it a headless renderer and takes the frames, says when the
@@ -333,6 +333,10 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const revealMs = 600;
   let revealStart: number | undefined;
   const revealProgress = () => initialFit ? 0 : revealStart === undefined ? 1 : Math.min(1, (Date.now() - revealStart) / revealMs);
+  // Cards a reload added (the agent's turn drew a box): each draws itself in once, as the first view's cards did, and the news line names them.
+  const grown = new Map<string, number>();
+  const grownProgress = (id: string) => { const at = grown.get(id); return at === undefined ? 1 : Math.min(1, (Date.now() - at) / revealMs); };
+  let reloaded: { chunks: TextChunk[]; until: number } | undefined;
   // Section bodies start at the panel's edge; the panel has one column of padding each side and one for a scrollbar.
   const bodyWidth = () => Math.max(16, inspector.width - 2 - 1);
   // A component's title from this view, else from any view that draws it (the review and the header name components this view may not show), else its id.
@@ -527,7 +531,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       const badge = numbers && !group ? stepBadge(numbers) : "";
       entry.badge.visible = badge !== "" && width >= badge.length + 4;
       if (badge) { entry.badge.content = new StyledText([fg(id === stepNodeId ? palette.accent : palette.purple)(badge)]); }
-      const bloom = Math.min(1, Math.max(0, (easeOut(revealProgress()) - (diagram.bounds.width ? (entry.node.x - diagram.bounds.x) / diagram.bounds.width * 0.45 : 0)) / 0.55));
+      const bloom = Math.min(1, Math.max(0, (easeOut(revealProgress()) - (diagram.bounds.width ? (entry.node.x - diagram.bounds.x) / diagram.bounds.width * 0.45 : 0)) / 0.55), easeOut(grownProgress(id)));
       if (bloom < 1) { entry.box.borderColor = fade(entry.box.borderColor, bloom); }
       entry.label.visible = !group && width >= 8 && height >= 3 && bloom >= 0.7;
       if (!group && !entry.label.visible && bloom >= 0.7) hidden++;
@@ -631,7 +635,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     statusLeft.content = footing.left; statusRight.content = footing.right;
     // The news line, top right, the one place for what the agent and the session are doing now: follow while it is on (where it took you), else an
     // offer while the turn is open and the work is in another view, else the call running now. Nothing the agent did reaches the footer.
-    const news = (binding || following) && followCamera && !followPaused ? followNews(followedTitle || "the work") : work && "view" in work ? workOffer(work.title) : tickerContent();
+    const news = reloaded && reloaded.until > Date.now() ? reloaded.chunks
+      : (binding || following) && followCamera && !followPaused ? followNews(followedTitle || "the work") : work && "view" in work ? workOffer(work.title) : tickerContent();
     crumbHint.content = crumbActivity(news, renderer.width - 2 - crumbPlain.length - 3);
     dirty = true; renderer.requestRender();
   };
@@ -1157,6 +1162,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (!target?.nodes.length) { message = `View '${diagram.id}' is gone or empty in the new model; showing the previous version`; }
       else {
         const before = new Set(diagram.nodes.map(node => String(node.id)));
+        // Every element some view drew before the reload, so a box new to the model that another view draws can be told from one that was always there.
+        const drawnBefore = new Set([...diagrams.values()].flatMap(entry => entry.nodes.map(node => String(node.modelRef ?? ""))));
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
         diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; scanned = undefined;
@@ -1167,12 +1174,27 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         state.selected = diagram.nodes.find(node => String(node.id) === keep) ?? diagram.nodes[0];
         state.fileCursor = Math.min(state.fileCursor, Math.max(0, selectedPaths().length - 1));
         indexEvents();
-        const added = diagram.nodes.filter(node => !before.has(String(node.id))).map(node => node.title);
+        const addedNodes = diagram.nodes.filter(node => !before.has(String(node.id)));
         const removed = [...before].filter(id => !diagram.nodes.some(node => String(node.id) === id));
-        // A journey that was just drawn says so; the reload that brought it does not cover that.
-        message = next.notice || (/^Drawn: /.test(message) ? message : added.length || removed.length ? `Model reloaded: ${[...added.map(title => `+ ${title}`), ...removed.map(id => `− ${id.split(".").at(-1)}`)].slice(0, 4).join("  ")}` : "Model reloaded");
-        const shown = message;
-        setTimeout(() => { if (message === shown && !closing) { message = ""; update(); } }, 6000);
+        // What the model's change did to this view is the agent's news, on header line 2 for six seconds; the footer only answers the person's keys,
+        // so a journey that was just drawn (their `d`) still says so there.
+        if (next.notice) message = next.notice;
+        const now = Date.now();
+        for (const node of addedNodes) grown.set(String(node.id), now);
+        const elsewhere = newElsewhere(diagrams, diagram, drawnBefore);
+        const chunks = reloadNews(addedNodes.map(node => node.title), removed.map(id => id.split(".").at(-1) ?? id), elsewhere);
+        reloaded = chunks ? { chunks, until: now + 6000 } : undefined;
+        if (chunks) setTimeout(() => { if (!closing) update(); }, 6000);
+        // With follow on, the camera goes to the first new box; nothing is selected. With follow off the camera stays where the person put it.
+        // A box only another view draws takes follow there (with a Back entry, as follow does for work), unless a dialog is open.
+        const follows = (binding || following) && followCamera && !followPaused;
+        if (addedNodes[0] && follows) camera.reveal(addedNodes[0]);
+        else if (elsewhere[0] && follows && !(help.visible || summary.visible || goto.visible || picker.visible || dialog.naming)) {
+          const box = elsewhere[0];
+          remember(state, visit());
+          camera.animating = false; followedTitle = box.title;
+          state.pendingVisit = { diagram: getDiagram(box.viewId), reveal: box.element, notice: next.notice };
+        }
       }
       update();
     }
@@ -1186,6 +1208,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       if (next.restore) restore(next.restore);
       else { camera.autoFit = true; fit(); camera.settle(); }
       if (next.select) state.selected = nodeForElement(next.select) ?? state.selected;
+      // A box a reload added that only this view draws: it draws itself in and is brought on screen; the selection stays the view's own.
+      const shown = next.reveal ? nodeForElement(next.reveal) : undefined;
+      if (shown) { grown.set(String(shown.id), Date.now()); camera.ensureVisible(shown); }
       if (next.file) showFile(next.file);
       const reading = next.flow, flow = reading && flowMode.flows.find(item => item.type === reading.type && item.id === reading.id);
       if (reading && flow) {
@@ -1212,6 +1237,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     }
     if (camera.step(deltaMs)) update();
     if (revealProgress() < 1 || revealStart !== undefined) { update(); if (revealProgress() >= 1) revealStart = undefined; }
+    if (grown.size) { update(); for (const id of grown.keys()) if (grownProgress(id) >= 1) grown.delete(id); }
     if (!dirty) return;
     dirty = false;
     canvas.frameBuffer.clear(RGBA.fromHex(palette.background));

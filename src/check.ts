@@ -172,11 +172,12 @@ export function compareImports(config: ActivityConfig, scan: Pick<Scan, "files" 
   return { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports, resources };
 }
 
-export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace: string) {
+/** `given`: a scan and file list already made of this workspace (`pathlight refresh` scans once for check, the redraw and diff). */
+export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace: string, given?: { readonly scan: Scan; readonly paths: readonly string[] }) {
   const root = yield* io("Check.workspace", () => realpath(workspace));
   const config = yield* readActivityConfig(root);
-  const scan = yield* scanWorkspace(root);
-  const { paths } = yield* listFiles(root);
+  const scan = given?.scan ?? (yield* scanWorkspace(root));
+  const paths = given?.paths ?? (yield* listFiles(root)).paths;
   const source = yield* acquireModel(root);
   if (source.hasErrors()) return yield* Effect.fail(failure("Check.model", invalidModel(source, root)));
   const model = yield* io("LikeC4.compute", () => source.computedModel(config.project));

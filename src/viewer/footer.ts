@@ -51,5 +51,16 @@ export const crumbActivity = (activity: readonly TextChunk[] | undefined, availa
 /** The news line while follow is on: where it last took you, for as long as it lasts, and the key that stops it. */
 export const followNews = (box: string): TextChunk[] => [fg(palette.muted)("following "), fg(palette.text)(box), fg(palette.muted)("  "), pill("a", palette.accent), fg(palette.muted)(" stop")];
 
+/**
+ * What a reload added to and removed from the view on screen, for the news line: `+ Auth middleware  − billing`; then boxes new to the model that
+ * only another view draws, with that view (`+ feedstats in internal`). At most four items, this view's first; nothing when nothing changed.
+ */
+export const reloadNews = (added: readonly string[], removed: readonly string[], elsewhere: readonly { title: string; view: string }[] = []): TextChunk[] | undefined => {
+  const items = [...added.map(title => ({ mark: "+ ", title, color: palette.accent, view: "" })), ...elsewhere.map(box => ({ mark: "+ ", title: box.title, color: palette.accent, view: box.view })),
+    ...removed.map(title => ({ mark: "− ", title, color: palette.muted, view: "" }))].slice(0, 4);
+  return items.length ? items.flatMap((item, index) => [...(index ? [fg(palette.muted)("  ")] : []), fg(item.color)(item.mark), fg(palette.text)(item.title),
+    ...(item.view ? [fg(palette.muted)(" in "), fg(palette.text)(item.view)] : [])]) : undefined;
+};
+
 /** An offer when the work is in another view. */
 export const workOffer = (title: string): TextChunk[] => [fg(palette.accent)("● "), fg(palette.text)(`working in ${title}`), fg(palette.muted)("  "), pill("w", palette.accent), fg(palette.muted)(" go and follow")];

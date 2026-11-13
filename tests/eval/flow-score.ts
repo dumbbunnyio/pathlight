@@ -6,7 +6,8 @@ import { readActivityConfig, type ActivityConfig } from "../../src/activity";
 import { io, json } from "../../src/effects";
 import { checkFlows, elementsOf, namedFiles, type JourneyReport } from "../../src/flows";
 import { run } from "../../src/process";
-import { scanWorkspace } from "../../src/scan";
+import { scanWorkspace, type Scan } from "../../src/scan";
+import { entryFor } from "../../src/resources";
 
 /**
  * Scores the journeys an agent wrote (`pathlight flow add`) against a hand-written answer and against the code. As with the map score, nothing
@@ -97,6 +98,33 @@ export function scoreFlow(input: FlowScoreInput): FlowScore {
 /** What a run has to meet: every hop of the answer present and in order, nothing invented, every hop backed by the model and an import (a runtime hop by neither), no file cited that is not there, and every key file read. */
 export const passes = (score: FlowScore) => score.written && score.missed.length === 0 && score.ordered === score.matched && score.invented.length === 0 && score.unbacked === 0 && score.unsupported === 0 && score.missingFiles.length === 0 && score.citedKey === score.keyFiles;
 
+/**
+ * Whether the code backs a hop from `from` to `to` (either way round), with a file the trace cited: an import between the two boxes' files, or, for a hop
+ * to or from a resource box (a database, a cache), a cited file of the other box importing one of the packages that lead to it (the mapping's
+ * `resources`, the rule `pathlight check` judges such an arrow by; a type-only import is not a use), itself or through one file of its own box that
+ * does (Outline's `server/storage/database.ts`, which every model and command imports for `sequelize`).
+ */
+export const supportedBy = (config: ActivityConfig, scan: Pick<Scan, "imports" | "external">) => {
+  const within = (element: string, ancestor: string) => element === ancestor || element.startsWith(`${ancestor}.`);
+  const resourceOf = new Map((config.resources ?? []).map(item => [item.element, item] as const));
+  const leadsTo = (packages: readonly string[], name: string) => packages.includes(name) || (entryFor(name) !== undefined && packages.some(listed => entryFor(listed) === entryFor(name)));
+  return (from: string, to: string, cited: readonly string[]) => {
+    const resource = resourceOf.get(to) ?? resourceOf.get(from);
+    if (resource) {
+      const user = resourceOf.has(to) ? from : to;
+      const inUser = (path: string) => elementsOf(config, path).some(id => within(id, user));
+      const clients = new Set((scan.external ?? []).filter(item => item.kind !== "type" && leadsTo(resource.packages, item.package) && inUser(item.from)).map(item => item.from));
+      // The cited file uses the package itself, or through one file of its own box that does (the app's database or cache client module).
+      return cited.some(path => clients.has(path) || (inUser(path) && scan.imports.some(item => item.from === path && item.kind !== "type" && clients.has(item.to))));
+    }
+    return scan.imports.some(item => {
+      const a = elementsOf(config, item.from), b = elementsOf(config, item.to);
+      const forwards = a.some(id => within(id, from)) && b.some(id => within(id, to)), backwards = a.some(id => within(id, to)) && b.some(id => within(id, from));
+      return (forwards || backwards) && (cited.includes(item.from) || cited.includes(item.to));
+    });
+  };
+};
+
 export const scoreFlows = Effect.fn("Eval.flows")(function* (workspace: string, reference: FlowReference) {
   const config: ActivityConfig = yield* readActivityConfig(workspace);
   const scan = yield* scanWorkspace(workspace);
@@ -104,12 +132,7 @@ export const scoreFlows = Effect.fn("Eval.flows")(function* (workspace: string, 
   const exists = (path: string) => existsSync(join(workspace, path)) && lstatSync(join(workspace, path)).isFile();
   const listed = yield* run("git", ["-C", workspace, "ls-files", "-co", "--exclude-standard", "--", ":(glob)**/*.behavior.c4"]).pipe(Effect.catch(() => Effect.succeed("")));
   const files = listed.split("\n").filter(Boolean);
-  const within = (element: string, ancestor: string) => element === ancestor || element.startsWith(`${ancestor}.`);
-  const supported = (from: string, to: string, cited: readonly string[]) => scan.imports.some(item => {
-    const a = elementsOf(config, item.from), b = elementsOf(config, item.to);
-    const forwards = a.some(id => within(id, from)) && b.some(id => within(id, to)), backwards = a.some(id => within(id, to)) && b.some(id => within(id, from));
-    return (forwards || backwards) && (cited.includes(item.from) || cited.includes(item.to));
-  });
+  const supported = supportedBy(config, scan);
   const scores: FlowScore[] = [];
   for (const question of reference.questions) {
     const journey: JourneyReport | undefined = report.journeys.find(entry => entry.id === question.id);
