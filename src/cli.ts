@@ -2,7 +2,7 @@
 import { scannedLanguages } from "./languages";
 import { parseArgs } from "node:util";
 import { readFile, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { listViews, overviewId, selectView } from "./catalog";
 import { Config, Effect, Schema } from "effect";
 import { io, json, failure } from "./effects";
@@ -153,7 +153,7 @@ try {
       const journey = held ? yield* io("CLI.journey", () => readFile(join(homeOf(resolve(values.workspace)), `${held.journey}.behavior.c4`), "utf8")).pipe(Effect.option) : undefined;
       const modelTime = held ? yield* io("CLI.modelTime", () => stat(join(homeOf(resolve(values.workspace)), modelFile))).pipe(Effect.map(found => found.mtimeMs), Effect.option) : undefined;
       const behind = held && journey?._tag === "Some" && journeyIds(journey.value).has(held.element) && modelTime?._tag === "Some" && modelTime.value <= refreshed!.time ? held : undefined;
-      const behindText = behind ? `The map is behind: a redraw would remove ${behind.element}, which journey ${behind.journey} uses. Rerun or remove that journey (pathlight flow remove ${behind.journey}); the next turn then redraws.\n` : "";
+      const behindText = behind ? `The map is behind: a redraw would remove ${behind.element}, which journey ${behind.journey} uses (${relative(resolve(values.workspace), join(homeOf(resolve(values.workspace)), `${behind.journey}.behavior.c4`))}). Rerun or remove that journey; the next turn then redraws.\n` : "";
       if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(behind ? { ...check, behind } : check, null, 2)}\n` : `${formatCheck(check)}${behindText}`);
       if (values.strict && hasFindings(check)) process.exitCode = 1;
     } else if (command === "flows") {

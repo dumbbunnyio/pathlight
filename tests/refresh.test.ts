@@ -84,6 +84,11 @@ test("a redraw that would remove an id a journey names is not written, and check
     expect(refresh(directory)).toMatchObject({ redrew: false, blocked: { element: "small.aa", journey: "trip" } });
     expect(await readFile(model(directory), "utf8")).toBe(before);
     expect(JSON.parse(cli(directory, "check", "--json").out).behind).toEqual({ element: "small.aa", journey: "trip" });
+    // What check advises can be followed for a journey a person wrote: the file it names is the journey, and any command it names works.
+    const advice = cli(directory, "check").out.split("\n").find(line => line.includes("small.aa") && line.includes("trip"))!;
+    const named = advice.match(/\.pathlight\/\S+\.behavior\.c4/)?.[0];
+    expect(await readFile(join(directory, named ?? "nothing named"), "utf8")).toContain("dynamic view trip");
+    for (const [command] of advice.matchAll(/pathlight [a-z]+[^);]*/g)) expect(cli(directory, ...command.trim().split(" ").slice(1)).code).toBe(0);
     // plan --new would redraw too, so it is held back the same way and plans nothing.
     expect(cli(directory, "plan", "--new", "src/auth", "--title", "Auth").code).not.toBe(0);
     expect(await readFile(model(directory), "utf8")).toBe(before);
