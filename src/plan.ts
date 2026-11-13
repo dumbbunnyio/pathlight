@@ -117,6 +117,10 @@ export const planDrop = Effect.fn("Plan.drop")(function* (workspace: string, giv
     return yield* Effect.fail(failure("Plan.journey", `Redrawing the map now would remove ${drawn.blocked.element}, which journey ${drawn.blocked.journey} uses, so nothing was dropped. Rerun or remove that journey first.`));
   }
   const plan = yield* readPlan(root);
-  if (plan && id && plan.elements.includes(id)) return { id, plan: yield* setPlan(root, plan.elements.filter(element => element !== id)) };
+  // The drop is written by now: a plan that no longer fits the model is left for the next plan, never reported as a failed drop.
+  if (plan && id && plan.elements.includes(id)) {
+    const next = yield* setPlan(root, plan.elements.filter(element => element !== id)).pipe(Effect.option);
+    return { id, plan: next._tag === "Some" ? next.value : plan };
+  }
   return { id, plan };
 });
