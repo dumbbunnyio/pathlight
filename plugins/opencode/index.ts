@@ -89,10 +89,11 @@ export default Plugin.define({
     const ownRun = new Set<SessionID>();
     const endOfTurn = async (sessionID: SessionID | undefined, succeeded: boolean) => {
       if (checking) { again = { sessionID, succeeded }; return; }
+      // Its own run is over whether or not the workspace is still mapped: the entry is cleared first, so it cannot outlive the run.
+      const ours = sessionID !== undefined && ownRun.delete(sessionID);
       if (!mapped()) return;
       checking = true;
       try {
-        const ours = sessionID !== undefined && ownRun.delete(sessionID);
         // Whether this run may ask is decided before the refresh: a run that asks nobody (its own run, a failed or child session) passes --no-ask,
         // so the new boxes keep waiting for the next run that does.
         const session = sessionID && succeeded && !ours && !disposed ? await ctx.session.get({ sessionID }).catch(() => undefined) : undefined;

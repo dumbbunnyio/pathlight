@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -117,8 +118,10 @@ type Body = { messages: { role: string; content: unknown }[]; tools?: { function
 const chunk = (delta: object, finish: string | null = null) =>
   `data: ${JSON.stringify({ id: "fake", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
 
-test.skipIf(!Bun.which("opencode"))("OpenCode's plugin sends the request once, as its own message, after a run that drew a new box", async () => {
-  const directory = await shop("pathlight-naming-opencode-");
+type OpenCode = { requests: Body[]; asking: () => Body[]; screen: () => string; say: (text: string) => Promise<void>; until: (check: () => boolean, what: string) => Promise<void> };
+
+/** OpenCode in a private tmux server on `directory`, with this checkout's plugin recording and a fake model that runs `shell(prompt)` once per prompt. */
+const withOpenCode = async (directory: string, shell: (prompt: string) => string | undefined, body: (open: OpenCode) => Promise<void>) => {
   const home = await mkdtemp(join(tmpdir(), "pathlight-naming-home-"));
   const socket = join("/tmp", `c4nm-${process.pid}.sock`);
   const tmux = (...args: string[]) => Bun.spawnSync(["tmux", "-S", socket, ...args]).stdout.toString();
@@ -133,10 +136,9 @@ test.skipIf(!Bun.which("opencode"))("OpenCode's plugin sends the request once, a
       const users = body.messages.filter(message => message.role === "user");
       const last = JSON.stringify(users.at(-1) ?? "");
       const answered = body.messages.slice(body.messages.lastIndexOf(users.at(-1)!)).filter(message => message.role === "tool").length;
-      const call = body.tools?.length && last.includes("add the auth folder") && answered === 0
-        ? { name: "shell", args: { command: "mkdir -p src/auth && for n in 1 2 3; do printf 'export const g = 1;\\n' > src/auth/g$n.ts; done" } } : undefined;
-      const lines = call
-        ? [chunk({ role: "assistant", tool_calls: [{ index: 0, id: `call_${requests.length}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } }] }), chunk({}, "tool_calls")]
+      const command = body.tools?.length && answered === 0 ? shell(last) : undefined;
+      const lines = command
+        ? [chunk({ role: "assistant", tool_calls: [{ index: 0, id: `call_${requests.length}`, type: "function", function: { name: "shell", arguments: JSON.stringify({ command }) } }] }), chunk({}, "tool_calls")]
         : [chunk({ role: "assistant", content: body.tools?.length ? "done" : "Title" }), chunk({}, "stop")];
       return new Response([...lines, "data: [DONE]\n\n"].join(""), { headers: { "content-type": "text/event-stream" } });
     },
@@ -152,26 +154,61 @@ test.skipIf(!Bun.which("opencode"))("OpenCode's plugin sends the request once, a
     const pane = tmux("-f", "/dev/null", "new-session", "-d", "-s", "oc", "-x", "160", "-y", "45", "-c", directory, "-P", "-F", "#{pane_id}",
       "env", "FAKE_KEY=x", `PATH=${bin}:${process.env.PATH}`, ...dirs, Bun.which("opencode")!, "--standalone", "--auto").trim();
     openCodePid = Number(tmux("display-message", "-p", "-t", pane, "#{pane_pid}").trim());
+    const screen = () => tmux("capture-pane", "-p", "-t", pane);
     const until = async (check: () => boolean, what: string, attempts = 300) => {
       for (let attempt = 0; attempt < attempts; attempt++) { if (check()) return; await delay(100); }
-      throw new Error(`Never saw ${what}\n${tmux("capture-pane", "-p", "-t", pane)}`);
+      throw new Error(`Never saw ${what}\n${screen()}`);
     };
-    await until(() => tmux("capture-pane", "-p", "-t", pane).includes("Ask anything"), "the OpenCode prompt");
-    tmux("send-keys", "-t", pane, "-l", "please add the auth folder"); await delay(400); tmux("send-keys", "-t", pane, "Enter");
+    const say = async (text: string) => { tmux("send-keys", "-t", pane, "-l", text); await delay(400); tmux("send-keys", "-t", pane, "Enter"); };
     const asking = () => requests.filter(body => JSON.stringify(body.messages.filter(message => message.role === "user").at(-1) ?? "").includes("pathlight-namer"));
-    await until(() => asking().length > 0, "the naming request reaching the model");
-    expect(JSON.stringify(asking()[0]!.messages.at(-1))).toContain("src/auth");
-    // The conversation shows it as the plugin's, not as something the person typed.
-    await until(() => tmux("capture-pane", "-p", "-t", pane).includes("pathlight"), "the request marked as the plugin's");
-    // Its own run ends without a second request.
-    await delay(3000);
-    expect(new Set(asking().map(body => body.messages.length)).size).toBe(1);
+    await until(() => screen().includes("Ask anything"), "the OpenCode prompt");
+    await body({ requests, asking, screen, say, until });
   } finally {
     if (openCodePid) try { process.kill(openCodePid, "SIGTERM"); } catch { /* already gone */ }
     tmux("kill-server");
     server.stop(true);
-    await rm(directory, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
+  }
+};
+const addAuth = "mkdir -p src/auth && for n in 1 2 3; do printf 'export const g = 1;\\n' > src/auth/g$n.ts; done";
+
+test.skipIf(!Bun.which("opencode"))("OpenCode's plugin sends the request once, as its own message, after a run that drew a new box", async () => {
+  const directory = await shop("pathlight-naming-opencode-");
+  try {
+    await withOpenCode(directory, prompt => prompt.includes("add the auth folder") ? addAuth : undefined, async ({ asking, screen, say, until }) => {
+      await say("please add the auth folder");
+      await until(() => asking().length > 0, "the naming request reaching the model");
+      expect(JSON.stringify(asking()[0]!.messages.at(-1))).toContain("src/auth");
+      // The conversation shows it as the plugin's, not as something the person typed.
+      await until(() => screen().includes("pathlight"), "the request marked as the plugin's");
+      // Its own run ends without a second request.
+      await delay(3000);
+      expect(new Set(asking().map(body => body.messages.length)).size).toBe(1);
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test.skipIf(!Bun.which("opencode"))("OpenCode's own run ending where the mapping is gone does not keep the next person's turn from being asked", async () => {
+  const directory = await shop("pathlight-naming-opencode-unmapped-");
+  const mapping = ".pathlight/pathlight.activity.json", hidden = ".cache/mapping.json";
+  try {
+    await mkdir(join(directory, ".cache"), { recursive: true });
+    const shell = (prompt: string) => prompt.includes("add the auth folder") ? addAuth
+      // The plugin's own run takes the mapping away, so it ends in a workspace that does not use Pathlight.
+      : prompt.includes("pathlight-namer") && prompt.includes("src/auth") ? `mv ${mapping} ${hidden}`
+      : prompt.includes("put it back") ? `mv ${hidden} ${mapping} && ${addAuth.replaceAll("auth", "billing")}` : undefined;
+    await withOpenCode(directory, shell, async ({ asking, say, until }) => {
+      await say("please add the auth folder");
+      await until(() => asking().length > 0, "the first naming request");
+      await until(() => !existsSync(join(directory, mapping)), "the own run hiding the mapping");
+      await delay(3000);
+      await say("put it back and add billing");
+      await until(() => asking().some(body => JSON.stringify(body.messages.at(-1)).includes("src/billing")), "the request for the person's next turn");
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 }, 120_000);
 
