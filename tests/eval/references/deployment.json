@@ -1,5 +1,5 @@
 {
-  "note": "Phase 7 (plans/phase-7-deployment.md), written 2026-11-13 by the session that will write the reader, from the files of each clone at its pinned commit (read by hand, with a scratch script listing compose services and what their images lead to). Read the score generously until a second session or a hand check has gone over it. A frame is a file (or a chart or Terraform folder) that runs something (decision 2), named by its path. `step` is the plan's step that should first draw it (1: compose, charts and Terraform declaring a resource on the map; 2: a compose file whose only news is a service tied to code; 3: Procfiles, systemd units, plain Kubernetes manifests, compose files found by content). A service `runs` either a `resource` (an id as the resources scorer names it, `sql` for any SQL database) or `code`: the folders it runs, as a careful person reading the files would say (`.` is the whole workspace). A drawn tie is right when every folder is covered by a box at or inside it and no box falls outside them. `rung` is the first rung of decision 3 that reaches the service (1 `build:`, 2 the Dockerfile's own names, 3 a command named as a declared start, null none), and `by` the lines it rests on. A service with `untied: true` names only an image (rung 4): any tie drawn for it is wrong, even one that happens to match. `optional` services and frames are neither required nor counted as extra. `mustNotAppear` are frames that are wrong to draw (tests, devcontainers, fixtures, files R2 already draws); `outOfScope` are formats the plan leaves for later, counted as extra if drawn. Plain services (a proxy, an admin tool) are not scored.",
+  "note": "Phase 7 (plans/phase-7-deployment.md), written 2026-11-13 by the session that will write the reader, from the files of each clone at its pinned commit (read by hand, with a scratch script listing compose services and what their images lead to). A reviewer subagent with a fresh context went over every entry against the clones on 2026-11-13 (all citations held; it added the nkp chart's CloudNativePG database and corrected a count), but the reader's author still wrote the file, so read the score generously. A frame is a file (or a chart or Terraform folder) that runs something (decision 2), named by its path. `step` is the plan's step that should first draw it (1: compose, charts and Terraform declaring a resource on the map; 2: a compose file whose only news is a service tied to code; 3: Procfiles, systemd units, plain Kubernetes manifests, compose files found by content). A service `runs` either a `resource` (an id as the resources scorer names it, `sql` for any SQL database) or `code`: the folders it runs, as a careful person reading the files would say (`.` is the whole workspace). A drawn tie is right when every folder is covered by a box at or inside it and no box falls outside them. `rung` is the first rung of decision 3 that reaches the service (1 `build:`, 2 the Dockerfile's own names, 3 a command named as a declared start, null none), and `by` the lines it rests on. A service with `untied: true` names only an image (rung 4): any tie drawn for it is wrong, even one that happens to match. `optional` services and frames are neither required nor counted as extra. `mustNotAppear` are frames that are wrong to draw (tests, devcontainers, fixtures, files R2 already draws); `outOfScope` are formats the plan leaves for later, counted as extra if drawn. Plain services (a proxy, an admin tool) are not scored.",
   "repos": {
     "mealie": {
       "workspace": "pathlight-oss-test-repos/mealie",
@@ -37,7 +37,7 @@
         },
         {
           "target": "docker-compose.dev.yml", "format": "compose", "step": 1,
-          "note": "25 services: past viewCap the plain ones (nginx, redis-commander, bull-board, prometheus, otel-collector, grafana, pgadmin, openldap, phpldapadmin, pingfederate, samba-ad, authentik-server, authentik-worker) fold. Prometheus, OpenLDAP and authentik are not boxes on this map, so they are plain. mailhog leads to no resource in today's image table; it is the map's mail server all the same.",
+          "note": "23 services: past viewCap the plain ones (nginx, redis-commander, bull-board, prometheus, otel-collector, grafana, pgadmin, openldap, phpldapadmin, pingfederate, samba-ad, authentik-server, authentik-worker) fold. Prometheus, OpenLDAP and authentik are not boxes on this map, so they are plain. mailhog leads to no resource in today's image table; it is the map's mail server all the same.",
           "services": [
             { "name": "backend", "runs": "code", "code": ["backend"], "rung": 1, "by": "docker-compose.dev.yml:87 context ./backend" },
             { "name": "frontend", "runs": "code", "code": ["frontend"], "rung": 1, "by": "docker-compose.dev.yml:165 context ./frontend" },
@@ -76,7 +76,8 @@
           "target": "helm-charts/infisical-nkp", "format": "helm", "step": 1,
           "services": [
             { "name": "deployment", "runs": "code", "code": ["backend", "frontend"], "rung": null, "untied": true, "by": "templates/deployment.yaml:45 image from values.yaml:8 repository infisical/infisical only" },
-            { "name": "redis", "runs": "resource", "resource": "redis", "by": "templates/redis.yaml:3 Deployment of values.yaml:39 valkey/valkey" }
+            { "name": "redis", "runs": "resource", "resource": "redis", "by": "templates/redis.yaml:3 Deployment of values.yaml:39 valkey/valkey" },
+            { "name": "postgres-cluster", "runs": "resource", "resource": "sql", "optional": true, "by": "templates/postgres-cluster.yaml:6 kind Cluster (CloudNativePG, apiVersion postgresql.cnpg.io/v1), on by default at values.yaml:52 cnpg; no image names it, so no table reaches it today: right if drawn, not required (found by the review, 2026-11-13)" }
           ]
         }
       ],
@@ -166,7 +167,7 @@
         }
       ],
       "mustNotAppear": [".devcontainer/docker-compose.yml"],
-      "outOfScope": []
+      "outOfScope": ["contrib/ansible", "contrib/sysvinit"]
     },
     "atuin": {
       "workspace": "pathlight-oss-test-repos/atuin",
@@ -220,7 +221,7 @@
       "commit": "fe901f50",
       "note": "The negative case: no runs view. The Dockerfile and main.tf are highlighting fixtures.",
       "frames": [],
-      "mustNotAppear": ["tests/syntax-tests/source/Terraform", "tests/syntax-tests/highlighted/Terraform", "tests/syntax-tests/source/Dockerfile/Dockerfile"],
+      "mustNotAppear": ["tests/syntax-tests"],
       "outOfScope": []
     },
     "sentry-self-hosted": {
