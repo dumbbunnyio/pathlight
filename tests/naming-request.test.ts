@@ -103,6 +103,8 @@ test("a run that asks nobody (--no-ask, OpenCode's own run) leaves every new box
   const directory = await shop("pathlight-naming-noask-");
   try {
     for (let n = 0; n < namingCap + 2; n++) await folder(directory, `part${n}`);
+    // A refresh a person runs by hand shows no request, so it asks nobody either.
+    expect(cli(directory, "refresh").code).toBe(0);
     const quiet = JSON.parse(cli(directory, "refresh", "--json", "--no-ask").out) as { unnamed: string[]; waiting: number; request?: string };
     expect(quiet).toMatchObject({ unnamed: [], waiting: namingCap + 2 });
     expect(quiet.request).toBeUndefined();
@@ -247,3 +249,24 @@ test("boxes past the cap are asked about at the person's next turn, after the wo
     await rm(tools, { recursive: true, force: true });
   }
 }, 60_000);
+
+test.skipIf(!Bun.which("opencode"))("OpenCode's own run leaves the boxes past the cap waiting, and the person's next turn is asked about them", async () => {
+  const directory = await shop("pathlight-naming-opencode-waiting-");
+  const parts = `for p in ${Array.from({ length: namingCap + 2 }, (_, n) => `part${n}`).join(" ")}; do mkdir -p src/$p && for n in 1 2 3; do printf 'export const g = 1;\\n' > src/$p/g$n.ts; done; done`;
+  try {
+    await withOpenCode(directory, prompt => prompt.includes("add the parts") ? parts : undefined, async ({ asking, say, until }) => {
+      await say("please add the parts");
+      await until(() => asking().length > 0, "the first naming request");
+      const first = JSON.stringify(asking()[0]!.messages.at(-1));
+      const rest = Array.from({ length: namingCap + 2 }, (_, n) => `src/part${n}`).filter(key => !first.includes(`${key} `) && !first.includes(`${key})`));
+      expect(rest).toHaveLength(2);
+      // The plugin's own run ends asking nothing; the person's next turn, which draws nothing, is asked about the two that waited.
+      await delay(3000);
+      expect(new Set(asking().map(body => body.messages.length)).size).toBe(1);
+      await say("thanks");
+      await until(() => asking().some(body => rest.every(key => JSON.stringify(body.messages.at(-1)).includes(key))), "the request for the two that waited");
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 120_000);
