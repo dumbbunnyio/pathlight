@@ -361,8 +361,12 @@ export const readInfra = Effect.fn("Resources.infra")(function* (root: string, p
 /** Where something runs (Phase 7): a compose file, a Helm chart (its folder) or a folder of Terraform files, with the resources it runs, by name. */
 export interface Target { readonly path: string; readonly format: "compose" | "chart" | "terraform"; readonly runs: readonly (Found & { readonly name: string })[] }
 
-/** A compose file for tests or an editor's container is not where the product runs: `.devcontainer/`, and a file name that says so (`docker-compose.e2e-dbs.yml`). */
-const notWhereItRuns = (path: string) => /(^|\/)\.devcontainer\//.test(path) || posix.basename(path).toLowerCase().split(/[^a-z0-9]+/).some(word => /^(tests?|e2e|bdd|ci)$/.test(word));
+/**
+ * Not where the product runs: an editor's container (`.devcontainer/`), a compose file whose name says it is for tests (`docker-compose.e2e-dbs.yml`),
+ * and a Terraform module's definition (a folder under `modules/`: what it declares runs where it is called from, which block headers do not say).
+ */
+const notWhereItRuns = (path: string) => /(^|\/)\.devcontainer\//.test(path) || (path.endsWith(".tf") ? /(^|\/)modules\//.test(path)
+  : posix.basename(path).toLowerCase().split(/[^a-z0-9]+/).some(word => /^(tests?|testing|integration|e2e|bdd|ci)$/.test(word)));
 
 /**
  * The targets among the infrastructure files, each with what it runs that is a resource: a compose file's services whose image is one; a chart's

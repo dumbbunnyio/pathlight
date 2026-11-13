@@ -95,6 +95,9 @@ test("the scene is every view laid out by the terminal's compact fit, the overvi
   expect(scene.views[0]!.id).toBe("index");
   expect(scene.views.map(view => view.id).sort()).toEqual([...world.diagrams.keys()].sort());
   expect(scene.rail.map(row => row.view)).toEqual(scene.views.map(view => view.id));
+  // After the overview the views are in the order of their titles, whatever order the files give them.
+  const rest = scene.views.slice(1).map(view => view.title);
+  expect(rest).toEqual([...rest].sort((a, b) => a.localeCompare(b)));
   expect(scene.rail[0]).toEqual({ view: "index", name: "System context", holder: "Parcel", detail: "5 boxes" });
   expect(scene.rail).toContainEqual({ view: "services", name: "Service architecture", holder: "Parcel", detail: "16 boxes" });
   for (const view of scene.views) {

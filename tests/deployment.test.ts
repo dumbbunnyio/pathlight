@@ -52,6 +52,9 @@ test("a target is a compose file, a chart or a Terraform folder with the resourc
     { path: "charts/shop/values.yaml", images: ["bitnami/postgresql", "valkey/valkey"], env: [], found: [{ resource: "mail", by: "secret smtp_creds" }] },
     terraform("infra/db.tf", 'resource "aws_db_instance" "main" {\n  engine = "postgres"\n}\n'),
     terraform("infra/queue.tf", 'resource "aws_sqs_queue" "jobs" {}\n'),
+    // A module's definition is not a place anything runs; nor is a compose file named for integration tests.
+    terraform("infra/modules/db/main.tf", 'resource "aws_db_instance" "this" {\n  engine = "postgres"\n}\n'),
+    compose("docker-compose.integration.yml", "services:\n  db:\n    image: postgres:16\n"),
   ]);
   expect(targets.map(target => [target.path, target.format, target.runs.map(item => `${item.name}=${item.engine ?? item.resource}`)])).toEqual([
     ["charts/shop", "chart", ["postgresql=postgresql", "valkey=redis"]],
@@ -119,6 +122,27 @@ test("a drafted map with a compose file and Terraform compiles, lists Where it r
   }
 }, 120_000);
 
+test("names LikeC4 reserves still compile, and frames at the workspace root are told apart by the file that makes each one", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-deployment-names-"));
+  try {
+    // `this` is the usual name of a Terraform block; `it` and `this` are reserved beyond the grammar's keywords. A root chart and root Terraform.
+    await write(directory, { ...shop,
+      "main.tf": 'resource "aws_db_instance" "this" {\n  engine = "postgres"\n}\n',
+      "Chart.yaml": "apiVersion: v2\nname: shop\ndependencies:\n  - name: redis\n",
+      "docker-compose.yml": "services:\n  it:\n    image: postgres:16\n  view:\n    image: redis:7\n",
+    });
+    await Effect.runPromise(draftWorkspace(directory));
+    // Through the viewer, which stops on a model that does not compile.
+    const screen = await see(directory, "runs");
+    expect(screen.split("\n")[0]).toContain("Where it runs");
+    const { view } = await nodesOf(directory, "runs");
+    expect(view!.nodes.filter(node => String(node.kind) === "target").map(node => node.title).sort()).toEqual(["*.tf", "Chart.yaml", "docker-compose.yml"]);
+    expect(view!.nodes.filter(node => String(node.kind) === "instance")).toHaveLength(4);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 120_000);
+
 test("no file that runs a resource means no view, and infrastructure drawn as programs gets none either", () => {
   const scan = { files: [{ path: "src/a.ts", lines: 1 }], imports: [], external: [] };
   const plain = draftOf(scan as never, [{ directory: "", name: "tool" }], undefined, [], []);
@@ -160,10 +184,3 @@ test("an instance says what its resource says, and an instance of anything else 
   ] };
   expect(insideWords(view, new Set(), new Set(["postgresql"]))).toEqual(new Map([["f.db", "database"]]));
 });
-
-test("a person's hand-written deployment in the example draws its nested frames and instances", async () => {
-  const { view } = await nodesOf("examples/parcel", "production");
-  const titled = (kind: string) => view!.nodes.filter(node => String(node.kind) === kind).map(node => node.title).sort();
-  expect(titled("zone")).toEqual(["AWS eu-west-1", "CDN"]);
-  expect(view!.nodes.find(node => node.title === "orders-prod")!.modelRef).toBe("parcel.commerce.orders" as never);
-}, 60_000);

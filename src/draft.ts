@@ -92,7 +92,8 @@ const outside = [
 ];
 
 /**
- * Every keyword in LikeC4's grammar (version 1.60.0). A folder named like one gets a trailing underscore so the model still compiles;
+ * Every keyword in LikeC4's grammar (version 1.60.0), and the two names it reserves beyond them (`this`, `it`: "Reserved word", measured; `this` is
+ * the usual name of a Terraform block). A folder, service or block named like one gets a trailing underscore so the model still compiles;
  * tests/draft.test.ts compares this list with the installed grammar, so an upgrade that adds a keyword fails loudly.
  */
 export const likec4Keywords = [
@@ -100,12 +101,12 @@ export const likec4Keywords = [
   "browser", "bucket", "catch", "color", "component", "crow", "cylinder", "dashed", "deployment", "deploymentNode", "description", "diagram",
   "diamond", "document", "dot", "dotted", "dynamic", "dynamicPredicateGroup", "element", "else", "exclude", "extend", "extends", "finally", "fixed",
   "from", "global", "gray", "green", "group", "head", "icon", "iconColor", "iconPosition", "iconSize", "icons", "if", "import", "include",
-  "includeAncestors", "indigo", "instance", "instanceOf", "is", "kind", "large", "left", "lg", "likec4lib", "line", "link", "loop", "max", "md",
+  "includeAncestors", "indigo", "instance", "instanceOf", "is", "it", "kind", "large", "left", "lg", "likec4lib", "line", "link", "loop", "max", "md",
   "medium", "metadata", "min", "mobile", "model", "multiple", "muted", "navigateTo", "node", "none", "normal", "not", "notation", "notes",
   "odiamond", "odot", "of", "onormal", "opacity", "open", "opt", "or", "order", "ortho", "padding", "par", "parallel", "person", "predicate",
   "predicateGroup", "primary", "queue", "rank", "rectangle", "red", "relationship", "rgb", "rgba", "right", "routing", "same", "secondary",
   "sequence", "shape", "sink", "size", "sizing", "sky", "slate", "sm", "small", "solid", "source", "specification", "spline", "storage", "style",
-  "styleGroup", "summary", "tag", "tail", "target", "technology", "textSize", "title", "top", "try", "variant", "vee", "view", "views", "when",
+  "styleGroup", "summary", "tag", "tail", "target", "technology", "textSize", "this", "title", "top", "try", "variant", "vee", "view", "views", "when",
   "where", "with", "xl", "xlarge", "xs", "xsmall"
 ] as const;
 const reserved = new Set(likec4Keywords.map(word => word.toLowerCase()));
@@ -424,7 +425,8 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
   uses.sort((a, b) => byText(a.from, b.from) || byText(a.to, b.to));
   // Where it runs (plan phase-7-deployment.md): each file that runs a resource on the map is a frame holding an instance of it. A chart or compose
   // file drawn as programs already is that picture, so it gets no frame (decision 4).
-  const targetTaken = new Set<string>();
+  // A frame's id is never a model element's: the viewers count what is inside a closed frame by its id.
+  const targetTaken = new Set(topLevel);
   const targets = targetsOf(infra).filter(target => !runners.includes(target.path)).flatMap((target): DraftTarget[] => {
     const local = new Set<string>();
     const found = target.runs.flatMap(run => {
@@ -437,7 +439,9 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
     if (!found.length) return [];
     const instances = found.map(({ run, resource }) => ({ id: unique(slug(run.name), local), name: run.name, element: resource.element, by: run.by,
       ...(found.filter(other => other.resource === resource).length > 1 ? { title: run.name } : {}) }));
-    return [{ id: unique(slug(target.path), targetTaken), key: `runs:${target.path}`, title: target.path, path: target.path, format: target.format, instances }];
+    // At the workspace root a path says nothing (`.`): the frame is named by the file that makes it one.
+    const title = target.path === "." ? (target.format === "chart" ? "Chart.yaml" : "*.tf") : target.path;
+    return [{ id: unique(slug(title), targetTaken), key: `runs:${target.path}`, title, path: target.path, format: target.format, instances }];
   });
   return { targets, packages, flat, relationships: labelled, typesOnly: typesOnly.map(pinned), resources, uses, problems, ignore, ignored: source.length - kept.length };
 }
@@ -960,11 +964,12 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   const runsView: string[] = [], runs: string[] = [];
   if (draft.targets.length) {
     const what = { compose: "Compose file", chart: "Helm chart", terraform: "Terraform" } as const;
-    const total = draft.targets.reduce((sum, target) => sum + target.instances.length, 0), crowded = total > crowdedAbove;
+    // Every box drawn counts, the frames too.
+    const total = draft.targets.reduce((sum, target) => sum + 1 + target.instances.length, 0), crowded = total > crowdedAbove;
     const frameView = (target: DraftTarget) => `runs_${target.id}`;
     runs.push("deployment {");
     for (const target of draft.targets) {
-      runs.push(`  target ${target.id} ${quote(target.title)} {`, `    description ${quote(said(target.note, `${what[target.format]} ${target.path}: runs ${plural(target.instances.length, "resource")} on this map.`))}`);
+      runs.push(`  target ${target.id} ${quote(target.title)} {`, `    description ${quote(said(target.note, `${what[target.format]} ${target.path === "." ? "at the workspace root" : target.path}: runs ${plural(target.instances.length, "resource")} on this map.`))}`);
       for (const instance of target.instances) runs.push(instance.title ? `    ${instance.id} = instanceOf ${instance.element} {\n      title ${quote(instance.title)}\n    }` : `    ${instance.id} = instanceOf ${instance.element}`);
       runs.push("  }");
     }
