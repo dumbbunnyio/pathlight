@@ -39,9 +39,9 @@ const screens: { name: string; args: string[] }[] = [
 ];
 
 // `run` trims its output, which would move the first row; `see` is read here through a file for the same reason.
-const capture = async (args: string[]) => {
+const capture = async (args: string[], of = "live --workspace tests/fixtures/viewer --project viewer") => {
   const out = `${process.env.TMPDIR ?? "/tmp"}/pathlight-golden-${process.pid}-${Math.random().toString(36).slice(2)}.txt`;
-  await run("sh", ["-c", `"$1" "$2" see live --workspace tests/fixtures/viewer --project viewer ${args.map(arg => `'${arg}'`).join(" ")} > "$3"`, "sh", process.execPath, resolve("src/cli.ts"), out]);
+  await run("sh", ["-c", `"$1" "$2" see ${of} ${args.map(arg => `'${arg}'`).join(" ")} > "$3"`, "sh", process.execPath, resolve("src/cli.ts"), out]);
   return readFile(out, "utf8");
 };
 
@@ -51,6 +51,16 @@ test.each(screens)("the $name screen matches its snapshot", async ({ name, args 
   if (process.env.UPDATE_GOLDEN === "1") { await mkdir("tests/golden", { recursive: true }); await writeFile(file, screen); return; }
   const expected = await readFile(file, "utf8").catch(() => undefined);
   if (expected === undefined) throw new Error(`No snapshot for ${name}. Look at the screen, then run with UPDATE_GOLDEN=1 to keep it:\n${screen}`);
+  expect(screen).toBe(expected);
+}, 60_000);
+
+// A deployment a person wrote by hand (examples/parcel/deployment.c4): nested frames, instances titled by their elements, arrows from the model.
+test("the example's hand-written deployment view matches its snapshot", async () => {
+  const screen = await capture(["--cols", "140", "--rows", "44"], "production --workspace examples/parcel --project parcel");
+  const file = "tests/golden/deployment-parcel-140x44.txt";
+  if (process.env.UPDATE_GOLDEN === "1") { await writeFile(file, screen); return; }
+  const expected = await readFile(file, "utf8").catch(() => undefined);
+  if (expected === undefined) throw new Error(`No snapshot for the parcel deployment view. Look at the screen, then run with UPDATE_GOLDEN=1 to keep it:\n${screen}`);
   expect(screen).toBe(expected);
 }, 60_000);
 
