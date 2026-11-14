@@ -28,7 +28,7 @@ import { writeReady } from "./ready";
 import { createConversationReader, type Message } from "./conversation";
 import { readSession, type SessionPointer } from "./sessions";
 import { declarationsFor } from "./languages";
-import { isActive, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
+import { eventsLighting, isActive, lights, nowCard, operationState, sessionSummary, ticker } from "./viewer/activity-view";
 import { createCamera } from "./viewer/camera";
 import { boundsOf } from "./viewer/compact";
 import { shapeView } from "./viewer/shape";
@@ -180,6 +180,8 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const nodeFlashes = new Map<string, number>(), rowFlashes = new Map<string, number>(), seenCalls = new Set<string>();
   let calmLoaded = false, wasFlashing = false;
   const flashes = nodeFlashes;
+  /** An instance in a deployment view stands for its element and all inside it (`lights`). */
+  const isInstance = (node: { kind?: unknown }) => String(node.kind) === "instance";
   const noteCalls = () => {
     const stamp = Date.now() + 600;
     for (const event of working()) {
@@ -378,7 +380,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // "Work", the session summary and the header's activity line are written in viewer/activity-view.ts from what the journal retained.
   const activityContent = () => {
-    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events: working(), element: String(state.selected?.modelRef ?? ""), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
+    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events: working(), element: String(state.selected?.modelRef ?? ""), instance: Boolean(state.selected && isInstance(state.selected)), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
     contentRows.activity = card.lines;
     return new StyledText(card.chunks);
   };
@@ -448,7 +450,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const renderNodeList = () => {
     const now = Date.now();
     nodeListText.content = nodeListContent(diagram.nodes, { selected: state.selected?.id, width: Math.max(10, viewport.width - 2), background: hot, state: index => {
-      const related = byElement.get(String(diagram.nodes[index]!.modelRef)) ?? [];
+      const related = eventsLighting(byElement, String(diagram.nodes[index]!.modelRef), isInstance(diagram.nodes[index]!));
       return operationState(related.filter(isActive), related.find(event => now - event.time <= 5000));
     } });
     const index = diagram.nodes.findIndex(node => node.id === state.selected?.id), signature = `${diagram.id}/${state.selected?.id}`;
@@ -510,13 +512,13 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const header = rows.row && [...placed].every(([entry, drawn]) => entry.node.children.length > 0 || drawn.bottom - drawn.top >= Math.round(entry.node.height / cell.y));
     for (const entry of nodeObjects) {
       const group = entry.node.children.length > 0, id = String(entry.node.id), ref = String(entry.node.modelRef);
-      const related = byElement.get(ref) ?? [];
+      const instance = isInstance(entry.node), related = eventsLighting(byElement, ref, instance);
       const isSelected = id === String(state.selected?.id);
       const numbers = badges.get(id);
       const { left, top, right, bottom } = placed.get(entry)!;
       const width = right - left, height = bottom - top;
       const look = cardLook({ title: entry.node.title, word: rows.words.get(String(entry.node.id)) ?? "", header, group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
-        selected: isSelected, previewed: previewed === id, flashing: (flashes.get(ref) ?? 0) > now,
+        selected: isSelected, previewed: previewed === id, flashing: [...flashes].some(([element, until]) => until > now && lights(ref, instance)(element)),
         neighbour: diagram.edges.some(edge => (edge.target === state.selected?.id && edge.source === entry.node.id) || (edge.source === state.selected?.id && edge.target === entry.node.id)),
         unbuilt: waiting(ref), planned: Boolean(plan) && inPlan(ref), offPlan: !!plan && related.length > 0 && !inPlan(ref), numbers, flow: Boolean(flowMode.active), width, height });
       entry.box.borderColor = look.border;
@@ -600,7 +602,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     activityText.content = activityContent();
     if (state.focusSection === "activity") followLine("activity", state.cursor.activity);
 
-    const observedHere = byElement.get(String(state.selected?.modelRef ?? ""))?.length ?? 0;
+    const observedHere = eventsLighting(byElement, String(state.selected?.modelRef ?? ""), Boolean(state.selected && isInstance(state.selected))).length;
     const counts: Record<SectionKey, string> = { steps: flowMode.active ? `${flowMode.step + 1}/${flowMode.active.steps.length}` : "", flows: flowItems.length ? "◇ reading" : "", connections: links.length ? String(links.length) : "",
       files: fileMode ? `${paths.length ? state.fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: observedHere ? String(observedHere) : "" };
     layoutSections();

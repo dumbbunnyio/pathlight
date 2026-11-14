@@ -60,8 +60,11 @@ for (const [name, repo] of Object.entries(reference.repos)) {
   const resourceOf = new Map(draft.resources.map(item => [item.element, item.sql ? "sql" : item.id] as const));
   const allFiles = [...new Set([...boxes.values()].flat())];
   /** The smallest box holding every file under a folder: the box a careful person would point at when the draft has not opened that folder. */
+  // A package nested in a folder is its own (Infisical's `backend/bdd` in `backend`): a folder's files are those no deeper package holds.
+  const packageDirs = draft.packages.filter(item => !item.runs).map(item => item.directory);
+  const own = (file: string, folder: string) => under(file, folder) && !packageDirs.some(dir => dir.length > (folder === "." ? 0 : folder.length) && dir !== folder && under(dir, folder) && under(file, dir));
   const nearest = (folder: string) => {
-    const wanted = allFiles.filter(file => under(file, folder));
+    const wanted = allFiles.filter(file => own(file, folder));
     if (!wanted.length) return undefined;
     return [...boxes].filter(([, files]) => wanted.every(file => files.includes(file))).sort((a, b) => a[1].length - b[1].length)[0]?.[0];
   };
@@ -121,7 +124,7 @@ for (const [name, repo] of Object.entries(reference.repos)) {
       const covered = code.every(folder => {
         if (elements.includes(nearest(folder) ?? "\0")) return true;
         const held = new Set(elements.filter(element => answers(element, folder)).flatMap(element => boxes.get(element) ?? []));
-        return allFiles.filter(file => under(file, folder)).every(file => held.has(file));
+        return allFiles.filter(file => own(file, folder)).every(file => held.has(file));
       });
       // A tie no rung was expected to make (a Procfile in its package's folder) is reported, not scored.
       if (covered && !expectTie) ties.beyond.push(label);

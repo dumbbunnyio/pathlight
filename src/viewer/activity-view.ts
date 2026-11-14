@@ -34,18 +34,34 @@ export const cardTag = (related: ActivityEvent[], now: number): { text: string; 
 };
 
 /**
+ * The elements whose activity lights a node (plan phase-7-deployment.md, decision 7): its element, and in a deployment view, where an instance stands
+ * for everything its element ships (every file in `backend/` is in that image), anything inside it too. Everywhere else a closed parent stays dark.
+ */
+export const lights = (element: string, instance: boolean) => (other: string) => other === element || (instance && other.startsWith(`${element}.`));
+
+/** The events that light a node, each once: an event in two of an instance's children counts once. */
+export function eventsLighting(byElement: ReadonlyMap<string, readonly ActivityEvent[]>, element: string, instance: boolean): ActivityEvent[] {
+  if (!instance) return [...byElement.get(element) ?? []];
+  const lit = lights(element, true), seen = new Set<ActivityEvent>();
+  for (const [other, events] of byElement) if (lit(other)) for (const event of events) seen.add(event);
+  return [...seen].sort((a, b) => a.time - b.time);
+}
+
+/**
  * "Work": the edits and commands the selected component's own mapped files saw, newest first, three rows with repeats collapsed. The work elsewhere is the header's
  * line, `w`, `a` and `c`. With no session, no mapping or nothing observed it says so in one line.
  */
 export function nowCard(options: { error: string; bound: boolean; following: boolean; config: ActivityConfig | undefined; events: ActivityEvent[]; element: string;
-  width: number; now: number; flashes: ReadonlyMap<string, number>; background: RGBA }): { chunks: TextChunk[]; lines: number } {
+  /** The selection is an instance in a deployment view: its element's children's work is its own (`lights`). */
+  instance?: boolean; width: number; now: number; flashes: ReadonlyMap<string, number>; background: RGBA }): { chunks: TextChunk[]; lines: number } {
   const note = (text: string, tone: string = palette.border) => ({ chunks: [fg(tone)(text)], lines: 1 });
   const { config, now, width } = options;
   if (options.error) return note(options.error, palette.failure);
   if (!options.bound && !options.following) return note("○ no live session · model only");
   if (!config) return note("no file mapping · run pathlight init");
   if (!options.bound) return note("waiting for a session");
-  const mine = activityRows(options.events, config, now, 64).filter(row => row.elements.includes(options.element));
+  const lit = lights(options.element, options.instance ?? false);
+  const mine = activityRows(options.events, config, now, 64).filter(row => row.elements.some(lit));
   if (!mine.length) return note("nothing observed here yet");
   const collapsed: { row: (typeof mine)[number]; count: number; calls: string[] }[] = [];
   for (const row of mine) {
