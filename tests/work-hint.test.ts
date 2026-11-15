@@ -135,7 +135,8 @@ test("after w and b the offer stays away until a later call in another box, and 
     // `w` turned follow on; turn it off, so what the news line shows is the offer alone.
     await until(text => text.includes("following Activity metadata"), "follow on");
     await tmux("send-keys", "-t", pane, "a");
-    await until(text => text.includes("Follow off"), "follow off");
+    // Follow is off when the header no longer says what it follows (the footer's reply to `a` is gone again after a moment).
+    await until(text => !text.includes("following "), "follow off");
     await delay(800);
     expect(await screen()).not.toContain("working in");
     // Another call in the same box is the same work: still not offered.
@@ -151,7 +152,7 @@ test("after w and b the offer stays away until a later call in another box, and 
     await until(text => text.includes("Launch path") && !text.includes("back 1"), "back again");
     await until(text => text.includes("following Agent adapters"), "follow on again");
     await tmux("send-keys", "-t", pane, "a");
-    await until(text => text.includes("Follow off"), "follow off again");
+    await until(text => !text.includes("following "), "follow off again");
     await delay(800);
     expect(await screen()).not.toContain("working in");
     // A new turn starts afresh: the newest work is offered again.
