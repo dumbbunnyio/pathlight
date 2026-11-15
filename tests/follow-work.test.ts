@@ -105,8 +105,9 @@ test("follow goes to the view that has the component being worked on, and b come
     await tmux("send-keys", "-t", pane, "a");
     await until(text => text.includes("Following the work"), "follow on");
     await read("during");
-    // The view and its selection are drawn in the same pass but may be captured a frame apart: wait for both, and the API selected is the outcome.
-    const there = await until(text => /pathlight \/ Parcel \/ (Service architecture|Checkout detail)/.test(text) && /Selected: /.test(text), "the view with the API");
+    // The view and its selection are drawn in the same pass but may be captured a frame apart, and the footer names the old selection until then:
+    // wait for the view with the API selected, which is the outcome.
+    const there = await until(text => /pathlight \/ Parcel \/ (Service architecture|Checkout detail)/.test(text) && /Selected: parcel\.commerce\.api/.test(text), "the view with the API selected");
     expect(there).toMatch(/Selected: parcel\.commerce\.api/);
     expect(there).toContain("back 1");
     // Follow says where it took you on the news line, not in a toast: nothing the agent did reaches the footer, and the line lasts while follow is on.
