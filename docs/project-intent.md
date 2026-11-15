@@ -101,10 +101,32 @@ Old unfinished calls become unconfirmed rather than being presented as proof
 that a tool is still running. A group shows its own mapped activity, not an
 automatic roll-up of its children.
 
+One exception (David, 2026-11-12; implemented 2026-11-14): in "Where it runs"
+an instance stands for everything its element ships, so it is lit by work in
+its element or anything inside it (an edit under `backend/` lights the
+`backend` service), and a service card drawn closed (the process of a
+one-package repository) by work in any element of the instances it holds.
+This is a statement about files in a folder, not about traffic, and it holds
+in that view only: everywhere else a closed parent stays dark, and a closed
+frame stays dark too.
+
 Workspace, project, source and session attribution must prevent unrelated work
 from appearing in the viewer. Viewing is distinct from recording: opening a
 bound CLI viewer consumes retained events, and closing it does not stop an
 already-enabled observer. No source code or tool payloads belong in the journal.
+
+### Where it runs (implemented 2026-11-14)
+
+The draft draws a LikeC4 deployment view, "Where it runs", from the names in
+the files that run things: compose files, Helm charts, Terraform folders,
+Procfiles, systemd units and plain Kubernetes manifests, one frame per file
+and no environments. A frame holds instances of the map's own elements (a
+resource, or the code a service is built from), so one box is one name and
+one activity in every view. A service is tied to code only by a line that
+says so (its `build:` folder, its Dockerfile's names, a command naming a
+declared start), never by an image name; what no line ties is drawn as the
+file states it. It is drafted, never inferred from runtime, and `check` and
+the end of a turn keep it to what the files name.
 
 ### Talking to the agent beside the diagram (implemented 2026-10-29)
 
