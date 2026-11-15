@@ -569,6 +569,12 @@ export function targetsOf(files: readonly InfraFile[]): Target[] {
   return targets.sort((a, b) => byText(a.path, b.path));
 }
 
+/**
+ * What the files that run things name, as `path#name`: every resource and service of every target, drawn or not (decision 8). `check` compares it
+ * with what it was when the map was drawn; nothing else a file says (a port, an image's tag, a build line) is compared.
+ */
+export const namesWhereItRuns = (files: readonly InfraFile[]) => [...new Set(targetsOf(files).flatMap(target => [...target.runs, ...target.services].map(item => `${target.path}#${item.name}`)))].sort(byText);
+
 const chartName = (text: string) => {
   try { const parsed = Bun.YAML.parse(text) as { name?: unknown } | null; return typeof parsed?.name === "string" && parsed.name ? parsed.name : undefined; } catch { return undefined; }
 };

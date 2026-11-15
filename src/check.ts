@@ -1,11 +1,13 @@
-import { realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
+import { join } from "node:path";
 import { Effect, Schema } from "effect";
 import { type ActivityConfig, readActivityConfig } from "./activity";
 import { acquireModel, invalidModel } from "./catalog";
-import { crowdedAbove } from "./draft";
-import { failure, io } from "./effects";
+import { crowdedAbove, generatedMarker, ownModelsBeside, runsReadPath } from "./draft";
+import { homeOf, modelFile } from "./layout";
+import { failure, io, json } from "./effects";
 import { scannedLanguages } from "./languages";
-import { entryFor, isSqlResource, programsOf, readInfra, type Program } from "./resources";
+import { entryFor, isSqlResource, namesWhereItRuns, programsOf, readInfra, type Program } from "./resources";
 import { listFiles, scanWorkspace, type Scan } from "./scan";
 import { carriesCode } from "./uses";
 
@@ -60,7 +62,12 @@ export const Check = Schema.Struct({
   undeclared: Schema.Array(Schema.Struct({ source: Schema.String, target: Schema.String, imports: Count, examples: Schema.Array(Example) })),
   // What the code talks to (the mapping's `resources`): how many files import each one's packages. None means its evidence is gone.
   resources: Schema.Array(Schema.Struct({ element: Schema.String, packages: Schema.Array(Schema.String), files: Count, declared: Schema.Array(Schema.String) })),
-  summary: Schema.Struct({ unusedResources: Count, unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count, largeElements: Count, wideGroups: Count, unlinkedViews: Count }),
+  // Where it runs (decision 8), as `path#name`: what a frame of the drawn map holds that its file no longer names, and what the files that run things
+  // name that they did not when the map was drawn. Nothing else a file says is compared.
+  runs: Schema.Struct({ gone: Schema.Array(Schema.String), added: Schema.Array(Schema.String) }),
+  // A person's own model files beside a drawn map: the map is theirs now and is no longer redrawn.
+  own: Schema.Array(Schema.String),
+  summary: Schema.Struct({ unusedResources: Count, unmatchedMappings: Count, unmappedFiles: Count, unsupported: Count, unverifiable: Count, undeclared: Count, largeElements: Count, wideGroups: Count, unlinkedViews: Count, whereItRuns: Count }),
 });
 export interface Check extends Schema.Schema.Type<typeof Check> {}
 
@@ -206,7 +213,20 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   for (const item of config.programs ?? []) {
     if (!elements.has(item.element)) return yield* Effect.fail(failure("Check.programs", `Unknown program element '${item.element}'.`));
   }
-  const programs = config.programs?.length ? programsOf(yield* readInfra(root, paths)) : [];
+  // The files that run things are read when the map has programs, draws where it runs, or a draw recorded what they named.
+  const runsRead = yield* io("Check.runsRead", () => readFile(join(root, runsReadPath), "utf8")).pipe(Effect.flatMap(json), Effect.option);
+  const namedAtDraw = runsRead._tag === "Some" && runsRead.value && typeof runsRead.value === "object" && Array.isArray((runsRead.value as { names?: unknown }).names)
+    ? new Set((runsRead.value as { names: unknown[] }).names.map(String)) : undefined;
+  const drawnModel = yield* io("Check.drawn", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
+  const infra = config.programs?.length || config.runs?.length || namedAtDraw ? yield* readInfra(root, paths) : [];
+  const programs = config.programs?.length ? programsOf(infra) : [];
+  const namedNow = new Set(config.runs?.length || namedAtDraw ? namesWhereItRuns(infra) : []);
+  const runs = {
+    gone: [...new Set((config.runs ?? []).map(item => `${item.target}#${item.name}`))].filter(name => !namedNow.has(name)).sort(order),
+    // Only on a drawn map: a model a person took over is never redrawn, so a name added since would be reported forever.
+    added: namedAtDraw && drawnModel ? [...namedNow].filter(name => !namedAtDraw.has(name)).sort(order) : [],
+  };
+  const own = yield* ownModelsBeside(root);
   const { direct, claimed, unmatched, filesWithin, ignoredPath, relationships, undeclared, sharedImports, resources } = compareImports(config, scan, paths, declared, programs);
 
   // How the mapped files are spread over the elements.
@@ -261,20 +281,24 @@ export const checkWorkspace = Effect.fn("Check.workspace")(function* (workspace:
   return Check.make({
     version: 1, basis: "static", project: config.project,
     mappings: { total: config.mappings.length, ignored: ignoredFiles.length, shared, sharedImports, unmatched, unmappedFiles },
-    relationships, size, wide, plan, views: { total: viewLinks.size, entries }, undeclared, resources,
+    relationships, size, wide, plan, views: { total: viewLinks.size, entries }, undeclared, resources, runs, own,
     summary: { unusedResources: resources.filter(item => item.packages.length && !item.files).length, unmatchedMappings: unmatched.length, unmappedFiles: unmappedFiles.length, unsupported: relationships.filter(item => item.status === "unsupported").length,
       unverifiable: relationships.filter(item => item.status === "unverifiable").length, undeclared: undeclared.length,
-      largeElements: size.filter(item => item.large).length, wideGroups: wide.length, unlinkedViews: Math.max(0, entries.length - 1) },
+      largeElements: size.filter(item => item.large).length, wideGroups: wide.length, unlinkedViews: Math.max(0, entries.length - 1), whereItRuns: runs.gone.length + runs.added.length },
   });
 }, Effect.scoped);
 
 /** The findings that deserve a look (everything except relationships that could not be checked, and the size notes). */
-export const hasFindings = (check: Check) => check.summary.unusedResources + check.summary.unmatchedMappings + check.summary.unmappedFiles + check.summary.unsupported + check.summary.undeclared + check.summary.unlinkedViews > 0;
+export const hasFindings = (check: Check) => check.summary.unusedResources + check.summary.unmatchedMappings + check.summary.unmappedFiles + check.summary.unsupported + check.summary.undeclared + check.summary.unlinkedViews + check.summary.whereItRuns > 0;
+
+/** The one line `check` and `refresh` give when a person's own model file sits beside the drawn map. */
+export const ownNotice = (files: readonly string[]) => `· ${files.join(", ")} ${files.length === 1 ? "is a model file" : "are model files"} of your own beside the drawn map, so the map is yours now and is no longer redrawn at the end of a turn. Move ${files.length === 1 ? "its" : "their"} content out of .pathlight/ to have it redrawn again, or run pathlight draft --force to redraw it once.`;
 
 /** A readable report: what agrees with the code first, then what to look at, with the evidence it rests on. */
 export function formatCheck(check: Check) {
   const where = (item: typeof check.undeclared[number]["examples"][number]) => `${item.from}${item.line ? `:${item.line}` : ""} → ${item.to}`;
   const lines = [`pathlight check · project ${check.project} · static evidence: imports in ${scannedLanguages} only`, ""];
+  if (check.own.length) lines.push(ownNotice(check.own), "");
   lines.push("Mapping", `  ${check.mappings.total} mappings${check.mappings.ignored ? `, ${check.mappings.ignored} source files ignored on purpose` : ""}`);
   for (const item of check.mappings.unmatched) lines.push(`  ▲ ${item.glob} (${item.element}) matches no files`);
   if (check.mappings.unmappedFiles.length) {
@@ -302,6 +326,11 @@ export function formatCheck(check: Check) {
       ? `  ✓ ${item.element}  ${item.files} file${item.files === 1 ? "" : "s"} import ${item.packages.join(", ")}`
       : item.packages.length ? `  ▲ ${item.element}  no file imports ${item.packages.join(", ")} any more: is it still used?`
       : `  · ${item.element}  declared in ${item.declared.join(", ")}; no code imports it`);
+  }
+  if (check.runs.gone.length || check.runs.added.length) {
+    lines.push("", "Where it runs");
+    for (const name of check.runs.gone) lines.push(`  ▲ ${name}  drawn where it runs; its file no longer names it`);
+    for (const name of check.runs.added) lines.push(`  ▲ ${name}  named since the map was drawn`);
   }
   lines.push("", "Imports with no relationship");
   if (!check.undeclared.length) lines.push("  ✓ none");

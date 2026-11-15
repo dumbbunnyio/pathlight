@@ -2,11 +2,11 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { basename, join, posix, resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import { failure, io, json } from "./effects";
-import { configFile, home, mappingFile, modelFile, overlayFile } from "./layout";
+import { configFile, home, homeOf, mappingFile, modelFile, overlayFile } from "./layout";
 import { run } from "./process";
 import { isUnscannedSource, languageOf, listFiles, scanWorkspace, type Scan } from "./scan";
 import { scannedLanguages } from "./languages";
-import { programsOf, readInfra, resourcesOf, targetsOf, withInfra, type DockerFacts, type Found, type InfraFile, type Program, type Resource, type Target } from "./resources";
+import { namesWhereItRuns, programsOf, readInfra, resourcesOf, targetsOf, withInfra, type DockerFacts, type Found, type InfraFile, type Program, type Resource, type Target } from "./resources";
 import { declaredStartsOf } from "./starts";
 import { carriesCode, hows, stronger, type How } from "./uses";
 
@@ -1181,6 +1181,20 @@ export const changedPins = (committed: Overlay | undefined, current: Overlay | u
 
 /** Where `draft` records each element's overlay key (id → key), for the viewer's name and map editing. */
 export const keysPath = join(".cache", "pathlight", "keys.json");
+/** A model file of a person's own in `.pathlight/`: any `.c4` but the drawn model and the `*.behavior.c4` flows an agent writes beside it. */
+export const isOwnModelFile = (name: string) => /\.(c4|likec4)$/.test(name) && name !== modelFile && !/\.behavior\.(c4|likec4)$/.test(name);
+/**
+ * The person's own model files beside a drawn map (backlog 11): the map is then theirs, `refresh` stops redrawing it and `check` says why. None when
+ * the model is not drawn (a person's map is never redrawn anyway) or there is none.
+ */
+export const ownModelsBeside = (root: string) => Effect.gen(function* () {
+  const model = yield* io("Draft.drawn", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.option);
+  if (model._tag === "None" || !model.value.startsWith(generatedMarker)) return [] as string[];
+  const names = yield* io("Draft.own", () => readdir(homeOf(root))).pipe(Effect.catch(() => Effect.succeed([] as string[])));
+  return names.filter(isOwnModelFile).sort().map(name => `${home}/${name}`);
+});
+/** The names the files that run things gave at the last draw (`namesWhereItRuns`). */
+export const runsReadPath = join(".cache", "pathlight", "runs-read.json");
 
 /**
  * Names and notes for a draft, kept apart from the generated model so a rerun never loses them. Each entry is keyed by what the code is (the
@@ -1379,7 +1393,8 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   const committedText = overlay ? yield* run("git", ["-C", target, "show", `HEAD:./${overlayFile}`]).pipe(Effect.option) : undefined;
   const committed = committedText?._tag === "Some" ? yield* Schema.decodeUnknownEffect(Overlay)(yield* json(committedText.value)).pipe(Effect.option) : undefined;
   const unread = paths.filter(isUnscannedSource);
-  const base = draftOf(scan, manifests, overlay, unread, yield* readInfra(root, paths));
+  const infra = yield* readInfra(root, paths);
+  const base = draftOf(scan, manifests, overlay, unread, infra);
   const { draft, unknown } = overlay ? applyOverlay(base, overlay) : { draft: base, unknown: [] as string[] };
   // Boxes of unread code alone would be a picture with no arrows at all: the draft needs some code the scan reads, or resources the infrastructure
   // declares (a repository of only charts or compose files is drawn as what it runs).
@@ -1391,7 +1406,7 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   // A model you wrote is never rewritten: only a previous draft (marked as generated) is replaced.
   const existing = yield* io("Draft.existing", () => readdir(target)).pipe(Effect.catch(() => Effect.succeed([] as string[])));
   // `*.behavior.c4` files are state diagrams an agent wrote beside the draft; a rerun leaves them alone.
-  const others = existing.filter(name => /\.(c4|likec4)$/.test(name) && name !== modelFile && !/\.behavior\.(c4|likec4)$/.test(name));
+  const others = existing.filter(isOwnModelFile);
   const previous = yield* io("Draft.previous", () => readFile(join(target, modelFile), "utf8")).pipe(Effect.option);
   const hasMapping = existing.includes(mappingFile);
   if (!options.force && (others.length || (previous._tag === "Some" && !previous.value.startsWith(generatedMarker)) || (hasMapping && previous._tag === "None"))) {
@@ -1412,8 +1427,9 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
   // The evidence each resource rests on, for `check` to judge its arrows by (the packages, not imports between files).
   const resources = draft.resources.map(item => ({ element: item.element, resource: item.id, packages: item.packages, ...(item.declared.length ? { declared: [...new Set(item.declared.map(entry => entry.path))] } : {}) }));
   const programs = draft.packages.filter(item => item.runs).flatMap(item => item.components.map(entry => ({ element: entry.id, source: entry.program!.source, name: entry.title })));
+  const runs = runsOf(draft);
   const keys = Object.fromEntries(draft.packages.flatMap(item => [...(draft.flat ? [] : [[item.id, item.key] as const]), ...item.folders.map(folder => [folder.id, folder.key] as const), ...draft.resources.map(resource => [resource.element, resource.key] as const), ...item.groups.map(group => [group.id, group.key] as const), ...item.components.map(entry => [entry.id, entry.key] as const)]));
-  const mappingText = `${JSON.stringify({ version: 1, project: name, mappings, ...(resources.length ? { resources } : {}), ...(programs.length ? { programs } : {}), ...(planned.length ? { planned } : {}), ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}) }, null, 2)}\n`;
+  const mappingText = `${JSON.stringify({ version: 1, project: name, mappings, ...(resources.length ? { resources } : {}), ...(programs.length ? { programs } : {}), ...(planned.length ? { planned } : {}), ...(draft.ignore.length ? { ignore: draft.ignore } : {}), ...(rendered.entries.length ? { entries: rendered.entries } : {}), ...(runs.length ? { runs } : {}) }, null, 2)}\n`;
   // The ids before this draw, from the keys the last one recorded: a journey's id that was there and would not be is a journey this draw would break.
   let blocked: { element: string; journey: string } | undefined;
   if (options.keepJourneys) {
@@ -1442,6 +1458,12 @@ export const draftWorkspace = Effect.fn("Draft.workspace")(function* (workspace:
       if (!existing.includes(configFile)) await writeFile(join(target, configFile), `${JSON.stringify({ $schema: "https://likec4.dev/schemas/config.json", name, title: label }, null, 2)}\n`);
     });
   }
+  // What the files that run things named at this draw, so `check` can tell a service added since (ignored state, rewritten by every draw that is not
+  // held back, even one that writes no model).
+  if (!blocked) yield* io("Draft.runsRead", async () => {
+    await mkdir(join(state, ".cache", "pathlight"), { recursive: true });
+    await writeFile(join(state, runsReadPath), `${JSON.stringify({ version: 1, names: namesWhereItRuns(infra) })}\n`);
+  });
   const folders = draft.packages.reduce((sum, item) => sum + item.folders.length, 0);
   // Programs the infrastructure runs are counted apart from the code (Phase R2); `components`, `packages` and `elements` are the code's.
   const runners = draft.packages.filter(item => item.runs);
