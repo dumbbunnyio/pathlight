@@ -128,6 +128,11 @@ export interface InfraFile {
   readonly programs?: readonly RawProgram[];
   /** A Dockerfile's names (Phase 7): what it copies in, what it builds, what it runs. */
   readonly dockerfile?: DockerFacts;
+  /**
+   * A file that runs things and is nothing else (Phase 7 step 3): a Procfile, a systemd unit, a plain Kubernetes manifest. Its processes are not R2's
+   * programs (they never become boxes of the model); `services` holds the ones that are themselves a resource (a pod's `postgres:14` container).
+   */
+  readonly runner?: { readonly format: "procfile" | "systemd" | "kubernetes"; readonly processes: readonly RawProgram[] };
 }
 
 /** `name`: what the file calls the thing (a compose service, a chart dependency, a Terraform block's name), where it has one. */
@@ -396,6 +401,67 @@ export const dockerfileFacts = (text: string): DockerFacts => {
 };
 const dockerfile = /(^|\/)([^/]*\.)?Dockerfile(\.[^/]*)?$/i;
 
+/** A Procfile: one process per `name: command` line. */
+export const procfileFacts = (text: string): RawProgram[] => text.split("\n").flatMap(line => {
+  const match = /^([A-Za-z0-9_-]+):\s*(\S.*)$/.exec(line.trim());
+  return match && !line.trimStart().startsWith("#") ? [{ name: match[1]!, kind: "process", uses: [], command: match[2]!.trim() }] : [];
+});
+
+/**
+ * A systemd service unit: the unit, named by its file, runs its `[Service]` section's `ExecStart` (without the `-`, `@`, `+`, `!` prefixes). `After=`
+ * only orders units: a unit it names is not run by this one.
+ */
+export const systemdFacts = (text: string, path: string): RawProgram[] => {
+  let section = "", command: string | undefined;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (/^\[.+\]$/.test(line)) { section = line; continue; }
+    const match = section === "[Service]" ? /^ExecStart\s*=\s*[-@+!:]*\s*(\S.*)$/.exec(line) : null;
+    if (match) command ??= match[1]!.trim();
+  }
+  return command ? [{ name: posix.basename(path).replace(/\.service$/, ""), kind: "unit", uses: [], command }] : [];
+};
+
+const workloadKinds = /^kind:\s*["']?(Deployment|StatefulSet|DaemonSet|Job|CronJob|Pod)["']?\s*$/m;
+/**
+ * A plain Kubernetes manifest (not a Helm template): each workload's pod containers (not its init containers). A container whose image is a resource
+ * is that resource; any other is a process with its image and, when it sets one, its `command` (its `args` alone do not name the program).
+ */
+export const kubernetesFacts = (text: string) => {
+  const containers: { workload: string; kind: string; container: Record<string, unknown> }[] = [];
+  for (const doc of text.split(/^---\s*$/m)) {
+    if (!workloadKinds.test(doc)) continue;
+    let parsed: unknown;
+    try { parsed = Bun.YAML.parse(doc); } catch { continue; }
+    const record = parsed as { kind?: unknown; metadata?: { name?: unknown }; spec?: Record<string, unknown> } | null;
+    const kind = typeof record?.kind === "string" ? record.kind : "", workload = typeof record?.metadata?.name === "string" ? record.metadata.name : "";
+    const spec = record?.spec;
+    const pod = (kind === "Pod" ? spec : kind === "CronJob" ? (spec?.jobTemplate as { spec?: { template?: { spec?: unknown } } } | undefined)?.spec?.template?.spec
+      : (spec?.template as { spec?: unknown } | undefined)?.spec) as { containers?: unknown } | undefined;
+    for (const container of Array.isArray(pod?.containers) ? pod.containers as unknown[] : []) {
+      if (container && typeof container === "object" && typeof (container as { name?: unknown }).name === "string" && (container as { name: string }).name) containers.push({ workload, kind, container: container as Record<string, unknown> });
+    }
+  }
+  const images: string[] = [], env: string[] = [], services: Found[] = [], processes: RawProgram[] = [];
+  for (const { workload, kind, container } of containers) {
+    const { image, command, args, env: variables } = container as { image?: unknown; command?: unknown; args?: unknown; env?: unknown };
+    // A container is named by itself unless another workload in the file has one of the same name: then `workload/container`, so each keeps its key.
+    const own = container.name as string;
+    const name = workload && containers.some(other => other.container !== container && other.container.name === own) ? `${workload}/${own}` : own;
+    const names = (Array.isArray(variables) ? variables : []).map(item => item && typeof item === "object" ? String((item as { name?: unknown }).name ?? "") : "").filter(variable => envName.test(variable));
+    env.push(...names);
+    const id = typeof image === "string" ? imageResource(image) : undefined;
+    if (typeof image === "string") images.push(image.trim());
+    if (id) { services.push({ ...asFound(id, `image ${String(image).trim()}`), name }); continue; }
+    const uses: Found[] = [];
+    for (const variable of names) { const rule = envResource(variable); if (rule) uses.push({ resource: rule.resource, ...(rule.engine ? { engine: rule.engine } : {}), by: variable }); }
+    const run = Array.isArray(command) && command.length ? [...command, ...Array.isArray(args) ? args : []].map(String).join(" ") : undefined;
+    processes.push({ name, kind, ...(typeof image === "string" ? { image: image.trim() } : {}), uses, ...(run ? { command: run } : {}) });
+  }
+  return { images: [...new Set(images)].sort(byText), env: [...new Set(env)].sort(byText), services, processes };
+};
+
+const procfile = /(^|\/)Procfile(\.[^/]+)?$/;
 const chartFile = /(^|\/)Chart\.ya?ml$/, valuesFile = /(^|\/)values([.-][^/]*)?\.ya?ml$/i, templateFile = /(^|\/)templates\/.+\.ya?ml$/i;
 
 /** Reads the infrastructure files among `paths` (each at most 1 MB): compose, example environments, Helm charts and Terraform. */
@@ -406,7 +472,11 @@ export const readInfra = Effect.fn("Resources.infra")(function* (root: string, p
   // Values sit beside Chart.yaml; templates anywhere under its `templates/` (Cognos keeps them in `templates/deployments/`).
   const inChart = (path: string) => chartDirs.has(posix.dirname(path)) || [...chartDirs].some(dir => path.startsWith(dir === "." ? "templates/" : `${dir}/templates/`));
   const helm = (path: string) => chartFile.test(path) || (inChart(path) && (valuesFile.test(path) || templateFile.test(path)));
-  for (const path of paths.filter(path => (isInfraFile(path) || helm(path) || /\.tf$/.test(path) || dockerfile.test(path)) && !testFolder.test(path) && !/(^|\/)\.terraform\//.test(path))) {
+  // Other YAML is read only for what its text shows first: a compose file in a folder named for compose (Miniflux's `contrib/docker-compose/basic.yml`),
+  // a Kubernetes workload.
+  const yaml = (path: string) => /\.ya?ml$/i.test(path) && !isInfraFile(path) && !helm(path) && !inChart(path) && !/(^|\/)\.github\//.test(path);
+  const read = (path: string) => isInfraFile(path) || helm(path) || /\.tf$/.test(path) || dockerfile.test(path) || procfile.test(path) || path.endsWith(".service") || yaml(path);
+  for (const path of paths.filter(path => read(path) && !testFolder.test(path) && !/(^|\/)\.terraform\//.test(path))) {
     const text = yield* Effect.tryPromise(async () => (await lstat(join(root, path))).size <= 1024 * 1024 ? await readFile(join(root, path), "utf8") : undefined).pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (text === undefined) continue;
     if (chartFile.test(path)) found.push({ path, images: [], env: [], found: chartFacts(text), chart: chartName(text) ?? posix.basename(posix.dirname(path)) });
@@ -415,14 +485,27 @@ export const readInfra = Effect.fn("Resources.infra")(function* (root: string, p
     else if (path.endsWith(".tf")) found.push({ path, images: [], env: [], found: terraformFacts(text) });
     // A Dockerfile's base images are not what this repository runs: only its names are kept, for the tie.
     else if (dockerfile.test(path)) found.push({ path, images: [], env: [], dockerfile: dockerfileFacts(text) });
+    else if (procfile.test(path)) found.push({ path, images: [], env: [], runner: { format: "procfile", processes: procfileFacts(text) } });
+    else if (path.endsWith(".service")) found.push({ path, images: [], env: [], runner: { format: "systemd", processes: systemdFacts(text, path) } });
+    else if (yaml(path)) {
+      if (/(^|\/)[^/]*compose[^/]*\/[^/]+$/i.test(path) && /^services:\s*$/m.test(text)) found.push({ path, ...composeFacts(text) });
+      else if (workloadKinds.test(text) && /^apiVersion:/m.test(text)) {
+        const { services, processes, ...facts } = kubernetesFacts(text);
+        found.push({ path, ...facts, services, runner: { format: "kubernetes", processes } });
+      }
+    }
     else found.push(posix.basename(path).toLowerCase().includes("compose") && /\.ya?ml$/i.test(path) ? { path, ...composeFacts(text) } : { path, images: [], env: envNames(text) });
   }
-  return found.filter(file => file.images.length || file.env.length || file.found?.length || file.chart !== undefined || file.programs?.length || file.dockerfile);
+  return found.filter(file => file.images.length || file.env.length || file.found?.length || file.chart !== undefined || file.programs?.length || file.dockerfile
+    || file.runner && (file.runner.processes.length || file.services?.length));
 });
 
-/** Where something runs (Phase 7): a compose file, a Helm chart (its folder) or a folder of Terraform files, with the resources it runs, by name. */
+/**
+ * Where something runs (Phase 7): a compose file, a Helm chart (its folder), a folder of Terraform files, a Procfile, a systemd unit or a plain
+ * Kubernetes manifest, with the resources it runs, by name.
+ */
 export interface Target {
-  readonly path: string; readonly format: "compose" | "chart" | "terraform"; readonly runs: readonly (Found & { readonly name: string })[];
+  readonly path: string; readonly format: "compose" | "chart" | "terraform" | "procfile" | "systemd" | "kubernetes"; readonly runs: readonly (Found & { readonly name: string })[];
   /** The services that are not a resource (a compose service, a chart's workload), with what says what they run: an image, a `build:`, a command. */
   readonly services: readonly Program[];
 }
@@ -449,6 +532,12 @@ export function targetsOf(files: readonly InfraFile[]): Target[] {
   const imageName = (image: string) => image.replace(/@.*$/, "").replace(/:[^/:]*$/, "").split("/").at(-1)!;
   for (const file of files) {
     if (notWhereItRuns(file.path)) continue;
+    if (file.runner) {
+      const title = posix.basename(file.path);
+      const services = file.runner.processes.map(item => ({ source: file.path, title, name: item.name!, kind: item.kind, ...(item.image ? { image: item.image } : {}), uses: item.uses, ...(item.command ? { command: item.command } : {}) }));
+      if (services.length || file.services?.length) targets.push({ path: file.path, format: file.runner.format, runs: (file.services ?? []).map(item => ({ ...item, name: item.name! })), services });
+      continue;
+    }
     if (file.services) {
       if (file.services.length || file.programs?.length) targets.push({ path: file.path, format: "compose", runs: file.services.map(item => ({ ...item, name: item.name! })), services: servicesOf(file.path) });
       continue;

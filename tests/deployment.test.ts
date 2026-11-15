@@ -7,14 +7,14 @@ import { acquireModel } from "../src/catalog";
 import { crowdedAbove, draftOf, draftWorkspace, renderDraft, runsOf } from "../src/draft";
 import { RGBA } from "@opentui/core";
 import type { ActivityEvent } from "../src/activity";
-import { composeFacts, dockerfileFacts, type InfraFile, targetsOf, terraformFacts } from "../src/resources";
+import { composeFacts, dockerfileFacts, type InfraFile, procfileFacts, readInfra, targetsOf, terraformFacts } from "../src/resources";
 import { eventsLighting, nowCard } from "../src/viewer/activity-view";
 import { insideWords } from "../src/viewer/card-view";
 import { startWebServer } from "../src/web/server";
 import type { Frame, Span } from "../src/web/wire";
 import { overlayIn, run, selectView, toolActivity, writeActivity } from "./effects";
 
-// Where it runs (plan phase-7-deployment.md, steps 1 and 2): each file that runs a resource on the map or this repository's code is a frame of the
+// Where it runs (plan phase-7-deployment.md, steps 1 to 3): each file that runs a resource on the map or this repository's code is a frame of the
 // view `runs`, holding an instance of that resource and of each box a service is tied to by its build, its Dockerfile or its command (never its image).
 // One box and its instance are one element: one name, Enter into the same view, the same activity.
 
@@ -340,3 +340,129 @@ test("through the viewer, an edit inside a package lights its instance where it 
     await rm(directory, { recursive: true, force: true });
   }
 }, 120_000);
+
+// Step 3: the files that run things and are nothing else. A Procfile and a systemd unit name no image, so they run this repository's code.
+test("Procfiles, systemd units, Kubernetes workloads and compose files in a compose folder are read as targets; other YAML is not", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-deployment-runners-"));
+  try {
+    const files = {
+      "Procfile": "# processes\nweb: yarn start --port $PORT\nrelease: ./bin/migrate\n",
+      "deploy/app.service": "[Unit]\nAfter=postgresql.service\nExecStart=/not/here\n[Service]\nExecStart=-/usr/bin/app-server start\n[Install]\nWantedBy=multi-user.target\n",
+      // A pod's containers are its services: the database container is the resource, the init container runs nothing that stays.
+      "k8s/app.yaml": "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: app\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: app\nspec:\n  template:\n    spec:\n      initContainers:\n        - name: wait\n          image: busybox\n      containers:\n        - name: app\n          image: acme/app:1\n          command: [app-server]\n          args: [start]\n        - name: db\n          image: postgres:14\n",
+      "k8s/secrets.yaml": "apiVersion: v1\nkind: Secret\nmetadata:\n  name: app\n",
+      "contrib/docker-compose/basic.yml": "services:\n  db:\n    image: postgres:16\n  app:\n    image: acme/app\n",
+      // `services:` in a file whose folder is not named for compose is not a compose file; an editor's container is not where it runs.
+      "config/services.yml": "services:\n  db:\n    image: postgres:16\n",
+      ".devcontainer/compose/dev.yml": "services:\n  db:\n    image: postgres:16\n",
+    };
+    await write(directory, files);
+    const infra = await Effect.runPromise(readInfra(directory, Object.keys(files)));
+    const targets = targetsOf(infra);
+    expect(targets.map(target => [target.path, target.format, target.runs.map(item => `${item.name}=${item.engine ?? item.resource}`), target.services.map(item => `${item.name}:${item.command ?? item.image}`)])).toEqual([
+      ["Procfile", "procfile", [], ["web:yarn start --port $PORT", "release:./bin/migrate"]],
+      ["contrib/docker-compose/basic.yml", "compose", ["db=postgresql"], ["app:acme/app"]],
+      ["deploy/app.service", "systemd", [], ["app:/usr/bin/app-server start"]],
+      ["k8s/app.yaml", "kubernetes", ["db=postgresql"], ["app:app-server start"]],
+    ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+const procfile = (path: string, text: string): InfraFile => ({ path, images: [], env: [], runner: { format: "procfile", processes: procfileFacts(text) } });
+const unit = (path: string, command: string): InfraFile => ({ path, images: [], env: [], runner: { format: "systemd", processes: [{ name: path.split("/").at(-1)!.replace(/\.service$/, ""), kind: "unit", uses: [], command }] } });
+
+test("a Procfile or a unit is a frame even when no line is tied, and a command naming a declared start ties it", () => {
+  const draft = fleet([procfile("Procfile", "web: yarn start\ncron: ./bin/sweep\n"), unit("deploy/worker.service", "/usr/bin/fleet-worker --queue jobs"), unit("deploy/other.service", "/usr/bin/other")]);
+  const id = (directory: string) => draft.packages.find(item => item.directory === directory)!.id;
+  expect(Object.fromEntries(runsOf(draft).map(entry => [`${entry.target}#${entry.name}`, entry.elements]))).toEqual({
+    "Procfile#web": [id("")], "Procfile#cron": [], "deploy/worker.service#worker": [id("worker")], "deploy/other.service#other": [],
+  });
+  // An untied line says what it runs.
+  expect(draft.targets.find(target => target.path === "deploy/other.service")!.services[0]!.by).toContain("/usr/bin/other");
+});
+
+// A flat draft (one package) draws no package box: what runs it is every top-level box together.
+const flatFiles = [...Array.from({ length: 4 }, (_, index) => `server/s${index}.ts`), ...Array.from({ length: 4 }, (_, index) => `app/a${index}.ts`), "shared/types.ts"];
+const flat = (infra: InfraFile[]) => draftOf({ files: flatFiles.map(path => ({ path, lines: 3 })), imports: [], external: [] } as never,
+  [{ directory: "", name: "outline", starts: [{ name: "start", kind: "script" as const, by: "package.json script start" }] }], undefined, [], infra);
+
+test("in a flat draft a process that runs the package is tied to every top-level box, one closed card", () => {
+  const draft = flat([procfile("Procfile", "web: yarn start\n"), procfile("server/collab/Procfile", "web: yarn start --services=collaboration\n")]);
+  expect(draft.flat).toBe(true);
+  const top = [...new Set(draft.packages.flatMap(item => [...item.components, ...item.folders, ...item.groups].map(entry => entry.id).filter(id => !id.includes("."))))].sort();
+  expect(top.length).toBeGreaterThan(1);
+  for (const entry of runsOf(draft)) expect([...entry.elements].sort()).toEqual(top);
+  const web = draft.targets[0]!.services[0]!;
+  expect(web.whole).toBe(true);
+  // The view includes the service, never its instances: one card.
+  const model = renderDraft(draft).text;
+  expect(model).toContain(`include ${draft.targets[0]!.id}, ${draft.targets[0]!.id}.*\n`);
+  expect(model).not.toContain(`${draft.targets[0]!.id}.${web.id}.*`);
+});
+
+test("a deployment card drawn closed is lit by work in any element of the instances inside it", () => {
+  const now = Date.now();
+  const event: ActivityEvent = { version: 1, source: "claude", session: "s", call: "c1", tool: "Edit", phase: "completed", operation: "edit", paths: ["server/s1.ts"], time: now - 1000 };
+  expect(eventsLighting(new Map([["server.s1", [event]]]), ["app", "server"], true)).toEqual([event]);
+  expect(eventsLighting(new Map([["shared.types", [event]]]), ["app", "server"], true)).toEqual([]);
+});
+
+test("through the viewer, an edit anywhere in a one-package repository lights the closed card of the process that runs it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-deployment-whole-"));
+  try {
+    await write(directory, {
+      "package.json": JSON.stringify({ name: "notes", scripts: { start: "node server/main.js" } }),
+      ...Object.fromEntries(Array.from({ length: 3 }, (_, index) => [`server/s${index}.ts`, `export const s${index} = ${index};\n`])),
+      ...Object.fromEntries(Array.from({ length: 3 }, (_, index) => [`app/a${index}.ts`, `export const a${index} = ${index};\n`])),
+      "Procfile": "web: yarn start\n",
+    });
+    await Effect.runPromise(draftWorkspace(directory));
+    const { view } = await nodesOf(directory, "runs");
+    expect(view!.nodes.map(node => String(node.kind)).sort()).toEqual(["service", "target"]);
+    await writeActivity(directory, { ...toolActivity(directory, { source: "claude", session: "whole" }, "c1", "Edit", { file_path: join(directory, "app/a1.ts") }, "completed"), time: Date.now() });
+    const lit = (screen: string) => screen.split("\n").some(line => /╭─+ ✓ done ─╮/.test(line));
+    expect(lit(await see(directory, "runs", "--follow"))).toBe(true);
+    // The plan is judged against the boxes the card stands for: work inside a planned box is not off plan, work outside one is.
+    const plan = (id: string) => run(process.execPath, [resolve("src/cli.ts"), "plan", id, "--workspace", directory]);
+    await plan("app");
+    expect(await see(directory, "runs", "--follow")).not.toContain("off plan");
+    await plan("server");
+    expect(await see(directory, "runs", "--follow")).toContain("off plan");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("a closed frame on a crowded overview is not lit by the work of what it holds", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-deployment-frame-"));
+  try {
+    // Seven files of three boxes each (the frame, its database, its api) are just past the crowded count: every frame is one closed box.
+    const files = Object.fromEntries(Array.from({ length: Math.floor(crowdedAbove / 3) + 1 }, (_, index) => [`deploy/s${index}/docker-compose.yml`, "services:\n  db:\n    image: postgres:16\n  api:\n    build: ../../api\n"]));
+    await write(directory, {
+      "package.json": JSON.stringify({ name: "fleet" }),
+      "tools/seed.ts": "export const seed = 1;\n",
+      "api/package.json": JSON.stringify({ name: "api", dependencies: { pg: "1" } }),
+      "api/src/server.ts": "import { Pool } from 'pg';\nexport const pool = new Pool();\n",
+      ...Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`api/src/part${index}.ts`, `export const p${index} = ${index};\n`])),
+      ...files,
+    });
+    await Effect.runPromise(draftWorkspace(directory));
+    const { view } = await nodesOf(directory, "runs");
+    expect(view!.nodes.every(node => String(node.kind) === "target" && node.children.length === 0)).toBe(true);
+    await writeActivity(directory, { ...toolActivity(directory, { source: "claude", session: "frame" }, "c1", "Edit", { file_path: join(directory, "api/src/server.ts") }, "completed"), time: Date.now() });
+    // Tall enough that a lit card would show its tag.
+    expect(await see(directory, "runs", "--follow", "--rows", "60")).not.toContain("✓ done");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("two workloads in one manifest with containers of the same name keep a name each", async () => {
+  const { kubernetesFacts } = await import("../src/resources");
+  const pod = (name: string) => `apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: ${name}\nspec:\n  template:\n    spec:\n      containers:\n        - name: app\n          image: acme/${name}\n        - name: ${name}-db\n          image: postgres:16\n`;
+  const facts = kubernetesFacts(`${pod("web")}---\n${pod("worker")}`);
+  expect(facts.processes.map(item => item.name)).toEqual(["web/app", "worker/app"]);
+  expect(facts.services.map(item => item.name)).toEqual(["web-db", "worker-db"]);
+});

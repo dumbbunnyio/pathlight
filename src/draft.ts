@@ -64,6 +64,8 @@ export interface DraftTarget {
 export interface DraftService {
   readonly id: string; readonly key: string; readonly note?: string; readonly title: string; readonly name: string; readonly elements: readonly string[]; readonly by: string;
   readonly image?: string; readonly uses?: readonly { readonly to: string; readonly by: string }[]; readonly folded?: true;
+  /** Tied to the whole of a flat draft (every top-level box): drawn as one closed card, which the viewers light by work in any of them. */
+  readonly whole?: true;
 }
 export interface Draft {
   /** The frames of "Where it runs", none when no file runs a resource on the map or the infrastructure is drawn as programs. */
@@ -451,7 +453,8 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
       return resource ? [{ run, resource }] : [];
     });
     const tied = target.services.map(service => ({ service, tie: tieOf(target, service) }));
-    if (!found.length && !tied.some(item => item.tie)) return [];
+    // A Procfile or a systemd unit names no image: what it runs is installed from this repository, so it is a frame even when no rung ties a line.
+    if (!found.length && !tied.some(item => item.tie) && !(ownCode.has(target.format) && tied.length)) return [];
     const instances = found.map(({ run, resource }) => ({ id: unique(slug(run.name), local), name: run.name, element: resource.element, by: run.by,
       ...(found.filter(other => other.resource === resource).length > 1 ? { title: run.name } : {}) }));
     // A plain service's arrows go to the instances of what it uses in the same frame, as R2 draws a program's (a use of `sql` is the one SQL box).
@@ -464,14 +467,15 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
     };
     const services = tied.map(({ service, tie }): DraftService => {
       const base = { id: unique(slug(service.name), local), key: `runs:${target.path}#${service.name}`, name: service.name, title: service.name };
-      if (tie) return { ...base, elements: tie.elements, by: tie.by };
+      if (tie) return { ...base, elements: tie.elements, by: tie.by, ...(flat && tie.elements.length > 1 ? { whole: true as const } : {}) };
       const to = new Map<string, string[]>();
       for (const use of service.uses) { const instance = instanceFor(use); if (instance) to.set(instance.id, [...to.get(instance.id) ?? [], use.by]); }
-      const said = service.image ? `image ${service.image}` : service.build ? `built from ${posix.join(posix.dirname(target.path), service.build.context)}` : "nothing it names";
+      const said = service.image ? `image ${service.image}` : service.build ? `built from ${posix.join(posix.dirname(target.path), service.build.context)}`
+        : service.command ? `runs ${clip(service.command, 60)}` : "nothing it names";
       return { ...base, elements: [], by: said, ...(service.image ? { image: service.image } : {}), uses: [...to].map(([id, names]) => ({ to: id, by: [...new Set(names)].sort(byText).join(", ") })) };
     });
     // Past `viewCap` boxes the plain services fold into one box that lists them (decision 5).
-    const boxes = instances.length + services.reduce((sum, item) => sum + (item.elements.length > 1 ? 1 + item.elements.length : 1), 0);
+    const boxes = instances.length + services.reduce((sum, item) => sum + (item.elements.length > 1 && !item.whole ? 1 + item.elements.length : 1), 0);
     const folded = boxes > viewCap ? services.map(item => item.elements.length ? item : { ...item, folded: true as const }) : services;
     // At the workspace root a path says nothing (`.`): the frame is named by the file that makes it one.
     const title = target.path === "." ? (target.format === "chart" ? "Chart.yaml" : "*.tf") : target.path;
@@ -479,6 +483,10 @@ export function draftOf(scan: Pick<Scan, "files" | "imports"> & { readonly exter
   });
   return { targets, packages, flat, relationships: labelled, typesOnly: typesOnly.map(pinned), resources, uses, problems, ignore, ignored: source.length - kept.length };
 }
+
+/** The formats that name no image, so whatever they run is this repository's code. */
+const ownCode = new Set<Target["format"]>(["procfile", "systemd"]);
+const clip = (text: string, width: number) => text.length > width ? `${text.slice(0, width - 1)}…` : text;
 
 /** Package managers whose `run SCRIPT` (or `SCRIPT` alone) runs a script the nearest package.json declares (rung 3). */
 const scriptRunners = new Set(["yarn", "npm", "pnpm", "bun"]);
@@ -516,7 +524,12 @@ function tier(input: { packages: readonly DraftPackage[]; flat: boolean; manifes
     const path = posix.normalize(posix.join(...parts)).replace(/\/$/, "");
     return path === "." ? "" : path.startsWith("..") ? undefined : path;
   };
-  const packageAt = (directory: string) => input.flat ? undefined : code.find(item => item.directory === directory)?.id;
+  // A flat draft draws no package: the one package is every top-level box together (what the scorer, too, accepts for `.`).
+  const whole = [...boxes.keys()].filter(id => !id.includes(".")).sort(byText);
+  const packageAt = (directory: string): string[] => {
+    const found = code.find(item => item.directory === directory);
+    return !found ? [] : input.flat ? whole : [found.id];
+  };
   /**
    * The packages a folder holds; none, then the one that holds it, only when the folder holds code of that package's and the package is not the
    * root's: a folder of configuration (`./nginx`, beside a root with code of its own) is no package's code.
@@ -537,7 +550,7 @@ function tier(input: { packages: readonly DraftPackage[]; flat: boolean; manifes
     let facts: DockerFacts | undefined;
     if (context !== undefined) {
       const held = packagesIn(context), built = `${at}, build context ${service.build!.context}`;
-      if (held.length === 1 && !input.flat) return { elements: [held[0]!.id], by: built };
+      if (held.length === 1 && packageAt(held[0]!.directory).length) return { elements: packageAt(held[0]!.directory), by: built };
       // The context's own package, when it is one's folder (Infisical's `backend`, which holds the test package `backend/bdd`). Not the workspace
       // root's: it holds every package, so copying all of it is all of them, which `COPY . .` does not narrow.
       const own = input.flat || context === "" ? undefined : code.find(item => item.directory === context);
@@ -549,8 +562,8 @@ function tier(input: { packages: readonly DraftPackage[]; flat: boolean; manifes
         if (!copies.includes(context)) for (const [index, path] of copies.entries()) { const box = nearest(path!); if (box) { named.push(box); said.push(`COPY ${facts!.copies[index]}`); } }
         for (const item of facts?.cargo ?? []) {
           const manifest = input.manifests.find(entry => item.package ? entry.name === item.package : entry.starts?.some(start => start.kind === "binary" && start.name === item.bin));
-          const box = manifest && under(manifest.directory, context) ? packageAt(manifest.directory) : undefined;
-          if (box) { named.push(box); said.push(`cargo build ${item.package ? `-p ${item.package}` : `--bin ${item.bin}`}`); }
+          const box = manifest && under(manifest.directory, context) ? packageAt(manifest.directory) : [];
+          if (box.length) { named.push(...box); said.push(`cargo build ${item.package ? `-p ${item.package}` : `--bin ${item.bin}`}`); }
         }
         for (const path of facts?.go ?? []) { const box = resolve(context, path) === undefined ? undefined : nearest(resolve(context, path)!); if (box) { named.push(box); said.push(`go build ${path}`); } }
         // What the Dockerfile names inside the own package says no more than the package does.
@@ -568,12 +581,12 @@ function tier(input: { packages: readonly DraftPackage[]; flat: boolean; manifes
       const from = context ?? (posix.dirname(target.path) === "." ? "" : posix.dirname(target.path));
       const manifest = input.manifests.filter(entry => under(from, entry.directory) && entry.starts?.some(start => start.kind === "script")).sort((a, b) => b.directory.length - a.directory.length)[0];
       const start = script ? manifest?.starts?.find(item => item.kind === "script" && item.name === script) : undefined;
-      const box = start ? packageAt(manifest!.directory) : undefined;
-      return box ? { elements: [box], by: `${at}, runs ${program} ${words[1] === "run" ? "run " : ""}${script} → ${start!.by}` } : undefined;
+      const box = start ? packageAt(manifest!.directory) : [];
+      return box.length ? { elements: box, by: `${at}, runs ${program} ${words[1] === "run" ? "run " : ""}${script} → ${start!.by}` } : undefined;
     }
     const declaring = input.manifests.filter(entry => entry.starts?.some(start => start.kind === "binary" && start.name === program));
-    const box = declaring.length === 1 ? packageAt(declaring[0]!.directory) : undefined;
-    return box ? { elements: [box], by: `${at}, runs ${program} → ${declaring[0]!.starts!.find(start => start.name === program)!.by}` } : undefined;
+    const box = declaring.length === 1 ? packageAt(declaring[0]!.directory) : [];
+    return box.length ? { elements: box, by: `${at}, runs ${program} → ${declaring[0]!.starts!.find(start => start.name === program)!.by}` } : undefined;
   };
 }
 
@@ -1094,25 +1107,26 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   // types-only exclusion below is for the model's views, not these.
   const runsView: string[] = [], runs: string[] = [];
   if (draft.targets.length) {
-    const what = { compose: "Compose file", chart: "Helm chart", terraform: "Terraform" } as const;
+    const what = { compose: "Compose file", chart: "Helm chart", terraform: "Terraform", procfile: "", systemd: "systemd unit", kubernetes: "Kubernetes manifest" } as const;
     // Every box drawn counts, the frames too.
-    const drawn = (target: DraftTarget) => 1 + target.instances.length + target.services.filter(item => !item.folded).reduce((sum, item) => sum + (item.elements.length > 1 ? 1 + item.elements.length : 1), 0) + (target.services.some(item => item.folded) ? 1 : 0);
+    const opened = (item: DraftService) => !item.folded && !item.whole && item.elements.length > 1;
+    const drawn = (target: DraftTarget) => 1 + target.instances.length + target.services.filter(item => !item.folded).reduce((sum, item) => sum + (opened(item) ? 1 + item.elements.length : 1), 0) + (target.services.some(item => item.folded) ? 1 : 0);
     const total = draft.targets.reduce((sum, target) => sum + drawn(target), 0), crowded = total > crowdedAbove;
     const frameView = (target: DraftTarget) => `runs_${target.id}`;
     // A frame and what is in it, a service of several boxes with its cards: `.*` one level at a time, as `.**` would leave out what has no arrow.
-    const contents = (target: DraftTarget) => [target.id, `${target.id}.*`, ...target.services.filter(item => !item.folded && item.elements.length > 1).map(item => `${target.id}.${item.id}.*`)].join(", ");
+    const contents = (target: DraftTarget) => [target.id, `${target.id}.*`, ...target.services.filter(opened).map(item => `${target.id}.${item.id}.*`)].join(", ");
     const arrows: string[] = [];
     runs.push("deployment {");
     for (const target of draft.targets) {
       const tied = target.services.filter(item => item.elements.length).length, plain = target.services.filter(item => !item.elements.length);
       const counted = [plural(target.instances.length, "resource"), ...(tied ? [`${plural(tied, "service")} of this repository's code`] : []), ...(plain.length ? [`${plural(plain.length, "other service")}`] : [])].filter(text => !text.startsWith("0 "));
-      runs.push(`  target ${target.id} ${quote(target.title)} {`, `    description ${quote(said(target.note, `${what[target.format]} ${target.path === "." ? "at the workspace root" : target.path}: runs ${counted.join(", ")}.`))}`);
+      runs.push(`  target ${target.id} ${quote(target.title)} {`, `    description ${quote(said(target.note, `${target.format === "procfile" ? "" : `${what[target.format]} `}${target.path === "." ? "at the workspace root" : target.path}: runs ${counted.join(", ")}.`))}`);
       for (const instance of target.instances) runs.push(...instance.title ? [`    ${instance.id} = instanceOf ${instance.element} {`, `      title ${quote(instance.title)}`, "    }"] : [`    ${instance.id} = instanceOf ${instance.element}`]);
       for (const service of target.services.filter(item => !item.folded)) {
         if (service.elements.length === 1) runs.push(`    ${service.id} = instanceOf ${service.elements[0]} {`, `      title ${quote(service.title)}`, `      description ${quote(said(service.note, `Service ${service.name}: ${service.by}.`))}`, "    }");
         else if (service.elements.length) {
           const inner = new Set<string>();
-          runs.push(`    service ${service.id} ${quote(service.title)} {`, `      description ${quote(said(service.note, `Service ${service.name}: ${service.by}.`))}`, ...service.elements.map(element => `      ${unique(slug(element.split(".").at(-1)!), inner)} = instanceOf ${element}`), "    }");
+          runs.push(`    service ${service.id} ${quote(service.title)} {`, `      description ${quote(said(service.note, `Service ${service.name}: ${service.by}${service.whole ? "; the whole repository" : ""}.`))}`, ...service.elements.map(element => `      ${unique(slug(element.split(".").at(-1)!), inner)} = instanceOf ${element}`), "    }");
         } else {
           runs.push(`    service ${service.id} ${quote(service.title)} {`, `      description ${quote(said(service.note, `Service ${service.name}, ${service.by}: no line here says which code it runs.`))}`, ...(service.image ? [`      technology ${quote(service.image)}`] : []), "    }");
           for (const use of service.uses ?? []) arrows.push(`  ${target.id}.${service.id} -> ${target.id}.${use.to} ${quote(use.by)}`);

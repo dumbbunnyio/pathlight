@@ -67,7 +67,7 @@ const view = options.view;
 let binding = options.activity;
 const following = options.follow === true;
 const world = yield* loadWorld(view, { watching: Boolean(binding || following), reload: false });
-let { config, files, fileError, diagrams, typesOnly } = world;
+let { config, files, fileError, diagrams, typesOnly, deployed } = world;
 // Compact fit: each view is drawn from a copy with Pathlight's spacing and card sizes and LikeC4's arrangement (viewer/compact.ts), made once per view.
 // A cell is taken to be half as wide as it is tall, as the camera does when the terminal does not say.
 type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
@@ -135,7 +135,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   if (options.select !== undefined && !asked) return yield* Effect.fail(failure("Native.select", `The view '${view.id}' has no element '${options.select}'. Pathlight list names the views; the element ids are in the model.`));
   type Scene = ReturnType<typeof getDiagram>;
   type Node = Scene["nodes"][number];
-  const state = createState<Node, Scene, { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; typesOnly: typeof typesOnly; notice: string }>(asked ?? firstNode(diagram));
+  const state = createState<Node, Scene, { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; typesOnly: typeof typesOnly; deployed: typeof deployed; notice: string }>(asked ?? firstNode(diagram));
   let dirty = true;
   let redrawAfterResize = false;
   let fileMode = false, editorActive = false;
@@ -180,8 +180,16 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const nodeFlashes = new Map<string, number>(), rowFlashes = new Map<string, number>(), seenCalls = new Set<string>();
   let calmLoaded = false, wasFlashing = false;
   const flashes = nodeFlashes;
-  /** An instance in a deployment view stands for its element and all inside it (`lights`). */
-  const isInstance = (node: { kind?: unknown }) => String(node.kind) === "instance";
+  /**
+   * What lights a node (`lights`): an instance in a deployment view stands for its element and all inside it; a service card drawn closed (the
+   * process of a whole one-package repository) for the elements of its instances; anything else, a closed frame too, for its own element.
+   */
+  const standing = (node: Node | undefined): { element: string | readonly string[]; instance: boolean } => {
+    if (!node) return { element: "", instance: false };
+    if (String(node.kind) === "instance") return { element: String(node.modelRef), instance: true };
+    const inside = node.children.length === 0 && String(node.kind) === "service" && node.deploymentRef ? deployed.get(String(node.deploymentRef)) : undefined;
+    return inside?.length ? { element: inside, instance: true } : { element: String(node.modelRef ?? ""), instance: false };
+  };
   const noteCalls = () => {
     const stamp = Date.now() + 600;
     for (const event of working()) {
@@ -380,7 +388,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   };
   // "Work", the session summary and the header's activity line are written in viewer/activity-view.ts from what the journal retained.
   const activityContent = () => {
-    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events: working(), element: String(state.selected?.modelRef ?? ""), instance: Boolean(state.selected && isInstance(state.selected)), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
+    const card = nowCard({ error: activityError, bound: Boolean(binding), following, config, events: working(), ...standing(state.selected), width: bodyWidth(), now: Date.now(), flashes: rowFlashes, background: rowBackground });
     contentRows.activity = card.lines;
     return new StyledText(card.chunks);
   };
@@ -450,7 +458,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   const renderNodeList = () => {
     const now = Date.now();
     nodeListText.content = nodeListContent(diagram.nodes, { selected: state.selected?.id, width: Math.max(10, viewport.width - 2), background: hot, state: index => {
-      const related = eventsLighting(byElement, String(diagram.nodes[index]!.modelRef), isInstance(diagram.nodes[index]!));
+      const lit = standing(diagram.nodes[index]), related = eventsLighting(byElement, lit.element, lit.instance);
       return operationState(related.filter(isActive), related.find(event => now - event.time <= 5000));
     } });
     const index = diagram.nodes.findIndex(node => node.id === state.selected?.id), signature = `${diagram.id}/${state.selected?.id}`;
@@ -512,15 +520,17 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     const header = rows.row && [...placed].every(([entry, drawn]) => entry.node.children.length > 0 || drawn.bottom - drawn.top >= Math.round(entry.node.height / cell.y));
     for (const entry of nodeObjects) {
       const group = entry.node.children.length > 0, id = String(entry.node.id), ref = String(entry.node.modelRef);
-      const instance = isInstance(entry.node), related = eventsLighting(byElement, ref, instance);
+      const lit = standing(entry.node), related = eventsLighting(byElement, lit.element, lit.instance);
+      // The plan is judged against what the card stands for (a closed service card has no element of its own), and its work by the element it was in.
+      const stands = typeof lit.element === "string" ? [lit.element] : lit.element;
       const isSelected = id === String(state.selected?.id);
       const numbers = badges.get(id);
       const { left, top, right, bottom } = placed.get(entry)!;
       const width = right - left, height = bottom - top;
       const look = cardLook({ title: entry.node.title, word: rows.words.get(String(entry.node.id)) ?? "", header, group, tags: (entry.node as { tags?: readonly string[] }).tags ?? [], related, now,
-        selected: isSelected, previewed: previewed === id, flashing: [...flashes].some(([element, until]) => until > now && lights(ref, instance)(element)),
+        selected: isSelected, previewed: previewed === id, flashing: [...flashes].some(([element, until]) => until > now && lights(lit.element, lit.instance)(element)),
         neighbour: diagram.edges.some(edge => (edge.target === state.selected?.id && edge.source === entry.node.id) || (edge.source === state.selected?.id && edge.target === entry.node.id)),
-        unbuilt: waiting(ref), planned: Boolean(plan) && inPlan(ref), offPlan: !!plan && related.length > 0 && !inPlan(ref), numbers, flow: Boolean(flowMode.active), width, height });
+        unbuilt: waiting(ref), planned: Boolean(plan) && stands.some(inPlan), offPlan: !!plan && [...byElement].some(([element, events]) => events.length > 0 && lights(lit.element, lit.instance)(element) && !inPlan(element)), numbers, flow: Boolean(flowMode.active), width, height });
       entry.box.borderColor = look.border;
       entry.box.customBorderChars = look.dashes;
       entry.box.backgroundColor = palette.background;
@@ -602,7 +612,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     activityText.content = activityContent();
     if (state.focusSection === "activity") followLine("activity", state.cursor.activity);
 
-    const observedHere = eventsLighting(byElement, String(state.selected?.modelRef ?? ""), Boolean(state.selected && isInstance(state.selected))).length;
+    const here = standing(state.selected), observedHere = eventsLighting(byElement, here.element, here.instance).length;
     const counts: Record<SectionKey, string> = { steps: flowMode.active ? `${flowMode.step + 1}/${flowMode.active.steps.length}` : "", flows: flowItems.length ? "◇ reading" : "", connections: links.length ? String(links.length) : "",
       files: fileMode ? `${paths.length ? state.fileCursor + 1 : 0}/${paths.length}` : String(paths.length), activity: observedHere ? String(observedHere) : "" };
     layoutSections();
@@ -1168,7 +1178,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const drawnBefore = new Set([...diagrams.values()].flatMap(entry => entry.nodes.map(node => String(node.modelRef ?? ""))));
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
-        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; scanned = undefined;
+        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; deployed = next.deployed; scanned = undefined;
         forgetGone(state, id => Boolean(diagrams.get(id)?.nodes.length));
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;
