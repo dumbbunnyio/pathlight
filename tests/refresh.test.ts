@@ -191,6 +191,34 @@ test("a service added to or gone from a compose file is reported and redrawn at 
   }
 }, 90_000);
 
+// Phase 7 step 6: what the files that run things named at the last draw lives in ignored state. A fresh clone, a cleaned cache or a map an older
+// pathlight drew has no record: the first turn records it (drawing once), so a service added after that is still told and redrawn, and a map drawn
+// before "Where it runs" gains it.
+test("with no record of what the last draw read (a fresh clone, an older map), a service added to a compose file is still redrawn", async () => {
+  const directory = await shop();
+  try {
+    const db = "  db:\n    image: postgres:16\n", cache = "  cache:\n    image: redis:7\n";
+    const mapping = join(directory, ".pathlight/pathlight.activity.json");
+    await writeFile(join(directory, "docker-compose.yml"), `services:\n${db}`);
+    expect(cli(directory, "draft").code).toBe(0);
+    await rm(join(directory, ".cache"), { recursive: true, force: true });
+    // A turn that changes nothing writes nothing, with or without the record.
+    expect(refresh(directory)).toMatchObject({ redrew: false });
+    await writeFile(join(directory, "docker-compose.yml"), `services:\n${db}${cache}`);
+    expect(refresh(directory)).toMatchObject({ redrew: true });
+
+    // An older map: its mapping has no `runs`, and nothing recorded. The next turn draws where it runs.
+    const { runs, ...older } = JSON.parse(await readFile(mapping, "utf8")) as { runs?: unknown };
+    expect(runs).toBeDefined();
+    await writeFile(mapping, JSON.stringify(older));
+    await rm(join(directory, ".cache"), { recursive: true, force: true });
+    expect(refresh(directory)).toMatchObject({ redrew: true });
+    expect((JSON.parse(await readFile(mapping, "utf8")) as { runs?: unknown[] }).runs).toHaveLength(2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 90_000);
+
 // Backlog 11: a person's own model file beside a drawn map made every end of turn fail with draft's refusal (exit 1, nothing recorded, nothing shown).
 test("a model file of a person's own beside a drawn map stops the redraw quietly, and check says why once", async () => {
   const directory = await shop();

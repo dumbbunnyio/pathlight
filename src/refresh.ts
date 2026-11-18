@@ -5,7 +5,7 @@ import { readActivityConfig } from "./activity";
 import { checkAndRecord } from "./stale";
 import { diffWorkspace, recordDiff } from "./diff";
 import { ownNotice } from "./check";
-import { draftWorkspace, generatedMarker, hasFilesIn, ownModelsBeside } from "./draft";
+import { draftWorkspace, generatedMarker, hasFilesIn, ownModelsBeside, runsReadPath } from "./draft";
 import { readKeys, readOverlay } from "./edit";
 import { io, json } from "./effects";
 import { homeOf, mappingPath, modelFile } from "./layout";
@@ -134,6 +134,11 @@ export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (worksp
       if (runs) due.push(`${plural(runs, "service")} added or gone where it runs`);
     }
     if (built.length) due.push(`${built.length} planned ${built.length === 1 ? "box has" : "boxes have"} files`);
+    // What the files that run things named at the last draw is ignored state: a fresh clone, a cleaned cache or a map an older pathlight drew has no
+    // record, so a service added since could never be told. One draw records it; an unchanged draw writes nothing else, and a map drawn before
+    // "Where it runs" gains the view.
+    const recorded = yield* io("Refresh.runsRead", () => readFile(join(root, runsReadPath), "utf8")).pipe(Effect.option);
+    if (recorded._tag === "None") due.push("nothing recorded of where it runs");
   }
 
   let redrew = false, blocked: Refresh["blocked"], added: Refresh["added"] = [];
