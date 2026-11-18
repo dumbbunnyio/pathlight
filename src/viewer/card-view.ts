@@ -3,7 +3,7 @@ import type { ActivityEvent } from "../activity";
 import { resourceKinds } from "../resources";
 import { palette } from "../ui";
 import { cardTag, isActive, operationState, outcomeMs } from "./activity-view";
-import { fade, labelTitle, nl } from "./text";
+import { clip, fade, labelTitle, nl } from "./text";
 
 /** A card drawn with dashes: the preview of a connection's other end, or a planned element with no files yet. */
 export const dashed = { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯", horizontal: "┄", vertical: "┆", topT: "┬", bottomT: "┴", leftT: "├", rightT: "┤", cross: "┼" };
@@ -79,7 +79,13 @@ export function cardLook(card: CardFacts) {
   }
   const dashes = (card.previewed && !card.selected) || card.unbuilt ? dashed : undefined;
   const bright = card.selected || card.neighbour || card.previewed;
-  if (group) return { border, dashes, title: `${card.title}${state ? ` [${state}]` : card.unbuilt ? " [planned]" : ""}${counts ? ` ·${counts}` : ""}`, titleColor: undefined, label: undefined };
+  if (group) {
+    // The border draws no title wider than its room (two corners, a cell either side), and a frame's title is often a file path: the name is clipped
+    // so the state and the counts after it stay whole.
+    const after = `${state ? ` [${state}]` : card.unbuilt ? " [planned]" : ""}${counts ? ` ·${counts}` : ""}`, room = card.width - 4;
+    const title = after.length < room ? `${clip(card.title, room - after.length)}${after}` : clip(`${card.title}${after}`, room);
+    return { border, dashes, title, titleColor: undefined, label: undefined };
+  }
   // First line: the word (dim) on the left and observed activity (dim) on the right; then the title.
   const { width, height } = card;
   const rows = height - 2, textWidth = Math.max(4, width - 4);

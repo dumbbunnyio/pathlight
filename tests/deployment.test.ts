@@ -9,7 +9,7 @@ import { RGBA } from "@opentui/core";
 import type { ActivityEvent } from "../src/activity";
 import { composeFacts, dockerfileFacts, type InfraFile, procfileFacts, readInfra, targetsOf, terraformFacts } from "../src/resources";
 import { eventsLighting, nowCard } from "../src/viewer/activity-view";
-import { insideWords } from "../src/viewer/card-view";
+import { cardLook, insideWords } from "../src/viewer/card-view";
 import { startWebServer } from "../src/web/server";
 import type { Frame, Span } from "../src/web/wire";
 import { overlayIn, run, selectView, toolActivity, writeActivity } from "./effects";
@@ -204,6 +204,18 @@ test("a plain service where it runs says container; a closed whole-repository ca
   expect(words.get("compose.backend")).toBe("container");
   expect(words.has("compose.web")).toBe(false);
   expect(words.has("compose.other_services")).toBe(false);
+});
+
+// Step 6: a frame's title is its file's path, often wider than the frame. The border draws no title wider than its room, so it is clipped to fit,
+// keeping what follows the name (its state, the activity counts) whole.
+test("a group's title wider than its border is clipped to fit, not dropped", () => {
+  const facts = { word: "", header: false, group: true, tags: [], related: [], now: 0, selected: false, neighbour: false, previewed: false, flashing: false,
+    unbuilt: false, planned: false, offPlan: false, numbers: undefined, flow: false, width: 36, height: 12 };
+  const path = "deploy/environments/development/docker-compose.development.yml";
+  const title = String(cardLook({ ...facts, title: path }).title);
+  expect(title.length).toBeLessThanOrEqual(facts.width - 4);
+  expect(title.startsWith("deploy/environments/")).toBe(true);
+  expect(String(cardLook({ ...facts, title: "api" }).title)).toBe("api");
 });
 
 // Step 2: the tie. A small monorepo: `api` (holding its own test package `api/e2e`), `web`, a Rust `worker` declaring the binary `fleet-worker`, and
