@@ -8,7 +8,7 @@ import { crowdedAbove, draftOf, draftWorkspace, renderDraft, runsOf } from "../s
 import { RGBA } from "@opentui/core";
 import type { ActivityEvent } from "../src/activity";
 import { composeFacts, dockerfileFacts, type InfraFile, procfileFacts, readInfra, targetsOf, terraformFacts } from "../src/resources";
-import { eventsLighting, nowCard } from "../src/viewer/activity-view";
+import { cardTag, eventsLighting, nowCard } from "../src/viewer/activity-view";
 import { cardLook, insideWords } from "../src/viewer/card-view";
 import { startWebServer } from "../src/web/server";
 import type { Frame, Span } from "../src/web/wire";
@@ -332,6 +332,16 @@ test("a drafted map draws a service of several boxes as a frame of cards, a plai
     await rm(directory, { recursive: true, force: true });
   }
 }, 120_000);
+
+// Step 6 (live test, part 12): an instance's events were oldest first, so after a second edit its card showed no `✓ done` (the tag read the first
+// edit, past its 30 seconds).
+test("an instance's card says done for its newest edit when an older one is past its time", () => {
+  const now = Date.now();
+  const edit = (call: string, time: number): ActivityEvent => ({ version: 1, source: "claude", session: "s", call, tool: "Edit", phase: "completed", operation: "edit", paths: ["frontend/nuxt.config.ts"], time });
+  const older = edit("c1", now - 120_000), newer = edit("c2", now - 2000);
+  const related = eventsLighting(new Map([["frontend.config", [newer, older]]]), "frontend", true);
+  expect(cardTag(related, now)?.text).toBe("✓ done");
+});
 
 test("an instance is lit by work anywhere inside its element; anywhere else a closed parent stays dark", () => {
   const now = Date.now();

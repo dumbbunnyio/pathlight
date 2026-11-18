@@ -49,7 +49,8 @@ export function eventsLighting(byElement: ReadonlyMap<string, readonly ActivityE
   if (!instance && typeof element === "string") return [...byElement.get(element) ?? []];
   const lit = lights(element, true), seen = new Set<ActivityEvent>();
   for (const [other, events] of byElement) if (lit(other)) for (const event of events) seen.add(event);
-  return [...seen].sort((a, b) => a.time - b.time);
+  // Newest first, as every element's own events are: the card's tag reads the first as the newest.
+  return [...seen].sort((a, b) => b.time - a.time);
 }
 
 /**
