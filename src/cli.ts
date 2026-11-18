@@ -13,7 +13,7 @@ import { homeOf, mappingPath, modelFile } from "./layout";
 import { claudeActivity, claudeJournals, claudeSession } from "./claude";
 import { initGlobal, initWorkspace } from "./init";
 import { scanWorkspace } from "./scan";
-import { draftWorkspace, journeyIds } from "./draft";
+import { draftWorkspace, generatedMarker, journeyIds } from "./draft";
 import { checkAndRecord } from "./stale";
 import { planDrop, planNew, setPlan } from "./plan";
 import { formatRefresh, readRefreshed, readSettings, refreshWorkspace, saveRedraw } from "./refresh";
@@ -244,7 +244,12 @@ try {
       // Per workspace, in its ignored state: whether a map Pathlight drew is redrawn at the end of each turn (unset is on).
       const value = extra[1];
       if ((id === "get" && value !== undefined) || (id === "set" && value !== "on" && value !== "off") || (id !== "get" && id !== "set")) return yield* invalid("Use pathlight config get redraw, or pathlight config set redraw on|off.");
-      if (id === "get") { const saved = (yield* readSettings(values.workspace)).redraw; if (saved) process.stdout.write(`${saved}\n`); }
+      if (id === "get") {
+        // Unset is what the end of a turn does: on for a map pathlight drew, off for a model a person wrote.
+        const saved = (yield* readSettings(values.workspace)).redraw;
+        const drawn = saved ? undefined : yield* Effect.tryPromise(() => readFile(join(homeOf(resolve(values.workspace)), modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.orElseSucceed(() => false));
+        process.stdout.write(`${saved ?? (drawn ? "on" : "off")}\n`);
+      }
       else { yield* saveRedraw(values.workspace, value as "on" | "off"); process.stdout.write(value === "on" ? "This map will be kept current at the end of each turn.\n" : "This map is redrawn only when you ask (pathlight draft).\n"); }
     } else if (command === "config") {
       // Pathlight's own settings (src/theme.ts): `claude` is where the Claude Code plugin's /pathlight:open draws the viewer, `browser` the command

@@ -43,6 +43,8 @@ test("a turn that adds nothing writes nothing; a new folder is drawn with its ar
     expect(await readFile(model(directory), "utf8")).toMatch(/^\s*small\.auth -> store /m);
     expect(JSON.parse(await readFile(join(directory, ".cache/pathlight/stale.json"), "utf8")).unmapped).toBe(0);
 
+    // Unset is on for a drawn map, and get says so.
+    expect(cli(directory, "config", "get", "redraw").out.trim()).toBe("on");
     expect(cli(directory, "config", "set", "redraw", "off").code).toBe(0);
     expect(cli(directory, "config", "get", "redraw").out.trim()).toBe("off");
     await mkdir(join(directory, "src/billing"));
@@ -145,6 +147,7 @@ test("a model a person wrote is never redrawn", async () => {
     const before = await readFile(join(directory, "model.c4"), "utf8");
     const done = refresh(directory);
     expect(done).toMatchObject({ redrew: false, due: [] });
+    expect(cli(directory, "config", "get", "redraw").out.trim()).toBe("off");
     expect(await readFile(join(directory, "model.c4"), "utf8")).toBe(before);
     expect(await Bun.file(model(directory)).exists()).toBe(false);
   } finally {
