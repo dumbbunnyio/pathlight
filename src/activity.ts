@@ -43,6 +43,10 @@ export const ActivityConfig = Schema.Struct({
   // Programs the infrastructure runs (Phase R2): each element with the chart folder or compose file that holds it and its name there. `pathlight check`
   // re-reads those files and judges a program's arrows to resources by what it names now (a secret, `depends_on`, an environment name).
   programs: Schema.optionalKey(Schema.Array(Schema.Struct({ element: Label, source: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)), name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)) })).check(Schema.isMaxLength(4096))),
+  // Where it runs (Phase 7): each service and resource a frame of the drawn map holds, by its file and its name there, with the boxes it is an instance
+  // of (none for a plain service) and the line that says so. `pathlight check` reports one its file no longer names.
+  runs: Schema.optionalKey(Schema.Array(Schema.Struct({ target: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)), name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+    elements: Schema.Array(Label).check(Schema.isMaxLength(256)), by: Schema.String.check(Schema.isMaxLength(4096)) })).check(Schema.isMaxLength(4096))),
 });
 export interface ActivityConfig extends Schema.Schema.Type<typeof ActivityConfig> {}
 

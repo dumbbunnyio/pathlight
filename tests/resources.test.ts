@@ -170,7 +170,9 @@ test("the viewer names what a resource is on its card's first row", async () => 
 test("infrastructure files are read as names only: a compose file's images and environment names, an example environment's names", () => {
   expect(composeFacts(`services:\n  db:\n    image: docker.io/library/postgres:16-alpine\n    environment:\n      - POSTGRES_PASSWORD=secret\n  app:\n    image: acme/app\n    environment:\n      REDIS_URL: redis://cache\n      TOKEN: \${STRIPE_KEY:-x}\n`))
     .toEqual({ images: ["acme/app", "docker.io/library/postgres:16-alpine"], env: ["POSTGRES_PASSWORD", "REDIS_URL", "STRIPE_KEY", "TOKEN"], found: [],
-      programs: [{ name: "app", kind: "service", image: "acme/app", uses: [{ resource: "redis", by: "REDIS_URL" }] }] });
+      programs: [{ name: "app", kind: "service", image: "acme/app", uses: [{ resource: "redis", by: "REDIS_URL" }] }],
+      // A service that is itself a resource, by its name: what the file runs (Phase 7).
+      services: [{ resource: "sql", engine: "postgresql", by: "image docker.io/library/postgres:16-alpine", name: "db" }] });
   // A service built here is looked up by its name, and says so; a built service with a known image, or an unknown name, adds nothing.
   expect(composeFacts("services:\n  clickhouse:\n    image: clickhouse-self-hosted-local\n    build:\n      context: ./clickhouse\n  web:\n    build: .\n  db:\n    image: postgres:16\n    build: ./db\n").found)
     .toEqual([{ resource: "clickhouse", by: "service clickhouse, built here" }]);
@@ -218,7 +220,7 @@ test("the draft cites the infrastructure, and check asks about a box only infras
 
 test("Helm and Terraform are read as declarations: chart dependencies, secrets named by their kind, images in values, Terraform blocks by type", () => {
   expect(chartFacts("apiVersion: v2\nname: shop\ndependencies:\n  - name: postgresql\n    version: 15.x\n  - name: redis\n  - name: common\n"))
-    .toEqual([{ resource: "sql", engine: "postgresql", by: "chart postgresql" }, { resource: "redis", by: "chart redis" }]);
+    .toEqual([{ resource: "sql", engine: "postgresql", by: "chart postgresql", name: "postgresql" }, { resource: "redis", by: "chart redis", name: "redis" }]);
   const values = valuesFacts([
     "image:\n  registry: docker.io\n  repository: bitnami/rabbitmq\n  tag: 3",
     "secretNames:\n  cs_creds: ca-cs-credentials-secret\n  agentic_db_creds: ca-agentic-db-credentials-secret\n  external_redis_creds: ca-external-redis-credentials-secret\n  openidProxy_creds: x",
@@ -232,8 +234,8 @@ test("Helm and Terraform are read as declarations: chart dependencies, secrets n
     'resource "aws_s3_bucket" "uploads" {}', 'resource "aws_vpc" "net" {}', 'resource "aws_iam_role" "app" {}',
     'module "cache" {\n  source = "terraform-aws-modules/elasticache/aws"\n}', 'resource "google_sql_database_instance" "db" {\n  database_version = "MYSQL_8_0"\n}',
   ].join("\n"))).toEqual([
-    { resource: "sql", engine: "postgresql", by: "aws_db_instance main" }, { resource: "s3", by: "aws_s3_bucket uploads" },
-    { resource: "sql", engine: "mysql", by: "google_sql_database_instance db" }, { resource: "redis", by: "module cache" },
+    { resource: "sql", engine: "postgresql", by: "aws_db_instance main", name: "main" }, { resource: "s3", by: "aws_s3_bucket uploads", name: "uploads" },
+    { resource: "sql", engine: "mysql", by: "google_sql_database_instance db", name: "db" }, { resource: "redis", by: "module cache", name: "cache" },
   ]);
   // Networking and IAM are never read; what is declared joins the code as an image does: two engines with no code are two databases.
   const joined = withInfra([], [{ path: "main.tf", images: [], env: [], found: terraformFacts('resource "aws_db_instance" "a" {\n engine = "postgres"\n}\nresource "aws_sqs_queue" "jobs" {}') }]);
@@ -249,7 +251,8 @@ test("a repository of only infrastructure is drawn as what it runs, and what onl
     const model = await readFile(join(directory, ".pathlight", "pathlight.model.c4"), "utf8");
     expect(model).toContain("  view index {\n    title 'Resources'\n    description 'No code the scan reads: these are what the infrastructure files declare.'\n    include postgresql\n    include redis\n");
     expect(model).toContain("description 'Declared in docker-compose.yml.'");
-    expect((await Effect.runPromise(listViews(directory))).views.map(view => String(view.id))).toEqual(["index"]);
+    // The overview, and where it runs: the compose file as a frame of the two (plan phase-7-deployment.md).
+    expect((await Effect.runPromise(listViews(directory))).views.map(view => String(view.id))).toEqual(["index", "runs"]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

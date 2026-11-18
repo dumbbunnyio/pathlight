@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { acquireModel } from "../src/catalog";
 import { type CompactNode, cardSize, compact, gapColumns, gapRows } from "../src/viewer/compact";
-import { wrapWords } from "../src/viewer/text";
+import { describe, wrapWords } from "../src/viewer/text";
 
 /**
  * Compact fit keeps LikeC4's arrangement and makes the spacing and card sizes Pathlight's. These are its five promises, checked over the frozen
@@ -163,4 +163,11 @@ test("a box that opens a view says how many boxes are inside it, a leaf says not
   ] };
   const boxes = new Set(["shop", "shop.api", "shop.api.routes", "shop.db", "customer", "lonely", "frame", "frame.x"]);
   expect(insideWords(view, boxes)).toEqual(new Map([["n1", "[3]"]]));
+});
+
+// Phase 7 step 6: descriptions lost every `_`, `*` and `#`, so the names the draft writes into them were shown wrong (MINIFLUXIMAGE, dbmigration).
+test("a plain description keeps the names in it as written; markdown loses only its marks", () => {
+  expect(describe({ txt: "Service miniflux, image ${MINIFLUX_IMAGE:-miniflux/miniflux:latest}: runs db_migration from compose#db." }))
+    .toBe("Service miniflux, image ${MINIFLUX_IMAGE:-miniflux/miniflux:latest}: runs db_migration from compose#db.");
+  expect(describe({ md: "## Store\n> **Keeps** the `orders` in _one_ [table](https://x) via save_order." })).toBe("Store Keeps the orders in one table via save_order.");
 });

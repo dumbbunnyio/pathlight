@@ -3,25 +3,32 @@ import type { ActivityEvent } from "../activity";
 import { resourceKinds } from "../resources";
 import { palette } from "../ui";
 import { cardTag, isActive, operationState, outcomeMs } from "./activity-view";
-import { fade, labelTitle, nl } from "./text";
+import { clip, fade, labelTitle, nl } from "./text";
 
 /** A card drawn with dashes: the preview of a connection's other end, or a planned element with no files yet. */
 export const dashed = { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯", horizontal: "┄", vertical: "┆", topT: "┬", bottomT: "┴", leftT: "├", rightT: "┤", cross: "┼" };
 
 /**
  * The word on a box's first row: how many boxes are inside it, for a box that opens a view (a package on the overview too); what a resource is
- * (`database`, `queue`, from its kind tag: src/resources.ts); nothing on any other leaf, and no other kind word anywhere (`component`, `folder`,
+ * (`database`, `queue`, from its kind tag: src/resources.ts), on its box and on an instance of it where it runs; nothing on any other leaf, and no other kind word anywhere (`component`, `folder`,
  * `package` told the reader nothing). Counted from every view's boxes, so it is the boxes there are to see.
  */
-export const insideWords = (view: { id: unknown; nodes: readonly { id: unknown; modelRef?: unknown; navigateTo?: unknown; children: readonly unknown[]; kind?: unknown; tags?: readonly unknown[] | null }[] }, boxes: ReadonlySet<string>) => {
+export const insideWords = (view: { id: unknown; nodes: readonly { id: unknown; modelRef?: unknown; navigateTo?: unknown; children: readonly unknown[]; kind?: unknown; tags?: readonly unknown[] | null }[] }, boxes: ReadonlySet<string>,
+  /** The elements that are resources: a deployment view's instance of one (kind `instance`, the element's tags) says what its element says. */
+  resources: ReadonlySet<string> = new Set(),
+  /** Every view's node ids: a closed frame of a deployment view is no model element, so what is inside it is counted by its own id. */
+  ids: ReadonlySet<string> = new Set()) => {
   const words = new Map<string, string>();
   for (const node of view.nodes) {
-    const kind = String(node.kind) === "resource" ? resourceKinds.find(word => node.tags?.some(tag => String(tag) === word)) : undefined;
+    const resource = String(node.kind) === "resource" || (String(node.kind) === "instance" && resources.has(String(node.modelRef)));
+    const kind = resource ? resourceKinds.find(word => node.tags?.some(tag => String(tag) === word)) : undefined;
     if (kind) { words.set(String(node.id), kind); continue; }
     // A program the infrastructure runs (Phase R2) says what it is, as a resource does.
     if (String(node.kind) === "container" && !node.children.length) { words.set(String(node.id), "container"); continue; }
+    // So does a plain service where it runs: the draft tags it `container` (not the closed card of a whole repository, not "N other services").
+    if (String(node.kind) === "service" && !node.children.length && node.tags?.some(tag => String(tag) === "container")) { words.set(String(node.id), "container"); continue; }
     if (node.children.length || !node.navigateTo || String(node.navigateTo) === String(view.id)) continue;
-    const ref = String(node.modelRef), count = [...boxes].filter(box => box.startsWith(`${ref}.`)).length;
+    const ref = String(node.modelRef), count = node.modelRef ? [...boxes].filter(box => box.startsWith(`${ref}.`)).length : [...ids].filter(id => id.startsWith(`${String(node.id)}.`)).length;
     if (count) words.set(String(node.id), `[${count.toLocaleString("en")}]`);
   }
   return words;
@@ -72,7 +79,13 @@ export function cardLook(card: CardFacts) {
   }
   const dashes = (card.previewed && !card.selected) || card.unbuilt ? dashed : undefined;
   const bright = card.selected || card.neighbour || card.previewed;
-  if (group) return { border, dashes, title: `${card.title}${state ? ` [${state}]` : card.unbuilt ? " [planned]" : ""}${counts ? ` ·${counts}` : ""}`, titleColor: undefined, label: undefined };
+  if (group) {
+    // The border draws no title wider than its room (two corners, a cell either side), and a frame's title is often a file path: the name is clipped
+    // so the state and the counts after it stay whole.
+    const after = `${state ? ` [${state}]` : card.unbuilt ? " [planned]" : ""}${counts ? ` ·${counts}` : ""}`, room = card.width - 4;
+    const title = after.length < room ? `${clip(card.title, room - after.length)}${after}` : clip(`${card.title}${after}`, room);
+    return { border, dashes, title, titleColor: undefined, label: undefined };
+  }
   // First line: the word (dim) on the left and observed activity (dim) on the right; then the title.
   const { width, height } = card;
   const rows = height - 2, textWidth = Math.max(4, width - 4);

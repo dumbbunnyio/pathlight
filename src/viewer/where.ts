@@ -1,13 +1,32 @@
 import type { ActivityEvent } from "../activity";
 
 /** The parts of a LikeC4 view these lookups read. */
-export interface WhereNode { id: unknown; modelRef?: unknown; children: readonly unknown[]; navigateTo?: unknown; title: string }
+export interface WhereNode { id: unknown; modelRef?: unknown; children: readonly unknown[]; navigateTo?: unknown; title: string; kind?: unknown; deploymentRef?: unknown }
 export interface WhereView<Node extends WhereNode = WhereNode> { id: unknown; title?: string | null; nodes: readonly Node[]; viewOf?: unknown }
 export interface Rule { element: string; match: { match(path: string): boolean } }
 
 /** The node in a view that draws an element, the leaf before a group when both do. */
+/**
+ * What a node stands for in the activity's terms: its model element, or for a frame of "Where it runs" (a deployment node of kind `target`, which is
+ * no element) its own id, which `frameRules` maps its file to. A frame's id is never an element's (src/draft.ts).
+ */
+export const refOf = (node: { modelRef?: unknown; kind?: unknown; deploymentRef?: unknown }) =>
+  node.modelRef == null && String(node.kind) === "target" && node.deploymentRef ? String(node.deploymentRef) : String(node.modelRef);
+
+/**
+ * The frames' own files as activity rules: an edit to a compose file, a chart, a Terraform folder, a Procfile or a unit is work on its frame (its
+ * title is its path; at the workspace root it is named by the file that makes it one). Only frames the mapping's `runs` names, so only a drawn map's.
+ */
+export const frameRules = (frames: readonly { id: string; title: string }[], targets: ReadonlySet<string>): { glob: string; element: string }[] =>
+  frames.flatMap(frame => {
+    const globs = targets.has(frame.title) ? [frame.title, `${frame.title}/**`]
+      : targets.has(".") && frame.title === "Chart.yaml" ? ["Chart.yaml", "values*.yaml", "templates/**"]
+      : targets.has(".") && frame.title === "*.tf" ? ["*.tf"] : [];
+    return globs.map(glob => ({ glob, element: frame.id }));
+  });
+
 export const nodeForElement = <Node extends WhereNode>(view: WhereView<Node>, element: string) =>
-  view.nodes.filter(node => String(node.modelRef) === element).sort((a, b) => a.children.length - b.children.length)[0];
+  view.nodes.filter(node => refOf(node) === element).sort((a, b) => a.children.length - b.children.length)[0];
 
 /** The elements a call's files map to. */
 export const elementsOf = (rules: readonly Rule[], event: ActivityEvent) => new Set(rules.filter(rule => event.paths.some(path => rule.match.match(path))).map(rule => rule.element));
@@ -64,7 +83,7 @@ export const newestWork = <Node extends WhereNode, View extends WhereView<Node>>
     if (exact) return { node: exact };
     // Another view that shows the exact component beats an enclosing group here (a group is not where the work happened).
     const linked = new Set(here.nodes.map(node => node.navigateTo && String(node.navigateTo)).filter(Boolean));
-    const candidates = [...views].flatMap(([id, entry]) => entry.nodes.some(node => elements.includes(String(node.modelRef))) ? [{ id, entry, element: elements.find(element => entry.nodes.some(node => String(node.modelRef) === element)) ?? elements[0]! }] : [])
+    const candidates = [...views].flatMap(([id, entry]) => entry.nodes.some(node => elements.includes(refOf(node))) ? [{ id, entry, element: elements.find(element => entry.nodes.some(node => refOf(node) === element)) ?? elements[0]! }] : [])
       .sort((a, b) => Number(linked.has(b.id)) - Number(linked.has(a.id)) || a.entry.nodes.length - b.entry.nodes.length || Number(a.id === "index") - Number(b.id === "index"));
     const best = candidates[0];
     const enclosing = elements.map(element => {

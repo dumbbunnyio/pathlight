@@ -1,0 +1,243 @@
+{
+  "note": "Phase 7 (plans/phase-7-deployment.md), written 2026-11-13 by the session that will write the reader, from the files of each clone at its pinned commit (read by hand, with a scratch script listing compose services and what their images lead to). A reviewer subagent with a fresh context went over every entry against the clones on 2026-11-13 (all citations held; it added the nkp chart's CloudNativePG database and corrected a count), but the reader's author still wrote the file, so read the score generously. A frame is a file (or a chart or Terraform folder) that runs something (decision 2), named by its path. `step` is the plan's step that should first draw it (1: compose, charts and Terraform declaring a resource on the map; 2: a compose file whose only news is a service tied to code; 3: Procfiles, systemd units, plain Kubernetes manifests, compose files found by content). A service `runs` either a `resource` (an id as the resources scorer names it, `sql` for any SQL database) or `code`: the folders it runs, as a careful person reading the files would say (`.` is the whole workspace). A drawn tie is right when every folder is covered by a box at or inside it and no box falls outside them. `rung` is the first rung of decision 3 that reaches the service (1 `build:`, 2 the Dockerfile's own names, 3 a command named as a declared start, null none), and `by` the lines it rests on. A service with `untied: true` names only an image (rung 4): any tie drawn for it is wrong, even one that happens to match. `optional` services and frames are neither required nor counted as extra. `mustNotAppear` are frames that are wrong to draw (tests, devcontainers, fixtures, files R2 already draws); `outOfScope` are formats the plan leaves for later, counted as extra if drawn. Plain services (a proxy, an admin tool) are not scored.",
+  "repos": {
+    "mealie": {
+      "workspace": "pathlight-oss-test-repos/mealie",
+      "commit": "2e7358d10",
+      "frames": [
+        {
+          "target": "docker/docker-compose.yml", "format": "compose", "step": 2,
+          "note": "One service, no database: the POSTGRES_* names are settings, SQLite is the default (line 18), so no resource instance.",
+          "services": [
+            { "name": "mealie", "runs": "code", "code": ["frontend", "mealie"], "rung": 2, "by": "docker/docker-compose.yml:6 context ../ with :8 dockerfile ./docker/Dockerfile; docker/Dockerfile:11 COPY frontend . and :65 COPY mealie ./mealie (the context is the root, which holds two packages, so rung 1 alone does not narrow it)" }
+          ]
+        },
+        {
+          "target": "docker/docker-compose.dev.yml", "format": "compose", "step": 1,
+          "services": [
+            { "name": "mailpit", "runs": "resource", "resource": "mail", "by": "docker/docker-compose.dev.yml:3 image axllent/mailpit" },
+            { "name": "postgres", "runs": "resource", "resource": "sql", "by": "docker/docker-compose.dev.yml:14 image postgres:15" }
+          ]
+        }
+      ],
+      "mustNotAppear": ["tests/e2e/docker/docker-compose.yml", ".devcontainer"],
+      "outOfScope": []
+    },
+    "infisical": {
+      "workspace": "pathlight-oss-test-repos/infisical",
+      "commit": "ce416c9b",
+      "frames": [
+        {
+          "target": "docker-compose.prod.yml", "format": "compose", "step": 1,
+          "services": [
+            { "name": "backend", "runs": "code", "code": ["backend", "frontend"], "rung": null, "untied": true, "by": "docker-compose.prod.yml:12 image infisical/infisical:latest only (built by Dockerfile.standalone-infisical, which copies /frontend at :44 and /backend at :120, but no line here names that Dockerfile)" },
+            { "name": "redis", "runs": "resource", "resource": "redis", "by": "docker-compose.prod.yml:23 image redis" },
+            { "name": "db", "runs": "resource", "resource": "sql", "by": "docker-compose.prod.yml:36 image postgres:14-alpine" }
+          ]
+        },
+        {
+          "target": "docker-compose.dev.yml", "format": "compose", "step": 1,
+          "note": "23 services: past viewCap the plain ones (nginx, redis-commander, bull-board, prometheus, otel-collector, grafana, pgadmin, openldap, phpldapadmin, pingfederate, samba-ad, authentik-server, authentik-worker) fold. Prometheus, OpenLDAP and authentik are not boxes on this map, so they are plain. mailhog leads to no resource in today's image table; it is the map's mail server all the same.",
+          "services": [
+            { "name": "backend", "runs": "code", "code": ["backend"], "rung": 1, "by": "docker-compose.dev.yml:87 context ./backend" },
+            { "name": "frontend", "runs": "code", "code": ["frontend"], "rung": 1, "by": "docker-compose.dev.yml:165 context ./frontend" },
+            { "name": "backend-go", "runs": "code", "code": ["backend-go"], "rung": 1, "by": "docker-compose.dev.yml:180 context ./backend-go" },
+            { "name": "db", "runs": "resource", "resource": "sql", "by": "docker-compose.dev.yml:17 image postgres:14-alpine" },
+            { "name": "authentik-postgres", "runs": "resource", "resource": "sql", "by": "docker-compose.dev.yml:361 image postgres:16-alpine" },
+            { "name": "redis", "runs": "resource", "resource": "redis", "by": "docker-compose.dev.yml:28 image redis" },
+            { "name": "clickhouse", "runs": "resource", "resource": "clickhouse", "by": "docker-compose.dev.yml:38 image clickhouse/clickhouse-server" },
+            { "name": "keycloak", "runs": "resource", "resource": "keycloak", "by": "docker-compose.dev.yml:259 image quay.io/keycloak/keycloak" },
+            { "name": "smtp-server", "runs": "resource", "resource": "mail", "by": "docker-compose.dev.yml:215 image jcalonso/mailhog" },
+            { "name": "keycloak-config", "runs": "resource", "resource": "keycloak", "optional": true, "by": "docker-compose.dev.yml:285 the keycloak image run once as a configuration job; an instance of Keycloak or a plain box are both defensible" }
+          ]
+        },
+        {
+          "target": "docker-compose.dev-read-replica.yml", "format": "compose", "step": 1,
+          "services": [
+            { "name": "db-migration", "runs": "code", "code": ["backend"], "rung": 1, "by": "docker-compose.dev-read-replica.yml:75 context ./backend" },
+            { "name": "backend", "runs": "code", "code": ["backend"], "rung": 1, "by": "docker-compose.dev-read-replica.yml:89 context ./backend" },
+            { "name": "frontend", "runs": "code", "code": ["frontend"], "rung": 1, "by": "docker-compose.dev-read-replica.yml:119 context ./frontend" },
+            { "name": "db", "runs": "resource", "resource": "sql", "by": "docker-compose.dev-read-replica.yml:17 image bitnami/postgresql:14" },
+            { "name": "db-slave", "runs": "resource", "resource": "sql", "by": "docker-compose.dev-read-replica.yml:33 image bitnami/postgresql:14" },
+            { "name": "redis", "runs": "resource", "resource": "redis", "by": "docker-compose.dev-read-replica.yml:50 image redis" },
+            { "name": "smtp-server", "runs": "resource", "resource": "mail", "by": "docker-compose.dev-read-replica.yml:142 image jcalonso/mailhog" }
+          ]
+        },
+        {
+          "target": "helm-charts/infisical-standalone-postgres", "format": "helm", "step": 1,
+          "note": "Workload names are templated, so they are named by their files as R2 names them (infisical.yaml → infisical). bootstrap-job runs infisical/cli and curl: not this repository's code, plain.",
+          "services": [
+            { "name": "infisical", "runs": "code", "code": ["backend", "frontend"], "rung": null, "untied": true, "by": "templates/infisical.yaml:4 Deployment, image from values.yaml:68 repository infisical/infisical only" },
+            { "name": "postgresql", "runs": "resource", "resource": "sql", "by": "Chart.yaml:23 dependency postgresql" },
+            { "name": "redis", "runs": "resource", "resource": "redis", "by": "Chart.yaml:27 dependency redis" }
+          ]
+        },
+        {
+          "target": "helm-charts/infisical-nkp", "format": "helm", "step": 1,
+          "services": [
+            { "name": "deployment", "runs": "code", "code": ["backend", "frontend"], "rung": null, "untied": true, "by": "templates/deployment.yaml:45 image from values.yaml:8 repository infisical/infisical only" },
+            { "name": "redis", "runs": "resource", "resource": "redis", "by": "templates/redis.yaml:3 Deployment of values.yaml:39 valkey/valkey" },
+            { "name": "postgres-cluster", "runs": "resource", "resource": "sql", "optional": true, "by": "templates/postgres-cluster.yaml:6 kind Cluster (CloudNativePG, apiVersion postgresql.cnpg.io/v1), on by default at values.yaml:52 cnpg; no image names it, so no table reaches it today: right if drawn, not required (found by the review, 2026-11-13)" }
+          ]
+        }
+      ],
+      "optional": [
+        "helm-charts/infisical-gateway",
+        "sink/docker-compose.cassandra.yml",
+        "sink/docker-compose.coturn.yml",
+        "sink/redis-cluster/docker-compose.yml",
+        "sink/redis-sentinel/docker-compose.sentinel.yml"
+      ],
+      "optionalNote": "The gateway chart runs infisical/cli, another repository's code, and no resource on the map. sink/ holds experiments (a Cassandra, a Redis cluster, a TURN server): not where the product runs, but no name says so.",
+      "mustNotAppear": [
+        "docker-compose.test.yml",
+        "docker-compose.bdd.yml",
+        "docker-compose.e2e-dbs.yml",
+        ".github/resources/docker-compose.be-test.yml",
+        "backend-go/docker-compose.test.yml"
+      ],
+      "outOfScope": ["docker-swarm/stack.yaml", "render.yaml", "cloudformation/ec2-deployment", "cloudformation/honey-token-pipeline"]
+    },
+    "outline": {
+      "workspace": "pathlight-oss-test-repos/outline",
+      "commit": "d3b094352",
+      "frames": [
+        {
+          "target": "docker-compose.yml", "format": "compose", "step": 1,
+          "services": [
+            { "name": "redis", "runs": "resource", "resource": "redis", "by": "docker-compose.yml:3 image redis" },
+            { "name": "postgres", "runs": "resource", "resource": "sql", "by": "docker-compose.yml:8 image postgres" }
+          ]
+        },
+        {
+          "target": "Procfile", "format": "procfile", "step": 3,
+          "note": "The draft is flat (one package at the root): `.` has no element of its own, so the reader must decide what an instance of the whole workspace is.",
+          "services": [
+            { "name": "web", "runs": "code", "code": ["."], "rung": 3, "by": "Procfile:1 yarn start → package.json:12 script start" },
+            { "name": "worker", "runs": "code", "code": ["."], "rung": 3, "by": "Procfile:2 yarn start → package.json:12 script start" }
+          ]
+        },
+        {
+          "target": "server/collaboration/Procfile", "format": "procfile", "step": 3,
+          "services": [
+            { "name": "web", "runs": "code", "code": ["."], "rung": 3, "by": "server/collaboration/Procfile:1 yarn start → the nearest package.json, the root's, :12 script start" }
+          ]
+        }
+      ],
+      "mustNotAppear": [],
+      "outOfScope": ["app.json"]
+    },
+    "miniflux": {
+      "workspace": "pathlight-oss-test-repos/v2",
+      "commit": "d5c529b9",
+      "frames": [
+        {
+          "target": "contrib/docker-compose/basic.yml", "format": "compose", "step": 3,
+          "services": [
+            { "name": "miniflux", "runs": "code", "code": ["."], "rung": null, "untied": true, "by": "contrib/docker-compose/basic.yml:3 image miniflux/miniflux only" },
+            { "name": "db", "runs": "resource", "resource": "sql", "by": "contrib/docker-compose/basic.yml:22 image postgres:latest" }
+          ]
+        },
+        {
+          "target": "contrib/docker-compose/caddy.yml", "format": "compose", "step": 3,
+          "services": [
+            { "name": "miniflux", "runs": "code", "code": ["."], "rung": null, "untied": true, "by": "contrib/docker-compose/caddy.yml:15 image miniflux/miniflux only" },
+            { "name": "db", "runs": "resource", "resource": "sql", "by": "contrib/docker-compose/caddy.yml:28 image postgres:latest" }
+          ]
+        },
+        {
+          "target": "contrib/docker-compose/traefik.yml", "format": "compose", "step": 3,
+          "services": [
+            { "name": "miniflux", "runs": "code", "code": ["."], "rung": null, "untied": true, "by": "contrib/docker-compose/traefik.yml:20 image miniflux/miniflux only" },
+            { "name": "db", "runs": "resource", "resource": "sql", "by": "contrib/docker-compose/traefik.yml:40 image postgres:latest" }
+          ]
+        },
+        {
+          "target": "Procfile", "format": "procfile", "step": 3,
+          "services": [
+            { "name": "web", "runs": "code", "code": ["."], "rung": null, "by": "Procfile:1 miniflux.app: no start is declared by that name (the module is miniflux.app/v2)" }
+          ]
+        },
+        {
+          "target": "packaging/systemd/miniflux.service", "format": "systemd", "step": 3,
+          "note": "After=postgresql.service orders the unit; it does not run a database, so no instance.",
+          "services": [
+            { "name": "miniflux", "runs": "code", "code": ["."], "rung": null, "by": "packaging/systemd/miniflux.service:15 ExecStart=/usr/bin/miniflux: the name is set only by Makefile:1 APP := miniflux, which no rung reads; go build would name the root's main package v2" }
+          ]
+        }
+      ],
+      "mustNotAppear": [".devcontainer/docker-compose.yml"],
+      "outOfScope": ["contrib/ansible", "contrib/sysvinit"]
+    },
+    "atuin": {
+      "workspace": "pathlight-oss-test-repos/atuin",
+      "commit": "19b66e7fb",
+      "frames": [
+        {
+          "target": "k8s/atuin.yaml", "format": "kubernetes", "step": 3,
+          "note": "One Deployment, two containers: a pod's containers are its services. The root Dockerfile builds atuin-server (:25 cargo build --bin atuin-server), but nothing here names that Dockerfile.",
+          "services": [
+            { "name": "atuin", "runs": "code", "code": ["crates/atuin-server"], "rung": null, "untied": true, "forbidden": ["crates/atuin"], "by": "k8s/atuin.yaml:32 image ghcr.io/atuinsh/atuin only; the package named atuin is the CLI" },
+            { "name": "postgresql", "runs": "resource", "resource": "sql", "by": "k8s/atuin.yaml:64 image postgres:14" }
+          ]
+        },
+        {
+          "target": "systemd/atuin-server.service", "format": "systemd", "step": 3,
+          "services": [
+            { "name": "atuin-server", "runs": "code", "code": ["crates/atuin-server"], "rung": 3, "by": "systemd/atuin-server.service:7 ExecStart=atuin-server start → crates/atuin-server/Cargo.toml:24 [[bin]] name atuin-server" }
+          ]
+        }
+      ],
+      "mustNotAppear": [".devcontainer", "k8s/namespaces.yaml", "k8s/secrets.yaml"],
+      "outOfScope": ["atuin.nix", "default.nix", "flake.nix"]
+    },
+    "avocano": {
+      "workspace": "pathlight-oss-test-repos/avocano",
+      "commit": "79153f7",
+      "note": "Decision 9's Terraform reference (GoogleCloudPlatform/avocano, approved by David 2026-11-13): a Django API in server/ (a folder of the root package: it has requirements.txt, no manifest) and a Lit client in client/. The Cloud Run service and jobs (service.tf:1, jobs.tf:1, :51) are Terraform compute, out of scope.",
+      "frames": [
+        {
+          "target": "provisioning/terraform", "format": "terraform", "step": 1,
+          "services": [
+            { "name": "postgres", "runs": "resource", "resource": "sql", "by": "provisioning/terraform/database.tf:5 google_sql_database_instance postgres (database_version POSTGRES_14)" },
+            { "name": "media", "runs": "resource", "resource": "gcs", "by": "provisioning/terraform/storage.tf:1 google_storage_bucket media" }
+          ]
+        },
+        {
+          "target": "server/Procfile", "format": "procfile", "step": 3,
+          "note": "Three process types in the server's own folder; none names a declared start (gunicorn, python3 manage.py, bash scripts/prime_database.sh).",
+          "services": [
+            { "name": "web", "runs": "code", "code": ["server"], "rung": null, "by": "server/Procfile:1 gunicorn … avocano_api.wsgi:application" },
+            { "name": "migrate", "runs": "code", "code": ["server"], "rung": null, "by": "server/Procfile:2 python3 manage.py migrate" },
+            { "name": "setup", "runs": "code", "code": ["server"], "rung": null, "by": "server/Procfile:4 bash scripts/prime_database.sh" }
+          ]
+        }
+      ],
+      "mustNotAppear": ["client/Dockerfile"],
+      "outOfScope": ["cloudbuild.yaml", "provisioning/server.cloudbuild.yaml", "provisioning/client.cloudbuild.yaml"]
+    },
+    "bat": {
+      "workspace": "pathlight-oss-test-repos/bat",
+      "commit": "fe901f50",
+      "note": "The negative case: no runs view. The Dockerfile and main.tf are highlighting fixtures.",
+      "frames": [],
+      "mustNotAppear": ["tests/syntax-tests"],
+      "outOfScope": []
+    },
+    "sentry-self-hosted": {
+      "workspace": "pathlight-oss-test-repos/sentry-self-hosted",
+      "commit": "a489128",
+      "note": "Mostly infrastructure: R2 draws docker-compose.yml's services as programs (decision 4), so no runs view.",
+      "frames": [],
+      "mustNotAppear": ["docker-compose.yml", "_integration-test/custom-ca-roots/docker-compose.test.yml"],
+      "outOfScope": []
+    },
+    "cognos-chart": {
+      "workspace": ".cache/eval/charts/ibm-cacc-prod",
+      "note": "The chart is the repository: R2 draws its workloads as programs, so no runs view.",
+      "frames": [],
+      "mustNotAppear": ["."],
+      "outOfScope": []
+    }
+  }
+}

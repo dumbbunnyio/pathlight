@@ -90,13 +90,16 @@ test("the scene is every view laid out by the terminal's compact fit, the overvi
   const scene = await (await fetch(api("/api/scene"))).json() as SceneData;
   expect(scene.project).toBe("parcel");
   expect(scene.mode).toBe("dark");
-  expect(scene.views.map(view => view.id)).toEqual(["index", "checkout", "services"]);
-  expect(scene.rail).toEqual([
-    { view: "index", name: "System context", holder: "Parcel", detail: "5 boxes" },
-    { view: "checkout", name: "Checkout detail", holder: "Parcel", detail: "8 boxes" },
-    { view: "services", name: "Service architecture", holder: "Parcel", detail: "16 boxes" },
-  ]);
+  // The overview first; every view the terminal reads is in the scene and on the rail, in one order.
   const world = await terminal();
+  expect(scene.views[0]!.id).toBe("index");
+  expect(scene.views.map(view => view.id).sort()).toEqual([...world.diagrams.keys()].sort());
+  expect(scene.rail.map(row => row.view)).toEqual(scene.views.map(view => view.id));
+  // After the overview the views are in the order of their titles, whatever order the files give them.
+  const rest = scene.views.slice(1).map(view => view.title);
+  expect(rest).toEqual([...rest].sort((a, b) => a.localeCompare(b)));
+  expect(scene.rail[0]).toEqual({ view: "index", name: "System context", holder: "Parcel", detail: "5 boxes" });
+  expect(scene.rail).toContainEqual({ view: "services", name: "Service architecture", holder: "Parcel", detail: "16 boxes" });
   for (const view of scene.views) {
     const raw = world.diagrams.get(view.id)!;
     // The same function the terminal shapes a view with (native-viewer.ts `shape`), so the cards sit where the terminal puts them.

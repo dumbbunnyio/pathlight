@@ -1,0 +1,43 @@
+// Where Parcel runs, written by hand as its model is: two environments, the cluster and the managed stores. All systems are fictional.
+// Its two views are in views.c4, after the model's, so they are listed after them.
+specification {
+  deploymentNode environment
+  deploymentNode zone
+  deploymentNode host
+}
+
+deployment {
+  environment prod "Production" {
+    zone cloud "AWS eu-west-1" {
+      host cluster "EKS cluster" {
+        description "The services, from deploy/k8s."
+        instanceOf parcel.commerce.api
+        instanceOf parcel.commerce.inventory
+        instanceOf parcel.commerce.relay
+        host workers "Workers" {
+          instanceOf parcel.fulfillment.shipping
+          instanceOf parcel.fulfillment.notifications
+        }
+      }
+      host rds "RDS" {
+        orders = instanceOf parcel.commerce.orders {
+          title "orders-prod"
+        }
+        instanceOf parcel.commerce.stock
+      }
+      host mq "Amazon MQ" {
+        instanceOf parcel.fulfillment.events
+      }
+    }
+    zone edge "CDN" {
+      instanceOf parcel.storefront
+    }
+  }
+  environment dev "Development" {
+    host laptop "docker compose" {
+      instanceOf parcel.storefront
+      instanceOf parcel.commerce.api
+      instanceOf parcel.commerce.orders
+    }
+  }
+}

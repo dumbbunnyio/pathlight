@@ -43,6 +43,8 @@ test("a turn that adds nothing writes nothing; a new folder is drawn with its ar
     expect(await readFile(model(directory), "utf8")).toMatch(/^\s*small\.auth -> store /m);
     expect(JSON.parse(await readFile(join(directory, ".cache/pathlight/stale.json"), "utf8")).unmapped).toBe(0);
 
+    // Unset is on for a drawn map, and get says so.
+    expect(cli(directory, "config", "get", "redraw").out.trim()).toBe("on");
     expect(cli(directory, "config", "set", "redraw", "off").code).toBe(0);
     expect(cli(directory, "config", "get", "redraw").out.trim()).toBe("off");
     await mkdir(join(directory, "src/billing"));
@@ -145,9 +147,104 @@ test("a model a person wrote is never redrawn", async () => {
     const before = await readFile(join(directory, "model.c4"), "utf8");
     const done = refresh(directory);
     expect(done).toMatchObject({ redrew: false, due: [] });
+    expect(cli(directory, "config", "get", "redraw").out.trim()).toBe("off");
     expect(await readFile(join(directory, "model.c4"), "utf8")).toBe(before);
     expect(await Bun.file(model(directory)).exists()).toBe(false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+// Phase 7 step 4 (decision 8): a drawn map's frames follow the files that run things. A service a file adds or drops is reported and redrawn; any other
+// change to the file (a comment) is nothing.
+test("a service added to or gone from a compose file is reported and redrawn at the end of a turn; an edited comment is not", async () => {
+  const directory = await shop();
+  try {
+    const compose = (services: string) => writeFile(join(directory, "docker-compose.yml"), `services:\n${services}`);
+    const db = "  db:\n    image: postgres:16\n", cache = "  cache:\n    image: redis:7\n";
+    const runs = async () => (JSON.parse(await readFile(join(directory, ".pathlight/pathlight.activity.json"), "utf8")) as { runs?: { target: string; name: string }[] }).runs?.map(item => `${item.target}#${item.name}`).sort() ?? [];
+    const checked = () => JSON.parse(cli(directory, "check", "--json").out) as { runs: { gone: string[]; added: string[] }; summary: { whereItRuns: number } };
+    await compose(db);
+    expect(cli(directory, "draft").code).toBe(0);
+    expect(await runs()).toEqual(["docker-compose.yml#db"]);
+    // The briefing says where it runs, from the same frames.
+    expect(cli(directory, "brief", "--first-day").out.split("\n").find(line => line.startsWith("Runs as:"))).toContain("docker-compose.yml");
+    expect(checked().summary.whereItRuns).toBe(0);
+
+    await compose(db + cache);
+    expect(checked().runs.added).toEqual(["docker-compose.yml#cache"]);
+    expect(refresh(directory).redrew).toBe(true);
+    expect(await runs()).toEqual(["docker-compose.yml#cache", "docker-compose.yml#db"]);
+    expect(checked().summary.whereItRuns).toBe(0);
+
+    await writeFile(join(directory, "docker-compose.yml"), `# the shop's services\nservices:\n${db}${cache}`);
+    expect(refresh(directory)).toMatchObject({ redrew: false, due: [] });
+
+    await compose(cache);
+    expect(checked().runs.gone).toEqual(["docker-compose.yml#db"]);
+    expect(refresh(directory).redrew).toBe(true);
+    expect(await runs()).toEqual(["docker-compose.yml#cache"]);
+
+    // A model the person took over (the generated marker gone) is never redrawn, so a service named since is not reported against it.
+    await writeFile(model(directory), (await readFile(model(directory), "utf8")).split("\n").slice(1).join("\n"));
+    await compose(db + cache);
+    expect(checked().runs.added).toEqual([]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 90_000);
+
+// Phase 7 step 6: what the files that run things named at the last draw lives in ignored state. A fresh clone, a cleaned cache or a map an older
+// pathlight drew has no record: the first turn records it (drawing once), so a service added after that is still told and redrawn, and a map drawn
+// before "Where it runs" gains it.
+test("with no record of what the last draw read (a fresh clone, an older map), a service added to a compose file is still redrawn", async () => {
+  const directory = await shop();
+  try {
+    const db = "  db:\n    image: postgres:16\n", cache = "  cache:\n    image: redis:7\n";
+    const mapping = join(directory, ".pathlight/pathlight.activity.json");
+    await writeFile(join(directory, "docker-compose.yml"), `services:\n${db}`);
+    expect(cli(directory, "draft").code).toBe(0);
+    await rm(join(directory, ".cache"), { recursive: true, force: true });
+    // A turn that changes nothing writes nothing, with or without the record.
+    expect(refresh(directory)).toMatchObject({ redrew: false });
+    await writeFile(join(directory, "docker-compose.yml"), `services:\n${db}${cache}`);
+    expect(refresh(directory)).toMatchObject({ redrew: true });
+
+    // An older map: its mapping has no `runs`, and nothing recorded. The next turn draws where it runs.
+    const { runs, ...older } = JSON.parse(await readFile(mapping, "utf8")) as { runs?: unknown };
+    expect(runs).toBeDefined();
+    await writeFile(mapping, JSON.stringify(older));
+    await rm(join(directory, ".cache"), { recursive: true, force: true });
+    expect(refresh(directory)).toMatchObject({ redrew: true });
+    expect((JSON.parse(await readFile(mapping, "utf8")) as { runs?: unknown[] }).runs).toHaveLength(2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 90_000);
+
+// Backlog 11: a person's own model file beside a drawn map made every end of turn fail with draft's refusal (exit 1, nothing recorded, nothing shown).
+test("a model file of a person's own beside a drawn map stops the redraw quietly, and check says why once", async () => {
+  const directory = await shop();
+  try {
+    await writeFile(join(directory, ".pathlight/mine.c4"), "model {\n}\n");
+    // A box left waiting by an earlier turn is not asked about either: naming it would redraw, which the map no longer does.
+    await mkdir(join(directory, ".cache/pathlight"), { recursive: true });
+    await writeFile(join(directory, ".cache/pathlight/refresh.json"), JSON.stringify({ version: 1, time: Date.now(), redrew: false, added: [], waiting: ["src/aa"] }));
+    expect((JSON.parse(cli(directory, "refresh", "--json").out) as { request?: string }).request).toBeUndefined();
+    await mkdir(join(directory, "src/auth"));
+    await writeFile(join(directory, "src/auth/guard.ts"), "export const guard = 1;\n");
+    const before = await readFile(model(directory), "utf8");
+    expect(cli(directory, "refresh", "--quiet")).toMatchObject({ code: 0, out: "" });
+    const hook = Bun.spawnSync([process.execPath, resolve("src/cli.ts"), "refresh", "--hook", "claude", "--workspace", directory], { stdin: new TextEncoder().encode("{}"), stdout: "pipe", stderr: "pipe" });
+    expect([hook.exitCode, hook.stderr.toString()]).toEqual([0, ""]);
+    expect(await readFile(model(directory), "utf8")).toBe(before);
+    const report = cli(directory, "check").out;
+    expect(report.split("\n").filter(line => line.includes(".pathlight/mine.c4"))).toHaveLength(1);
+    expect((JSON.parse(cli(directory, "check", "--json").out) as { own: string[] }).own).toEqual([".pathlight/mine.c4"]);
+    // Without the file the map is redrawn as before.
+    await rm(join(directory, ".pathlight/mine.c4"));
+    expect(refresh(directory).redrew).toBe(true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 90_000);

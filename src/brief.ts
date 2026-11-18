@@ -326,6 +326,8 @@ export interface FirstDay {
   built: { key: string; title: string; note?: string; inferred: boolean; named: boolean; files: number; lines: number }[];
   /** What the code talks to that is not code (src/resources.ts), most used first. */
   talksTo: { key: string; title: string; kind: string; files: number }[];
+  /** Where it runs (Phase 7): each frame's file, the services it runs and the resources beside them, as the draft draws them. */
+  runsAs: { file: string; services: string[]; beside: string[] }[];
   numbers: { boxes: number; files: number; imports: number; languages: string[]; unread: { language: string; files: number }[] };
   starts: EntryPoint[];
   journeys: { id: string; title: string; kind: "journey" | "state diagram"; steps: number; findings: number }[];
@@ -363,7 +365,11 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
     inferred: inferredMark.test(box.name?.note ?? ""), named: Boolean(box.name?.title || box.name?.note), files: box.files.length, lines: box.lines }));
   const { paths } = yield* listFiles(root);
   const overlay = yield* readOverlay(root);
-  const talksTo = draftOf(scan, yield* readManifests(root, paths), overlay, paths.filter(isUnscannedSource), yield* readInfra(root, paths)).resources
+  const drawnDraft = draftOf(scan, yield* readManifests(root, paths), overlay, paths.filter(isUnscannedSource), yield* readInfra(root, paths));
+  const resourceTitle = new Map(drawnDraft.resources.map(item => [item.element, item.title] as const));
+  const runsAs = drawnDraft.targets.map(target => ({ file: target.path === "." ? target.title : target.path, services: target.services.filter(item => !item.folded).map(item => item.name),
+    beside: [...new Set(target.instances.map(item => resourceTitle.get(item.element) ?? item.name))] }));
+  const talksTo = drawnDraft.resources
     .map(item => ({ key: item.key, title: item.title, kind: item.kind, files: item.files.length })).sort((a, b) => b.files - a.files || (a.title < b.title ? -1 : 1));
   const drafted = yield* io("Brief.drafted", () => readFile(join(homeOf(root), modelFile), "utf8")).pipe(Effect.map(text => text.startsWith(generatedMarker)), Effect.catch(() => Effect.succeed(false)));
   const flows = yield* checkFlows(root, { scan }).pipe(Effect.map(found => ({ found, error: undefined })), Effect.catch(error => Effect.succeed({ found: undefined, error: error.message })));
@@ -376,7 +382,7 @@ export const firstDayOf = Effect.fn("Brief.firstDay")(function* (workspace: stri
   const tracked = named.filter(box => box.name?.by !== "human");
   return {
     project: context.name ?? posix.basename(root), drafted,
-    what, built, talksTo,
+    what, built, talksTo, runsAs,
     numbers: { boxes: all.length, files: scan.coverage.files, imports: scan.coverage.imports, languages: [...new Set(scan.files.map(file => languageNames[file.language] ?? file.language))].sort(),
       unread: scan.coverage.unscanned.map(entry => ({ language: languageOf(`x${entry.extension}`), files: entry.files })) },
     starts, journeys, ...(flows.error ? { journeysError: flows.error } : {}),
@@ -404,6 +410,14 @@ export function formatFirstDay(day: FirstDay) {
   lines.push(`${numbers.boxes.toLocaleString("en")} box${numbers.boxes === 1 ? "" : "es"} · ${count(numbers.files, "file")} read · ${count(numbers.imports, "import")} · read: ${numbers.languages.join(", ") || "none"}${numbers.unread.length ? ` · not read: ${numbers.unread.map(entry => `${entry.files.toLocaleString("en")} ${entry.language}`).join(", ")}` : ""}`);
   // What it talks to, in one line, only when there is something: the resources the draft draws, by how much code reaches each.
   if (day.talksTo.length) lines.push(`Talks to: ${day.talksTo.map(item => `${item.title} (${item.kind})`).join(", ")}`);
+  // One line however many files run it: the first three, then how many more (the view "Where it runs" has them all).
+  if (day.runsAs.length) {
+    const frame = (item: FirstDay["runsAs"][number]) => {
+      const said = [item.services.join(", "), item.beside.length ? `${item.services.length ? "beside " : ""}${item.beside.join(", ")}` : ""].filter(Boolean).join(" ");
+      return said ? `${item.file} (${said})` : item.file;
+    };
+    lines.push(`Runs as: ${day.runsAs.slice(0, 3).map(frame).join("; ")}${day.runsAs.length > 3 ? `; and ${day.runsAs.length - 3} more ${day.runsAs.length - 3 === 1 ? "file" : "files"}` : ""}`);
+  }
   lines.push("", "## Where it starts");
   if (!day.starts.length) lines.push("no declared start (no script, main or package main)");
   for (const entry of day.starts) lines.push(`${entry.file}${entry.box ? ` [${entry.box}]` : ""} — ${entry.why}`);

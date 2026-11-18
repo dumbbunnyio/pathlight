@@ -32,4 +32,18 @@ views {
     }
     autoLayout TopBottom
   }
+
+  deployment view production {
+    title "Parcel / Production"
+    description "Where each service and store runs in production."
+    include prod.**
+    autoLayout LeftRight
+  }
+
+  deployment view development {
+    title "Parcel / Development"
+    description "What docker compose runs on a laptop."
+    include dev.laptop, dev.laptop.*
+    autoLayout LeftRight
+  }
 }

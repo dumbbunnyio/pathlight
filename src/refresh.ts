@@ -4,7 +4,8 @@ import { Effect, Schema } from "effect";
 import { readActivityConfig } from "./activity";
 import { checkAndRecord } from "./stale";
 import { diffWorkspace, recordDiff } from "./diff";
-import { draftWorkspace, generatedMarker, hasFilesIn } from "./draft";
+import { ownNotice } from "./check";
+import { draftWorkspace, generatedMarker, hasFilesIn, ownModelsBeside, runsReadPath } from "./draft";
 import { readKeys, readOverlay } from "./edit";
 import { io, json } from "./effects";
 import { homeOf, mappingPath, modelFile } from "./layout";
@@ -91,6 +92,8 @@ export interface Refresh {
   redrew: boolean;
   added: { id: string; key: string }[];
   blocked?: { element: string; journey: string };
+  /** A person's own model files beside the drawn map: it is theirs now, and not redrawn. */
+  own?: string[];
   /** The new boxes to name this turn (at most `namingCap`) and how many more wait; `request` is the one line the agent is sent. */
   unnamed: string[];
   waiting: number;
@@ -117,7 +120,9 @@ export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (worksp
 
   let check = yield* checkAndRecord(root, given).pipe(Effect.option);
   const due: string[] = [];
-  if (drawn && redraw === "on") {
+  // A model file of the person's own beside the drawn map makes the map theirs: checked and diffed, never redrawn (backlog 11).
+  const own = yield* ownModelsBeside(root);
+  if (drawn && redraw === "on" && !own.length) {
     const overlay = yield* readOverlay(root).pipe(Effect.option);
     const present = [...scan.files.map(file => file.path), ...paths.filter(isUnscannedSource)];
     const built = overlay._tag === "Some" ? (overlay.value.planned ?? []).filter(item => hasFilesIn(present, item.path)) : [];
@@ -125,8 +130,15 @@ export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (worksp
     else {
       if (check.value.mappings.unmappedFiles.length) due.push(`${plural(check.value.mappings.unmappedFiles.length, "file")} no box claims`);
       if (check.value.mappings.unmatched.length) due.push(`${plural(check.value.mappings.unmatched.length, "mapping")} that match no file`);
+      const runs = check.value.runs.gone.length + check.value.runs.added.length;
+      if (runs) due.push(`${plural(runs, "service")} added or gone where it runs`);
     }
     if (built.length) due.push(`${built.length} planned ${built.length === 1 ? "box has" : "boxes have"} files`);
+    // What the files that run things named at the last draw is ignored state: a fresh clone, a cleaned cache or a map an older pathlight drew has no
+    // record, so a service added since could never be told. One draw records it; an unchanged draw writes nothing else, and a map drawn before
+    // "Where it runs" gains the view.
+    const recorded = yield* io("Refresh.runsRead", () => readFile(join(root, runsReadPath), "utf8")).pipe(Effect.option);
+    if (recorded._tag === "None") due.push("nothing recorded of where it runs");
   }
 
   let redrew = false, blocked: Refresh["blocked"], added: Refresh["added"] = [];
@@ -157,7 +169,9 @@ export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (worksp
   const drawnKeys = new Set((yield* readKeys(root)).values());
   const isCode = (key: string) => !key.includes("#") && drawnKeys.has(key) && paths.some(path => path === key || path.startsWith(`${key}/`));
   const fresh = named._tag === "Some" ? [...new Set([...last?.waiting ?? [], ...added.map(item => item.key)])].filter(key => isCode(key) && !named.value.elements[key]) : [];
-  const unnamed = ask ? fresh.slice(0, namingCap) : [], later = ask ? fresh.slice(namingCap) : fresh, waiting = later.length;
+  // A map the person owns now (their own model file beside it) asks nobody: naming redraws, which it no longer does. The boxes keep waiting.
+  const asking = ask && !own.length;
+  const unnamed = asking ? fresh.slice(0, namingCap) : [], later = asking ? fresh.slice(namingCap) : fresh, waiting = later.length;
   yield* writeRefreshed(root, { version: 1, time: Date.now(), redrew, added, ...(unnamed.length ? { unnamed } : {}), ...(later.length ? { waiting: later } : {}), ...(blocked ? { blocked } : {}) });
 
   // The review of new dependencies, against the model as it now is. Not a git repository, or no commit yet: there is nothing to compare with.
@@ -165,7 +179,7 @@ export const refreshWorkspace = Effect.fn("Refresh.workspace")(function* (worksp
   const diff = config._tag === "Some" ? yield* diffWorkspace(root, "HEAD", given).pipe(Effect.option) : undefined;
   if (diff?._tag === "Some") yield* recordDiff(root, diff.value);
   return {
-    mapped: true, drawn, redraw, due, redrew, added, ...(blocked ? { blocked } : {}), unnamed, waiting, ...(unnamed.length ? { request: namingRequest(unnamed, waiting) } : {}),
+    mapped: true, drawn, redraw, due, redrew, added, ...(own.length ? { own } : {}), ...(blocked ? { blocked } : {}), unnamed, waiting, ...(unnamed.length ? { request: namingRequest(unnamed, waiting) } : {}),
     ...(check._tag === "Some" ? { check: { unmapped: check.value.mappings.unmappedFiles.length, unsupported: check.value.summary.unsupported, undeclared: check.value.summary.undeclared } } : {}),
     ...(diff?._tag === "Some" ? { diff: { relationships: diff.value.relationships.length, undeclared: diff.value.undeclared.length } } : {}),
   } as Refresh;
@@ -179,6 +193,7 @@ export function formatRefresh(result: Refresh) {
   if (result.check) lines.push(`Checked: ${plural(result.check.unmapped, "file")} not in the model, ${plural(result.check.undeclared, "import")} no relationship covers, ${plural(result.check.unsupported, "relationship")} no import backs.`);
   else lines.push("Checked: the model could not be read (pathlight check says why).");
   if (!result.drawn) lines.push("The map was written by a person, so it is never redrawn.");
+  else if (result.own?.length) lines.push(ownNotice(result.own).replace(/^· /, ""));
   else if (result.redraw === "off") lines.push("Redraw is off for this workspace (pathlight config set redraw on --workspace . turns it on).");
   else if (result.blocked) lines.push(`Not redrawn: it would remove ${result.blocked.element}, which journey ${result.blocked.journey} uses. Rerun or remove that journey; the next turn then redraws.`);
   else if (result.redrew) lines.push(`Redrew the map (${result.due.join(", ")})${result.added.length ? `: new ${result.added.length === 1 ? "box" : "boxes"} ${result.added.map(item => item.key).join(", ")}` : ""}.`);
