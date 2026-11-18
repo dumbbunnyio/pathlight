@@ -191,6 +191,21 @@ test("an instance says what its resource says, and an instance of anything else 
   expect(insideWords(view, new Set(), new Set(["postgresql"]))).toEqual(new Map([["f.db", "database"]]));
 });
 
+// Step 6: a plain service says `container`, as a program does (plan decision 7); the closed card of a whole repository and "N other services" are
+// services too, and say nothing.
+test("a plain service where it runs says container; a closed whole-repository card and the folded services do not", () => {
+  const view = { id: "runs", nodes: [
+    { id: "compose", kind: "target", children: ["compose.backend", "compose.web", "compose.other_services"] },
+    { id: "compose.backend", kind: "service", tags: ["container"], children: [] },
+    { id: "compose.web", kind: "service", children: [] },
+    { id: "compose.other_services", kind: "service", children: [] },
+  ] };
+  const words = insideWords(view, new Set(), new Set(), new Set(view.nodes.map(node => node.id)));
+  expect(words.get("compose.backend")).toBe("container");
+  expect(words.has("compose.web")).toBe(false);
+  expect(words.has("compose.other_services")).toBe(false);
+});
+
 // Step 2: the tie. A small monorepo: `api` (holding its own test package `api/e2e`), `web`, a Rust `worker` declaring the binary `fleet-worker`, and
 // the root package `fleet` with a `start` script.
 // More files of code than services, or R2 would draw the compose file as programs (a repository that is mostly infrastructure).
@@ -294,6 +309,9 @@ test("a drafted map draws a service of several boxes as a frame of cards, a plai
     expect([String(byId.get("docker_compose_prod_yml.api")!.modelRef), byId.get("docker_compose_prod_yml.api")!.title]).toEqual(["api", "api"]);
     // The plain service draws its `depends_on` to the database instance in its own file.
     expect(view!.edges.some(edge => String(edge.source) === "docker_compose_yml.proxy" && String(edge.target) === "docker_compose_yml.db")).toBe(true);
+    // It says `container` on its card; the service of several boxes does not.
+    const words = insideWords(view!, new Set(), new Set(), new Set(nodes.map(node => String(node.id))));
+    expect([words.get("docker_compose_yml.proxy"), words.get("docker_compose_bundle_yml.all")]).toEqual(["container", undefined]);
     // The model's arrow api → database is drawn inside a file, never from one file's api to the other file's database.
     const frameOf = (id: unknown) => String(id).split(".")[0];
     expect(view!.edges.filter(edge => frameOf(edge.source) !== frameOf(edge.target))).toEqual([]);

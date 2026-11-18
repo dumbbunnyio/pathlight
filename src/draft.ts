@@ -844,7 +844,10 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
   // A resource is its own kind of element, its kind (database, cache …) a tag the viewers draw as the card's word.
   const kinds = [...new Set(draft.resources.map(item => item.kind))].sort(byText);
   if (draft.resources.length) out.splice(out.indexOf("  element component") + 1, 0, "  element resource", ...kinds.map(kind => `  tag ${kind}`));
-  if (draft.targets.length) out.splice(out.indexOf("}"), 0, "  deploymentNode target", ...draft.targets.some(target => target.services.some(item => item.elements.length !== 1)) ? ["  deploymentNode service"] : []);
+  // A plain service (one no line ties to this repository's code) is tagged `container`, the word its card says; the closed card of a whole repository
+  // and "N other services" are services too and say nothing.
+  const plainServices = draft.targets.some(target => target.services.some(item => !item.folded && !item.elements.length));
+  if (draft.targets.length) out.splice(out.indexOf("}"), 0, "  deploymentNode target", ...draft.targets.some(target => target.services.some(item => item.elements.length !== 1)) ? ["  deploymentNode service"] : [], ...plainServices ? ["  tag container"] : []);
   // Files in a language the scan does not read are counted and named by language, and the description says their connections are not drawn.
   const languages = (files: readonly string[]) => {
     const counts = new Map<string, number>();
@@ -1128,7 +1131,7 @@ export function renderDraft(draft: Draft, lines: ReadonlyMap<string, number> = n
           const inner = new Set<string>();
           runs.push(`    service ${service.id} ${quote(service.title)} {`, `      description ${quote(said(service.note, `Service ${service.name}: ${service.by}${service.whole ? "; the whole repository" : ""}.`))}`, ...service.elements.map(element => `      ${unique(slug(element.split(".").at(-1)!), inner)} = instanceOf ${element}`), "    }");
         } else {
-          runs.push(`    service ${service.id} ${quote(service.title)} {`, `      description ${quote(said(service.note, `Service ${service.name}, ${service.by}: no line here says which code it runs.`))}`, ...(service.image ? [`      technology ${quote(service.image)}`] : []), "    }");
+          runs.push(`    service ${service.id} ${quote(service.title)} {`, "      #container", `      description ${quote(said(service.note, `Service ${service.name}, ${service.by}: no line here says which code it runs.`))}`, ...(service.image ? [`      technology ${quote(service.image)}`] : []), "    }");
           for (const use of service.uses ?? []) arrows.push(`  ${target.id}.${service.id} -> ${target.id}.${use.to} ${quote(use.by)}`);
         }
       }

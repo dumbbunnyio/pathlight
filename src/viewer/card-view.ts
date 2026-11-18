@@ -25,6 +25,8 @@ export const insideWords = (view: { id: unknown; nodes: readonly { id: unknown; 
     if (kind) { words.set(String(node.id), kind); continue; }
     // A program the infrastructure runs (Phase R2) says what it is, as a resource does.
     if (String(node.kind) === "container" && !node.children.length) { words.set(String(node.id), "container"); continue; }
+    // So does a plain service where it runs: the draft tags it `container` (not the closed card of a whole repository, not "N other services").
+    if (String(node.kind) === "service" && !node.children.length && node.tags?.some(tag => String(tag) === "container")) { words.set(String(node.id), "container"); continue; }
     if (node.children.length || !node.navigateTo || String(node.navigateTo) === String(view.id)) continue;
     const ref = String(node.modelRef), count = node.modelRef ? [...boxes].filter(box => box.startsWith(`${ref}.`)).length : [...ids].filter(id => id.startsWith(`${String(node.id)}.`)).length;
     if (count) words.set(String(node.id), `[${count.toLocaleString("en")}]`);
