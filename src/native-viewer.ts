@@ -72,6 +72,8 @@ const world = yield* loadWorld(view, { watching: Boolean(binding || following), 
 const withFrames = (given: typeof world.config, held: typeof world.frames): typeof world.config => given && { ...given, mappings: [...given.mappings, ...frameRules(held, new Set((given.runs ?? []).map(item => item.target)))] };
 let { files, fileError, diagrams, typesOnly, deployed, frames } = world;
 let config = withFrames(world.config, frames);
+// The mapping as it is on disk: what the Files card lists, as at load.
+let mapped = world.config;
 // Compact fit: each view is drawn from a copy with Pathlight's spacing and card sizes and LikeC4's arrangement (viewer/compact.ts), made once per view.
 // A cell is taken to be half as wide as it is tall, as the camera does when the terminal does not say.
 type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
@@ -1099,7 +1101,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
       case "refreshFiles":
         if (!refreshing) {
           refreshing = true; message = "Refreshing files...";
-          runTask(nodeFiles(view.workspace, config).pipe(Effect.tap(next => Effect.sync(() => {
+          runTask(nodeFiles(view.workspace, mapped).pipe(Effect.tap(next => Effect.sync(() => {
             files = next; fileError = ""; state.fileCursor = 0; message = "Files refreshed"; update();
           })), Effect.catch(error => Effect.sync(() => { message = error.message; update(); })),
           Effect.ensuring(Effect.sync(() => { refreshing = false; }))));
@@ -1184,7 +1186,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const drawnBefore = new Set([...diagrams.values()].flatMap(entry => entry.nodes.map(node => String(node.modelRef ?? ""))));
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
-        diagrams = next.diagrams; config = withFrames(next.config, next.frames); files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; deployed = next.deployed; frames = next.frames; scanned = undefined;
+        diagrams = next.diagrams; mapped = next.config; config = withFrames(next.config, next.frames); files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; deployed = next.deployed; frames = next.frames; scanned = undefined;
         forgetGone(state, id => Boolean(diagrams.get(id)?.nodes.length));
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;
