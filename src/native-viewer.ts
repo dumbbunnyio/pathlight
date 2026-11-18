@@ -49,7 +49,7 @@ import { createFlowMode, flowView, stepElement } from "./viewer/flow-mode";
 import { createWidgets, numberedCards, type SectionKey, sectionOrder } from "./viewer/widgets";
 import { loadWorld, readChecks, type Words } from "./viewer/world";
 import { describe, easeOut, fade } from "./viewer/text";
-import { type Direction, elementsOf, neighborIn, newElsewhere, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, nothingThere, viewHaving as viewIn } from "./viewer/where";
+import { type Direction, elementsOf, frameRules, neighborIn, newElsewhere, newestWork as newestIn, nodeForElement as nodeIn, nodeOrAncestor, nothingThere, refOf, viewHaving as viewIn } from "./viewer/where";
 
 /**
  * Who draws the viewer when it is not the terminal's own process: `pathlight pane` hands it a headless renderer and takes the frames, says when the
@@ -67,7 +67,11 @@ const view = options.view;
 let binding = options.activity;
 const following = options.follow === true;
 const world = yield* loadWorld(view, { watching: Boolean(binding || following), reload: false });
-let { config, files, fileError, diagrams, typesOnly, deployed } = world;
+// The viewer's copy of the mapping also maps each frame's own file to the frame (an edit to a compose file is work on its frame where it runs), so
+// lighting, the news line, Work and follow all read it. The file on disk is not changed.
+const withFrames = (given: typeof world.config, held: typeof world.frames): typeof world.config => given && { ...given, mappings: [...given.mappings, ...frameRules(held, new Set((given.runs ?? []).map(item => item.target)))] };
+let { files, fileError, diagrams, typesOnly, deployed, frames } = world;
+let config = withFrames(world.config, frames);
 // Compact fit: each view is drawn from a copy with Pathlight's spacing and card sizes and LikeC4's arrangement (viewer/compact.ts), made once per view.
 // A cell is taken to be half as wide as it is tall, as the camera does when the terminal does not say.
 type Layout = NonNullable<ReturnType<typeof diagrams.get>>;
@@ -135,7 +139,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   if (options.select !== undefined && !asked) return yield* Effect.fail(failure("Native.select", `The view '${view.id}' has no element '${options.select}'. Pathlight list names the views; the element ids are in the model.`));
   type Scene = ReturnType<typeof getDiagram>;
   type Node = Scene["nodes"][number];
-  const state = createState<Node, Scene, { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; typesOnly: typeof typesOnly; deployed: typeof deployed; notice: string }>(asked ?? firstNode(diagram));
+  const state = createState<Node, Scene, { diagrams: typeof diagrams; config: typeof config; files: typeof files; fileError: string; typesOnly: typeof typesOnly; deployed: typeof deployed; frames: typeof frames; notice: string }>(asked ?? firstNode(diagram));
   let dirty = true;
   let redrawAfterResize = false;
   let fileMode = false, editorActive = false;
@@ -188,7 +192,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
     if (!node) return { element: "", instance: false };
     if (String(node.kind) === "instance") return { element: String(node.modelRef), instance: true };
     const inside = node.children.length === 0 && String(node.kind) === "service" && node.deploymentRef ? deployed.get(String(node.deploymentRef)) : undefined;
-    return inside?.length ? { element: inside, instance: true } : { element: String(node.modelRef ?? ""), instance: false };
+    if (inside?.length) return { element: inside, instance: true };
+    // A frame is lit by its own file's work (`frameRules`), never by what it holds.
+    return { element: node.modelRef == null && String(node.kind) === "target" ? refOf(node) : String(node.modelRef ?? ""), instance: false };
   };
   const noteCalls = () => {
     const stamp = Date.now() + 600;
@@ -352,9 +358,9 @@ const runTask = yield* FiberSet.makeRuntime<never>();
   // A component's title from this view, else from any view that draws it (the review and the header name components this view may not show), else its id.
   let titles: { of: typeof diagrams; byRef: Map<string, string> } | undefined;
   const elementTitle = (id: string) => {
-    const here = diagram.nodes.find(node => String(node.modelRef) === id)?.title;
+    const here = diagram.nodes.find(node => refOf(node) === id)?.title;
     if (here) return here;
-    if (titles?.of !== diagrams) titles = { of: diagrams, byRef: new Map([...diagrams.values()].flatMap(scene => scene.nodes.map(node => [String(node.modelRef), node.title] as const)).reverse()) };
+    if (titles?.of !== diagrams) titles = { of: diagrams, byRef: new Map([...diagrams.values()].flatMap(scene => scene.nodes.map(node => [refOf(node), node.title] as const)).reverse()) };
     return titles.byRef.get(id) ?? id.split(".").at(-1) ?? id;
   };
   // Every open card gets an equal share of the inspector's height; a folded card is a padded header.
@@ -1178,7 +1184,7 @@ const runTask = yield* FiberSet.makeRuntime<never>();
         const drawnBefore = new Set([...diagrams.values()].flatMap(entry => entry.nodes.map(node => String(node.modelRef ?? ""))));
         const keep = state.selected ? String(state.selected.id) : undefined;
         for (const entry of nodeObjects) { viewport.remove(entry.box); entry.box.destroyRecursively(); }
-        diagrams = next.diagrams; config = next.config; files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; deployed = next.deployed; scanned = undefined;
+        diagrams = next.diagrams; config = withFrames(next.config, next.frames); files = next.files; fileError = next.fileError; typesOnly = next.typesOnly; deployed = next.deployed; frames = next.frames; scanned = undefined;
         forgetGone(state, id => Boolean(diagrams.get(id)?.nodes.length));
         rules = config?.mappings.map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) })) ?? [];
         diagram = target;

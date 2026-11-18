@@ -9,6 +9,7 @@ import { RGBA } from "@opentui/core";
 import type { ActivityEvent } from "../src/activity";
 import { composeFacts, dockerfileFacts, type InfraFile, procfileFacts, readInfra, targetsOf, terraformFacts } from "../src/resources";
 import { cardTag, eventsLighting, nowCard } from "../src/viewer/activity-view";
+import { elementsOf, frameRules, newestWork, type WhereView } from "../src/viewer/where";
 import { cardLook, insideWords } from "../src/viewer/card-view";
 import { startWebServer } from "../src/web/server";
 import type { Frame, Span } from "../src/web/wire";
@@ -380,6 +381,42 @@ test("through the viewer, an edit inside a package lights its instance where it 
     await rm(directory, { recursive: true, force: true });
   }
 }, 120_000);
+
+// Step 6 (live test, part 13): an edit to a compose file was work on no box, so nothing lit and follow stayed on older work. A frame's own file
+// is its work: the frame lights where it runs, and follow goes there.
+test("through the viewer, an edit to a compose file lights its frame where it runs", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-deployment-frame-"));
+  try {
+    await write(directory, {
+      "package.json": JSON.stringify({ name: "fleet" }),
+      "tools/seed.ts": "export const seed = 1;\n",
+      "api/package.json": JSON.stringify({ name: "api", dependencies: { pg: "1" } }),
+      "api/src/server.ts": "import { Pool } from 'pg';\nexport const pool = new Pool();\n",
+      "docker-compose.yml": "services:\n  db:\n    image: postgres:16\n  api:\n    build: ./api\n",
+    });
+    await Effect.runPromise(draftWorkspace(directory));
+    await writeActivity(directory, { ...toolActivity(directory, { source: "claude", session: "frame" }, "c1", "Edit", { file_path: join(directory, "docker-compose.yml") }, "completed"), time: Date.now() });
+    expect((await see(directory, "runs", "--follow")).split("\n").some(line => /╭─docker-compose\.yml \[done\]/.test(line))).toBe(true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("a frame's own file is its work, so follow goes to the frame; only a drawn map's frames, by their paths", () => {
+  const frames = [{ id: "docker_compose_yml", title: "docker-compose.yml" }, { id: "charts_app", title: "charts/app" }, { id: "chart_yaml", title: "Chart.yaml" }, { id: "prod", title: "Production" }];
+  const rules = frameRules(frames, new Set(["docker-compose.yml", "charts/app", "."])).map(rule => ({ ...rule, match: new Bun.Glob(rule.glob) }));
+  const owner = (path: string) => [...elementsOf(rules, { paths: [path] } as never)];
+  expect(owner("docker-compose.yml")).toEqual(["docker_compose_yml"]);
+  expect(owner("charts/app/templates/deploy.yaml")).toEqual(["charts_app"]);
+  expect(owner("values.yaml")).toEqual(["chart_yaml"]);
+  expect(owner("src/app.ts")).toEqual([]);
+  const index: WhereView = { id: "index", nodes: [{ id: "api", modelRef: "api", children: [], title: "API" }] };
+  const runs: WhereView = { id: "runs", title: "Where it runs", nodes: [{ id: "docker_compose_yml", kind: "target", deploymentRef: "docker_compose_yml", children: ["docker_compose_yml.db"], title: "docker-compose.yml" },
+    { id: "docker_compose_yml.db", kind: "instance", modelRef: "postgresql", deploymentRef: "docker_compose_yml.db", children: [], title: "PostgreSQL" }] };
+  const event = { call: "c1", paths: ["docker-compose.yml"], time: 1 } as never;
+  expect(newestWork([event], rules, index, new Map([["index", index], ["runs", runs]]))).toMatchObject({ view: "runs", element: "docker_compose_yml" });
+  expect(newestWork([event], rules, runs, new Map([["runs", runs]]))).toEqual({ node: runs.nodes[0]! });
+});
 
 // Step 3: the files that run things and are nothing else. A Procfile and a systemd unit name no image, so they run this repository's code.
 test("Procfiles, systemd units, Kubernetes workloads and compose files in a compose folder are read as targets; other YAML is not", async () => {

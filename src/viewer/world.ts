@@ -34,10 +34,12 @@ export const loadWorld = (view: View, options: { watching: boolean; reload: bool
       .map(relation => ({ source: String(relation.source.id), target: String(relation.target.id) }));
     // What each deployment node stands for when it is drawn closed: the elements of the instances inside it (a service tied to a whole repository).
     const deployed = new Map([...model.deployment.nodes()].map(node => [String(node.id), [...new Set([...node.instances()].map(instance => String(instance.element.id)))].sort()] as const));
-    return { views: new Map([...model.views()].map(entry => [String(entry.id), entry.$view])), typesOnly, deployed };
+    // The frames of "Where it runs": each lit by its own file (`frameRules`).
+    const frames = [...model.deployment.nodes()].filter(node => String(node.kind) === "target").map(node => ({ id: String(node.id), title: String(node.title) }));
+    return { views: new Map([...model.views()].map(entry => [String(entry.id), entry.$view])), typesOnly, deployed, frames };
   }).pipe(Effect.scoped);
   if (config && options.reload) yield* validateActivityMapping(view, config);
-  return { config, files, fileError, diagrams: diagrams.views, typesOnly: diagrams.typesOnly, deployed: diagrams.deployed };
+  return { config, files, fileError, diagrams: diagrams.views, typesOnly: diagrams.typesOnly, deployed: diagrams.deployed, frames: diagrams.frames };
 });
 
 /**
