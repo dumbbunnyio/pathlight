@@ -35,7 +35,11 @@ export const labelTitle = (title: string, width: number, rows: number, status: b
 /** LikeC4's own description, flattened to one line of plain text: the model is the single source of what a component is for. */
 export const describe = (description: unknown) => {
   const raw = description as { txt?: string; md?: string } | null | undefined;
-  const text = (raw?.txt ?? raw?.md ?? "").replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[#*_`>]/g, "").replace(/\s+/g, " ").trim();
+  // Plain text is shown as written: the names the draft puts there keep their underscores and hashes (MINIFLUX_IMAGE, db_migration, compose#db).
+  // Markdown loses its marks only: headings, quotes, emphasis and code ticks, never an underscore inside a word.
+  const markdown = (text: string) => text.replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/^\s*(#+|>)\s?/gm, "")
+    .replace(/[*`]/g, "").replace(/(^|[^\w])_{1,2}([^_\s](?:[^_]*[^_\s])?)_{1,2}(?=[^\w]|$)/g, "$1$2");
+  const text = (raw?.txt !== undefined ? raw.txt : markdown(raw?.md ?? "")).replace(/\s+/g, " ").trim();
   return text.length > 420 ? `${text.slice(0, 419)}…` : text;
 };
 
