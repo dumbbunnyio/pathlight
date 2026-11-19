@@ -6,6 +6,7 @@ import { io } from "./effects";
 import { run } from "./process";
 import { claudePluginInstalled, hasPathlightPermission, pathlightPermission, projectSkillCopies } from "./init";
 import pkg from "../package.json" with { type: "json" };
+import { contract, updateHint } from "./contract";
 
 /** One line of the report: `fix` is what to do, shown only when the check failed. `info` is not a problem, just what was found. */
 export interface Finding { readonly name: string; readonly status: "ok" | "fail" | "info"; readonly detail: string; readonly fix?: string }
@@ -17,11 +18,14 @@ export const doctor = Effect.fn("Doctor.run")(function* (workspace: string) {
   const root = resolve(workspace);
   const found: Finding[] = [];
   const add = (finding: Finding) => { found.push(finding); };
-  add({ name: "pathlight", status: "ok", detail: `${pkg.version}, ${compiled ? "single binary" : "running from source with Bun"}, ${process.platform}/${process.arch}` });
+  add({ name: "pathlight", status: "ok", detail: `${pkg.version} (contract ${contract}), ${compiled ? "single binary" : "running from source with Bun"}, ${process.platform}/${process.arch}` });
   if (process.platform !== "linux") add({ name: "platform", status: "info", detail: `${process.platform} has not been verified; Linux with tmux is the tested setup` });
 
   const onPath = yield* run("sh", ["-c", "command -v pathlight"]).pipe(Effect.option);
-  if (onPath._tag === "Some") add({ name: "on PATH", status: "ok", detail: onPath.value });
+  // The hooks run the one on the PATH, which may be older than this one (an npx run, a checkout beside an old install).
+  const current = onPath._tag === "Some" ? yield* run(onPath.value, ["needs", String(contract)]).pipe(Effect.option) : undefined;
+  if (onPath._tag === "Some" && current?._tag === "None") add({ name: "on PATH", status: "fail", detail: `${onPath.value} is older than this pathlight, so the plugins' hooks would run an old one`, fix: updateHint });
+  else if (onPath._tag === "Some") add({ name: "on PATH", status: "ok", detail: onPath.value });
   else add({ name: "on PATH", status: "fail", detail: "the plugins' hooks call `pathlight`, and it was not found", fix: compiled ? "Put the pathlight binary in a directory on your PATH." : "Run `bun link` in the pathlight repository." });
 
   const tmux = yield* run("tmux", ["-V"]).pipe(Effect.option);

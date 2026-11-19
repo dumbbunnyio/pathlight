@@ -25,6 +25,7 @@ import { briefOf, changedBoxes, contextOf, entryPointsOf, firstDayOf, formatBrie
 import { readKeys } from "./edit";
 import { addFlow, formatAdded, removeFlow } from "./flow-write";
 import { doctor, formatDoctor, hasFailures } from "./doctor";
+import { contract, updateHint } from "./contract";
 import { setup } from "./setup";
 import { seeView } from "./see";
 import { paneView } from "./pane";
@@ -56,6 +57,7 @@ pathlight pane [VIEW] [--workspace PATH] [--project NAME] --cols N --rows N [--s
 pathlight web [VIEW] [--workspace PATH] [--project NAME] [--select ELEMENT] [--session ID --source claude] [--open | --port N] [--rune]
 pathlight record --workspace PATH < claude-hook.json
 pathlight doctor [--workspace PATH]
+pathlight needs N
 pathlight config get claude|browser | pathlight config set claude pane|tmux|web | pathlight config set browser COMMAND
 pathlight config get redraw [--workspace PATH] | pathlight config set redraw on|off [--workspace PATH]
 pathlight setup [--workspace PATH] [--yes]
@@ -73,6 +75,7 @@ plan --new declares a folder you are about to create, on a map pathlight draft d
 point asks an open viewer to select one element (an id from the model, or a box's key from brief) once (in --view if given, else in a view that draws it) and mark it as the agent's pointing until a key is pressed; it never makes the viewer follow. Ids and a time only. With --journey and --step (a journey's id from pathlight flows and a step's number) the viewer reads that journey at that step, as F would, until esc or the next pointer. With no viewer open on the workspace it does nothing and says so; with no element it clears the pointer.
 draft writes a first architecture picture made from the code alone (packages, folders and the imports between them), with no model
 in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --force to replace one.
+needs is what the plugins ask before anything that writes: it prints nothing and exits 0 when this binary can do what contract N asks, and says to update it otherwise. A binary older than this command fails it too, so the plugins catch every pathlight older than they need.
 setup is the first run: it checks the machine and the workspace, says what it would write, and with --yes draws a first model from the code when there is none. It never rewrites a model you wrote and leaves hooks and recording to init.
 init wires Claude Code hooks, the pathlight skills and the OpenCode plugin into a workspace. init --global registers the OpenCode plugin for every project instead (in OpenCode's own opencode.json); it records only in projects with a mapping.
 show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
@@ -222,6 +225,14 @@ try {
       const diff = yield* diffWorkspace(values.workspace, values.base);
       yield* recordDiff(values.workspace, diff);
       if (!values.quiet) process.stdout.write(values.json ? `${JSON.stringify(diff, null, 2)}\n` : formatDiff(diff));
+    } else if (command === "needs") {
+      // The plugins' question before anything that writes: can this binary do what contract N asks? Silent when it can.
+      const wanted = Number(id);
+      if (!id || !Number.isInteger(wanted) || wanted < 1) return yield* invalid("Use pathlight needs N, with N a whole number.");
+      if (wanted > contract) {
+        process.stderr.write(`This pathlight is older than the plugin needs (it has contract ${contract}, the plugin needs ${wanted}). ${updateHint}\n`);
+        process.exitCode = 1;
+      }
     } else if (command === "doctor") {
       if (id) return yield* invalid("doctor takes no argument. Use --workspace PATH.");
       const findings = yield* doctor(values.workspace);

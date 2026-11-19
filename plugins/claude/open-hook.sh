@@ -14,6 +14,9 @@ view=$(printf '%s' "$input" | sed -n 's/.*"prompt":"\/pathlight:open *\(tmux \|p
 case "$view" in tmux|pane|web) view= ;; esac
 if ! command -v pathlight >/dev/null 2>&1; then
   reason="pathlight is not installed. Run: curl -fsSL https://raw.githubusercontent.com/dumbbunnyio/pathlight/main/install.sh | sh"
+elif ! pathlight needs 1 >/dev/null 2>&1; then
+  # A binary older than this plugin would fail on the map a newer one drew, or redraw it without what it does not know.
+  reason="The pathlight on your PATH ($(command -v pathlight)) is older than this plugin needs. Update it: npm i -g @dumbbunnyio/pathlight, or run the install script again."
 else
   [ -n "$where" ] || where=$(pathlight config get claude 2>/dev/null)
   if [ "$where" = web ]; then

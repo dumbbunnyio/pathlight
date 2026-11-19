@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { run } from "./effects";
@@ -50,7 +50,10 @@ test("the compiled binary drafts, initialises, reports on itself and opens its o
     expect(initialised).toContain("Skills: pathlight-behavior, pathlight-map, pathlight-onboarding written");
     expect(await readFile(join(project, ".claude/skills/pathlight-map/SKILL.md"), "utf8")).toContain("name: pathlight-map");
     expect(await readFile(join(project, ".claude/skills/pathlight-behavior/SKILL.md"), "utf8")).toContain("name: pathlight-behavior");
-    expect(await run(binary, ["doctor", "--workspace", project])).toContain("single binary");
+    // doctor fails when the pathlight on the PATH is older than itself: here the one on the PATH is this build, whatever the developer has installed.
+    const path = process.env.PATH;
+    process.env.PATH = `${dirname(binary)}:${path}`;
+    try { expect(await run(binary, ["doctor", "--workspace", project])).toContain("single binary"); } finally { process.env.PATH = path; }
     const harness = await tmux("-f", "/dev/null", "new-session", "-d", "-s", "binary", "-x", "150", "-y", "40", "-P", "-F", "#{pane_id}", "sleep", "120");
     const shown = JSON.parse(await run(binary, ["show", "index", "--workspace", project, "--pane", harness, "--socket", socket])) as { pane: string };
     let screen = "";
