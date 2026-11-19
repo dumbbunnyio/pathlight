@@ -130,7 +130,7 @@ Map quality is measured, not judged: see [docs/eval.md](docs/eval.md) for the in
 
 Keep README and the native controls document aligned with shipped behavior.
 Update project intent when an approved product decision changes, distinguishing
-implemented behavior from desired or unverified behavior. Bump `scanRevision` in `src/scan.ts` whenever a scanner change can alter its output for the same files: `pathlight diff` caches the base commit's scan and trusts it only for the same revision.
+implemented behavior from desired or unverified behavior. Bump `contract` in `src/contract.ts` (and the `pathlight needs N` in `plugins/claude/hooks/hooks.json` and `plugins/claude/open-hook.sh`; `tests/contract.test.ts` holds them equal) whenever an older binary would misread or damage what a newer one writes, or a plugin starts to use a command or flag an older binary lacks: the plugins and the binary ship apart, and the hooks run nothing that writes on a binary that fails `needs` (the end of a turn, `/pathlight:open`, and in Claude Code the agent's own Bash call to a command that writes the map, `plugins/claude/needs-hook.sh`). `record` is not gated, so the activity journal and the session pointer only ever gain what an older binary may ignore. Bump `scanRevision` in `src/scan.ts` whenever a scanner change can alter its output for the same files: `pathlight diff` caches the base commit's scan and trusts it only for the same revision.
 
 Do not commit or push
 unless the governing session instructions explicitly permit it.

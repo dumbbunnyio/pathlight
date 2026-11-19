@@ -11,6 +11,7 @@ import { recordSession, type SessionChange } from "../../src/sessions";
 import { ActivitySubscriptions } from "../../src/activity-subscriptions";
 import { Effect, Fiber, Queue, Stream } from "effect";
 import { io } from "../../src/effects";
+import { contract } from "../../src/contract";
 import { chooseTracerModel, type ModelInfo } from "./tracer-model";
 import tracerSource from "../claude/agents/pathlight-tracer.md" with { type: "text" };
 import namerSource from "../claude/agents/pathlight-namer.md" with { type: "text" };
@@ -87,6 +88,8 @@ export default Plugin.define({
     let checking = false, again: { sessionID: SessionID | undefined; succeeded: boolean } | null = null;
     // A run the plugin started itself (its request to name new boxes) is never asked about again: one request per turn, never a loop.
     const ownRun = new Set<SessionID>();
+    let toldOld = false;
+    const oldBinary = "Pathlight: the pathlight program on this computer is older than the OpenCode plugin needs, so the map was not kept current this turn. Tell the person in one line to update it: npm i -g @dumbbunnyio/pathlight, or run the install script again.";
     const endOfTurn = async (sessionID: SessionID | undefined, succeeded: boolean) => {
       if (checking) { again = { sessionID, succeeded }; return; }
       // Its own run is over whether or not the workspace is still mapped: the entry is cleared first, so it cannot outlive the run.
@@ -98,6 +101,18 @@ export default Plugin.define({
         // so the new boxes keep waiting for the next run that does.
         const session = sessionID && succeeded && !ours && !disposed ? await ctx.session.get({ sessionID }).catch(() => undefined) : undefined;
         const asks = sessionID !== undefined && session !== undefined && session.parentID === undefined;
+        // A pathlight older than this plugin would redraw the map without what it does not know: no refresh, and the agent is asked once, while
+        // this plugin runs, to have the person update it.
+        // A missing binary is not an old one: then, as before, the end of the turn does nothing.
+        const current = await pathlight(["needs", String(contract)], listening.signal).then(() => "yes", (error: unknown) => /not installed/.test(String(error)) ? "missing" : "old");
+        if (current === "missing") return;
+        if (current === "old") {
+          if (asks && !toldOld && !disposed) {
+            toldOld = true; ownRun.add(sessionID);
+            await ctx.session.synthetic({ sessionID, text: oldBinary, description: "pathlight", delivery: "queue", resume: true } as Parameters<typeof ctx.session.synthetic>[0]).catch(() => { ownRun.delete(sessionID); });
+          }
+          return;
+        }
         const output = await pathlight(["refresh", "--workspace", workspace, "--json", ...asks ? [] : ["--no-ask"]], listening.signal).catch(() => "");
         const request = (() => { try { return (JSON.parse(output) as { request?: unknown }).request; } catch { return undefined; } })();
         // Pathlight drew boxes nobody has named: the conversation's agent is asked once, in a message marked as the plugin's, to have them named.

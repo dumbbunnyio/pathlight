@@ -15,7 +15,8 @@ const hookCommand = async () => {
   expect(stop.indexOf("pathlight record")).toBeLessThan(stop.indexOf("pathlight refresh"));
   expect(manifest.hooks.Notification![0]!.hooks[0]!.async).toBe(true);
   const { UserPromptSubmit: _prompt, Stop: _stop, ...recording } = manifest.hooks;
-  const commands = new Set(Object.values(recording).flat().flatMap(entry => entry.hooks.map(hook => hook.command)));
+  // The one other command among them is the gate on the agent's own pathlight calls (tests/contract.test.ts).
+  const commands = new Set(Object.values(recording).flat().flatMap(entry => entry.hooks.map(hook => hook.command)).filter(command => !command.includes("needs-hook.sh")));
   expect(commands.size).toBe(1);
   return [...commands][0] ?? "";
 };

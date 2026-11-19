@@ -31,6 +31,8 @@ curl -fsSL https://raw.githubusercontent.com/dumbbunnyio/pathlight/main/install.
 
 Then add it to your agent once, for every project.
 
+The command and the plugins are updated separately. When the plugin needs a newer `pathlight` than the one on your PATH, it says so once and stops keeping the map current until you update the command (the same `npm i -g` or install script); `pathlight doctor` reports it too.
+
 Claude Code:
 
 ```sh
