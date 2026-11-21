@@ -91,6 +91,68 @@ test("web --open starts one server and one window per workspace, raises it on a 
   }
 }, 60_000);
 
+// The first run outside tmux (a plain terminal, an editor's terminal): a plugin's hook or the agent's own call has no pane to split, so `open`
+// and `show` open the workspace's browser window instead of failing.
+test("outside tmux, open and show run by a plugin or an agent open the browser window at the view, once", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-launch-"));
+  const workspace = join(directory, "parcel");
+  let serverPid = 0, windowPid = 0;
+  try {
+    await cp(resolve("examples/parcel"), workspace, { recursive: true });
+    await writeFile(join(directory, "fake-chromium"), fakeBrowser(directory));
+    await chmod(join(directory, "fake-chromium"), 0o755);
+    await writeFile(join(directory, "window.ts"), fakeWindow(directory));
+    const env = { ...process.env, XDG_CONFIG_HOME: join(directory, "config"), XDG_CACHE_HOME: join(directory, "cache"), PATHLIGHT_THEME: "pathlight", TMUX_PANE: "", TMUX: "" };
+    const pathlight = async (...args: string[]) => {
+      const child = Bun.spawn([process.execPath, cli, ...args], { cwd: workspace, env, stdout: "pipe", stderr: "pipe" });
+      return { out: await new Response(child.stdout).text(), err: await new Response(child.stderr).text(), code: await child.exited };
+    };
+    expect((await pathlight("config", "set", "browser", join(directory, "fake-chromium"))).code).toBe(0);
+
+    const opened = await pathlight("open", "--workspace", ".", "--project", "parcel");
+    expect(opened.code).toBe(0);
+    const record = JSON.parse(await text(recordPath(workspace))) as { pid: number; url: string };
+    serverPid = record.pid;
+    expect(alive(serverPid)).toBe(true);
+    const windows = async () => (await text(join(directory, "browser-args"))).trim().split("\n").filter(arg => arg.startsWith("--app="));
+    expect(await windows()).toEqual([`--app=${addressOf(record.url, "index")}`]);
+    windowPid = Number(await until("the window", async () => (await text(join(directory, "window.pid"))) || undefined));
+    await until("the first frame", async () => (await text(join(directory, "frames"))).includes("\"view\":\"index\"") || undefined);
+
+    // The agent's own `show VIEW` lands in that same window.
+    expect((await pathlight("show", "checkout", "--workspace", ".", "--project", "parcel")).code).toBe(0);
+    expect(await windows()).toHaveLength(1);
+    await until("the raised frame", async () => {
+      const frames = (await text(join(directory, "frames"))).split("\n").filter(line => line.startsWith("data: ")).map(line => JSON.parse(line.slice(6)));
+      return frames.some(frame => frame.raise === true && frame.frame.view === "checkout") || undefined;
+    });
+  } finally {
+    for (const pid of [windowPid, serverPid]) if (pid && alive(pid)) process.kill(pid, "SIGKILL");
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("doctor says where the agents' open commands draw: a pane in tmux, the browser outside it or when that is the saved choice", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathlight-launch-"));
+  try {
+    await writeFile(join(directory, "fake-chromium"), "#!/bin/sh\n");
+    await chmod(join(directory, "fake-chromium"), 0o755);
+    const base = { ...process.env, XDG_CONFIG_HOME: join(directory, "config"), XDG_CACHE_HOME: join(directory, "cache") };
+    const pathlight = (env: Record<string, string>, ...args: string[]) => {
+      const done = Bun.spawnSync([process.execPath, cli, ...args], { env: { ...base, ...env }, stdout: "pipe", stderr: "pipe" });
+      return done.stdout.toString();
+    };
+    pathlight({}, "config", "set", "browser", join(directory, "fake-chromium"));
+    const where = (env: Record<string, string>) => pathlight(env, "doctor", "--workspace", "examples/parcel").split("\n").find(line => line.includes("opens in")) ?? "";
+    expect(where({ TMUX: "" })).toContain("fake-chromium");
+    expect(where({ TMUX: "/tmp/x,1,0" })).not.toContain("fake-chromium");
+    pathlight({}, "config", "set", "claude", "web");
+    expect(where({ TMUX: "/tmp/x,1,0" })).toContain("fake-chromium");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("a Chromium-family browser gets its own profile and an app window; any other gets the address", () => {
   const url = "http://127.0.0.1:1/?t=x";
   expect(browserArgs({ name: "Brave", command: ["/usr/bin/brave-browser"], app: true }, url, "/p")).toEqual(["--user-data-dir=/p", `--app=${url}`, "--no-first-run", "--no-default-browser-check"]);

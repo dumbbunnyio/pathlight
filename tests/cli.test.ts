@@ -148,15 +148,15 @@ test("init leaves the skills to the installed plugin and removes the copies it o
   await rm(join(claudeHome(), "plugins"), { recursive: true });
 });
 
-test("open picks the overview view itself, and without tmux says so rather than guessing a pane", async () => {
+test("open picks the overview view itself, and asked to split without tmux says so rather than guessing a pane", async () => {
   const { overviewId } = await import("../src/catalog");
   const { Effect } = await import("effect");
   expect(String(await Effect.runPromise(overviewId(workspace)))).toBe("index");
   expect(String(await Effect.runPromise(overviewId(workspace, "parcel")))).toBe("index");
-  const child = Bun.spawn([process.execPath, cli, "open", "--workspace", workspace], { stdout: "pipe", stderr: "pipe", env: { ...process.env, TMUX_PANE: "" } });
+  const child = Bun.spawn([process.execPath, cli, "open", "--workspace", workspace, "--split"], { stdout: "pipe", stderr: "pipe", env: { ...process.env, TMUX_PANE: "" } });
   const [stderr, code] = [await new Response(child.stderr).text(), await child.exited];
   expect(code).toBe(1);
-  expect(stderr).toContain("No tmux pane");
+  expect(stderr).toContain("tmux");
 });
 
 test("init registers the OpenCode plugin with recording on, upgrades a bare entry, and respects record: false", async () => {

@@ -78,12 +78,12 @@ in the loop. It never rewrites a LikeC4 model you wrote: use --out DIR, or --for
 needs is what the plugins ask before anything that writes: it prints nothing and exits 0 when this binary can do what contract N asks, and says to update it otherwise. A binary older than this command fails it too, so the plugins catch every pathlight older than they need.
 setup is the first run: it checks the machine and the workspace, says what it would write, and with --yes draws a first model from the code when there is none. It never rewrites a model you wrote and leaves hooks and recording to init.
 init wires Claude Code hooks, the pathlight skills and the OpenCode plugin into a workspace. init --global registers the OpenCode plugin for every project instead (in OpenCode's own opencode.json); it records only in projects with a mapping.
-show opens or updates an owned tmux pane. view runs in the current terminal; --select opens it with that element selected.
+show opens or updates an owned tmux pane; outside tmux it opens the map in a browser window instead (pathlight web --open). view runs in the current terminal; --select opens it with that element selected.
 see prints what the viewer would show as text, from a private tmux server at --cols by --rows (default 120 by 36), after sending --keys (tmux key names, comma separated). It never touches your panes. --agent puts a pane running cat in that private server as the agent's pane, so t, m and d can be drawn and sent; nothing leaves it. Beside it they open a modal, as they do beside your agent; --zoom puts the viewer in a split beside that pane and zooms it, the full screen where the conversation is hidden, so they open the talk column. For agents and tests.
 web serves the map to a browser on 127.0.0.1 and prints its address, which carries a token for this run only; Ctrl-C stops it. The page is the terminal viewer drawn by the browser: the same header, diagram, inspector and footer, the same words and keys, in the theme the terminal would use. VIEW is the view it opens on, the overview if none. --open opens it in a window of its own instead (the first Chromium-family browser found, in Pathlight's own profile, or the one pathlight config set browser names) and returns: one window per workspace, and its server stops when the window closes; B in the viewer does the same. --rune serves the experimental Rune page instead (WebGPU; built only with sh scripts/build-web.sh).
 pane draws the viewer for a host that shows it in its own window (the Claude Code plugin's pane beside the conversation): frames on standard output, keys over a Unix socket, the talk's requests handed back to the host to send as your prompt. It is bound to the session named (the plugin always names its own), never follows, and ends when its output closes.
 open follows the most recent session and shows VIEW if given, else the view named index, else the first view.
-Typed at a shell prompt in tmux it turns that pane into the viewer; run by an agent it splits a pane beside it.
+Typed at a shell prompt in tmux it turns that pane into the viewer; run by an agent it splits a pane beside it. Outside tmux, typed in a terminal it draws there, and run by an agent or a plugin it opens the map in a browser window.
 --here always uses the current terminal and --split always splits.
 Use --pane explicitly when launching from a background agent service.
 Add --follow to watch the most recently active recorded session, or
@@ -328,9 +328,14 @@ try {
       if (!id && command !== "open") return yield* invalid("Missing view ID. Use pathlight list.");
       const pane = values.pane ?? (yield* Config.String("TMUX_PANE").pipe(Config.withDefault("")));
       if (command === "open" && values.here && values.split) return yield* invalid("Use either --here or --split, not both.");
-      const here = command === "view" || (command === "open" && !values.split && (values.here === true || (yield* atShellPrompt(pane, values.socket))));
-      if (!here && !pane) {
-        return yield* invalid("No tmux pane. Run inside tmux, pass --pane %ID, or use pathlight open --here in a terminal.");
+      // Outside tmux there is no pane to split. A person who typed `open` at a terminal gets the viewer in that terminal; any other caller (a
+      // plugin's hook, the agent's own call, `show`) gets the browser window, which needs no terminal of its own. `--split` asks for tmux by name.
+      const noPane = !pane && !values.split && !values.here;
+      const inPlace = command === "open" && noPane && process.stdin.isTTY === true && process.stdout.isTTY === true;
+      const here = command === "view" || inPlace || (command === "open" && !values.split && (values.here === true || (yield* atShellPrompt(pane, values.socket))));
+      const inBrowser = noPane && !here;
+      if (!here && !pane && !inBrowser) {
+        return yield* invalid("There is no tmux pane to open the viewer beside. Run your agent inside tmux for that; without tmux, pathlight open and /pathlight:open show the map in a browser window.");
       }
       if (here && process.stdout.isTTY) process.stdout.write("\x1b[2m  pathlight · loading the architecture…\x1b[0m\n");
       // `open` follows the agent when the workspace maps files to components; without a mapping there is nothing to follow.
@@ -343,7 +348,10 @@ try {
       const project = values.project ?? (mappedProject && (!id || (yield* listViews(values.workspace)).views.some(entry => entry.id === id && entry.project === mappedProject)) ? mappedProject : undefined);
       const overview = command === "open" && !id ? yield* overviewId(values.workspace, project) : id;
       const view = yield* selectView(values.workspace, overview!, project);
-      if (!here) {
+      if (inBrowser) {
+        const { launchWeb } = yield* io("CLI.launch", () => import("./web/launch"));
+        process.stdout.write(`${yield* launchWeb({ workspace: view.workspace, view: view.id, project: view.project, select: values.select, activity })}\n`);
+      } else if (!here) {
         const result = yield* showView({ view, pane, socket: values.socket, activity, follow: following });
         process.stdout.write(`${JSON.stringify(result)}\n`);
       } else {

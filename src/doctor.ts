@@ -7,6 +7,7 @@ import { run } from "./process";
 import { claudePluginInstalled, hasPathlightPermission, pathlightPermission, projectSkillCopies } from "./init";
 import pkg from "../package.json" with { type: "json" };
 import { contract, updateHint } from "./contract";
+import { savedClaude } from "./theme";
 
 /** One line of the report: `fix` is what to do, shown only when the check failed. `info` is not a problem, just what was found. */
 export interface Finding { readonly name: string; readonly status: "ok" | "fail" | "info"; readonly detail: string; readonly fix?: string }
@@ -30,9 +31,10 @@ export const doctor = Effect.fn("Doctor.run")(function* (workspace: string) {
 
   const tmux = yield* run("tmux", ["-V"]).pipe(Effect.option);
   if (tmux._tag === "Some") add({ name: "tmux", status: "ok", detail: tmux.value });
-  else add({ name: "tmux", status: "fail", detail: "not installed", fix: "Install tmux (for example `brew install tmux` or `apt install tmux`)." });
+  // Not a failure: without tmux the viewer still opens, in the terminal it was typed in or in a browser window.
+  else add({ name: "tmux", status: "info", detail: "not installed, so the map opens in a browser window instead of a pane beside the conversation", fix: "For the pane, install tmux (for example `brew install tmux` or `apt install tmux`) and run your agent inside it." });
   const inside = yield* Config.String("TMUX").pipe(Config.withDefault(""));
-  add(inside ? { name: "inside tmux", status: "ok", detail: "this shell is in a tmux pane" } : { name: "inside tmux", status: "info", detail: "this shell is not in tmux; open the viewer from a tmux pane, or use `pathlight open --here`" });
+  add(inside ? { name: "inside tmux", status: "ok", detail: "this shell is in a tmux pane" } : { name: "inside tmux", status: "info", detail: "this shell is not in tmux; `pathlight open` typed here draws the viewer in this terminal" });
 
   const views = yield* listViews(root).pipe(Effect.option);
   if (views._tag === "Some" && views.value.views.length) add({ name: "model", status: "ok", detail: `${views.value.views.length} views in ${root}` });
@@ -58,6 +60,14 @@ export const doctor = Effect.fn("Doctor.run")(function* (workspace: string) {
     : { name: "browser page", status: "info", detail: "not built in this copy, so pathlight web shows how to build it", fix: "In a checkout, run `bun scripts/build-page.ts`." });
   const browser = yield* io("Doctor.browser", () => import("./web/launch")).pipe(Effect.flatMap(module => module.findBrowser()), Effect.option);
   const opener = browser._tag === "Some" ? browser.value : undefined;
+  // Where the agents' open commands draw from this shell: the saved choice first, else a pane beside the conversation in tmux, else the browser.
+  const choice = yield* savedClaude().pipe(Effect.catch(() => Effect.succeed(undefined)));
+  const window = opener ? `a browser window (${opener.name})` : undefined;
+  add(choice === "web" || (!inside && choice !== "pane")
+    ? window ? { name: "opens in", status: "ok", detail: `${window}${choice === "web" ? ", your saved choice" : ", because this shell is not in tmux"}` }
+      : { name: "opens in", status: "info", detail: `a browser window${choice === "web" ? ", your saved choice" : ", because this shell is not in tmux"}, and no browser was found`, fix: "Name one with `pathlight config set browser COMMAND`, or run your agent inside tmux." }
+    : choice === "pane" ? { name: "opens in", status: "ok", detail: `Claude Code's own pane, your saved choice (experimental); OpenCode opens ${inside ? "a tmux pane beside the conversation" : window ?? "nothing: no browser was found"}` }
+    : { name: "opens in", status: "ok", detail: "a tmux pane beside the conversation" });
   add(opener ? { name: "browser", status: opener.app ? "ok" : "info", detail: opener.app ? `${opener.name} (${opener.command[0]}) opens the map in a window of its own` : `${opener.name} opens the map in a tab`, ...(opener.app ? {} : { fix: "Install a Chromium-family browser, or name one with `pathlight config set browser COMMAND`, for a window of its own." }) }
     : { name: "browser", status: "info", detail: "none found, so pathlight web --open and B cannot open a window", fix: "Name one with `pathlight config set browser COMMAND`, or open the address pathlight web prints." });
   const editor = yield* Config.String("VISUAL").pipe(Config.withDefault(""), Effect.flatMap(visual => visual ? Effect.succeed(visual) : Config.String("EDITOR").pipe(Config.withDefault(""))));

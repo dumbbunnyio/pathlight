@@ -50,7 +50,7 @@ export const setup = Effect.fn("Setup.run")(function* (workspace: string, option
     const check = yield* checkAndRecord(root).pipe(Effect.option);
     if (check._tag === "Some") lines.push(`Checked against the code: ${staleText(staleOf(check.value)) ?? "the picture and the code agree"}.`);
     else lines.push("The model could not be checked: run `pathlight check --workspace .` to see why.");
-    lines.push("", "Open it beside the conversation: /pathlight:open in Claude Code, /pathlight-open in OpenCode, or `pathlight open --workspace .` in a tmux pane.");
+    lines.push("", "Open it beside the conversation: /pathlight:open in Claude Code, /pathlight-open in OpenCode, or `pathlight open --workspace .` in a terminal. Outside tmux the agents open it in a browser window.");
   } else if (!options.yes && !modelOk && !mappingOk) lines.push("", "Run `pathlight setup --yes` to do this.");
   return `${lines.join("\n")}\n`;
 });
