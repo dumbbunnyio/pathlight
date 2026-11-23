@@ -8,7 +8,7 @@ case "$input" in
 esac
 # Only a plain view id is passed on; anything else is dropped rather than put on a command line. A leading `tmux`, `pane` or `web` says where to
 # open it (the Claude plugin's pane answers `pane` itself; here `pane` means tmux), and is never a view. With none, Pathlight's own setting
-# (`pathlight config get claude`) decides: `web` opens the browser window, anything else tmux.
+# (`pathlight config get claude`) decides: `web` opens the browser window, anything else tmux, and outside tmux the browser window too.
 where=$(printf '%s' "$input" | sed -n 's/.*"prompt":"\/pathlight:open *\(tmux\|pane\|web\)\( [^"]*\)\{0,1\}".*/\1/p')
 view=$(printf '%s' "$input" | sed -n 's/.*"prompt":"\/pathlight:open *\(tmux \|pane \|web \)\{0,1\}\([A-Za-z0-9_.-]*\)".*/\2/p')
 case "$view" in tmux|pane|web) view= ;; esac
@@ -27,8 +27,14 @@ else
   else
     # Bind to this conversation (the hook input names it), not "the newest session", which before its first tool call is nothing or a stale one.
     session=$(printf '%s' "$input" | sed -n 's/.*"session_id":"\([A-Za-z0-9_-]*\)".*/\1/p')
-    if output=$(pathlight open ${view:+"$view"} --workspace "${CLAUDE_PROJECT_DIR:-$PWD}" ${session:+--session "$session" --source claude} 2>&1); then
-      reason="Opened the pathlight viewer."
+    # Outside tmux `pathlight open` opens the browser window itself and says so in a line; the word `tmux` in the command asks for the split by
+    # name (--split), so there it says there is no pane instead.
+    split=; [ "$where" = tmux ] && split=--split
+    if output=$(pathlight open ${view:+"$view"} --workspace "${CLAUDE_PROJECT_DIR:-$PWD}" $split ${session:+--session "$session" --source claude} 2>&1); then
+      case "$(printf '%s' "$output" | tail -n 1)" in
+        '{'*|'') reason="Opened the pathlight viewer." ;;
+        *) reason=$(printf '%s' "$output" | tail -n 1 | tr -d '"\\' | cut -c1-300) ;;
+      esac
     else
       reason=$(printf '%s' "$output" | tail -n 1 | tr -d '"\\' | cut -c1-300)
     fi

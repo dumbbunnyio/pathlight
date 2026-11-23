@@ -26,7 +26,7 @@ mkdir -p "$dir"
 mv "$tmp/$name" "$dir/pathlight"; chmod +x "$dir/pathlight"
 echo "Installed $dir/pathlight"
 case ":$PATH:" in *":$dir:"*) ;; *) echo "Add $dir to your PATH:  export PATH=\"$dir:\$PATH\"" ;; esac
-command -v tmux >/dev/null 2>&1 || echo "pathlight also needs tmux."
+command -v tmux >/dev/null 2>&1 || echo "No tmux found: the map will open in a browser window. Install tmux to have it beside the conversation."
 echo "Next, once for every project:"
 echo "  Claude Code: claude plugin marketplace add $repo && claude plugin install pathlight@pathlight"
 echo "  OpenCode:    pathlight init --global"

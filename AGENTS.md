@@ -21,7 +21,7 @@ Read [project intent](docs/project-intent.md) for the product contract,
   `.cache/pre-promotion/` are local historical artifacts, not production sources
   or required build inputs. Do not restore the rejected ScrollBox camera.
 - The PNG/image renderer was removed; native is the only renderer.
-- Linux/tmux is the verified target. Do not claim macOS or broader terminal
+- Linux/tmux is the verified target. Outside tmux nothing fails: `pathlight open` typed in a terminal draws there, and a caller without one (the plugins' open commands, the agent's `show` or `open`) gets the browser window (`launchWeb`); `--split` and `/pathlight:open tmux` ask for the pane by name. Do not claim macOS or broader terminal
   compatibility without checking it. Connectors, cards and the inspector are drawn by OpenTUI; Three only provides the camera projection (no GPU backend is initialised).
 
 The inspector is docked from 120 columns, below the diagram under 120 columns with 40 rows or more, and an overlay otherwise; under 80 columns the diagram is replaced by a node list. The diagram auto-fits on load and resize until the user pans or zooms.

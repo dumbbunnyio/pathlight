@@ -5,7 +5,7 @@ description: Use when the user wants to open, show or draw the architecture diag
 
 # pathlight
 
-pathlight shows a LikeC4 architecture diagram in a tmux pane beside the conversation and lights up the components whose mapped files you read or edit. LikeC4 owns the model; `.pathlight/pathlight.activity.json` maps file globs to element ids.
+pathlight shows a LikeC4 architecture diagram in a tmux pane beside the conversation (outside tmux, in a browser window) and lights up the components whose mapped files you read or edit. LikeC4 owns the model; `.pathlight/pathlight.activity.json` maps file globs to element ids.
 
 ## Truthfulness
 
@@ -25,7 +25,7 @@ No views means no model *now*. It is not a question about git: do not run `git s
 Run `pathlight --help` for every flag. If `pathlight` is not on the PATH, ask the user how it is installed (the repository's `bun link`, or `bun <repo>/src/cli.ts`).
 
 - `pathlight list --workspace .` lists the views (id, title, project) as JSON.
-- `pathlight show VIEW --workspace . --follow` opens the viewer in the user's tmux window and follows this session. Inside tmux it finds the pane itself; from a background service pass the user's actual pane with `--pane %ID` (and `--socket PATH` for a non-default tmux server). Never guess a pane.
+- `pathlight show VIEW --workspace . --follow` opens the viewer in the user's tmux window and follows this session. Inside tmux it finds the pane itself; from a background service pass the user's actual pane with `--pane %ID` (and `--socket PATH` for a non-default tmux server). Never guess a pane. Outside tmux it opens the map in a browser window instead and says so in one line; tell the user that line.
 - `pathlight scan --workspace . --out scan.json` writes the static facts: files, imports (with lines), external packages, what could not be resolved, and `coverage`.
 - `pathlight check --workspace .` compares the model and mapping with a fresh scan. `--json` gives data; `--strict` exits 1 when anything is found.
 - `pathlight refresh --workspace .` is what the end of your turn runs (see **The map keeps itself current**); you do not need to run it yourself.
@@ -187,5 +187,5 @@ When files are added, moved or removed, run `pathlight check --workspace .` and 
 ## Limits
 
 - The scan reads TypeScript, JavaScript, Python, Go and Rust. Code in other languages is drawn in its own boxes ("not read by the scan") with no arrows, because its imports are unknown; say so when you describe the map. It does not follow `tsconfig` `extends`, bundler aliases, Python `sys.path` edits, Go build tags or Rust `cfg` (every module is read, `#[cfg(test)]` code is left out); what it cannot resolve is listed, not guessed.
-- The viewer is for Linux with tmux. Do not claim other terminals or platforms work.
+- The viewer is verified on Linux, beside the conversation in tmux and in a browser window outside it. Do not claim other platforms work.
 - Activity journals hold metadata only (tool, operation, file paths, time). Do not add source, commands or results to them.
