@@ -11,14 +11,14 @@ import { readSession } from "../src/sessions";
 import { run, mappingIn } from "./effects";
 
 // The real OpenCode V2 runtime (isolated config, `--standalone`) against a fake OpenAI-compatible model that follows a script, checked against what the
-// Claude plugin does: recording of reads, failures, edits and shell commands without a `live` request; /pathlight-open bound to the conversation before
+// Claude plugin does: recording of reads, failures, edits and shell commands without a `live` request; /pathlight:open bound to the conversation before
 // any tool has run; /pathlight handing the agent the pane; the agent opening the viewer itself from its shell; ask-about-node typing into the conversation.
 type Call = { name: string; args: Record<string, unknown> };
 type Body = { messages: { role: string; content: unknown }[]; tools?: { function?: { name: string } }[] };
 const chunk = (delta: object, finish: string | null = null) =>
   `data: ${JSON.stringify({ id: "fake", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
 
-test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recording, /pathlight-open, /pathlight, the skill, and ask-about-node", async () => {
+test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recording, /pathlight:open, /pathlight, the skill, and ask-about-node", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pathlight-opencode-live-"));
   const workspace = join(directory, "work");
   const socket = join("/tmp", `c4oc-${process.pid}.sock`);
@@ -96,7 +96,7 @@ test.skipIf(!Bun.which("opencode"))("OpenCode matches the Claude plugin: recordi
     // A conversation that has run no tool yet: the viewer must still open bound to it, not to "the newest session" (which here is nothing).
     await type("just talk to me");
     await until(async () => (await tmux("capture-pane", "-p", "-t", pane)).includes("done") || undefined, "the first reply");
-    await type("/pathlight-open live");
+    await type("/pathlight:open live");
     const viewer = await viewerPane();
     // The header says only `● live`; the session the viewer is bound to is named where the talk is, so `t` shows it and Esc closes it unsent.
     const boundSession = async (pane: string) => {

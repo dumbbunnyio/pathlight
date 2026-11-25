@@ -47,6 +47,18 @@ type Axis = "x" | "y";
  * a group is the box around its children with its frame and a clear cell. The result is in the same units, deterministic and idempotent.
  */
 export function compact(nodes: readonly CompactNode[], options: CompactOptions): CompactNode[] {
+  // A pass pulls cards together, so two starts too far apart to share a column can come within reach; another pass on its own result keeps every
+  // relation of the first, so passes run until nothing moves (two more at most in practice), which makes the fit idempotent.
+  let fitted = fitOnce(nodes, options);
+  for (let pass = 0; pass < 8; pass++) {
+    const next = fitOnce(fitted, options);
+    if (next.every((node, index) => node.x === fitted[index]!.x && node.y === fitted[index]!.y && node.width === fitted[index]!.width && node.height === fitted[index]!.height)) return fitted;
+    fitted = next;
+  }
+  return fitted;
+}
+
+function fitOnce(nodes: readonly CompactNode[], options: CompactOptions): CompactNode[] {
   const unit = { x: 16, y: 16 / options.aspect };
   const byId = new Map(nodes.map(node => [node.id, node]));
   const leaves = nodes.filter(node => !node.children.length);
@@ -69,10 +81,22 @@ export function compact(nodes: readonly CompactNode[], options: CompactOptions):
   const place = (axis: Axis) => {
     const extent = axis === "x" ? "width" : "height";
     const gap = axis === "x" ? gapColumns : gapRows;
-    const start = (node: CompactNode) => node[axis], end = (node: CompactNode) => node[axis] + node[extent];
+    const before = (a: CompactNode, b: CompactNode) => a[axis] + a[extent] <= b[axis];
+    // Two cards that start closer than a quarter of the narrowest card, and stand the same way to every other card (each ends before it, begins
+    // after it, or overlaps it, alike), share one start: LikeC4 centers boxes of different widths in a column (a plain service is wider than the
+    // instances under it, so it starts earlier), and that is not an arrangement to keep. Cards that stand differently keep their own starts, so
+    // the order below never contradicts itself.
+    const near = Math.min(...leaves.map(leaf => leaf[extent])) / 4;
+    const alike = (a: CompactNode, b: CompactNode) => leaves.every(c => c === a || c === b || (before(c, a) === before(c, b) && before(a, c) === before(b, c)));
+    const snapped = new Map<string, number>(), anchors: CompactNode[] = [];
+    for (const leaf of [...leaves].sort((a, b) => a[axis] - b[axis] || (a.id < b.id ? -1 : 1))) {
+      const anchor = anchors.find(other => leaf[axis] - other[axis] < near && alike(other, leaf));
+      if (!anchor) anchors.push(leaf);
+      snapped.set(leaf.id, (anchor ?? leaf)[axis]);
+    }
+    const start = (node: CompactNode) => snapped.get(node.id)!;
     const span = new Map(leaves.map(leaf => [leaf.id, size.get(leaf.id)![axis]]));
     const at = new Map(leaves.map(leaf => [leaf.id, frame * lineage.get(leaf.id)!.length]));
-    const before = (a: CompactNode, b: CompactNode) => end(a) <= start(b);
     for (let round = 0; round < 64; round++) {
       // Longest path: every card as early as its predecessors (and its rank) allow.
       for (let pass = 0, moved = true; moved && pass < leaves.length + 2; pass++) {

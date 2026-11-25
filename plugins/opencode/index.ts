@@ -12,7 +12,7 @@ import { ActivitySubscriptions } from "../../src/activity-subscriptions";
 import { Effect, Fiber, Queue, Stream } from "effect";
 import { io } from "../../src/effects";
 import { contract } from "../../src/contract";
-import { chooseTracerModel, type ModelInfo } from "./tracer-model";
+import { chooseTracerModel, type ModelInfo, offerable } from "./tracer-model";
 import tracerSource from "../claude/agents/pathlight-tracer.md" with { type: "text" };
 import namerSource from "../claude/agents/pathlight-namer.md" with { type: "text" };
 
@@ -29,9 +29,10 @@ export default Plugin.define({
   async setup(ctx) {
     // The viewer is the `pathlight` binary: OpenTUI's native library is per platform, so the plugin never carries the CLI itself and works from the npm package.
     const pathlight = async (args: string[], signal?: AbortSignal) => {
+      // OpenCode runs this in its background service, which keeps the PATH it started with: a pathlight installed later is found only after a restart.
       try { return await Effect.runPromise(run("pathlight", args), { signal }); }
       catch (error) {
-        if (/ENOENT/.test(String(error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : error))) throw new Error("pathlight is not installed or not on the PATH. Install it: npm i -g @dumbbunnyio/pathlight");
+        if (/ENOENT/.test(String(error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : error))) throw new Error("pathlight is not installed where OpenCode can find it. Install it if needed (npm i -g @dumbbunnyio/pathlight), then run opencode service restart.");
         throw error;
       }
     };
@@ -228,7 +229,7 @@ export default Plugin.define({
         options: { namespace: "pathlight", codemode: true },
         execute: async () => ({ content: JSON.stringify({
           tracer: choice, setWith: "options.tracerModel on the pathlight plugin entry in opencode.json, as provider/model, then reload OpenCode",
-          usable: models.filter(model => model.enabled && model.status === "active" && model.tools).map(model => ({ model: `${model.provider}/${model.id}`, outputPerMillionTokens: model.cost[0]?.out ?? null })),
+          usable: offerable(models).map(model => ({ model: `${model.provider}/${model.id}`, outputPerMillionTokens: model.cost[0]?.out ?? null })),
         }, null, 2) }),
       });
       editor.add({

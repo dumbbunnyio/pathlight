@@ -234,7 +234,7 @@ const registerOpenCode = Effect.fn("Init.opencode")(function* (path: string, sho
   if (index < 0) plugins.push({ package: openCodePlugin(), options: { record: true } });
   else plugins[index] = { ...(isRecord(entry) ? entry : { package: entry }), options: { ...options, record: true } };
   yield* writeText(path, `${JSON.stringify({ ...config, plugins }, null, 2)}\n`);
-  return index < 0 ? `OpenCode: plugin registered in ${shown} with recording on (restart OpenCode). Use /pathlight-open, or /pathlight to ask the agent.`
+  return index < 0 ? `OpenCode: plugin registered in ${shown} with recording on (restart OpenCode). Use /pathlight:open, or /pathlight to ask the agent.`
     : `OpenCode: plugin was registered in ${shown}; recording turned on (restart OpenCode).`;
 });
 

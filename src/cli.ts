@@ -319,7 +319,7 @@ try {
       if (values.open) {
         if (values.rune || values.port !== undefined) return yield* invalid("--open chooses its own port and serves the default page; leave out --port and --rune.");
         const { launchWeb } = yield* io("CLI.launch", () => import("./web/launch"));
-        process.stdout.write(`${yield* launchWeb({ workspace: view.workspace, view: view.id, project: view.project, select: values.select, activity })}\n`);
+        process.stdout.write(`${yield* launchWeb({ workspace: view.workspace, view: view.id, title: view.title, project: view.project, select: values.select, activity })}\n`);
         return;
       }
       const { serveWeb } = yield* io("CLI.web", () => import("./web/server"));
@@ -350,7 +350,7 @@ try {
       const view = yield* selectView(values.workspace, overview!, project);
       if (inBrowser) {
         const { launchWeb } = yield* io("CLI.launch", () => import("./web/launch"));
-        process.stdout.write(`${yield* launchWeb({ workspace: view.workspace, view: view.id, project: view.project, select: values.select, activity })}\n`);
+        process.stdout.write(`${yield* launchWeb({ workspace: view.workspace, view: view.id, title: view.title, project: view.project, select: values.select, activity })}\n`);
       } else if (!here) {
         const result = yield* showView({ view, pane, socket: values.socket, activity, follow: following });
         process.stdout.write(`${JSON.stringify(result)}\n`);

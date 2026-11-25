@@ -31,12 +31,18 @@ export interface Choice {
 const referenceOutput = 10;
 const ref = (model: ModelInfo) => `${model.provider}/${model.id}`;
 const usable = (model: ModelInfo) => model.enabled && model.status === "active" && model.tools;
+// OpenCode's own free hosted models (provider `opencode`, priced 0, usable with no key) may keep what they read. A person's own provider stays, priced
+// 0 (a local model) or not priced at all (a plan: an OpenAI subscription lists none).
+const free = (model: ModelInfo) => model.provider === "opencode" && model.cost[0]?.out === 0;
+
+/** The models the person may be offered for the tracer: ones they can use now, never a free hosted one. */
+export const offerable = (models: readonly ModelInfo[]) => models.filter(model => usable(model) && !free(model));
 
 /** Newest first, then by id so equal dates give the same answer every time. */
 const newest = (a: ModelInfo, b: ModelInfo) => b.released - a.released || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 
 export function chooseTracerModel(models: readonly ModelInfo[], option?: string): Choice {
-  const available = models.filter(usable);
+  const available = offerable(models);
   const wanted = option?.trim();
   if (wanted) {
     // The list is empty until the host has resolved its providers; trust the person's choice then.
