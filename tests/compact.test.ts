@@ -33,6 +33,17 @@ const hand: { name: string; nodes: CompactNode[] }[] = [
   { name: "a long title", nodes: [leaf("a", 0, 0, 320, 180, "A component with a rather long descriptive title that wraps"), leaf("b", 2000, 3000, 320, 180, "Short")] },
   { name: "one long title among three short ones", nodes: [leaf("a", 0, 0, 320, 180, "Collaboration server and websocket gateway"), leaf("b", 600, 0, 320, 180, "Web"),
     leaf("c", 1200, 0, 320, 180, "Store"), leaf("d", 1800, 0, 320, 180, "Jobs")] },
+  // Mealie's "Where it runs": a plain service (adminer) is wider than the instances under it, so LikeC4 starts it earlier, and a card of the frame
+  // above starts between them.
+  { name: "a plain service over instances", nodes: [group("prod", ["prod.app"]), group("prod.app", ["prod.app.web", "prod.app.api"], "prod"),
+    leaf("prod.app.web", 90, 132, 329, 180, "mealie", "prod.app"), leaf("prod.app.api", 628, 132, 320, 180, "mealie", "prod.app"),
+    group("dev", ["dev.adminer", "dev.db", "dev.mail"]), leaf("dev.adminer", 84, 473, 342, 180, "adminer", "dev"),
+    leaf("dev.db", 95, 783, 320, 180, "SQL database", "dev"), leaf("dev.mail", 95, 1093, 320, 180, "Mail server", "dev")] },
+  { name: "a wider plain service", nodes: [group("prod", ["prod.app"]), group("prod.app", ["prod.app.web"], "prod"), leaf("prod.app.web", 90, 132, 329, 180, "mealie", "prod.app"),
+    group("dev", ["dev.adminer", "dev.db"]), leaf("dev.adminer", 73, 473, 364, 180, "adminer", "dev"), leaf("dev.db", 95, 783, 320, 180, "SQL database", "dev")] },
+  { name: "cards a few units apart, a third starting between them across", nodes: [leaf("a", 0, 0), leaf("b", 330, 0), leaf("c", 318, 400)] },
+  { name: "cards a few units apart, a third starting between them down", nodes: [leaf("a", 0, 0), leaf("b", 0, 200), leaf("c", 800, 175)] },
+  { name: "a card in a group just out of reach of one outside it", nodes: [leaf("a", 0, 0), group("g", ["g.b"]), leaf("g.b", 100, 400, 320, 180, "b", "g")] },
 ];
 
 const all = async () => [...hand, ...(await scenes("tests/fixtures/viewer")).map(view => ({ name: `fixture ${view.id}`, nodes: view.nodes })),
@@ -90,7 +101,11 @@ test("every leaf card is readable and all cards in a view share one size: the wi
     }
     // Without a kind row a card is one row shorter.
     const bare = new Map(compact(nodes, { aspect, wordRow: false }).map(node => [node.id, node]));
-    for (const card of cards) expect(bare.get(card.id)!.height, `${name}: ${card.id}`).toBe(out.get(card.id)!.height - row);
+    // A card that grew to keep overlapping a later-starting one is as tall as that reach needs, with the row or without it.
+    for (const card of cards) {
+      if (cards.some(other => other !== card && card.y < other.y && other.y < card.y + card.height)) continue;
+      expect(bare.get(card.id)!.height, `${name}: ${card.id}`).toBe(out.get(card.id)!.height - row);
+    }
   }
   // One long title sets the width for three short ones, and its two lines the height of all four.
   const shaped = compact(hand.find(scene => scene.name === "one long title among three short ones")!.nodes, options);
@@ -170,4 +185,14 @@ test("a plain description keeps the names in it as written; markdown loses only 
   expect(describe({ txt: "Service miniflux, image ${MINIFLUX_IMAGE:-miniflux/miniflux:latest}: runs db_migration from compose#db." }))
     .toBe("Service miniflux, image ${MINIFLUX_IMAGE:-miniflux/miniflux:latest}: runs db_migration from compose#db.");
   expect(describe({ md: "## Store\n> **Keeps** the `orders` in _one_ [table](https://x) via save_order." })).toBe("Store Keeps the orders in one table via save_order.");
+});
+
+const columnsIn = (name: string) => {
+  const found = hand.find(entry => entry.name === name)!;
+  return new Set(compact(found.nodes, options).filter(node => node.id.startsWith("dev.")).map(node => node.x)).size;
+};
+
+test("a plain service lines up with the instances under it, also when it is much wider", () => {
+  expect(columnsIn("a plain service over instances")).toBe(1);
+  expect(columnsIn("a wider plain service")).toBe(1);
 });

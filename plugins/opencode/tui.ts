@@ -48,7 +48,7 @@ export default Plugin.define({
         run: (input?: string) => ask(input?.trim() || undefined),
       }, {
         id: "pathlight.open", title: "Open the Pathlight viewer", group: "Pathlight", palette: true,
-        slash: { name: "pathlight-open", aliases: ["pathlight:open"], arguments: true },
+        slash: { name: "pathlight:open", arguments: true },
         run: (input?: string) => open(input?.trim() || undefined),
       }],
     }));

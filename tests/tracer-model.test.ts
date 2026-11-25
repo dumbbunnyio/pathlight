@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { chooseTracerModel, type ModelInfo } from "../plugins/opencode/tracer-model";
+import { chooseTracerModel, type ModelInfo, offerable } from "../plugins/opencode/tracer-model";
 
 // What OpenCode 2.1.4 reported with an Anthropic key set (trimmed): enabled models are the ones the person can use.
 const reported = async () => JSON.parse(await readFile("tests/fixtures/opencode-models.json", "utf8")) as ModelInfo[];
@@ -24,6 +24,14 @@ test("without a Sonnet-class model nothing is pinned, and models in Sonnet's pri
   const empty = chooseTracerModel([cheap]);
   expect(empty).toMatchObject({ source: "none", candidates: [] });
   expect(empty.note).toContain("Set tracerModel");
+});
+
+test("free OpenCode-hosted models are never offered; a plan model (no price) and a local one (price 0) are", () => {
+  const plan: ModelInfo = { provider: "openai", id: "gpt-6.2-astra", name: "Astra", released: 1, status: "active", enabled: true, tools: true, cost: [] };
+  const zen: ModelInfo = { ...plan, provider: "opencode", id: "deepseek-v4.1-flash-free", cost: [{ in: 0, out: 0 }] };
+  const paid: ModelInfo = { ...plan, provider: "other", id: "mid-1", cost: [{ in: 1, out: 8 }] };
+  const local: ModelInfo = { ...plan, provider: "ollama", id: "qwen-coder", cost: [{ in: 0, out: 0 }] };
+  expect(offerable([plan, zen, paid, local]).map(model => model.id)).toEqual(["gpt-6.2-astra", "mid-1", "qwen-coder"]);
 });
 
 test("tracerModel wins when the person can use it; otherwise it is reported and the rule decides", async () => {

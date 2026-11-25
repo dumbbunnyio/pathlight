@@ -72,7 +72,9 @@ test("web --open starts one server and one window per workspace, raises it on a 
 
     // A second open of the same workspace raises that window at the new view; no second window, no second server.
     const second = await pathlight("web", "checkout", "--open", "--workspace", ".");
-    expect(second).toMatchObject({ code: 0, out: "The map is already open in its window; it now shows checkout.\n" });
+    expect(second.code).toBe(0);
+    // The reply names the view as the window titles it, not by its id.
+    expect(second.out).toContain("Checkout detail");
     expect((await text(join(directory, "browser-args"))).trim().split("\n").filter(arg => arg.startsWith("--app="))).toHaveLength(1);
     expect(JSON.parse(await text(recordPath(workspace))).pid).toBe(serverPid);
     await until("the raised frame", async () => {

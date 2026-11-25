@@ -180,11 +180,11 @@ export const addressOf = (url: string, view?: string, select?: string) => {
  * `pathlight web --open`, `B` and `/pathlight:open web`: the workspace's one window, at `view`. An open window is brought forward and shown the
  * view; otherwise one is opened. Answers one line for the person.
  */
-export const launchWeb = Effect.fn("Web.launch")(function* (options: { workspace: string; view: string; project: string; select?: string | undefined; browser?: string; activity?: ActivityBinding | undefined }) {
+export const launchWeb = Effect.fn("Web.launch")(function* (options: { workspace: string; view: string; title?: string | undefined; project: string; select?: string | undefined; browser?: string; activity?: ActivityBinding | undefined }) {
   const browser = yield* findBrowser(options.browser);
   if (!browser) return yield* Effect.fail(failure("Web.browser", "No browser found. Set one with pathlight config set browser COMMAND, or run pathlight web and open its address."));
   const served = yield* ensureServer(options);
-  if (served.windows > 0) return `The map is already open in its window; it now shows ${options.view}.`;
+  if (served.windows > 0) return `The map is already open in its window; it now shows ${options.title ?? options.view}.`;
   yield* openWindow(addressOf(served.url, options.view, options.select), browser);
   return `Opened the map in ${browser.name}${browser.app ? "" : " (a tab: a Chromium-family browser gives it a window of its own)"}.`;
 });

@@ -22,7 +22,7 @@ Or add it to one project's `opencode.json` yourself (`record: true` turns on obs
 { "plugins": [{ "package": "@dumbbunnyio/pathlight-opencode", "options": { "record": true } }] }
 ```
 
-Then `/pathlight-open` opens the viewer (beside the conversation inside tmux, in a browser window anywhere else) and `/pathlight` asks the agent to set it up (`pathlight setup`).
+Then `/pathlight:open` opens the viewer (beside the conversation inside tmux, in a browser window anywhere else) and `/pathlight` asks the agent to set it up (`pathlight setup`).
 
 ## The tracer model
 
